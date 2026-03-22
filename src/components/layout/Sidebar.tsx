@@ -6,6 +6,8 @@ import { CalendarEditor } from '../calendar/CalendarEditor';
 import { RouteList } from '../routes/RouteList';
 import { StopList } from '../stops/StopList';
 import { FaresEditor } from '../fares/FaresEditor';
+import { CostSummary } from '../costs/CostSummary';
+import { CoveragePanel } from '../coverage/CoveragePanel';
 import { TimetableSidebar } from '../timetable/TimetableSidebar';
 
 export function Sidebar() {
@@ -21,6 +23,8 @@ export function Sidebar() {
         {section === 'routes' && <RouteList />}
         {section === 'stops' && <StopList />}
         {section === 'fares' && <FaresEditor />}
+        {section === 'costs' && <CostSummary />}
+        {section === 'coverage' && <CoveragePanel />}
         {section === 'timetable' && <TimetableSidebar />}
       </div>
     </div>

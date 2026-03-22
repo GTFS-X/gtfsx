@@ -11,6 +11,7 @@ import { createFeedInfoSlice, type FeedInfoSlice } from './feedInfoSlice';
 import { createValidationSlice, type ValidationSlice } from './validationSlice';
 import { createUISlice, type UISlice } from './uiSlice';
 import { createProjectSlice, type ProjectSlice } from './projectSlice';
+import { createCoverageSlice, type CoverageSlice } from './coverageSlice';
 
 export type AppStore = AgencySlice &
   CalendarSlice &
@@ -22,7 +23,8 @@ export type AppStore = AgencySlice &
   FeedInfoSlice &
   ValidationSlice &
   UISlice &
-  ProjectSlice;
+  ProjectSlice &
+  CoverageSlice;
 
 export const useStore = create<AppStore>()(
   immer((...a) => ({
@@ -37,5 +39,6 @@ export const useStore = create<AppStore>()(
     ...(createValidationSlice as any)(...a),
     ...(createUISlice as any)(...a),
     ...(createProjectSlice as any)(...a),
+    ...(createCoverageSlice as any)(...a),
   }))
 );

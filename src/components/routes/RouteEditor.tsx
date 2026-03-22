@@ -1,8 +1,76 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { FormField } from '../ui/FormField';
 import { ROUTE_COLORS, getContrastTextColor } from '../../utils/colors';
 import { ROUTE_TYPES } from '../../utils/constants';
+import { calculateRouteStats } from '../../services/costEstimation';
+import { snapToRoad } from '../../services/snapToRoad';
+import type { Route } from '../../types/gtfs';
+
+function formatCurrency(n: number): string {
+  return '$' + Math.round(n).toLocaleString();
+}
+
+function CostEstimationSection({ route }: { route: Route }) {
+  const { routes, trips, stopTimes, calendars, calendarDates, updateRoute } = useStore();
+
+  const stats = useMemo(
+    () => calculateRouteStats(route.route_id, { routes, trips, stopTimes, calendars, calendarDates }),
+    [route.route_id, route._cost_per_revenue_hour, routes, trips, stopTimes, calendars, calendarDates]
+  );
+
+  return (
+    <div className="px-3 pb-3">
+      <div className="mb-3">
+        <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
+          Cost per Revenue Hour ($)
+        </label>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={route._cost_per_revenue_hour ?? ''}
+          onChange={(e) => {
+            const val = e.target.value;
+            updateRoute(route.route_id, {
+              _cost_per_revenue_hour: val === '' ? undefined : Number(val),
+            });
+          }}
+          placeholder="e.g., 125"
+          className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm text-dark-brown bg-cream focus:outline-none focus:border-coral focus:bg-white transition-colors"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5 text-sm">
+        <div className="flex justify-between">
+          <span className="text-warm-gray">Daily Revenue Hours</span>
+          <span className="font-semibold text-dark-brown">{stats.revenueHoursDaily.toFixed(1)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-warm-gray">Trips / Day</span>
+          <span className="font-semibold text-dark-brown">{stats.tripsPerDay}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-warm-gray">Peak Vehicles</span>
+          <span className="font-semibold text-dark-brown">{stats.peakVehicles}</span>
+        </div>
+        {route._cost_per_revenue_hour != null && route._cost_per_revenue_hour > 0 && (
+          <>
+            <div className="h-px bg-sand my-1" />
+            <div className="flex justify-between">
+              <span className="text-warm-gray">Daily Cost</span>
+              <span className="font-semibold text-coral">{formatCurrency(stats.dailyCost)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-warm-gray">Annual Cost</span>
+              <span className="font-semibold text-coral">{formatCurrency(stats.annualCost)}</span>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function RouteEditor() {
   const {
@@ -11,7 +79,12 @@ export function RouteEditor() {
     setMapMode, setDrawingRouteId,
     setEditingRouteId, setEditingShapeId,
     setSidebarSection,
+    snapToRoad: snapToRoadEnabled, setSnapToRoad,
+    updateShapePoints, recalcShapeDistances,
   } = useStore();
+
+  const [costOpen, setCostOpen] = useState(false);
+  const [snappingShapeId, setSnappingShapeId] = useState<string | null>(null);
 
   const route = routes.find((r) => r.route_id === selectedRouteId);
 
@@ -52,6 +125,29 @@ export function RouteEditor() {
     removeRoute(route.route_id);
     selectRoute(null);
     setEditingRouteId(null);
+  };
+
+  const handleResnapShape = (shapeId: string) => {
+    const shape = shapes.find((s) => s.shape_id === shapeId);
+    if (!shape || shape.points.length < 2) return;
+
+    const coords: [number, number][] = shape.points.map((p) => [p.shape_pt_lon, p.shape_pt_lat]);
+    setSnappingShapeId(shapeId);
+
+    snapToRoad(coords)
+      .then((snapped) => {
+        const newPoints = snapped.map((c, i) => ({
+          shape_pt_lat: c[1],
+          shape_pt_lon: c[0],
+          shape_pt_sequence: i,
+          shape_dist_traveled: 0,
+        }));
+        updateShapePoints(shapeId, newPoints);
+        recalcShapeDistances(shapeId);
+      })
+      .finally(() => {
+        setSnappingShapeId(null);
+      });
   };
 
   const editingShapeId = useStore((s) => s.editingShapeId);
@@ -159,6 +255,18 @@ export function RouteEditor() {
         </div>
       </div>
 
+      {/* Cost Estimation */}
+      <div className="border-2 border-sand rounded-lg mb-4">
+        <button
+          onClick={() => setCostOpen(!costOpen)}
+          className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-heading font-bold text-dark-brown hover:bg-cream rounded-lg transition-colors"
+        >
+          <span>Cost Estimation</span>
+          <span className="text-warm-gray text-xs">{costOpen ? '−' : '+'}</span>
+        </button>
+        {costOpen && <CostEstimationSection route={route} />}
+      </div>
+
       {/* Shapes section */}
       <div className="border-t border-sand pt-4 mb-4">
         <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-2">
@@ -206,12 +314,22 @@ export function RouteEditor() {
                     </button>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => handleEditShape(shape!.shape_id)}
-                    className="px-2 py-1 bg-sand text-brown rounded text-[11px] font-semibold hover:bg-coral-light hover:text-coral transition-colors"
-                  >
-                    Edit
-                  </button>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => handleResnapShape(shape!.shape_id)}
+                      disabled={snappingShapeId === shape!.shape_id}
+                      className="px-2 py-1 bg-sand text-brown rounded text-[11px] font-semibold hover:bg-coral-light hover:text-coral transition-colors disabled:opacity-50"
+                      title="Re-snap to road"
+                    >
+                      {snappingShapeId === shape!.shape_id ? 'Snapping...' : 'Snap'}
+                    </button>
+                    <button
+                      onClick={() => handleEditShape(shape!.shape_id)}
+                      className="px-2 py-1 bg-sand text-brown rounded text-[11px] font-semibold hover:bg-coral-light hover:text-coral transition-colors"
+                    >
+                      Edit
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -222,12 +340,24 @@ export function RouteEditor() {
           </p>
         )}
 
-        <button
-          onClick={handleDrawShape}
-          className="w-full px-4 py-2.5 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors"
-        >
-          {routeShapes.length > 0 ? 'Draw Another Shape' : 'Draw Route Shape'}
-        </button>
+        <div className="flex items-center gap-3 mb-2">
+          <button
+            onClick={handleDrawShape}
+            className="flex-1 px-4 py-2.5 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors"
+          >
+            {routeShapes.length > 0 ? 'Draw Another Shape' : 'Draw Route Shape'}
+          </button>
+        </div>
+
+        <label className="flex items-center gap-2 mb-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={snapToRoadEnabled}
+            onChange={(e) => setSnapToRoad(e.target.checked)}
+            className="w-3.5 h-3.5 rounded border-sand text-coral focus:ring-coral"
+          />
+          <span className="text-xs text-dark-brown font-medium">Snap to road</span>
+        </label>
 
         {mapMode === 'edit_shape' && (
           <div className="mt-2 p-2.5 bg-gold-light rounded-lg">

@@ -10,7 +10,9 @@ import { MapToolbar } from './MapToolbar';
 import { DrawingIndicator } from './DrawingIndicator';
 import { StopPopup } from './StopPopup';
 import { RoutePopup } from './RoutePopup';
+import { CoverageLayer } from './CoverageLayer';
 import { generateId } from '../../services/idGenerator';
+import { snapToRoad } from '../../services/snapToRoad';
 import nearestPointOnLine from '@turf/nearest-point-on-line';
 import distance from '@turf/distance';
 import { lineString, point } from '@turf/helpers';
@@ -30,12 +32,15 @@ export function MapView() {
     drawingRouteId, setDrawingRouteId,
     editingShapeId, setEditingShapeId,
     setSidebarSection,
+    snapToRoad: snapToRoadEnabled,
   } = store;
 
   // Popup state
   const [popupStopId, setPopupStopId] = useState<string | null>(null);
   const [popupRouteId, setPopupRouteId] = useState<string | null>(null);
   const [popupLngLat, setPopupLngLat] = useState<{ lng: number; lat: number } | null>(null);
+
+  const [isSnapping, setIsSnapping] = useState(false);
 
   // Track the last stop placed (for ESC undo)
   const lastPlacedStopRef = useRef<string | null>(null);
@@ -196,32 +201,53 @@ export function MapView() {
     if (!feature) return;
 
     if (feature.geometry.type === 'LineString' && drawingRouteId) {
-      const coords = feature.geometry.coordinates;
-      const shapeId = generateId('shape');
-      const points = coords.map((c: number[], i: number) => ({
-        shape_pt_lat: c[1],
-        shape_pt_lon: c[0],
-        shape_pt_sequence: i,
-        shape_dist_traveled: 0,
-      }));
-      addShape({ shape_id: shapeId, points });
-      recalcShapeDistances(shapeId);
+      const rawCoords: [number, number][] = feature.geometry.coordinates;
 
-      const tripId = generateId('trip');
-      useStore.getState().addTrip({
-        trip_id: tripId,
-        route_id: drawingRouteId,
-        service_id: useStore.getState().calendars[0]?.service_id || 'service-1',
-        direction_id: 0,
-        shape_id: shapeId,
-        trip_headsign: '',
-      });
+      const createShapeFromCoords = (coords: [number, number][]) => {
+        const shapeId = generateId('shape');
+        const points = coords.map((c, i) => ({
+          shape_pt_lat: c[1],
+          shape_pt_lon: c[0],
+          shape_pt_sequence: i,
+          shape_dist_traveled: 0,
+        }));
+        addShape({ shape_id: shapeId, points });
+        recalcShapeDistances(shapeId);
+
+        const tripId = generateId('trip');
+        useStore.getState().addTrip({
+          trip_id: tripId,
+          route_id: drawingRouteId,
+          service_id: useStore.getState().calendars[0]?.service_id || 'service-1',
+          direction_id: 0,
+          shape_id: shapeId,
+          trip_headsign: '',
+        });
+      };
 
       if (drawRef.current) drawRef.current.deleteAll();
-      setMapMode('select');
-      setDrawingRouteId(null);
+
+      if (snapToRoadEnabled) {
+        setIsSnapping(true);
+        snapToRoad(rawCoords)
+          .then((snappedCoords) => {
+            createShapeFromCoords(snappedCoords);
+          })
+          .catch(() => {
+            createShapeFromCoords(rawCoords);
+          })
+          .finally(() => {
+            setIsSnapping(false);
+            setMapMode('select');
+            setDrawingRouteId(null);
+          });
+      } else {
+        createShapeFromCoords(rawCoords);
+        setMapMode('select');
+        setDrawingRouteId(null);
+      }
     }
-  }, [drawingRouteId, addShape, recalcShapeDistances, setMapMode, setDrawingRouteId]);
+  }, [drawingRouteId, addShape, recalcShapeDistances, setMapMode, setDrawingRouteId, snapToRoadEnabled]);
 
   const handleDrawUpdate = useCallback((e: any) => {
     // During edit_shape mode, updates happen in real-time as vertices are dragged
@@ -352,6 +378,7 @@ export function MapView() {
           onCreate={handleDrawCreate}
           onUpdate={handleDrawUpdate}
         />
+        <CoverageLayer />
         <RouteLayer />
         <StopLayer />
 
@@ -372,6 +399,13 @@ export function MapView() {
       </Map>
       <MapToolbar />
       <DrawingIndicator />
+
+      {/* Snapping to road indicator */}
+      {isSnapping && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-4 py-2 bg-dark-brown text-white rounded-lg shadow-lg font-heading font-bold text-sm animate-pulse">
+          Snapping to road...
+        </div>
+      )}
 
       {/* Discard shape changes confirmation */}
       {showDiscardConfirm && (

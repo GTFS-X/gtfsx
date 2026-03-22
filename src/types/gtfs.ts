@@ -39,6 +39,8 @@ export interface Route {
   route_url?: string;
   route_color: string;      // 6-char hex without #
   route_text_color: string;  // 6-char hex without #
+  _cost_per_revenue_hour?: number;  // UI-only
+  _vehicles_required?: number;      // UI-only
 }
 
 export interface ShapePoint {

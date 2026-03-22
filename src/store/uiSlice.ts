@@ -13,6 +13,7 @@ export interface UISlice {
   drawingRouteId: string | null;
   editingRouteId: string | null;
   editingShapeId: string | null;
+  snapToRoad: boolean;
   setSidebarSection: (section: SidebarSection) => void;
   setBottomPanelOpen: (open: boolean) => void;
   toggleBottomPanel: () => void;
@@ -25,6 +26,7 @@ export interface UISlice {
   setDrawingRouteId: (id: string | null) => void;
   setEditingRouteId: (id: string | null) => void;
   setEditingShapeId: (id: string | null) => void;
+  setSnapToRoad: (v: boolean) => void;
 }
 
 export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], [], UISlice> = (set) => ({
@@ -39,6 +41,7 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   drawingRouteId: null,
   editingRouteId: null,
   editingShapeId: null,
+  snapToRoad: true,
   setSidebarSection: (section) => set((state) => { state.sidebarSection = section; }),
   setBottomPanelOpen: (open) => set((state) => { state.bottomPanelOpen = open; }),
   toggleBottomPanel: () => set((state) => { state.bottomPanelOpen = !state.bottomPanelOpen; }),
@@ -51,4 +54,5 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   setDrawingRouteId: (id) => set((state) => { state.drawingRouteId = id; }),
   setEditingRouteId: (id) => set((state) => { state.editingRouteId = id; }),
   setEditingShapeId: (id) => set((state) => { state.editingShapeId = id; }),
+  setSnapToRoad: (v) => set((state) => { state.snapToRoad = v; }),
 });
