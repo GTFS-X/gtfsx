@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { calculateRouteStats, calculateSystemStats } from '../../services/costEstimation';
 import type { RouteStats } from '../../services/costEstimation';
@@ -13,22 +13,24 @@ export function CostSummary() {
     selectRoute, setEditingRouteId, setSidebarSection,
   } = useStore();
 
+  const [defaultCostPerHour, setDefaultCostPerHour] = useState(50);
+
   const stateSlice = useMemo(
     () => ({ routes, trips, stopTimes, calendars, calendarDates }),
     [routes, trips, stopTimes, calendars, calendarDates]
   );
 
   const systemStats = useMemo(
-    () => calculateSystemStats(stateSlice),
-    [stateSlice]
+    () => calculateSystemStats(stateSlice, defaultCostPerHour),
+    [stateSlice, defaultCostPerHour]
   );
 
   const routeRows = useMemo(() => {
     return routes.map((route) => ({
       route,
-      stats: calculateRouteStats(route.route_id, stateSlice),
+      stats: calculateRouteStats(route.route_id, stateSlice, defaultCostPerHour),
     }));
-  }, [routes, stateSlice]);
+  }, [routes, stateSlice, defaultCostPerHour]);
 
   const handleOpenRoute = (routeId: string) => {
     selectRoute(routeId);
@@ -39,6 +41,28 @@ export function CostSummary() {
   return (
     <div>
       <h3 className="font-heading font-bold text-base text-dark-brown mb-3">Cost Summary</h3>
+
+      {/* Default cost per hour input */}
+      <div className="bg-cream rounded-lg p-3 mb-4">
+        <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
+          Default Cost per Revenue Hour
+        </label>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-dark-brown font-semibold">$</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={defaultCostPerHour}
+            onChange={(e) => setDefaultCostPerHour(Math.max(0, Number(e.target.value)))}
+            className="w-24 px-2 py-1.5 border-2 border-sand rounded-lg text-sm bg-white focus:outline-none focus:border-coral tabular-nums"
+          />
+          <span className="text-xs text-warm-gray">/ hour</span>
+        </div>
+        <p className="text-[11px] text-warm-gray mt-1.5">
+          Applied to routes without a route-specific cost. Override per route in the route editor.
+        </p>
+      </div>
 
       {/* System totals */}
       <div className="bg-cream rounded-lg p-3 mb-4">
@@ -65,15 +89,16 @@ export function CostSummary() {
       ) : (
         <div className="flex flex-col gap-2">
           {routeRows.map(({ route, stats }) => {
-            const hasCost = route._cost_per_revenue_hour != null && route._cost_per_revenue_hour > 0;
+            const hasCustomCost = route._cost_per_revenue_hour != null && route._cost_per_revenue_hour > 0;
             return (
               <RouteCard
                 key={route.route_id}
                 name={route.route_short_name || route.route_long_name || 'Untitled Route'}
                 color={route.route_color}
                 stats={stats}
-                hasCost={hasCost}
-                onSetCost={() => handleOpenRoute(route.route_id)}
+                costPerHour={hasCustomCost ? route._cost_per_revenue_hour! : defaultCostPerHour}
+                isDefault={!hasCustomCost}
+                onEditRoute={() => handleOpenRoute(route.route_id)}
               />
             );
           })}
@@ -96,14 +121,16 @@ function RouteCard({
   name,
   color,
   stats,
-  hasCost,
-  onSetCost,
+  costPerHour,
+  isDefault,
+  onEditRoute,
 }: {
   name: string;
   color: string;
   stats: RouteStats;
-  hasCost: boolean;
-  onSetCost: () => void;
+  costPerHour: number;
+  isDefault: boolean;
+  onEditRoute: () => void;
 }) {
   return (
     <div className="border-2 border-sand rounded-lg p-3">
@@ -113,6 +140,12 @@ function RouteCard({
           style={{ backgroundColor: `#${color}` }}
         />
         <span className="font-semibold text-sm text-dark-brown truncate flex-1">{name}</span>
+        <button
+          onClick={onEditRoute}
+          className="text-[11px] font-semibold text-warm-gray hover:text-coral transition-colors"
+        >
+          Edit
+        </button>
       </div>
 
       <div className="flex flex-col gap-1 text-xs">
@@ -128,30 +161,22 @@ function RouteCard({
           <span className="text-warm-gray">Peak Vehicles</span>
           <span className="text-dark-brown font-medium">{stats.peakVehicles}</span>
         </div>
-
-        {hasCost ? (
-          <>
-            <div className="h-px bg-sand my-0.5" />
-            <div className="flex justify-between">
-              <span className="text-warm-gray">Daily Cost</span>
-              <span className="text-coral font-semibold">{formatCurrency(stats.dailyCost)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-warm-gray">Annual Cost</span>
-              <span className="text-coral font-semibold">{formatCurrency(stats.annualCost)}</span>
-            </div>
-          </>
-        ) : (
-          <div className="mt-1 flex items-center gap-1.5">
-            <span className="text-amber-600 text-[11px] font-semibold">No cost data</span>
-            <button
-              onClick={onSetCost}
-              className="text-[11px] font-semibold text-coral hover:underline"
-            >
-              Set cost per hour
-            </button>
-          </div>
-        )}
+        <div className="flex justify-between">
+          <span className="text-warm-gray">Cost/Hour</span>
+          <span className="text-dark-brown font-medium">
+            ${costPerHour}
+            {isDefault && <span className="text-warm-gray ml-1">(default)</span>}
+          </span>
+        </div>
+        <div className="h-px bg-sand my-0.5" />
+        <div className="flex justify-between">
+          <span className="text-warm-gray">Daily Cost</span>
+          <span className="text-coral font-semibold">{formatCurrency(stats.dailyCost)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-warm-gray">Annual Cost</span>
+          <span className="text-coral font-semibold">{formatCurrency(stats.annualCost)}</span>
+        </div>
       </div>
     </div>
   );

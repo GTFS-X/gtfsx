@@ -137,7 +137,8 @@ function computePeakVehicles(spans: { start: number; end: number }[]): number {
 
 export function calculateRouteStats(
   routeId: string,
-  state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'>
+  state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'>,
+  defaultCostPerHour = 0,
 ): RouteStats {
   const route = state.routes.find((r) => r.route_id === routeId);
   const routeTrips = state.trips.filter((t) => t.route_id === routeId);
@@ -156,7 +157,7 @@ export function calculateRouteStats(
   const revenueHoursDaily = totalRevSeconds / 3600;
   const tripsPerDay = routeTrips.length;
   const peakVehicles = computePeakVehicles(spans);
-  const costPerHour = route?._cost_per_revenue_hour ?? 0;
+  const costPerHour = route?._cost_per_revenue_hour ?? defaultCostPerHour;
   const dailyCost = revenueHoursDaily * costPerHour;
 
   const serviceIds = [...new Set(routeTrips.map((t) => t.service_id))];
@@ -173,7 +174,8 @@ export function calculateRouteStats(
 }
 
 export function calculateSystemStats(
-  state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'>
+  state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'>,
+  defaultCostPerHour = 0,
 ): SystemStats {
   let totalRevenueHoursDaily = 0;
   let totalTripsPerDay = 0;
@@ -182,7 +184,7 @@ export function calculateSystemStats(
   let totalAnnualCost = 0;
 
   for (const route of state.routes) {
-    const stats = calculateRouteStats(route.route_id, state);
+    const stats = calculateRouteStats(route.route_id, state, defaultCostPerHour);
     totalRevenueHoursDaily += stats.revenueHoursDaily;
     totalTripsPerDay += stats.tripsPerDay;
     totalPeakVehicles += stats.peakVehicles;
