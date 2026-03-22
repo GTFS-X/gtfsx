@@ -1,0 +1,82 @@
+@import "https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap";
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #FFF8F0;
+  --color-sand: #F5E6D3;
+  --color-warm-gray: #8B7E74;
+  --color-brown: #5C4A3A;
+  --color-dark-brown: #3D2E22;
+  --color-coral: #E8734A;
+  --color-coral-light: #FDECE5;
+  --color-teal: #2A9D8F;
+  --color-teal-light: #E0F5F2;
+  --color-gold: #E9C46A;
+  --color-gold-light: #FFF6E0;
+  --color-purple: #7B68EE;
+  --color-purple-light: #EDEAFD;
+  --color-pink: #E891A8;
+
+  --font-heading: 'Nunito', sans-serif;
+  --font-body: 'Inter', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-body);
+  background: var(--color-cream);
+  color: var(--color-dark-brown);
+}
+
+.mapboxgl-map {
+  font-family: var(--font-body) !important;
+}
+
+.mapboxgl-ctrl-group {
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-sand);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-warm-gray);
+}
+
+/* Mapbox popup overrides for warm theme */
+.mapboxgl-popup-content {
+  border-radius: 12px !important;
+  padding: 12px 14px !important;
+  box-shadow: 0 4px 16px rgba(61, 46, 34, 0.12) !important;
+  font-family: var(--font-body) !important;
+  color: var(--color-dark-brown) !important;
+}
+
+.mapboxgl-popup-close-button {
+  font-size: 18px;
+  color: var(--color-warm-gray);
+  padding: 4px 8px;
+}
+
+.mapboxgl-popup-close-button:hover {
+  color: var(--color-coral);
+  background: transparent;
+}
+
+.mapboxgl-popup-tip {
+  border-top-color: white !important;
+}
