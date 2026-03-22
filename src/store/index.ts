@@ -42,3 +42,8 @@ export const useStore = create<AppStore>()(
     ...(createCoverageSlice as any)(...a),
   }))
 );
+
+// Expose store for testing/debugging
+if (typeof window !== 'undefined') {
+  (window as any).__gtfsStore = useStore;
+}

@@ -91,6 +91,17 @@ export function CalendarEditor() {
   } = useStore();
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
 
+  const selected = selectedServiceId ? calendars.find((c) => c.service_id === selectedServiceId) : null;
+  const selectedDates = selectedServiceId ? calendarDates.filter((cd) => cd.service_id === selectedServiceId) : [];
+
+  const serviceYear = selected ? parseInt(selected.start_date.slice(0, 4)) : new Date().getFullYear();
+
+  const holidaysForYear = useMemo(() => getUSHolidaysForYear(serviceYear), [serviceYear]);
+
+  const existingDateSet = useMemo(() => {
+    return new Set(selectedDates.map((cd) => cd.date));
+  }, [selectedDates]);
+
   const handleAdd = () => {
     const id = generateId('service');
     addCalendar({
@@ -115,17 +126,6 @@ export function CalendarEditor() {
       />
     );
   }
-
-  const selected = selectedServiceId ? calendars.find((c) => c.service_id === selectedServiceId) : null;
-  const selectedDates = selectedServiceId ? calendarDates.filter((cd) => cd.service_id === selectedServiceId) : [];
-
-  const serviceYear = selected ? parseInt(selected.start_date.slice(0, 4)) : new Date().getFullYear();
-
-  const holidaysForYear = useMemo(() => getUSHolidaysForYear(serviceYear), [serviceYear]);
-
-  const existingDateSet = useMemo(() => {
-    return new Set(selectedDates.map((cd) => cd.date));
-  }, [selectedDates]);
 
   const handleAddUSHolidays = () => {
     if (!selected) return;
