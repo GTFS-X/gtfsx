@@ -10,9 +10,12 @@ interface NavItem {
   textClass: string;
 }
 
-const BUILDER_ITEMS: NavItem[] = [
+const COMMON_ITEMS: NavItem[] = [
   { key: 'agency', label: 'Agency', icon: 'A', bgClass: 'bg-teal-light', textClass: 'text-teal' },
   { key: 'calendar', label: 'Calendars', icon: 'C', bgClass: 'bg-gold-light', textClass: 'text-amber-700' },
+];
+
+const FIXED_ROUTE_ITEMS: NavItem[] = [
   { key: 'routes', label: 'Routes', icon: 'R', bgClass: 'bg-coral-light', textClass: 'text-coral' },
   { key: 'stops', label: 'Stops', icon: 'S', bgClass: 'bg-coral-light', textClass: 'text-coral' },
   { key: 'fares', label: 'Fares', icon: '$', bgClass: 'bg-gold-light', textClass: 'text-amber-700' },
@@ -28,14 +31,19 @@ const ANALYSIS_ITEMS: NavItem[] = [
   { key: 'coverage', label: 'Coverage', icon: '\u25CE', bgClass: 'bg-teal-light', textClass: 'text-teal' },
 ];
 
+const FIXED_ROUTE_KEYS = new Set(FIXED_ROUTE_ITEMS.map((i) => i.key));
+const FLEX_KEYS = new Set(FLEX_ITEMS.map((i) => i.key));
+const ANALYSIS_KEYS = new Set(ANALYSIS_ITEMS.map((i) => i.key));
+
 export function SidebarNav() {
   const { sidebarSection, setSidebarSection } = useStore();
+  const [fixedRouteOpen, setFixedRouteOpen] = useState(true);
   const [flexOpen, setFlexOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
 
-  // Auto-open accordion if its section is active
-  const isFlexActive = sidebarSection === 'flex';
-  const isAnalysisActive = sidebarSection === 'costs' || sidebarSection === 'coverage';
+  const isFixedRouteActive = FIXED_ROUTE_KEYS.has(sidebarSection);
+  const isFlexActive = FLEX_KEYS.has(sidebarSection);
+  const isAnalysisActive = ANALYSIS_KEYS.has(sidebarSection);
 
   const renderItem = ({ key, label, icon, bgClass, textClass }: NavItem) => (
     <button
@@ -54,49 +62,40 @@ export function SidebarNav() {
     </button>
   );
 
+  const renderAccordion = (
+    label: string,
+    items: NavItem[],
+    isOpen: boolean,
+    setOpen: (v: boolean) => void,
+    isActive: boolean,
+  ) => (
+    <div className="mt-1">
+      <button
+        onClick={() => setOpen(!(isOpen || isActive))}
+        className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-cream transition-colors"
+      >
+        <span className="text-[10px] font-bold text-warm-gray uppercase tracking-wider">
+          {label}
+        </span>
+        <span className="text-[10px] text-warm-gray">
+          {isOpen || isActive ? '−' : '+'}
+        </span>
+      </button>
+      {(isOpen || isActive) && (
+        <div className="flex flex-col gap-0.5 mt-0.5">
+          {items.map(renderItem)}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="flex flex-col p-3 gap-0.5">
-      {BUILDER_ITEMS.map(renderItem)}
+      {COMMON_ITEMS.map(renderItem)}
 
-      {/* GTFS-Flex accordion */}
-      <div className="mt-1">
-        <button
-          onClick={() => setFlexOpen(!flexOpen && !isFlexActive)}
-          className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-cream transition-colors"
-        >
-          <span className="text-[10px] font-bold text-warm-gray uppercase tracking-wider">
-            GTFS-Flex
-          </span>
-          <span className="text-[10px] text-warm-gray">
-            {flexOpen || isFlexActive ? '−' : '+'}
-          </span>
-        </button>
-        {(flexOpen || isFlexActive) && (
-          <div className="flex flex-col gap-0.5 mt-0.5">
-            {FLEX_ITEMS.map(renderItem)}
-          </div>
-        )}
-      </div>
-
-      {/* Analysis accordion */}
-      <div className="mt-1">
-        <button
-          onClick={() => setAnalysisOpen(!analysisOpen && !isAnalysisActive)}
-          className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-cream transition-colors"
-        >
-          <span className="text-[10px] font-bold text-warm-gray uppercase tracking-wider">
-            Analysis
-          </span>
-          <span className="text-[10px] text-warm-gray">
-            {analysisOpen || isAnalysisActive ? '−' : '+'}
-          </span>
-        </button>
-        {(analysisOpen || isAnalysisActive) && (
-          <div className="flex flex-col gap-0.5 mt-0.5">
-            {ANALYSIS_ITEMS.map(renderItem)}
-          </div>
-        )}
-      </div>
+      {renderAccordion('Fixed Route Service', FIXED_ROUTE_ITEMS, fixedRouteOpen, setFixedRouteOpen, isFixedRouteActive)}
+      {renderAccordion('GTFS-Flex', FLEX_ITEMS, flexOpen, setFlexOpen, isFlexActive)}
+      {renderAccordion('Analysis', ANALYSIS_ITEMS, analysisOpen, setAnalysisOpen, isAnalysisActive)}
     </div>
   );
 }
