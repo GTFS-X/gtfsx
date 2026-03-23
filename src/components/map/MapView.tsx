@@ -94,8 +94,16 @@ export function MapView() {
         setPopupRouteId(null);
       }
 
-      // Delete/Backspace in edit_shape mode — let mapbox-gl-draw handle vertex deletion
-      // (it does this natively in direct_select mode)
+      // Delete/Backspace in edit_shape mode — explicitly call trash()
+      if ((e.key === 'Delete' || e.key === 'Backspace') && useStore.getState().mapMode === 'edit_shape') {
+        // Only handle if not in an input/textarea
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        e.preventDefault();
+        if (drawRef.current) {
+          drawRef.current.trash();
+        }
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -411,6 +419,18 @@ export function MapView() {
       </Map>
       <MapToolbar />
       <DrawingIndicator />
+
+      {/* Delete vertex button — visible during shape editing */}
+      {mapMode === 'edit_shape' && (
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-10 flex gap-2">
+          <button
+            onClick={() => { if (drawRef.current) drawRef.current.trash(); }}
+            className="px-4 py-2 bg-white text-red-600 rounded-full text-xs font-heading font-bold shadow-md hover:bg-red-50 transition-colors border border-red-200"
+          >
+            Delete Selected Vertex
+          </button>
+        </div>
+      )}
 
       {/* Snapping indicator */}
       {isSnapping && (
