@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../../store';
 import { FormField } from '../ui/FormField';
-import { EmptyState } from '../ui/EmptyState';
 import { Badge } from '../ui/Badge';
 import { generateId } from '../../services/idGenerator';
 import type { FareAttribute } from '../../types/gtfs';
@@ -70,28 +69,23 @@ export function FaresEditor() {
     }
   };
 
-  if (fareAttributes.length === 0) {
-    return (
-      <div>
+  return (
+    <div>
+      <h3 className="font-heading font-bold text-base text-dark-brown mb-3">Fares</h3>
+
+      {fareAttributes.length === 0 && (
         <div className="mb-4 p-3 rounded-lg bg-gold-light border-2 border-amber-300">
           <p className="text-amber-700 text-sm font-semibold">
             Fare information is strongly recommended for trip planning apps
           </p>
         </div>
-        <EmptyState
-          icon="💰"
-          title="No fares defined"
-          description="Add fare information so riders know how much trips cost."
-          actionLabel="Add Fare"
-          onAction={handleAddFare}
-        />
-      </div>
-    );
-  }
+      )}
 
-  return (
-    <div>
-      <h3 className="font-heading font-bold text-base text-dark-brown mb-3">Fares</h3>
+      {/* ---- FIXED ROUTE FARES ---- */}
+      <div className="mb-4">
+        <div className="text-[10px] font-bold text-warm-gray uppercase tracking-wider mb-2">
+          Fixed Route Fares
+        </div>
 
       {/* Fare list */}
       <div className="space-y-1.5 mb-3">
@@ -309,6 +303,29 @@ export function FaresEditor() {
           </button>
         </div>
       )}
+
+      </div> {/* end Fixed Route Fares */}
+
+      {/* ---- DEMAND RESPONSIVE FARES ---- */}
+      <div className="border-t border-sand pt-4">
+        <div className="text-[10px] font-bold text-warm-gray uppercase tracking-wider mb-2">
+          Demand Responsive Fares
+        </div>
+        <div className="p-3 bg-cream rounded-lg">
+          <p className="text-xs text-warm-gray mb-2">
+            Fares for demand-responsive services (dial-a-ride, microtransit, deviated fixed route).
+          </p>
+          <p className="text-xs text-warm-gray mb-3">
+            These fares apply to GTFS-Flex zones and can differ from fixed-route fares.
+            Common patterns include flat-rate zone fares, distance-based fares, or free
+            connector services.
+          </p>
+          <div className="text-[11px] text-warm-gray italic">
+            Define GTFS-Flex zones first, then associate fares here. Zone-based fare
+            rules will be exported as part of your GTFS feed.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
