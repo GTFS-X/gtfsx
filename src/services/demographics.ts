@@ -8,21 +8,21 @@ export interface BlockGroupData {
 }
 
 /**
- * Fetch Census tract centroids for a state from the Census Bureau's
- * population centroid file. Returns a map from state+county+tract FIPS to { lat, lon }.
+ * Fetch Census tract centroids for a state. Bundled in public/census/
+ * to avoid CORS issues with www2.census.gov.
  */
 async function fetchTractCentroids(
   stateFips: string,
 ): Promise<Map<string, { lat: number; lon: number }>> {
-  const url = `https://www2.census.gov/geo/docs/reference/cenpop2020/tract/CenPop2020_Mean_TR${stateFips}.txt`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch tract centroids: ${res.status}`);
+  // Fetch from our own origin (bundled Census tract centroid files)
+  const res = await fetch(`${import.meta.env.BASE_URL}census/TR${stateFips}.txt`);
+  if (!res.ok) throw new Error(`Tract centroids not available for state ${stateFips}`);
 
   const text = await res.text();
   const lines = text.trim().split('\n');
   const centroids = new Map<string, { lat: number; lon: number }>();
 
-  // Skip header
+  // Skip header (file has BOM + header row)
   for (let i = 1; i < lines.length; i++) {
     const parts = lines[i].split(',');
     if (parts.length < 6) continue;
