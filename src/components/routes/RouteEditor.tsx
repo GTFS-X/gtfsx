@@ -47,6 +47,10 @@ function CostEstimationSection({ route }: { route: Route }) {
           <span className="font-semibold text-dark-brown">{stats.revenueHoursDaily.toFixed(1)}</span>
         </div>
         <div className="flex justify-between">
+          <span className="text-warm-gray">Total Hours (w/ deadhead)</span>
+          <span className="font-semibold text-dark-brown">{stats.totalHoursDaily.toFixed(1)}</span>
+        </div>
+        <div className="flex justify-between">
           <span className="text-warm-gray">Trips / Day</span>
           <span className="font-semibold text-dark-brown">{stats.tripsPerDay}</span>
         </div>

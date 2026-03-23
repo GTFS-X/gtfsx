@@ -14,6 +14,7 @@ export function CostSummary() {
   } = useStore();
 
   const [defaultCostPerHour, setDefaultCostPerHour] = useState(50);
+  const [deadheadFactor, setDeadheadFactor] = useState(1.2);
 
   const stateSlice = useMemo(
     () => ({ routes, trips, stopTimes, calendars, calendarDates }),
@@ -21,16 +22,16 @@ export function CostSummary() {
   );
 
   const systemStats = useMemo(
-    () => calculateSystemStats(stateSlice, defaultCostPerHour),
-    [stateSlice, defaultCostPerHour]
+    () => calculateSystemStats(stateSlice, defaultCostPerHour, deadheadFactor),
+    [stateSlice, defaultCostPerHour, deadheadFactor]
   );
 
   const routeRows = useMemo(() => {
     return routes.map((route) => ({
       route,
-      stats: calculateRouteStats(route.route_id, stateSlice, defaultCostPerHour),
+      stats: calculateRouteStats(route.route_id, stateSlice, defaultCostPerHour, deadheadFactor),
     }));
-  }, [routes, stateSlice, defaultCostPerHour]);
+  }, [routes, stateSlice, defaultCostPerHour, deadheadFactor]);
 
   const handleOpenRoute = (routeId: string) => {
     selectRoute(routeId);
@@ -42,25 +43,47 @@ export function CostSummary() {
     <div>
       <h3 className="font-heading font-bold text-base text-dark-brown mb-3">Cost Summary</h3>
 
-      {/* Default cost per hour input */}
+      {/* Assumptions */}
       <div className="bg-cream rounded-lg p-3 mb-4">
-        <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
-          Default Cost per Revenue Hour
-        </label>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-dark-brown font-semibold">$</span>
-          <input
-            type="number"
-            min={0}
-            step={1}
-            value={defaultCostPerHour}
-            onChange={(e) => setDefaultCostPerHour(Math.max(0, Number(e.target.value)))}
-            className="w-24 px-2 py-1.5 border-2 border-sand rounded-lg text-sm bg-white focus:outline-none focus:border-coral tabular-nums"
-          />
-          <span className="text-xs text-warm-gray">/ hour</span>
+        <div className="text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-2">
+          Assumptions
         </div>
-        <p className="text-[11px] text-warm-gray mt-1.5">
-          Applied to routes without a route-specific cost. Override per route in the route editor.
+        <div className="mb-3">
+          <label className="block text-[11px] font-semibold text-warm-gray mb-1">
+            Cost per Revenue Hour
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-dark-brown font-semibold">$</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={defaultCostPerHour}
+              onChange={(e) => setDefaultCostPerHour(Math.max(0, Number(e.target.value)))}
+              className="w-20 px-2 py-1.5 border-2 border-sand rounded-lg text-sm bg-white focus:outline-none focus:border-coral tabular-nums"
+            />
+            <span className="text-xs text-warm-gray">/ hour</span>
+          </div>
+        </div>
+        <div className="mb-2">
+          <label className="block text-[11px] font-semibold text-warm-gray mb-1">
+            Deadhead Factor
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={3}
+              step={0.05}
+              value={deadheadFactor}
+              onChange={(e) => setDeadheadFactor(Math.max(1, Math.min(3, Number(e.target.value))))}
+              className="w-20 px-2 py-1.5 border-2 border-sand rounded-lg text-sm bg-white focus:outline-none focus:border-coral tabular-nums"
+            />
+            <span className="text-xs text-warm-gray">× revenue hours</span>
+          </div>
+        </div>
+        <p className="text-[10px] text-warm-gray">
+          Deadhead accounts for non-revenue time (deadheading, layovers, pull-out/pull-in). Total operating hours = revenue hours × {deadheadFactor}.
         </p>
       </div>
 
@@ -71,6 +94,7 @@ export function CostSummary() {
         </div>
         <div className="flex flex-col gap-1.5 text-sm">
           <StatRow label="Daily Revenue Hours" value={systemStats.totalRevenueHoursDaily.toFixed(1)} />
+          <StatRow label="Daily Total Hours" value={systemStats.totalHoursDaily.toFixed(1)} sub={`× ${deadheadFactor}`} />
           <StatRow label="Total Trips / Day" value={String(systemStats.totalTripsPerDay)} />
           <StatRow label="Peak Vehicles" value={String(systemStats.totalPeakVehicles)} />
           <div className="h-px bg-sand my-1" />
@@ -108,11 +132,14 @@ export function CostSummary() {
   );
 }
 
-function StatRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function StatRow({ label, value, highlight, sub }: { label: string; value: string; highlight?: boolean; sub?: string }) {
   return (
     <div className="flex justify-between">
       <span className="text-warm-gray">{label}</span>
-      <span className={`font-semibold ${highlight ? 'text-coral' : 'text-dark-brown'}`}>{value}</span>
+      <span className={`font-semibold ${highlight ? 'text-coral' : 'text-dark-brown'}`}>
+        {value}
+        {sub && <span className="text-warm-gray font-normal text-[11px] ml-1">{sub}</span>}
+      </span>
     </div>
   );
 }
@@ -152,6 +179,10 @@ function RouteCard({
         <div className="flex justify-between">
           <span className="text-warm-gray">Rev Hours</span>
           <span className="text-dark-brown font-medium">{stats.revenueHoursDaily.toFixed(1)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-warm-gray">Total Hours</span>
+          <span className="text-dark-brown font-medium">{stats.totalHoursDaily.toFixed(1)}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-warm-gray">Trips</span>

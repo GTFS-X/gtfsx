@@ -3,6 +3,7 @@ import { gtfsTimeToSeconds } from '../utils/time';
 
 export interface RouteStats {
   revenueHoursDaily: number;
+  totalHoursDaily: number; // revenue hours * deadhead factor
   tripsPerDay: number;
   peakVehicles: number;
   dailyCost: number;
@@ -11,6 +12,7 @@ export interface RouteStats {
 
 export interface SystemStats {
   totalRevenueHoursDaily: number;
+  totalHoursDaily: number;
   totalTripsPerDay: number;
   totalPeakVehicles: number;
   totalDailyCost: number;
@@ -139,6 +141,7 @@ export function calculateRouteStats(
   routeId: string,
   state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'>,
   defaultCostPerHour = 0,
+  deadheadFactor = 1.2,
 ): RouteStats {
   const route = state.routes.find((r) => r.route_id === routeId);
   const routeTrips = state.trips.filter((t) => t.route_id === routeId);
@@ -155,10 +158,11 @@ export function calculateRouteStats(
   }
 
   const revenueHoursDaily = totalRevSeconds / 3600;
+  const totalHoursDaily = revenueHoursDaily * deadheadFactor;
   const tripsPerDay = routeTrips.length;
   const peakVehicles = computePeakVehicles(spans);
   const costPerHour = route?._cost_per_revenue_hour ?? defaultCostPerHour;
-  const dailyCost = revenueHoursDaily * costPerHour;
+  const dailyCost = totalHoursDaily * costPerHour;
 
   const serviceIds = [...new Set(routeTrips.map((t) => t.service_id))];
   const serviceDays = countServiceDaysPerYear(serviceIds, state);
@@ -166,6 +170,7 @@ export function calculateRouteStats(
 
   return {
     revenueHoursDaily,
+    totalHoursDaily,
     tripsPerDay,
     peakVehicles,
     dailyCost,
@@ -176,16 +181,19 @@ export function calculateRouteStats(
 export function calculateSystemStats(
   state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'>,
   defaultCostPerHour = 0,
+  deadheadFactor = 1.2,
 ): SystemStats {
   let totalRevenueHoursDaily = 0;
+  let totalHoursDaily = 0;
   let totalTripsPerDay = 0;
   let totalPeakVehicles = 0;
   let totalDailyCost = 0;
   let totalAnnualCost = 0;
 
   for (const route of state.routes) {
-    const stats = calculateRouteStats(route.route_id, state, defaultCostPerHour);
+    const stats = calculateRouteStats(route.route_id, state, defaultCostPerHour, deadheadFactor);
     totalRevenueHoursDaily += stats.revenueHoursDaily;
+    totalHoursDaily += stats.totalHoursDaily;
     totalTripsPerDay += stats.tripsPerDay;
     totalPeakVehicles += stats.peakVehicles;
     totalDailyCost += stats.dailyCost;
@@ -194,6 +202,7 @@ export function calculateSystemStats(
 
   return {
     totalRevenueHoursDaily,
+    totalHoursDaily,
     totalTripsPerDay,
     totalPeakVehicles,
     totalDailyCost,
