@@ -45,7 +45,7 @@ export function simplifyShapePoints(
  * Pre-defined simplification levels with approximate descriptions.
  */
 export const SIMPLIFY_LEVELS = [
-  { label: 'Light', tolerance: 0.00005, description: '~5m precision' },
-  { label: 'Medium', tolerance: 0.0002, description: '~20m precision' },
-  { label: 'Heavy', tolerance: 0.0005, description: '~50m precision' },
+  { label: 'Light', tolerance: 0.00003, description: '~3m precision' },
+  { label: 'Medium', tolerance: 0.00007, description: '~8m precision' },
+  { label: 'Heavy', tolerance: 0.0002, description: '~20m precision' },
 ] as const;

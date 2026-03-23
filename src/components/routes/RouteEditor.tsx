@@ -93,6 +93,7 @@ export function RouteEditor() {
   const [drawDirection, setDrawDirection] = useState<0 | 1>(0);
   const [confirmDeleteShapeId, setConfirmDeleteShapeId] = useState<string | null>(null);
   const [simplifyShapeId, setSimplifyShapeId] = useState<string | null>(null);
+  const [warnEditShapeId, setWarnEditShapeId] = useState<string | null>(null);
 
   const route = routes.find((r) => r.route_id === selectedRouteId);
 
@@ -121,6 +122,17 @@ export function RouteEditor() {
   };
 
   const handleEditShape = (shapeId: string) => {
+    const shape = shapes.find((s) => s.shape_id === shapeId);
+    if (shape && shape.points.length > 100) {
+      setWarnEditShapeId(shapeId);
+      return;
+    }
+    setEditingShapeId(shapeId);
+    setMapMode('edit_shape');
+  };
+
+  const handleEditAnywayShape = (shapeId: string) => {
+    setWarnEditShapeId(null);
     setEditingShapeId(shapeId);
     setMapMode('edit_shape');
   };
@@ -331,6 +343,13 @@ export function RouteEditor() {
                         Cancel
                       </button>
                       <button
+                        onClick={() => setSimplifyShapeId(simplifyShapeId === shape!.shape_id ? null : shape!.shape_id)}
+                        className={`px-2 py-1.5 rounded text-[11px] font-semibold transition-colors
+                          ${simplifyShapeId === shape!.shape_id ? 'bg-coral-light text-coral' : 'bg-sand text-brown hover:bg-coral-light hover:text-coral'}`}
+                      >
+                        Simplify
+                      </button>
+                      <button
                         onClick={handleSaveShapeEdit}
                         className="flex-1 px-2 py-1.5 bg-teal text-white rounded text-[11px] font-semibold hover:bg-teal/80 transition-colors"
                       >
@@ -344,13 +363,6 @@ export function RouteEditor() {
                         className="flex-1 px-2 py-1.5 bg-sand text-brown rounded text-[11px] font-semibold hover:bg-coral-light hover:text-coral transition-colors"
                       >
                         Edit
-                      </button>
-                      <button
-                        onClick={() => setSimplifyShapeId(simplifyShapeId === shape!.shape_id ? null : shape!.shape_id)}
-                        className={`px-2 py-1.5 rounded text-[11px] font-semibold transition-colors
-                          ${simplifyShapeId === shape!.shape_id ? 'bg-coral-light text-coral' : 'bg-sand text-brown hover:bg-coral-light hover:text-coral'}`}
-                      >
-                        Simplify
                       </button>
                       <button
                         onClick={() => handleResnapShape(shape!.shape_id)}
@@ -370,7 +382,33 @@ export function RouteEditor() {
                   )}
                 </div>
 
-                {/* Simplify picker */}
+                {/* Vertex count warning when clicking Edit on dense shapes */}
+                {warnEditShapeId === shape!.shape_id && (
+                  <div className="mx-3 mb-2 p-2.5 bg-gold-light border border-gold rounded-lg">
+                    <p className="text-[11px] text-brown mb-2">
+                      This shape has <strong>{shape!.points.length} vertices</strong>. Editing may be slow.
+                    </p>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => handleEditAnywayShape(shape!.shape_id)}
+                        className="flex-1 px-2 py-1.5 bg-sand text-brown rounded text-[11px] font-semibold hover:bg-coral-light hover:text-coral transition-colors"
+                      >
+                        Edit Anyway
+                      </button>
+                      <button
+                        onClick={() => {
+                          setWarnEditShapeId(null);
+                          setSimplifyShapeId(shape!.shape_id);
+                        }}
+                        className="flex-1 px-2 py-1.5 bg-coral text-white rounded text-[11px] font-semibold hover:bg-[#d4603a] transition-colors"
+                      >
+                        Simplify First
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Simplify picker (shown during editing or from warning) */}
                 {simplifyShapeId === shape!.shape_id && (
                   <div className="mx-3 mb-2 p-2 bg-cream border border-sand rounded-lg">
                     <p className="text-[11px] text-dark-brown font-semibold mb-2">
@@ -386,6 +424,15 @@ export function RouteEditor() {
                               updateShapePoints(shape!.shape_id, preview);
                               recalcShapeDistances(shape!.shape_id);
                               setSimplifyShapeId(null);
+                              // If we were in edit mode, reload the simplified shape into draw
+                              if (mapMode === 'edit_shape' && editingShapeId === shape!.shape_id) {
+                                // Re-enter edit mode to reload the simplified points
+                                setEditingShapeId(null);
+                                setTimeout(() => {
+                                  setEditingShapeId(shape!.shape_id);
+                                  setMapMode('edit_shape');
+                                }, 50);
+                              }
                             }}
                             className="flex items-center justify-between px-2 py-1.5 bg-sand rounded text-[11px] hover:bg-coral-light hover:text-coral transition-colors"
                           >
@@ -397,6 +444,12 @@ export function RouteEditor() {
                         );
                       })}
                     </div>
+                    <button
+                      onClick={() => setSimplifyShapeId(null)}
+                      className="mt-1 w-full text-[10px] text-warm-gray hover:text-dark-brown transition-colors"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 )}
 
