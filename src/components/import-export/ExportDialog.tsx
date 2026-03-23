@@ -45,10 +45,24 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
         {hasErrors && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
             <p className="font-semibold text-sm text-red-700 mb-1">Fix errors before exporting</p>
-            {errors.slice(0, 3).map((e) => (
+            {errors.slice(0, 5).map((e) => (
               <p key={e.id} className="text-xs text-red-600">• {e.message}</p>
             ))}
-            {errors.length > 3 && <p className="text-xs text-red-400">...and {errors.length - 3} more</p>}
+            {errors.length > 5 && <p className="text-xs text-red-400">...and {errors.length - 5} more</p>}
+          </div>
+        )}
+
+        {warnings.length > 0 && (
+          <div className="bg-gold-light border border-gold rounded-lg p-3 mb-4">
+            <p className="font-semibold text-sm text-amber-800 mb-1">
+              {warnings.length} warning{warnings.length !== 1 ? 's' : ''} — export will proceed
+            </p>
+            {warnings.slice(0, 8).map((w) => (
+              <p key={w.id} className="text-xs text-amber-700">• {w.message}</p>
+            ))}
+            {warnings.length > 8 && (
+              <p className="text-xs text-amber-600 mt-1">...and {warnings.length - 8} more</p>
+            )}
           </div>
         )}
 
