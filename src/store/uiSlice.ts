@@ -15,7 +15,9 @@ export interface UISlice {
   editingShapeId: string | null;
   snapToRoad: boolean;
   hiddenRouteIds: string[];
+  hiddenShapeIds: string[];
   toggleRouteVisibility: (routeId: string) => void;
+  toggleShapeVisibility: (shapeId: string) => void;
   setSidebarSection: (section: SidebarSection) => void;
   setBottomPanelOpen: (open: boolean) => void;
   toggleBottomPanel: () => void;
@@ -45,10 +47,16 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   editingShapeId: null,
   snapToRoad: true,
   hiddenRouteIds: [],
+  hiddenShapeIds: [],
   toggleRouteVisibility: (routeId) => set((state) => {
     const idx = state.hiddenRouteIds.indexOf(routeId);
     if (idx === -1) state.hiddenRouteIds.push(routeId);
     else state.hiddenRouteIds.splice(idx, 1);
+  }),
+  toggleShapeVisibility: (shapeId) => set((state) => {
+    const idx = state.hiddenShapeIds.indexOf(shapeId);
+    if (idx === -1) state.hiddenShapeIds.push(shapeId);
+    else state.hiddenShapeIds.splice(idx, 1);
   }),
   setSidebarSection: (section) => set((state) => { state.sidebarSection = section; }),
   setBottomPanelOpen: (open) => set((state) => { state.bottomPanelOpen = open; }),

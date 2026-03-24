@@ -75,21 +75,19 @@ export function RouteList() {
                   className={`flex items-center gap-2 px-2.5 py-2 rounded-lg transition-colors cursor-pointer group
                     ${selectedRouteId === route.route_id ? 'bg-sand' : 'hover:bg-cream'}`}
                 >
-                  {/* Visibility toggle */}
+                  {/* Color swatch — click to toggle route visibility */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleRouteVisibility(route.route_id);
                     }}
-                    className={`w-5 h-5 rounded flex items-center justify-center text-[11px] shrink-0 transition-colors
-                      ${isHidden ? 'text-sand hover:text-warm-gray' : 'text-warm-gray hover:text-dark-brown'}`}
+                    className={`w-3.5 h-3.5 rounded shrink-0 transition-all border-2
+                      ${isHidden
+                        ? 'opacity-30 border-warm-gray'
+                        : 'opacity-100 border-transparent hover:scale-125'
+                      }`}
+                    style={{ backgroundColor: isHidden ? 'transparent' : `#${route.route_color}`, borderColor: isHidden ? `#${route.route_color}` : 'transparent' }}
                     title={isHidden ? 'Show on map' : 'Hide from map'}
-                  >
-                    {isHidden ? '◻' : '◼'}
-                  </button>
-                  <div
-                    className={`w-3.5 h-3.5 rounded shrink-0 transition-opacity ${isHidden ? 'opacity-30' : ''}`}
-                    style={{ backgroundColor: `#${route.route_color}` }}
                   />
                   <div className={`flex flex-col min-w-0 flex-1 transition-opacity ${isHidden ? 'opacity-40' : ''}`}>
                     <span className="font-semibold text-sm text-dark-brown truncate">

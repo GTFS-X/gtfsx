@@ -87,6 +87,7 @@ export function RouteEditor() {
     removeShape,
     updateShapePoints, recalcShapeDistances,
     routeStops,
+    hiddenShapeIds, toggleShapeVisibility,
   } = useStore();
 
   const [costOpen, setCostOpen] = useState(false);
@@ -347,17 +348,26 @@ export function RouteEditor() {
 
         {routeShapes.length > 0 ? (
           <div className="flex flex-col gap-1.5 mb-3">
-            {routeShapes.map(({ shape, trips: shapeTrips, trip }) => (
+            {routeShapes.map(({ shape, trips: shapeTrips, trip }) => {
+              const isShapeHidden = hiddenShapeIds.includes(shape!.shape_id);
+              return (
               <div
                 key={shape!.shape_id}
                 className="bg-cream rounded-lg text-sm"
               >
                 <div className="flex items-center gap-2 px-3 py-2">
-                  <div
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: `#${route.route_color}` }}
+                  {/* Shape visibility toggle — click the circle */}
+                  <button
+                    onClick={() => toggleShapeVisibility(shape!.shape_id)}
+                    className={`w-2.5 h-2.5 rounded-full shrink-0 transition-all border
+                      ${isShapeHidden ? 'opacity-30' : 'opacity-100 hover:scale-150'}`}
+                    style={{
+                      backgroundColor: isShapeHidden ? 'transparent' : `#${route.route_color}`,
+                      borderColor: `#${route.route_color}`,
+                    }}
+                    title={isShapeHidden ? 'Show shape on map' : 'Hide shape from map'}
                   />
-                  <div className="flex-1 min-w-0">
+                  <div className={`flex-1 min-w-0 transition-opacity ${isShapeHidden ? 'opacity-40' : ''}`}>
                     <span className="text-dark-brown font-medium text-xs">
                       {trip?.trip_headsign || (trip?.direction_id === 0 ? 'Outbound' : 'Inbound')}
                     </span>
@@ -511,7 +521,8 @@ export function RouteEditor() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="text-xs text-warm-gray mb-3">

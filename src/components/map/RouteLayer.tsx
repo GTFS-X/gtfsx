@@ -11,17 +11,20 @@ export function RouteLayer() {
   const editingShapeId = useStore((s) => s.editingShapeId);
   const mapMode = useStore((s) => s.mapMode);
   const hiddenRouteIds = useStore((s) => s.hiddenRouteIds);
+  const hiddenShapeIds = useStore((s) => s.hiddenShapeIds);
 
   const geojson = useMemo(() => {
-    const hiddenSet = new Set(hiddenRouteIds);
+    const hiddenRouteSet = new Set(hiddenRouteIds);
+    const hiddenShapeSet = new Set(hiddenShapeIds);
     const features = shapes
     // Hide the shape being edited in draw (to avoid double-rendering)
     .filter((shape) => !(mapMode === 'edit_shape' && shape.shape_id === editingShapeId))
     .map((shape) => {
       const trip = trips.find((t) => t.shape_id === shape.shape_id);
       const route = trip ? routes.find((r) => r.route_id === trip.route_id) : null;
-      // Skip hidden routes
-      if (route && hiddenSet.has(route.route_id)) return null;
+      // Skip hidden routes or individually hidden shapes
+      if (route && hiddenRouteSet.has(route.route_id)) return null;
+      if (hiddenShapeSet.has(shape.shape_id)) return null;
       const isSelected = route?.route_id === selectedRouteId;
 
       return {
@@ -42,7 +45,7 @@ export function RouteLayer() {
     }).filter((f): f is NonNullable<typeof f> => f !== null);
 
     return { type: 'FeatureCollection' as const, features };
-  }, [shapes, routes, trips, selectedRouteId, editingShapeId, mapMode, hiddenRouteIds]);
+  }, [shapes, routes, trips, selectedRouteId, editingShapeId, mapMode, hiddenRouteIds, hiddenShapeIds]);
 
   const isEditing = mapMode === 'edit_shape';
 
