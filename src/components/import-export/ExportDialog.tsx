@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useStore } from '../../store';
 import { exportGtfsZip, downloadBlob } from '../../services/gtfsExport';
 import { runValidation } from '../../services/validation';
@@ -16,6 +16,58 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
   const errors = messages.filter((m) => m.severity === 'error');
   const warnings = messages.filter((m) => m.severity === 'warning');
   const hasErrors = errors.length > 0;
+
+  // Check if errors are orphan references that can be auto-fixed
+  const hasOrphanErrors = errors.some((e) =>
+    e.message.includes('references non-existent route') ||
+    e.message.includes('references non-existent calendar') ||
+    e.message.includes('references non-existent stop')
+  );
+
+  const handleCleanOrphans = useCallback(() => {
+    const s = useStore.getState();
+    const routeIds = new Set(s.routes.map((r) => r.route_id));
+    const calendarIds = new Set(s.calendars.map((c) => c.service_id));
+    const stopIds = new Set(s.stops.map((st) => st.stop_id));
+
+    // Remove trips referencing deleted routes or calendars
+    const validTrips = s.trips.filter(
+      (t) => routeIds.has(t.route_id) && calendarIds.has(t.service_id)
+    );
+    const removedTripIds = new Set(
+      s.trips.filter((t) => !routeIds.has(t.route_id) || !calendarIds.has(t.service_id)).map((t) => t.trip_id)
+    );
+
+    // Remove stop_times for removed trips, and those referencing deleted stops
+    const validStopTimes = s.stopTimes.filter(
+      (st) => !removedTripIds.has(st.trip_id) && stopIds.has(st.stop_id)
+    );
+
+    // Remove fare rules referencing deleted routes
+    const validFareRules = s.fareRules.filter(
+      (fr) => !fr.route_id || routeIds.has(fr.route_id)
+    );
+
+    // Remove orphan shapes (not referenced by any remaining trip)
+    const usedShapeIds = new Set(validTrips.map((t) => t.shape_id).filter(Boolean));
+    const validShapes = s.shapes.filter((sh) => usedShapeIds.has(sh.shape_id));
+
+    // Remove orphan routeStops
+    const validRouteStops = s.routeStops.filter((rs) => routeIds.has(rs.route_id));
+
+    s.setTrips(validTrips);
+    s.setStopTimes(validStopTimes);
+    s.setShapes(validShapes);
+    s.setRouteStops(validRouteStops);
+    if (validFareRules.length !== s.fareRules.length) {
+      // Clear and re-add (no setFareRules available, use store methods)
+      for (const fr of s.fareRules) {
+        if (fr.route_id && !routeIds.has(fr.route_id)) {
+          s.removeFareRule(fr.fare_id, fr.route_id);
+        }
+      }
+    }
+  }, []);
 
   const handleExport = async () => {
     setExporting(true);
@@ -49,6 +101,14 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
               <p key={e.id} className="text-xs text-red-600">• {e.message}</p>
             ))}
             {errors.length > 5 && <p className="text-xs text-red-400">...and {errors.length - 5} more</p>}
+            {hasOrphanErrors && (
+              <button
+                onClick={handleCleanOrphans}
+                className="mt-2 w-full px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-heading font-bold hover:bg-red-700 transition-colors"
+              >
+                Auto-fix: Remove orphaned trips, stop times, and shapes
+              </button>
+            )}
           </div>
         )}
 

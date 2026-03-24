@@ -1,5 +1,8 @@
 import type { StateCreator } from 'zustand';
 import type { Route, RouteStop } from '../types/gtfs';
+import type { TripSlice } from './tripSlice';
+import type { ShapeSlice } from './shapeSlice';
+import type { FareSlice } from './fareSlice';
 
 export interface RouteSlice {
   routes: Route[];
@@ -14,7 +17,7 @@ export interface RouteSlice {
   setRouteStops: (routeStops: RouteStop[]) => void;
 }
 
-export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never]], [], RouteSlice> = (set) => ({
+export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never]], [], RouteSlice> = (set, get) => ({
   routes: [],
   routeStops: [],
   addRoute: (route) => set((state) => { state.routes.push(route); }),
@@ -23,8 +26,42 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
     if (idx !== -1) Object.assign(state.routes[idx], updates);
   }),
   removeRoute: (route_id) => set((state) => {
+    // Remove the route itself
     state.routes = state.routes.filter((r) => r.route_id !== route_id);
+    // Remove route-stop associations
     state.routeStops = state.routeStops.filter((rs) => rs.route_id !== route_id);
+
+    // Cascade: remove trips for this route and their stop_times
+    const fullState = get() as unknown as RouteSlice & TripSlice & ShapeSlice & FareSlice;
+    const tripIds = new Set(
+      fullState.trips.filter((t) => t.route_id === route_id).map((t) => t.trip_id)
+    );
+    // Collect shape IDs used only by this route's trips
+    const routeShapeIds = new Set(
+      fullState.trips
+        .filter((t) => t.route_id === route_id && t.shape_id)
+        .map((t) => t.shape_id!)
+    );
+    // Don't delete shapes used by other routes' trips
+    const otherShapeIds = new Set(
+      fullState.trips
+        .filter((t) => t.route_id !== route_id && t.shape_id)
+        .map((t) => t.shape_id!)
+    );
+
+    // Remove trips
+    (state as any).trips = fullState.trips.filter((t) => t.route_id !== route_id);
+    // Remove stop_times for deleted trips
+    (state as any).stopTimes = fullState.stopTimes.filter((st) => !tripIds.has(st.trip_id));
+    // Remove shapes only used by this route
+    const shapesToRemove = new Set(
+      [...routeShapeIds].filter((sid) => !otherShapeIds.has(sid))
+    );
+    if (shapesToRemove.size > 0) {
+      (state as any).shapes = fullState.shapes.filter((s) => !shapesToRemove.has(s.shape_id));
+    }
+    // Remove fare rules for this route
+    (state as any).fareRules = fullState.fareRules.filter((fr) => fr.route_id !== route_id);
   }),
   setRoutes: (routes) => set((state) => { state.routes = routes; }),
   addRouteStop: (rs) => set((state) => { state.routeStops.push(rs); }),

@@ -215,10 +215,21 @@ async function main() {
     postErrors.map(e => e.message).join('; '));
 
   // ---- PHASE 11: DELETES ----
-  console.log('\nPhase 11: Delete Operations');
+  console.log('\nPhase 11: Delete Operations (with cascading)');
+  const preDeleteTrips = s().trips.length;
+  const preDeleteStopTimes = s().stopTimes.length;
   s().removeRoute('test-route');
   assert('delete route', !s().routes.some(r => r.route_id === 'test-route'));
   assert('delete cascades routeStops', s().routeStops.filter(rs => rs.route_id === 'test-route').length === 0);
+  assert('delete cascades trips', s().trips.filter(t => t.route_id === 'test-route').length === 0);
+  assert('delete cascades stopTimes', s().trips.length < preDeleteTrips);
+  assert('delete cascades fareRules', s().fareRules.filter(fr => fr.route_id === 'test-route').length === 0);
+
+  // Verify no orphan trips after delete
+  const routeIdSet2 = new Set(s().routes.map(r => r.route_id));
+  const orphansAfter = s().trips.filter(t => !routeIdSet2.has(t.route_id));
+  assert('no orphan trips after delete', orphansAfter.length === 0, `${orphansAfter.length} orphans`);
+
   s().removeStop('test-stop');
   assert('delete stop', !s().stops.some(st => st.stop_id === 'test-stop'));
   s().removeCalendar('test-summer');
