@@ -78,7 +78,7 @@ function CostEstimationSection({ route }: { route: Route }) {
 
 export function RouteEditor() {
   const {
-    routes, updateRoute, removeRoute, trips, shapes, removeTrip,
+    routes, updateRoute, removeRoute, trips, shapes, stops, removeTrip,
     selectedRouteId, selectRoute,
     setMapMode, setDrawingRouteId,
     setEditingRouteId, setEditingShapeId,
@@ -86,12 +86,15 @@ export function RouteEditor() {
     snapToRoad: snapToRoadEnabled, setSnapToRoad,
     removeShape,
     updateShapePoints, recalcShapeDistances,
+    routeStops,
   } = useStore();
 
   const [costOpen, setCostOpen] = useState(false);
   const [snappingShapeId, setSnappingShapeId] = useState<string | null>(null);
   const [drawDirection, setDrawDirection] = useState<0 | 1>(0);
   const [confirmDeleteShapeId, setConfirmDeleteShapeId] = useState<string | null>(null);
+  const [showDeleteRouteConfirm, setShowDeleteRouteConfirm] = useState(false);
+  const [dontWarnDelete, setDontWarnDelete] = useState(false);
   const [simplifyShapeId, setSimplifyShapeId] = useState<string | null>(null);
   const [warnEditShapeId, setWarnEditShapeId] = useState<string | null>(null);
 
@@ -158,10 +161,42 @@ export function RouteEditor() {
     setConfirmDeleteShapeId(null);
   };
 
-  const handleDelete = () => {
+  // Compute what would be deleted with this route
+  const deleteInfo = useMemo(() => {
+    if (!route) return { tripCount: 0, uniqueStops: [] as typeof stops };
+    const routeTripCount = trips.filter((t) => t.route_id === route.route_id).length;
+    const thisRouteStopIds = new Set(
+      routeStops.filter((rs) => rs.route_id === route.route_id).map((rs) => rs.stop_id)
+    );
+    const otherRouteStopIds = new Set(
+      routeStops.filter((rs) => rs.route_id !== route.route_id).map((rs) => rs.stop_id)
+    );
+    const uniqueStopIds = [...thisRouteStopIds].filter((sid) => !otherRouteStopIds.has(sid));
+    const uniqueStops = uniqueStopIds
+      .map((sid) => stops.find((s) => s.stop_id === sid))
+      .filter(Boolean) as typeof stops;
+    return { tripCount: routeTripCount, uniqueStops };
+  }, [route, trips, routeStops, stops]);
+
+  const handleDeleteClick = () => {
+    // Check localStorage for "don't warn again"
+    const skipWarning = localStorage.getItem('gtfs-skip-route-delete-warning') === 'true';
+    if (skipWarning || (deleteInfo.tripCount === 0 && deleteInfo.uniqueStops.length === 0)) {
+      executeDelete();
+    } else {
+      setShowDeleteRouteConfirm(true);
+    }
+  };
+
+  const executeDelete = () => {
+    if (!route) return;
+    if (dontWarnDelete) {
+      localStorage.setItem('gtfs-skip-route-delete-warning', 'true');
+    }
     removeRoute(route.route_id);
     selectRoute(null);
     setEditingRouteId(null);
+    setShowDeleteRouteConfirm(false);
   };
 
   const handleResnapShape = (shapeId: string) => {
@@ -560,11 +595,72 @@ export function RouteEditor() {
       </button>
 
       <button
-        onClick={handleDelete}
+        onClick={handleDeleteClick}
         className="text-xs text-red-400 hover:text-red-600"
       >
         Delete route
       </button>
+
+      {/* Delete route confirmation dialog */}
+      {showDeleteRouteConfirm && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
+          onClick={() => setShowDeleteRouteConfirm(false)}
+        >
+          <div className="bg-white rounded-xl shadow-lg p-5 max-w-sm mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-heading font-bold text-base text-dark-brown mb-2">
+              Delete "{route.route_short_name || route.route_long_name}"?
+            </h3>
+            <p className="text-sm text-warm-gray mb-3">
+              This will also delete:
+            </p>
+            <ul className="text-sm text-dark-brown mb-3 space-y-1">
+              {deleteInfo.tripCount > 0 && (
+                <li>• {deleteInfo.tripCount} trip{deleteInfo.tripCount !== 1 ? 's' : ''} and their stop times</li>
+              )}
+              {deleteInfo.uniqueStops.length > 0 && (
+                <li>
+                  • {deleteInfo.uniqueStops.length} stop{deleteInfo.uniqueStops.length !== 1 ? 's' : ''} not used by other routes:
+                  <div className="ml-3 mt-1 max-h-32 overflow-y-auto">
+                    {deleteInfo.uniqueStops.slice(0, 10).map((s) => (
+                      <div key={s.stop_id} className="text-xs text-warm-gray">{s.stop_name || s.stop_id}</div>
+                    ))}
+                    {deleteInfo.uniqueStops.length > 10 && (
+                      <div className="text-xs text-warm-gray italic">...and {deleteInfo.uniqueStops.length - 10} more</div>
+                    )}
+                  </div>
+                </li>
+              )}
+            </ul>
+
+            <label className="flex items-center gap-2 text-xs text-warm-gray mb-4 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={dontWarnDelete}
+                onChange={(e) => setDontWarnDelete(e.target.checked)}
+                className="rounded"
+              />
+              Don't warn me again
+            </label>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowDeleteRouteConfirm(false)}
+                className="flex-1 px-3 py-2 bg-sand text-brown rounded-lg font-heading font-bold text-sm hover:bg-cream transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeDelete}
+                className="flex-1 px-3 py-2 bg-red-500 text-white rounded-lg font-heading font-bold text-sm hover:bg-red-600 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

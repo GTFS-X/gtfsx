@@ -3,6 +3,7 @@ import type { Route, RouteStop } from '../types/gtfs';
 import type { TripSlice } from './tripSlice';
 import type { ShapeSlice } from './shapeSlice';
 import type { FareSlice } from './fareSlice';
+import type { StopSlice } from './stopSlice';
 
 export interface RouteSlice {
   routes: Route[];
@@ -62,6 +63,25 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
     }
     // Remove fare rules for this route
     (state as any).fareRules = fullState.fareRules.filter((fr) => fr.route_id !== route_id);
+
+    // Remove stops that are unique to this route (not shared with other routes)
+    const fullWithStops = get() as unknown as RouteSlice & TripSlice & ShapeSlice & FareSlice & StopSlice;
+    const thisRouteStopIds = new Set(
+      fullWithStops.routeStops
+        .filter((rs) => rs.route_id === route_id)
+        .map((rs) => rs.stop_id)
+    );
+    const otherRouteStopIds = new Set(
+      fullWithStops.routeStops
+        .filter((rs) => rs.route_id !== route_id)
+        .map((rs) => rs.stop_id)
+    );
+    const uniqueStopIds = new Set(
+      [...thisRouteStopIds].filter((sid) => !otherRouteStopIds.has(sid))
+    );
+    if (uniqueStopIds.size > 0) {
+      (state as any).stops = fullWithStops.stops.filter((s) => !uniqueStopIds.has(s.stop_id));
+    }
   }),
   setRoutes: (routes) => set((state) => { state.routes = routes; }),
   addRouteStop: (rs) => set((state) => { state.routeStops.push(rs); }),
