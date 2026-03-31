@@ -4,7 +4,6 @@ import { point, featureCollection } from '@turf/helpers';
 import type { BlockGroupData } from './demographics';
 import type { Stop } from '../types/gtfs';
 import type { AppStore } from '../store';
-import { gtfsTimeToSeconds } from '../utils/time';
 
 export interface CoverageResult {
   totalPopulation: number;
@@ -96,40 +95,9 @@ export function calculateCoverage(
 }
 
 /**
- * Calculate average headway in minutes for all trips on a given route.
- * Returns Infinity if there are fewer than 2 trips.
- */
-function getAverageHeadway(routeId: string, state: AppStore): number {
-  const routeTrips = state.trips.filter((t) => t.route_id === routeId);
-  if (routeTrips.length < 2) return Infinity;
-
-  // For each trip, find the earliest departure time
-  const tripStartTimes: number[] = [];
-  for (const trip of routeTrips) {
-    const times = state.stopTimes
-      .filter((st) => st.trip_id === trip.trip_id && st.departure_time)
-      .map((st) => gtfsTimeToSeconds(st.departure_time));
-    if (times.length > 0) {
-      tripStartTimes.push(Math.min(...times));
-    }
-  }
-
-  if (tripStartTimes.length < 2) return Infinity;
-
-  tripStartTimes.sort((a, b) => a - b);
-
-  let totalGap = 0;
-  for (let i = 1; i < tripStartTimes.length; i++) {
-    totalGap += tripStartTimes[i] - tripStartTimes[i - 1];
-  }
-
-  return totalGap / (tripStartTimes.length - 1) / 60; // convert seconds to minutes
-}
-
-/**
  * Get coverage for a specific route's stops.
- * Uses a 0.5 mi buffer for light rail (route_type 0) or routes with
- * average headway ≤ 15 minutes; 0.25 mi otherwise.
+ * Uses a 0.5 mi buffer for light rail / tram (route_type 0); 0.25 mi for all
+ * other route types (bus, rail, ferry, etc.).
  */
 export function getBufferForRoute(
   routeId: string,
@@ -137,9 +105,7 @@ export function getBufferForRoute(
   blockGroups: BlockGroupData[],
 ): CoverageResult {
   const route = state.routes.find((r) => r.route_id === routeId);
-  const isLightRail = route?.route_type === 0; // GTFS: 0 = tram/streetcar/light rail
-  const avgHeadway = getAverageHeadway(routeId, state);
-  const bufferMiles = (isLightRail || avgHeadway <= 15) ? 0.5 : 0.25;
+  const bufferMiles = route?.route_type === 0 ? 0.5 : 0.25;
 
   // Get stops that belong to this route
   const routeStopIds = new Set(
