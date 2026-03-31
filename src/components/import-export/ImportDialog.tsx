@@ -31,8 +31,20 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
     setError(null);
     try {
       const data = await importGtfsZip(file);
+      const name = file.name.replace(/\.zip$/i, '');
+      // If the project is empty, skip the options screen and import immediately
+      if (useStore.getState().routes.length === 0) {
+        loadImportIntoStore(data);
+        useStore.getState().setProjectName(name);
+        setImportedCounts({
+          routes: data.routes.length,
+          stops: data.stops.length,
+          trips: data.trips.length,
+        });
+        return;
+      }
       setParsedData(data);
-      setFileName(file.name.replace(/\.zip$/i, ''));
+      setFileName(name);
       // Select all routes by default
       setSelectedRouteIds(new Set(data.routes.map((r) => r.route_id)));
     } catch (e: any) {
