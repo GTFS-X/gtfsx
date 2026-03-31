@@ -109,6 +109,6 @@ export async function lookupFips(
 
   return {
     stateFips: result.state_fips as string,
-    countyFips: result.county_fips as string,
+    countyFips: (result.county_fips as string).slice(-3),
   };
 }
