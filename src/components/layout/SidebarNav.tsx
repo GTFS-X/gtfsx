@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../../store';
 import type { SidebarSection } from '../../types/ui';
 
@@ -46,6 +46,11 @@ export function SidebarNav() {
   const isFlexActive = FLEX_KEYS.has(sidebarSection);
   const isAnalysisActive = ANALYSIS_KEYS.has(sidebarSection);
 
+  // Auto-open an accordion when the user navigates to one of its sections
+  useEffect(() => { if (isFixedRouteActive) setFixedRouteOpen(true); }, [isFixedRouteActive]);
+  useEffect(() => { if (isFlexActive) setFlexOpen(true); }, [isFlexActive]);
+  useEffect(() => { if (isAnalysisActive) setAnalysisOpen(true); }, [isAnalysisActive]);
+
   const renderItem = ({ key, label, icon, bgClass, textClass }: NavItem) => (
     <button
       key={key}
@@ -72,17 +77,17 @@ export function SidebarNav() {
   ) => (
     <div className="mt-1">
       <button
-        onClick={() => setOpen(!(isOpen || isActive))}
+        onClick={() => setOpen(!isOpen)}
         className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-cream transition-colors"
       >
         <span className="text-[10px] font-bold text-warm-gray uppercase tracking-wider">
           {label}
         </span>
         <span className="text-[10px] text-warm-gray">
-          {isOpen || isActive ? '−' : '+'}
+          {isOpen ? '−' : '+'}
         </span>
       </button>
-      {(isOpen || isActive) && (
+      {isOpen && (
         <div className="flex flex-col gap-0.5 mt-0.5">
           {items.map(renderItem)}
         </div>
