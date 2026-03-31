@@ -1,6 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { importGtfsZip, loadImportIntoStore } from '../../services/gtfsImport';
+import { importGtfsZip, loadImportIntoStore, mergeImportIntoStore } from '../../services/gtfsImport';
 import { useStore } from '../../store';
+import type { Route } from '../../types/gtfs';
+
+type ImportData = Awaited<ReturnType<typeof importGtfsZip>>;
+type ImportMode = 'replace' | 'merge';
 
 interface ImportDialogProps {
   onClose: () => void;
@@ -8,32 +12,33 @@ interface ImportDialogProps {
 
 export function ImportDialog({ onClose }: ImportDialogProps) {
   const [dragging, setDragging] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [result, setResult] = useState<{
-    agencies: number;
-    routes: number;
-    stops: number;
-    trips: number;
-  } | null>(null);
+  const [parsing, setParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFile = useCallback(async (file: File) => {
-    setImporting(true);
+  // After parsing
+  const [parsedData, setParsedData] = useState<ImportData | null>(null);
+  const [fileName, setFileName] = useState('');
+  const [mode, setMode] = useState<ImportMode>('replace');
+  const [selectedRouteIds, setSelectedRouteIds] = useState<Set<string>>(new Set());
+
+  // Success state
+  const [importedCounts, setImportedCounts] = useState<{
+    routes: number; stops: number; trips: number;
+  } | null>(null);
+
+  const parseFile = useCallback(async (file: File) => {
+    setParsing(true);
     setError(null);
     try {
       const data = await importGtfsZip(file);
-      loadImportIntoStore(data);
-      useStore.getState().setProjectName(file.name.replace(/\.zip$/i, ''));
-      setResult({
-        agencies: data.agencies.length,
-        routes: data.routes.length,
-        stops: data.stops.length,
-        trips: data.trips.length,
-      });
+      setParsedData(data);
+      setFileName(file.name.replace(/\.zip$/i, ''));
+      // Select all routes by default
+      setSelectedRouteIds(new Set(data.routes.map((r) => r.route_id)));
     } catch (e: any) {
-      setError(e.message || 'Failed to import GTFS feed');
+      setError(e.message || 'Failed to parse GTFS feed');
     } finally {
-      setImporting(false);
+      setParsing(false);
     }
   }, []);
 
@@ -41,86 +46,228 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  }, [handleFile]);
+    if (file) parseFile(file);
+  }, [parseFile]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) handleFile(file);
-  }, [handleFile]);
+    if (file) parseFile(file);
+  }, [parseFile]);
 
-  return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-        {result ? (
-          <>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-teal-light rounded-lg flex items-center justify-center text-xl">
-                ✓
-              </div>
-              <div>
-                <h3 className="font-heading font-bold text-lg text-dark-brown">Import Successful</h3>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 mb-4">
-              {[
-                ['Routes', result.routes],
-                ['Stops', result.stops],
-                ['Trips', result.trips],
-                ['Agencies', result.agencies],
-              ].map(([label, count]) => (
-                <div key={label as string} className="flex justify-between px-3 py-2 bg-cream rounded-lg text-sm">
+  const toggleRoute = (routeId: string) => {
+    setSelectedRouteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(routeId)) next.delete(routeId);
+      else next.add(routeId);
+      return next;
+    });
+  };
+
+  const handleImport = () => {
+    if (!parsedData) return;
+
+    if (mode === 'replace') {
+      loadImportIntoStore(parsedData);
+      useStore.getState().setProjectName(fileName);
+      setImportedCounts({
+        routes: parsedData.routes.length,
+        stops: parsedData.stops.length,
+        trips: parsedData.trips.length,
+      });
+    } else {
+      if (selectedRouteIds.size === 0) return;
+      mergeImportIntoStore(parsedData, selectedRouteIds);
+      // Count stops/trips for selected routes
+      const selTripIds = new Set(
+        parsedData.trips
+          .filter((t) => selectedRouteIds.has(t.route_id))
+          .map((t) => t.trip_id),
+      );
+      const selStopIds = new Set(
+        parsedData.stopTimes
+          .filter((st) => selTripIds.has(st.trip_id))
+          .map((st) => st.stop_id),
+      );
+      setImportedCounts({
+        routes: selectedRouteIds.size,
+        stops: selStopIds.size,
+        trips: selTripIds.size,
+      });
+    }
+  };
+
+  const routeLabel = (r: Route) =>
+    [r.route_short_name, r.route_long_name].filter(Boolean).join(' — ') || r.route_id;
+
+  // ── Success screen ─────────────────────────────────────────────────────────
+  if (importedCounts) {
+    return (
+      <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-teal-light rounded-lg flex items-center justify-center text-xl">✓</div>
+            <h3 className="font-heading font-bold text-lg text-dark-brown">
+              {mode === 'merge' ? 'Routes Added' : 'Import Successful'}
+            </h3>
+          </div>
+          <div className="flex flex-col gap-2 mb-4">
+            {([['Routes', importedCounts.routes], ['Stops', importedCounts.stops], ['Trips', importedCounts.trips]] as [string, number][]).map(
+              ([label, count]) => (
+                <div key={label} className="flex justify-between px-3 py-2 bg-cream rounded-lg text-sm">
                   <span>{label}</span>
                   <span className="font-semibold">{count}</span>
                 </div>
-              ))}
-            </div>
-            <button
-              onClick={onClose}
-              className="w-full px-4 py-2.5 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors"
-            >
-              Open in Editor
-            </button>
-          </>
-        ) : (
-          <>
-            <h3 className="font-heading font-bold text-lg text-dark-brown mb-4">Import GTFS Feed</h3>
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
-                {error}
-              </div>
+              ),
             )}
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={handleDrop}
-              className={`border-3 border-dashed rounded-2xl p-12 text-center transition-colors cursor-pointer
-                ${dragging ? 'border-coral bg-coral-light' : 'border-sand bg-cream hover:border-coral hover:bg-coral-light'}`}
-            >
-              {importing ? (
-                <p className="text-warm-gray">Importing...</p>
-              ) : (
-                <>
-                  <div className="text-5xl mb-4">🚌</div>
-                  <p className="font-heading font-bold text-dark-brown mb-2">Drop your GTFS feed here</p>
-                  <p className="text-warm-gray text-sm mb-4">Upload a .zip file to start editing</p>
-                  <label className="inline-flex items-center gap-2 px-4 py-2 bg-coral text-white rounded-lg font-heading font-bold text-sm cursor-pointer hover:bg-[#d4603a] transition-colors">
-                    Browse Files
-                    <input type="file" accept=".zip" className="hidden" onChange={handleFileInput} />
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full px-4 py-2.5 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors"
+          >
+            Open in Editor
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Step 2: Mode + route selection ────────────────────────────────────────
+  if (parsedData) {
+    const hasExistingRoutes = useStore.getState().routes.length > 0;
+
+    return (
+      <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+          <h3 className="font-heading font-bold text-lg text-dark-brown mb-1">Import Options</h3>
+          <p className="text-xs text-warm-gray mb-4">{fileName}.zip — {parsedData.routes.length} route{parsedData.routes.length !== 1 ? 's' : ''}</p>
+
+          {/* Mode toggle */}
+          <div className="flex gap-2 mb-4">
+            {(['replace', 'merge'] as ImportMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                disabled={m === 'merge' && !hasExistingRoutes}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors
+                  ${mode === m
+                    ? 'bg-coral text-white border-coral'
+                    : 'bg-white text-warm-gray border-sand hover:border-coral hover:text-dark-brown'
+                  }
+                  disabled:opacity-40 disabled:cursor-not-allowed`}
+              >
+                {m === 'replace' ? 'Replace project' : 'Add to current project'}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'replace' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4 text-xs text-amber-700">
+              This will replace all current routes, stops, and timetable data.
+            </div>
+          )}
+
+          {/* Route list (merge mode) */}
+          {mode === 'merge' && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-dark-brown uppercase tracking-wide">Select routes to import</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSelectedRouteIds(new Set(parsedData.routes.map((r) => r.route_id)))}
+                    className="text-[11px] text-coral hover:underline"
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setSelectedRouteIds(new Set())}
+                    className="text-[11px] text-warm-gray hover:underline"
+                  >
+                    None
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1 max-h-52 overflow-y-auto border border-sand rounded-lg p-2">
+                {parsedData.routes.map((r) => (
+                  <label
+                    key={r.route_id}
+                    className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-cream cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedRouteIds.has(r.route_id)}
+                      onChange={() => toggleRoute(r.route_id)}
+                      className="accent-coral"
+                    />
+                    <span
+                      className="inline-block w-3 h-3 rounded-sm shrink-0"
+                      style={{ backgroundColor: `#${r.route_color || '888888'}` }}
+                    />
+                    <span className="text-sm text-dark-brown truncate">{routeLabel(r)}</span>
                   </label>
-                </>
+                ))}
+              </div>
+              {selectedRouteIds.size === 0 && (
+                <p className="text-xs text-amber-600 mt-1">Select at least one route.</p>
               )}
             </div>
-            <div className="flex justify-between mt-4">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-sm text-warm-gray hover:text-dark-brown"
-              >
-                Cancel
-              </button>
-            </div>
-          </>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setParsedData(null); setError(null); }}
+              className="px-4 py-2 text-sm text-warm-gray hover:text-dark-brown"
+            >
+              ← Back
+            </button>
+            <button
+              onClick={handleImport}
+              disabled={mode === 'merge' && selectedRouteIds.size === 0}
+              className="flex-1 px-4 py-2.5 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {mode === 'merge' ? `Add ${selectedRouteIds.size} route${selectedRouteIds.size !== 1 ? 's' : ''}` : 'Replace & Import'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Step 1: Drop zone ──────────────────────────────────────────────────────
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-heading font-bold text-lg text-dark-brown mb-4">Import GTFS Feed</h3>
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
+            {error}
+          </div>
         )}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleDrop}
+          className={`border-3 border-dashed rounded-2xl p-12 text-center transition-colors cursor-pointer
+            ${dragging ? 'border-coral bg-coral-light' : 'border-sand bg-cream hover:border-coral hover:bg-coral-light'}`}
+        >
+          {parsing ? (
+            <p className="text-warm-gray">Parsing…</p>
+          ) : (
+            <>
+              <div className="text-5xl mb-4">🚌</div>
+              <p className="font-heading font-bold text-dark-brown mb-2">Drop your GTFS feed here</p>
+              <p className="text-warm-gray text-sm mb-4">Upload a .zip file to start editing</p>
+              <label className="inline-flex items-center gap-2 px-4 py-2 bg-coral text-white rounded-lg font-heading font-bold text-sm cursor-pointer hover:bg-[#d4603a] transition-colors">
+                Browse Files
+                <input type="file" accept=".zip" className="hidden" onChange={handleFileInput} />
+              </label>
+            </>
+          )}
+        </div>
+        <div className="flex justify-between mt-4">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-warm-gray hover:text-dark-brown">
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

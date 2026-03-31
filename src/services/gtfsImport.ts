@@ -277,3 +277,116 @@ export function loadImportIntoStore(data: Awaited<ReturnType<typeof importGtfsZi
   store.setFareAttributes(data.fareAttributes);
   store.setFareRules(data.fareRules);
 }
+
+/**
+ * Merge selected routes (and their associated stops, trips, stop times, shapes,
+ * and route-stop associations) from an imported feed into the existing project.
+ * Agency info, calendars, and fares are NOT imported.
+ * If any IDs conflict with existing ones, a numeric prefix is applied to all
+ * imported IDs to guarantee uniqueness.
+ */
+export function mergeImportIntoStore(
+  data: Awaited<ReturnType<typeof importGtfsZip>>,
+  selectedRouteIds: Set<string>,
+) {
+  const store = useStore.getState();
+
+  // Determine whether we need a prefix to avoid ID collisions
+  const existingRouteIds = new Set(store.routes.map((r) => r.route_id));
+  const existingStopIds  = new Set(store.stops.map((s) => s.stop_id));
+  const existingTripIds  = new Set(store.trips.map((t) => t.trip_id));
+  const existingShapeIds = new Set(store.shapes.map((s) => s.shape_id));
+
+  const hasConflict =
+    data.routes.some((r) => existingRouteIds.has(r.route_id)) ||
+    data.stops.some((s)  => existingStopIds.has(s.stop_id))   ||
+    data.trips.some((t)  => existingTripIds.has(t.trip_id))   ||
+    data.shapes.some((s) => existingShapeIds.has(s.shape_id));
+
+  let prefix = '';
+  if (hasConflict) {
+    for (let i = 2; i <= 99; i++) {
+      const p = `i${i}_`;
+      if (!data.routes.some((r) => existingRouteIds.has(p + r.route_id))) {
+        prefix = p;
+        break;
+      }
+    }
+    if (!prefix) prefix = `imp${Date.now()}_`;
+  }
+
+  const pfx = (id: string) => (prefix ? prefix + id : id);
+
+  // Narrow to selected routes and their dependent data
+  const selectedRoutes    = data.routes.filter((r) => selectedRouteIds.has(r.route_id));
+  const selRouteGtfsIds   = new Set(selectedRoutes.map((r) => r.route_id));
+
+  const selectedTrips     = data.trips.filter((t) => selRouteGtfsIds.has(t.route_id));
+  const selTripGtfsIds    = new Set(selectedTrips.map((t) => t.trip_id));
+
+  const selectedStopTimes = data.stopTimes.filter((st) => selTripGtfsIds.has(st.trip_id));
+
+  const neededStopIds = new Set([
+    ...selectedStopTimes.map((st) => st.stop_id),
+    ...data.routeStops.filter((rs) => selRouteGtfsIds.has(rs.route_id)).map((rs) => rs.stop_id),
+  ]);
+  const selectedStops = data.stops.filter((s) => neededStopIds.has(s.stop_id));
+
+  const neededShapeIds = new Set(
+    selectedTrips.map((t) => t.shape_id).filter(Boolean) as string[],
+  );
+  const selectedShapes     = data.shapes.filter((s) => neededShapeIds.has(s.shape_id));
+  const selectedRouteStops = data.routeStops.filter((rs) => selRouteGtfsIds.has(rs.route_id));
+
+  // Append routes
+  for (const route of selectedRoutes) {
+    store.addRoute({ ...route, route_id: pfx(route.route_id) });
+  }
+
+  // Append stops (skip any whose prefixed ID already exists)
+  const storeAfterRoutes  = useStore.getState();
+  const existingStopIdsNow = new Set(storeAfterRoutes.stops.map((s) => s.stop_id));
+  for (const stop of selectedStops) {
+    const newId = pfx(stop.stop_id);
+    if (!existingStopIdsNow.has(newId)) {
+      storeAfterRoutes.addStop({ ...stop, stop_id: newId });
+    }
+  }
+
+  // Append trips
+  for (const trip of selectedTrips) {
+    store.addTrip({
+      ...trip,
+      trip_id:  pfx(trip.trip_id),
+      route_id: pfx(trip.route_id),
+      shape_id: trip.shape_id ? pfx(trip.shape_id) : undefined,
+    });
+  }
+
+  // Append stop times (batch to avoid many individual Immer drafts)
+  const s1 = useStore.getState();
+  s1.setStopTimes([
+    ...s1.stopTimes,
+    ...selectedStopTimes.map((st) => ({
+      ...st,
+      trip_id: pfx(st.trip_id),
+      stop_id: pfx(st.stop_id),
+    })),
+  ]);
+
+  // Append shapes
+  for (const shape of selectedShapes) {
+    store.addShape({ ...shape, shape_id: pfx(shape.shape_id) });
+  }
+
+  // Append route-stop associations (batch)
+  const s2 = useStore.getState();
+  s2.setRouteStops([
+    ...s2.routeStops,
+    ...selectedRouteStops.map((rs) => ({
+      ...rs,
+      route_id: pfx(rs.route_id),
+      stop_id:  pfx(rs.stop_id),
+    })),
+  ]);
+}
