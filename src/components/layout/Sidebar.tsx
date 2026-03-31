@@ -8,6 +8,7 @@ import { StopList } from '../stops/StopList';
 import { FaresEditor } from '../fares/FaresEditor';
 import { CostSummary } from '../costs/CostSummary';
 import { CoveragePanel } from '../coverage/CoveragePanel';
+import { TitleVIPanel } from '../titlevi/TitleVIPanel';
 import { TimetableSidebar } from '../timetable/TimetableSidebar';
 import { FlexEditor } from '../flex/FlexEditor';
 
@@ -28,6 +29,7 @@ export function Sidebar() {
         {section === 'flex' && <FlexEditor />}
         {section === 'costs' && <CostSummary />}
         {section === 'coverage' && <CoveragePanel />}
+        {section === 'titlevi' && <TitleVIPanel />}
       </div>
     </div>
   );

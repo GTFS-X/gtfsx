@@ -21,14 +21,14 @@ export interface CoverageResult {
  * areas, corresponding to a radius of ~0.3–0.45 mi. Use 0.5 as a conservative
  * default that also accommodates suburban tracts whose centroid files we use.
  */
-const BG_RADIUS_MILES = 0.5;
+export const BG_RADIUS_MILES = 0.5;
 
 /**
  * Fraction of a circle of radius bgRadius (block group) that overlaps with a
  * circle of radius bufferMiles (stop walksheds) whose center is `d` miles away.
  * Uses the standard lens / circle-circle intersection area formula.
  */
-function circleOverlapFraction(d: number, bufferMiles: number, bgRadius: number): number {
+export function circleOverlapFraction(d: number, bufferMiles: number, bgRadius: number): number {
   if (d >= bufferMiles + bgRadius) return 0;   // circles don't overlap
   if (d + bgRadius <= bufferMiles) return 1;   // BG fully inside buffer
   if (d + bufferMiles <= bgRadius)             // buffer fully inside BG

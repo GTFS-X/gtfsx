@@ -5,6 +5,10 @@ export interface BlockGroupData {
   workers: number;
   lat: number;
   lon: number;
+  /** Non-white / Hispanic population (B03002 total minus non-Hispanic White alone) */
+  minorityPop: number;
+  /** Total population from B03002 table (base for minority share calculation) */
+  totalRacePop: number;
 }
 
 /**
@@ -50,7 +54,8 @@ export async function fetchCensusData(
   const [centroids, censusRes] = await Promise.all([
     fetchTractCentroids(stateFips),
     fetch(
-      `https://api.census.gov/data/2022/acs/acs5?get=B01003_001E,B25001_001E,B08301_001E` +
+      `https://api.census.gov/data/2022/acs/acs5` +
+        `?get=B01003_001E,B25001_001E,B08301_001E,B03002_001E,B03002_003E` +
         `&for=block%20group:*&in=state:${stateFips}&in=county:${countyFips}&in=tract:*`,
     ),
   ]);
@@ -78,13 +83,17 @@ export async function fetchCensusData(
     const centroid = centroids.get(tractKey);
     if (!centroid) continue;
 
+    const totalRacePop = parseInt(row[3], 10) || 0;
+    const nonHispanicWhite = parseInt(row[4], 10) || 0;
     results.push({
       geoid,
-      population: parseInt(row[0], 10) || 0,
-      households: parseInt(row[1], 10) || 0,
-      workers: parseInt(row[2], 10) || 0,
-      lat: centroid.lat,
-      lon: centroid.lon,
+      population:    parseInt(row[0], 10) || 0,
+      households:    parseInt(row[1], 10) || 0,
+      workers:       parseInt(row[2], 10) || 0,
+      lat:           centroid.lat,
+      lon:           centroid.lon,
+      totalRacePop,
+      minorityPop:   Math.max(0, totalRacePop - nonHispanicWhite),
     });
   }
 

@@ -29,6 +29,7 @@ const FLEX_ITEMS: NavItem[] = [
 const ANALYSIS_ITEMS: NavItem[] = [
   { key: 'costs', label: 'Costs', icon: '\u00A2', bgClass: 'bg-gold-light', textClass: 'text-amber-700' },
   { key: 'coverage', label: 'Coverage', icon: '\u25CE', bgClass: 'bg-teal-light', textClass: 'text-teal' },
+  { key: 'titlevi', label: 'Title VI', icon: 'VI', bgClass: 'bg-purple-light', textClass: 'text-purple' },
 ];
 
 const FIXED_ROUTE_KEYS = new Set(FIXED_ROUTE_ITEMS.map((i) => i.key));

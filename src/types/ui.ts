@@ -7,7 +7,8 @@ export type SidebarSection =
   | 'timetable'
   | 'flex'
   | 'costs'
-  | 'coverage';
+  | 'coverage'
+  | 'titlevi';
 
 export type BottomPanelTab = 'timetable' | 'validation';
 
