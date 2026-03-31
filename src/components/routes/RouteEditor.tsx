@@ -469,15 +469,12 @@ export function RouteEditor() {
                               updateShapePoints(shape!.shape_id, preview);
                               recalcShapeDistances(shape!.shape_id);
                               setSimplifyShapeId(null);
-                              // If we were in edit mode, reload the simplified shape into draw
-                              if (mapMode === 'edit_shape' && editingShapeId === shape!.shape_id) {
-                                // Re-enter edit mode to reload the simplified points
-                                setEditingShapeId(null);
-                                setTimeout(() => {
-                                  setEditingShapeId(shape!.shape_id);
-                                  setMapMode('edit_shape');
-                                }, 50);
-                              }
+                              // Always enter (or re-enter) edit mode after simplification
+                              setEditingShapeId(null);
+                              setTimeout(() => {
+                                setEditingShapeId(shape!.shape_id);
+                                setMapMode('edit_shape');
+                              }, 50);
                             }}
                             className="flex items-center justify-between px-2 py-1.5 bg-sand rounded text-[11px] hover:bg-coral-light hover:text-coral transition-colors"
                           >
