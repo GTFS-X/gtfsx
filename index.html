@@ -5,10 +5,64 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <link rel="apple-touch-icon" href="/favicon.svg?v=2" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Transit Feeds – GTFS Builder</title>
+    <title>GTFS Builder – Free Online GTFS Feed Editor</title>
+    <meta name="description" content="Free, browser-based GTFS feed editor. Build transit routes, stops, schedules, fares, and timetables with an interactive map. Import and export standard GTFS ZIP files. No account or installation required." />
+    <link rel="canonical" href="https://www.transitfeeds.net/" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="GTFS Builder – Free Online GTFS Feed Editor" />
+    <meta property="og:description" content="Build and edit GTFS transit feeds in your browser. Create routes, stops, schedules, and fares with an interactive map. Free, no account required." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.transitfeeds.net/" />
+
+    <!-- Structured data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "GTFS Builder",
+      "url": "https://www.transitfeeds.net/",
+      "description": "Free browser-based GTFS feed editor for creating transit routes, stops, schedules, fares, and timetables. Import and export standard GTFS ZIP files.",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "Web",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": [
+        "Create and edit GTFS routes, stops, and shapes",
+        "Build service calendars and timetables",
+        "Define fare rules and structures",
+        "GTFS-Flex demand-responsive service support",
+        "Interactive map editing with Mapbox",
+        "Import and export GTFS ZIP files",
+        "Ridership and demographic analysis",
+        "GTFS feed validation"
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <div style="font-family: sans-serif; max-width: 700px; margin: 60px auto; padding: 0 20px;">
+        <h1>GTFS Builder – Free Online GTFS Feed Editor</h1>
+        <p>GTFS Builder is a free, browser-based editor for creating and editing GTFS (General Transit Feed Specification) feeds. Build complete transit schedules including routes, stops, timetables, fares, and service calendars — all from your browser, with no account or installation required.</p>
+        <h2>Features</h2>
+        <ul>
+          <li>Create and edit routes, stops, and shapes on an interactive map</li>
+          <li>Build service calendars and timetables</li>
+          <li>Define fare rules and pricing structures</li>
+          <li>GTFS-Flex support for demand-responsive transit</li>
+          <li>Import existing GTFS ZIP files</li>
+          <li>Export standards-compliant GTFS ZIP files</li>
+          <li>Ridership and demographic coverage analysis</li>
+          <li>Built-in GTFS feed validation</li>
+        </ul>
+        <p>Please enable JavaScript to use GTFS Builder.</p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
