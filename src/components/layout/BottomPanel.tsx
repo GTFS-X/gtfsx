@@ -7,12 +7,16 @@ import { ServiceSummary } from '../timetable/ServiceSummary';
 import { ValidationPanel } from '../validation/ValidationPanel';
 
 const MIN_HEIGHT = 120;
-const MAX_HEIGHT = 720;
-const DEFAULT_HEIGHT = 260;
+const MAX_HEIGHT_FRACTION = 0.75; // max 75% of viewport
+
+function getDefaultHeight() {
+  return Math.round(window.innerHeight * 0.33);
+}
 
 export function BottomPanel() {
   const { bottomPanelOpen, bottomPanelTab, setBottomPanelTab, toggleBottomPanel } = useStore();
-  const [panelHeight, setPanelHeight] = useState(DEFAULT_HEIGHT);
+  const [panelHeight, setPanelHeight] = useState(getDefaultHeight);
+  const [isDraggingState, setIsDraggingState] = useState(false);
   const isDragging = useRef(false);
 
   // Trigger map resize when panel opens/closes
@@ -26,12 +30,15 @@ export function BottomPanel() {
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging.current) return;
+      e.preventDefault();
+      const maxH = Math.round(window.innerHeight * MAX_HEIGHT_FRACTION);
       const delta = dragStartY.current - e.clientY;
-      setPanelHeight(Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, dragStartHeight.current + delta)));
+      setPanelHeight(Math.max(MIN_HEIGHT, Math.min(maxH, dragStartHeight.current + delta)));
     };
     const onMouseUp = () => {
       if (isDragging.current) {
         isDragging.current = false;
+        setIsDraggingState(false);
         requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
       }
     };
@@ -46,6 +53,7 @@ export function BottomPanel() {
   const handleDragStart = (e: React.MouseEvent) => {
     if (!bottomPanelOpen) return;
     isDragging.current = true;
+    setIsDraggingState(true);
     dragStartY.current = e.clientY;
     dragStartHeight.current = panelHeight;
     e.preventDefault();
@@ -122,6 +130,11 @@ export function BottomPanel() {
           {bottomPanelTab === 'service-summary' && <ServiceSummary />}
           {bottomPanelTab === 'validation' && <ValidationPanel />}
         </div>
+      )}
+
+      {/* Full-page overlay during drag to maintain cursor and capture mouse */}
+      {isDraggingState && (
+        <div className="fixed inset-0 z-50 cursor-row-resize" />
       )}
     </div>
   );

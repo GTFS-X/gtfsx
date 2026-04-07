@@ -16,6 +16,7 @@ export type MapMode =
   | 'select'
   | 'draw_route'
   | 'place_stop'
+  | 'move_stop'
   | 'edit_vertices'
   | 'edit_shape'
   | 'draw_flex_zone'

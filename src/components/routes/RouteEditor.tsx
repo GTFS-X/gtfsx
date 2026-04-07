@@ -3,10 +3,11 @@ import { useStore } from '../../store';
 import { FormField } from '../ui/FormField';
 import { ROUTE_COLORS, getContrastTextColor } from '../../utils/colors';
 import { ROUTE_TYPES, directionName } from '../../utils/constants';
-import { calculateRouteStats } from '../../services/costEstimation';
+import { calculateRouteSpans, applyRouteCosts } from '../../services/costEstimation';
 import { snapToRoad } from '../../services/snapToRoad';
 import { simplifyShapePoints, SIMPLIFY_LEVELS } from '../../services/simplifyShape';
 import type { Route } from '../../types/gtfs';
+import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 
 function formatCurrency(n: number): string {
   return '$' + Math.round(n).toLocaleString();
@@ -14,10 +15,17 @@ function formatCurrency(n: number): string {
 
 function CostEstimationSection({ route }: { route: Route }) {
   const { routes, trips, stopTimes, calendars, calendarDates, updateRoute } = useStore();
+  const { byTrip: stopTimesByTrip } = useStopTimesIndex();
+
+  // Phase 2: Memoize spans separately from cost application
+  const spans = useMemo(
+    () => calculateRouteSpans(route.route_id, { routes, trips, stopTimes, calendars, calendarDates, stopTimesByTrip }),
+    [route.route_id, routes, trips, stopTimes, calendars, calendarDates, stopTimesByTrip]
+  );
 
   const stats = useMemo(
-    () => calculateRouteStats(route.route_id, { routes, trips, stopTimes, calendars, calendarDates }),
-    [route.route_id, route._cost_per_revenue_hour, routes, trips, stopTimes, calendars, calendarDates]
+    () => applyRouteCosts(spans, route._cost_per_revenue_hour ?? 0, 1.2),
+    [spans, route._cost_per_revenue_hour]
   );
 
   return (

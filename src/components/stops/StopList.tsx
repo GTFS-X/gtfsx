@@ -415,6 +415,17 @@ export function StopList() {
             />
           </div>
 
+          <button
+            onClick={() => setMapMode(mapMode === 'move_stop' ? 'select' : 'move_stop')}
+            className={`w-full mb-3 px-4 py-2 rounded-lg font-heading font-bold text-sm transition-colors
+              ${mapMode === 'move_stop'
+                ? 'bg-coral text-white'
+                : 'bg-sand text-brown hover:bg-coral-light hover:text-coral'
+              }`}
+          >
+            {mapMode === 'move_stop' ? 'Cancel Move' : 'Move Stop Location'}
+          </button>
+
           <div className="mb-3">
             <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
               Wheelchair Boarding

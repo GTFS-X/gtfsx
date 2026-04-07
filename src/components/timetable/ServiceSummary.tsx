@@ -1,7 +1,24 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useStore } from '../../store';
 import { gtfsTimeToSeconds } from '../../utils/time';
 import { directionName } from '../../utils/constants';
+import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 
 interface TripDot {
   routeName: string;
@@ -15,9 +32,10 @@ interface TripDot {
 
 export function ServiceSummary() {
   const {
-    routes, trips, stopTimes, calendars, routeStops,
+    routes, trips, calendars, routeStops,
     hiddenRouteIds,
   } = useStore();
+  const { byTrip: stopTimesByTrip } = useStopTimesIndex();
 
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
 
@@ -28,11 +46,50 @@ export function ServiceSummary() {
     return calendars[0]?.service_id || null;
   }, [selectedServiceId, calendars]);
 
-  // Visible routes in display order
+  // Visible routes
   const visibleRoutes = useMemo(
     () => routes.filter((r) => !hiddenSet.has(r.route_id)),
     [routes, hiddenSet],
   );
+
+  // Local route order for drag-and-drop reordering
+  const [routeOrder, setRouteOrder] = useState<string[]>([]);
+
+  // Sync route order when visible routes change
+  useEffect(() => {
+    setRouteOrder((prev) => {
+      const visibleIds = new Set(visibleRoutes.map((r) => r.route_id));
+      // Keep existing order for routes that are still visible, append new ones
+      const kept = prev.filter((id) => visibleIds.has(id));
+      const keptSet = new Set(kept);
+      const added = visibleRoutes.filter((r) => !keptSet.has(r.route_id)).map((r) => r.route_id);
+      return [...kept, ...added];
+    });
+  }, [visibleRoutes]);
+
+  const orderedVisibleRoutes = useMemo(
+    () => routeOrder.map((id) => visibleRoutes.find((r) => r.route_id === id)).filter(Boolean) as typeof visibleRoutes,
+    [routeOrder, visibleRoutes],
+  );
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setRouteOrder((prev) => {
+      const oldIndex = prev.indexOf(String(active.id));
+      const newIndex = prev.indexOf(String(over.id));
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(oldIndex, 1);
+      next.splice(newIndex, 0, moved);
+      return next;
+    });
+  }, []);
 
   // Build trip dots: outbound (direction 0) start times for each visible route, filtered by service
   const { routeRows, minHour, maxHour } = useMemo(() => {
@@ -40,7 +97,7 @@ export function ServiceSummary() {
     let earliest = 24;
     let latest = 0;
 
-    for (const route of visibleRoutes) {
+    for (const route of orderedVisibleRoutes) {
       const routeTrips = trips.filter(
         (t) => t.route_id === route.route_id && t.direction_id === 0
           && (!activeServiceId || t.service_id === activeServiceId),
@@ -53,9 +110,11 @@ export function ServiceSummary() {
           .filter((rs) => rs.route_id === route.route_id && rs.direction_id === 0)
           .sort((a, b) => a.stop_sequence - b.stop_sequence);
 
+        const tripSTs = stopTimesByTrip.get(trip.trip_id) || [];
+
         let firstTime = '';
         for (const rs of orderedRS) {
-          const st = stopTimes.find((s) => s.trip_id === trip.trip_id && s.stop_id === rs.stop_id);
+          const st = tripSTs.find((s) => s.stop_id === rs.stop_id);
           if (st && (st.departure_time || st.arrival_time)) {
             firstTime = st.departure_time || st.arrival_time;
             break;
@@ -63,8 +122,8 @@ export function ServiceSummary() {
         }
         // Fallback: earliest stop_time by sequence
         if (!firstTime) {
-          const sts = stopTimes
-            .filter((s) => s.trip_id === trip.trip_id && (s.departure_time || s.arrival_time))
+          const sts = tripSTs
+            .filter((s) => s.departure_time || s.arrival_time)
             .sort((a, b) => a.stop_sequence - b.stop_sequence);
           if (sts.length > 0) firstTime = sts[0].departure_time || sts[0].arrival_time;
         }
@@ -104,7 +163,7 @@ export function ServiceSummary() {
       minHour: Math.floor(earliest),
       maxHour: Math.ceil(latest) + 1,
     };
-  }, [visibleRoutes, trips, stopTimes, calendars, routeStops, activeServiceId]);
+  }, [orderedVisibleRoutes, trips, stopTimesByTrip, calendars, routeStops, activeServiceId]);
 
   const hours = useMemo(() => {
     const h: number[] = [];
@@ -161,54 +220,89 @@ export function ServiceSummary() {
             ))}
           </div>
 
-          {/* Route rows */}
-          {routeRows.map((row) => (
-            <div key={row.routeId} className="flex items-center mb-1">
-              {/* Route label */}
-              <div className="w-[120px] shrink-0 flex items-center gap-1.5 pr-2">
-                <span
-                  className="w-3 h-3 rounded-sm shrink-0"
-                  style={{ backgroundColor: `#${row.routeColor}` }}
+          {/* Route rows — drag to reorder */}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={routeRows.map((r) => r.routeId)} strategy={verticalListSortingStrategy}>
+              {routeRows.map((row) => (
+                <SortableRouteRow
+                  key={row.routeId}
+                  row={row}
+                  hours={hours}
+                  minHour={minHour}
+                  totalSeconds={totalSeconds}
                 />
-                <span className="text-xs font-semibold text-dark-brown truncate">
-                  {row.routeName}
-                </span>
-              </div>
-
-              {/* Timeline */}
-              <div className="flex-1 relative h-6 bg-cream rounded border border-sand">
-                {/* Hour grid lines */}
-                {hours.map((h) => (
-                  <div
-                    key={h}
-                    className="absolute top-0 bottom-0 border-l border-sand/50"
-                    style={{ left: `${((h - minHour) * 3600 / totalSeconds) * 100}%` }}
-                  />
-                ))}
-
-                {/* Trip dots */}
-                {row.dots.map((dot, i) => {
-                  const pct = ((dot.timeSeconds - minHour * 3600) / totalSeconds) * 100;
-                  return (
-                    <div
-                      key={i}
-                      className="absolute top-1/2 -translate-y-1/2 -ml-[5px]"
-                      style={{ left: `${pct}%` }}
-                      title={`${dot.timeLabel} — ${dot.serviceLabel} (${dot.tripId})`}
-                    >
-                      <ShapeIcon shape="circle" color={`#${dot.routeColor}`} size={10} />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+              ))}
+            </SortableContext>
+          </DndContext>
 
           {/* Bottom axis label */}
           <div className="ml-[120px] mt-1 text-center text-[10px] text-warm-gray">
             Time of Day
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SortableRouteRow({ row, hours, minHour, totalSeconds }: {
+  row: { routeId: string; routeName: string; routeColor: string; dots: TripDot[] };
+  hours: number[];
+  minHour: number;
+  totalSeconds: number;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: row.routeId });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={`flex items-center mb-1 ${isDragging ? 'shadow-md' : ''}`}>
+      {/* Drag handle + route label */}
+      <div className="w-[120px] shrink-0 flex items-center gap-1 pr-2">
+        <button
+          {...attributes}
+          {...listeners}
+          className="text-warm-gray hover:text-dark-brown cursor-grab active:cursor-grabbing text-[10px] shrink-0 w-4 text-center touch-none"
+          title="Drag to reorder"
+        >
+          ⠿
+        </button>
+        <span
+          className="w-3 h-3 rounded-sm shrink-0"
+          style={{ backgroundColor: `#${row.routeColor}` }}
+        />
+        <span className="text-xs font-semibold text-dark-brown truncate">
+          {row.routeName}
+        </span>
+      </div>
+
+      {/* Timeline */}
+      <div className="flex-1 relative h-6 bg-cream rounded border border-sand">
+        {hours.map((h) => (
+          <div
+            key={h}
+            className="absolute top-0 bottom-0 border-l border-sand/50"
+            style={{ left: `${((h - minHour) * 3600 / totalSeconds) * 100}%` }}
+          />
+        ))}
+        {row.dots.map((dot, i) => {
+          const pct = ((dot.timeSeconds - minHour * 3600) / totalSeconds) * 100;
+          return (
+            <div
+              key={i}
+              className="absolute top-1/2 -translate-y-1/2 -ml-[5px]"
+              style={{ left: `${pct}%` }}
+              title={`${dot.timeLabel} — ${dot.serviceLabel} (${dot.tripId})`}
+            >
+              <ShapeIcon shape="circle" color={`#${dot.routeColor}`} size={10} />
+            </div>
+          );
+        })}
       </div>
     </div>
   );

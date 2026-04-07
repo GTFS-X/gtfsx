@@ -13,6 +13,7 @@ import { RoutePopup } from './RoutePopup';
 import { CoverageLayer } from './CoverageLayer';
 import { DensityHeatmap } from './DensityHeatmap';
 import { FlexLayer } from '../flex/FlexLayer';
+import { DemandDotsLayer } from './DemandDotsLayer';
 import { MapLayerControls } from './MapLayerControls';
 import type { MapStyleId, HeatmapMetric } from './MapLayerControls';
 import { generateId } from '../../services/idGenerator';
@@ -55,12 +56,11 @@ export function MapView() {
   // Map layer controls
   const [mapStyleId, setMapStyleId] = useState<MapStyleId>('light');
   const [heatmapMetric, setHeatmapMetric] = useState<HeatmapMetric>('off');
+  const [showDemandDots, setShowDemandDots] = useState(false);
   // Cursor: pointer when hovering over a clickable feature in select mode
   const [hoveringFeature, setHoveringFeature] = useState(false);
-  // Stop dragging state
-  const draggingStopRef = useRef<string | null>(null);
+  // Stop move state (for didDragStop compat with click handler)
   const didDragStopRef = useRef(false);
-  const [isDraggingStop, setIsDraggingStop] = useState(false);
 
   // Compute initial view from stops or shapes
   const initialView = useMemo(() => {
@@ -103,6 +103,10 @@ export function MapView() {
             useStore.getState().removeStop(sid);
             lastPlacedStopRef.current = null;
           }
+          useStore.getState().setMapMode('select');
+          return;
+        }
+        if (currentMode === 'move_stop') {
           useStore.getState().setMapMode('select');
           return;
         }
@@ -319,32 +323,31 @@ export function MapView() {
     }
   }, [mapMode, editingShapeId, editingFlexZoneId]);
 
-  // Stop dragging via native map events
+  // Drag-to-move stop in move_stop mode
+  const draggingStopRef = useRef(false);
   useEffect(() => {
     const map = mapRef.current?.getMap();
     if (!map) return;
 
     const onMouseDown = (e: any) => {
-      const state = useStore.getState();
-      if (state.mapMode !== 'select') return;
-      if (!state.selectedStopId) return;
-      const features = map.queryRenderedFeatures(e.point, { layers: ['stop-circles'] });
-      if (features.length === 0) return;
-      const stopId = features[0].properties?.stop_id;
-      // Only allow dragging the currently selected stop
-      if (stopId !== state.selectedStopId) return;
+      if (useStore.getState().mapMode !== 'move_stop') return;
+      const stopId = useStore.getState().selectedStopId;
+      if (!stopId) return;
+      const features = map.queryRenderedFeatures(e.point, { layers: ['stop-circles', 'stop-circles-outer'] });
+      const hit = features.some((f: any) => f.properties?.stop_id === stopId);
+      if (!hit) return;
 
       e.preventDefault();
-      draggingStopRef.current = stopId;
-      setIsDraggingStop(true);
+      draggingStopRef.current = true;
       map.getCanvas().style.cursor = 'grabbing';
       map.dragPan.disable();
     };
 
     const onMouseMove = (e: any) => {
       if (!draggingStopRef.current) return;
+      const stopId = useStore.getState().selectedStopId;
+      if (!stopId) return;
       didDragStopRef.current = true;
-      const stopId = draggingStopRef.current;
       useStore.getState().updateStop(stopId, {
         stop_lat: e.lngLat.lat,
         stop_lon: e.lngLat.lng,
@@ -353,18 +356,15 @@ export function MapView() {
 
     const onMouseUp = () => {
       if (!draggingStopRef.current) return;
-      draggingStopRef.current = null;
-      setIsDraggingStop(false);
-      map.getCanvas().style.cursor = '';
+      draggingStopRef.current = false;
+      map.getCanvas().style.cursor = 'crosshair';
       map.dragPan.enable();
-      // Clear the drag flag after a tick so the click handler can check it
       setTimeout(() => { didDragStopRef.current = false; }, 0);
     };
 
     map.on('mousedown', onMouseDown);
     map.on('mousemove', onMouseMove);
     map.on('mouseup', onMouseUp);
-
     return () => {
       map.off('mousedown', onMouseDown);
       map.off('mousemove', onMouseMove);
@@ -499,6 +499,17 @@ export function MapView() {
     // Don't handle map clicks during shape editing
     if (currentState.mapMode === 'edit_shape') return;
 
+    // Move stop mode — click to relocate the selected stop (skip if just finished dragging)
+    if (currentState.mapMode === 'move_stop' && currentState.selectedStopId) {
+      if (!didDragStopRef.current) {
+        currentState.updateStop(currentState.selectedStopId, {
+          stop_lat: e.lngLat.lat,
+          stop_lon: e.lngLat.lng,
+        });
+      }
+      return;
+    }
+
     // Stop placement mode
     if (currentState.mapMode === 'place_stop' && currentState.selectedRouteId) {
       const clickLat = e.lngLat.lat;
@@ -596,9 +607,8 @@ export function MapView() {
     setHoveringFeature(false);
   }, []);
 
-  const cursor = isDraggingStop ? 'grabbing'
-    : mapMode === 'draw_route' || mapMode === 'draw_flex_zone' ? 'crosshair'
-    : mapMode === 'place_stop' ? 'crosshair'
+  const cursor = mapMode === 'draw_route' || mapMode === 'draw_flex_zone' ? 'crosshair'
+    : mapMode === 'place_stop' || mapMode === 'move_stop' ? 'crosshair'
     : mapMode === 'edit_shape' || mapMode === 'edit_flex_zone' ? 'default'
     : hoveringFeature ? 'pointer'
     : 'grab';
@@ -627,6 +637,7 @@ export function MapView() {
           onUpdate={handleDrawUpdate}
         />
         <DensityHeatmap visible={heatmapMetric !== 'off'} metric={heatmapMetric === 'off' ? 'population' : heatmapMetric} />
+        <DemandDotsLayer visible={showDemandDots} />
         <CoverageLayer />
         <FlexLayer />
         <RouteLayer />
@@ -654,6 +665,8 @@ export function MapView() {
         onMapStyleChange={setMapStyleId}
         heatmapMetric={heatmapMetric}
         onHeatmapMetricChange={setHeatmapMetric}
+        showDemandDots={showDemandDots}
+        onShowDemandDotsChange={setShowDemandDots}
       />
       <DrawingIndicator />
 

@@ -2,7 +2,8 @@ import { type KeyboardEvent, useMemo, useCallback, useState, useRef } from 'reac
 import { useStore } from '../../store';
 import { formatTimeShort, normalizeTimeInput, gtfsTimeToSeconds, secondsToGtfsTime } from '../../utils/time';
 import { directionName } from '../../utils/constants';
-import type { Route } from '../../types/gtfs';
+import type { Route, StopTime } from '../../types/gtfs';
+import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 
 function generateTripName(routeName: string, departureTime: string, serviceIndex: number): string {
   const prefix = (routeName || 'trip').replace(/\s+/g, '').slice(0, 4).toLowerCase();
@@ -29,10 +30,11 @@ function uniqueTripId(baseId: string, existingIds: Set<string>): string {
 
 export function TimetableGrid() {
   const {
-    selectedRouteId, selectRoute, routes, trips, stopTimes, stops, routeStops, calendars,
+    selectedRouteId, selectRoute, routes, trips, stops, routeStops, calendars,
     setStopTime, addTrip, duplicateTrip, removeTrip, updateTrip, renameTripId,
     interpolateStopTimes,
   } = useStore();
+  const { byTrip: stopTimesByTrip } = useStopTimesIndex();
 
   const route = routes.find((r) => r.route_id === selectedRouteId);
 
@@ -82,11 +84,29 @@ export function TimetableGrid() {
       .filter(Boolean) as typeof stops;
   }, [selectedRouteId, routeStops, stops, directionId]);
 
+  // Helper: find a specific stop_time by trip+stop using the byTrip index
+  const findStopTime = useCallback((tripId: string, stopId: string): StopTime | undefined => {
+    const tripStopTimes = stopTimesByTrip.get(tripId);
+    if (!tripStopTimes) return undefined;
+    return tripStopTimes.find((st) => st.stop_id === stopId);
+  }, [stopTimesByTrip]);
+
   // Timepoint lookup: set of stop_ids that have timepoint=1 in any stop_time for current route
   const timepointStopIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const st of stopTimes) {
-      if (st.timepoint === 1) ids.add(st.stop_id);
+    // Only scan stop_times for trips that belong to this route
+    if (selectedRouteId) {
+      const routeTripIds = trips
+        .filter((t) => t.route_id === selectedRouteId)
+        .map((t) => t.trip_id);
+      for (const tripId of routeTripIds) {
+        const tripSTs = stopTimesByTrip.get(tripId);
+        if (tripSTs) {
+          for (const st of tripSTs) {
+            if (st.timepoint === 1) ids.add(st.stop_id);
+          }
+        }
+      }
     }
     // If no timepoints are explicitly set, treat first and last as timepoints
     if (ids.size === 0 && orderedStops.length >= 2) {
@@ -94,7 +114,7 @@ export function TimetableGrid() {
       ids.add(orderedStops[orderedStops.length - 1].stop_id);
     }
     return ids;
-  }, [stopTimes, orderedStops]);
+  }, [stopTimesByTrip, orderedStops, selectedRouteId, trips]);
 
   // Get trips for this route filtered by direction and service pattern
   const routeTrips = useMemo(() => {
@@ -103,11 +123,13 @@ export function TimetableGrid() {
       .filter((t) => t.route_id === selectedRouteId && t.direction_id === directionId
         && (!activeServiceId || t.service_id === activeServiceId))
       .sort((a, b) => {
-        const aFirst = stopTimes.find((st) => st.trip_id === a.trip_id);
-        const bFirst = stopTimes.find((st) => st.trip_id === b.trip_id);
+        const aSTs = stopTimesByTrip.get(a.trip_id);
+        const bSTs = stopTimesByTrip.get(b.trip_id);
+        const aFirst = aSTs?.[0];
+        const bFirst = bSTs?.[0];
         return (aFirst?.arrival_time || '').localeCompare(bFirst?.arrival_time || '');
       });
-  }, [selectedRouteId, trips, stopTimes, directionId, activeServiceId]);
+  }, [selectedRouteId, trips, stopTimesByTrip, directionId, activeServiceId]);
 
   // Tab key navigation
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>, tripIdx: number, stopIdx: number) => {
@@ -154,11 +176,11 @@ export function TimetableGrid() {
   // Find the first displayed (non-blank) time for a trip using the timetable's stop order
   const getFirstDisplayedTime = useCallback((tripId: string) => {
     for (const stop of orderedStops) {
-      const st = stopTimes.find((s) => s.trip_id === tripId && s.stop_id === stop.stop_id);
+      const st = findStopTime(tripId, stop.stop_id);
       if (st?.arrival_time) return st.arrival_time;
     }
     return '';
-  }, [orderedStops, stopTimes]);
+  }, [orderedStops, findStopTime]);
 
   const handleDuplicate = (tripId: string) => {
     const firstTime = getFirstDisplayedTime(tripId);
@@ -416,7 +438,7 @@ export function TimetableGrid() {
                 {(() => {
                   // Compute time-order errors: a cell is invalid if its time is <= the previous non-blank time
                   const times = orderedStops.map((stop) => {
-                    const st = stopTimes.find((s) => s.trip_id === trip.trip_id && s.stop_id === stop.stop_id);
+                    const st = findStopTime(trip.trip_id, stop.stop_id);
                     return st?.arrival_time || '';
                   });
                   let prevSeconds = -1;
@@ -429,9 +451,7 @@ export function TimetableGrid() {
                   });
 
                   return orderedStops.map((stop, stopIdx) => {
-                    const st = stopTimes.find(
-                      (s) => s.trip_id === trip.trip_id && s.stop_id === stop.stop_id
-                    );
+                    const st = findStopTime(trip.trip_id, stop.stop_id);
                     const isTimepoint = timepointStopIds.has(stop.stop_id);
                     return (
                       <td

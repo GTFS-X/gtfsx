@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
-import { calculateRouteStats, calculateSystemStats } from '../../services/costEstimation';
+import { calculateRouteSpans, applyRouteCosts } from '../../services/costEstimation';
 import type { RouteStats } from '../../services/costEstimation';
+import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 
 function formatCurrency(n: number): string {
   return '$' + Math.round(n).toLocaleString();
@@ -12,26 +13,61 @@ export function CostSummary() {
     routes, trips, stopTimes, calendars, calendarDates,
     selectRoute, setEditingRouteId, setSidebarSection,
   } = useStore();
+  const { byTrip: stopTimesByTrip } = useStopTimesIndex();
 
   const [defaultCostPerHour, setDefaultCostPerHour] = useState(50);
   const [deadheadFactor, setDeadheadFactor] = useState(1.2);
 
   const stateSlice = useMemo(
-    () => ({ routes, trips, stopTimes, calendars, calendarDates }),
-    [routes, trips, stopTimes, calendars, calendarDates]
+    () => ({ routes, trips, stopTimes, calendars, calendarDates, stopTimesByTrip }),
+    [routes, trips, stopTimes, calendars, calendarDates, stopTimesByTrip]
   );
 
-  const systemStats = useMemo(
-    () => calculateSystemStats(stateSlice, defaultCostPerHour, deadheadFactor),
-    [stateSlice, defaultCostPerHour, deadheadFactor]
-  );
-
-  const routeRows = useMemo(() => {
+  // Phase 2: Memoize spans separately — these only change when trips/stopTimes change
+  const routeSpans = useMemo(() => {
     return routes.map((route) => ({
       route,
-      stats: calculateRouteStats(route.route_id, stateSlice, defaultCostPerHour, deadheadFactor),
+      spans: calculateRouteSpans(route.route_id, stateSlice),
     }));
-  }, [routes, stateSlice, defaultCostPerHour, deadheadFactor]);
+  }, [routes, stateSlice]);
+
+  // Phase 2: Apply costs cheaply — recalculates when cost/deadhead inputs change
+  const routeRows = useMemo(() => {
+    return routeSpans.map(({ route, spans }) => {
+      const costPerHour = route._cost_per_revenue_hour ?? defaultCostPerHour;
+      return {
+        route,
+        stats: applyRouteCosts(spans, costPerHour, deadheadFactor),
+      };
+    });
+  }, [routeSpans, defaultCostPerHour, deadheadFactor]);
+
+  const systemStats = useMemo(() => {
+    let totalRevenueHoursWeekly = 0;
+    let totalHoursWeekly = 0;
+    let totalTripsPerWeek = 0;
+    let totalPeakVehicles = 0;
+    let totalWeeklyCost = 0;
+    let totalAnnualCost = 0;
+
+    for (const { stats } of routeRows) {
+      totalRevenueHoursWeekly += stats.revenueHoursWeekly;
+      totalHoursWeekly += stats.totalHoursWeekly;
+      totalTripsPerWeek += stats.tripsPerWeek;
+      totalPeakVehicles += stats.peakVehicles;
+      totalWeeklyCost += stats.weeklyCost;
+      totalAnnualCost += stats.annualCost;
+    }
+
+    return {
+      totalRevenueHoursWeekly,
+      totalHoursWeekly,
+      totalTripsPerWeek,
+      totalPeakVehicles,
+      totalWeeklyCost,
+      totalAnnualCost,
+    };
+  }, [routeRows]);
 
   const handleOpenRoute = (routeId: string) => {
     selectRoute(routeId);

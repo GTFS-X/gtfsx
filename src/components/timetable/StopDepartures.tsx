@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { formatTimeShort } from '../../utils/time';
 import { directionName } from '../../utils/constants';
+import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 
 type SortMode = 'time' | 'route';
 type TimeField = 'departure' | 'arrival';
@@ -18,10 +19,11 @@ interface Departure {
 
 export function StopDepartures() {
   const {
-    stops, routes, trips, stopTimes, calendars,
+    stops, routes, trips, calendars,
     selectedStopId, selectStop,
     hiddenRouteIds,
   } = useStore();
+  const { byTrip: stopTimesByTrip, byStop: stopTimesByStop } = useStopTimesIndex();
 
   const [sortMode, setSortMode] = useState<SortMode>('time');
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
@@ -41,23 +43,24 @@ export function StopDepartures() {
     if (!selectedStopId) return [];
 
     const deps: Departure[] = [];
-    // Find all stop_times for this stop
-    // Build first/last stop_sequence per trip for GTFS convention
+    // Build first/last stop_sequence per trip for GTFS convention (using byTrip index)
     const tripFirstLast = new Map<string, { first: number; last: number }>();
-    for (const st of stopTimes) {
-      const entry = tripFirstLast.get(st.trip_id);
-      if (!entry) {
-        tripFirstLast.set(st.trip_id, { first: st.stop_sequence, last: st.stop_sequence });
-      } else {
-        if (st.stop_sequence < entry.first) entry.first = st.stop_sequence;
-        if (st.stop_sequence > entry.last) entry.last = st.stop_sequence;
+    for (const [tripId, tripSTs] of stopTimesByTrip) {
+      let first = Infinity;
+      let last = -Infinity;
+      for (const st of tripSTs) {
+        if (st.stop_sequence < first) first = st.stop_sequence;
+        if (st.stop_sequence > last) last = st.stop_sequence;
+      }
+      if (first !== Infinity) {
+        tripFirstLast.set(tripId, { first, last });
       }
     }
 
-    const relevantStopTimes = stopTimes.filter((st) => {
-      if (st.stop_id !== selectedStopId) return false;
-      return !!(st.arrival_time || st.departure_time);
-    });
+    // Use byStop index instead of scanning all 400K+ entries
+    const relevantStopTimes = (stopTimesByStop.get(selectedStopId) || []).filter(
+      (st) => !!(st.arrival_time || st.departure_time)
+    );
 
     for (const st of relevantStopTimes) {
       const trip = trips.find((t) => t.trip_id === st.trip_id);
@@ -102,7 +105,7 @@ export function StopDepartures() {
     }
 
     return deps;
-  }, [selectedStopId, stopTimes, trips, routes, activeServiceId, sortMode, showAllRoutes, hiddenRouteSet, timeField]);
+  }, [selectedStopId, stopTimesByTrip, stopTimesByStop, trips, routes, activeServiceId, sortMode, showAllRoutes, hiddenRouteSet, timeField]);
 
   // Compute frequency stats
   const stats = useMemo(() => {
@@ -121,9 +124,9 @@ export function StopDepartures() {
 
   // Stops that have any stop_times (for the dropdown)
   const stopsWithService = useMemo(() => {
-    const ids = new Set(stopTimes.map((st) => st.stop_id));
+    const ids = new Set(stopTimesByStop.keys());
     return stops.filter((s) => ids.has(s.stop_id)).sort((a, b) => a.stop_name.localeCompare(b.stop_name));
-  }, [stops, stopTimes]);
+  }, [stops, stopTimesByStop]);
 
   const selectedStop = selectedStopId ? stops.find((s) => s.stop_id === selectedStopId) : null;
 

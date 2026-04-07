@@ -1,5 +1,21 @@
 import type { AppStore } from '../store';
+import type { StopTime } from '../types/gtfs';
 import { gtfsTimeToSeconds } from '../utils/time';
+
+export interface RouteSpans {
+  weeklyRevHours: number;
+  weeklyTotalHoursBase: number; // revenue hours (no deadhead applied yet)
+  tripsPerWeek: number;
+  peakVehicles: number;
+  /** Per-service-id breakdown needed for annual cost calculation */
+  _serviceBreakdown: {
+    serviceId: string;
+    revHours: number;
+    daysPerWeek: number;
+    serviceDaysPerYear: number;
+    peak: number;
+  }[];
+}
 
 export interface RouteStats {
   revenueHoursWeekly: number;
@@ -107,13 +123,17 @@ function parseYYYYMMDD(s: string): Date | null {
 
 /** Get the first and last stop time seconds for a trip by stop_sequence order.
  *  Uses the first and last non-blank times in sequence order for a robust span.
- *  Considers both arrival_time and departure_time (first stop may have only departure). */
+ *  Considers both arrival_time and departure_time (first stop may have only departure).
+ *  Accepts either a pre-filtered array (from byTrip index) or falls back to filtering. */
 function getTripSpan(
   tripId: string,
-  stopTimes: AppStore['stopTimes']
+  stopTimesOrIndex: StopTime[] | Map<string, StopTime[]>
 ): { start: number; end: number } | null {
-  const times = stopTimes
-    .filter((st) => st.trip_id === tripId && (st.arrival_time || st.departure_time))
+  const raw = Array.isArray(stopTimesOrIndex)
+    ? stopTimesOrIndex.filter((st) => st.trip_id === tripId)
+    : (stopTimesOrIndex.get(tripId) || []);
+  const times = raw
+    .filter((st) => st.arrival_time || st.departure_time)
     .sort((a, b) => a.stop_sequence - b.stop_sequence);
   if (times.length < 2) return null;
 
@@ -149,17 +169,19 @@ function computePeakVehicles(spans: { start: number; end: number }[]): number {
   return peak;
 }
 
-export function calculateRouteStats(
+/** Phase 2: Compute route spans (expensive, depends on trips + stopTimes).
+ *  Accepts an optional byTrip index for O(1) lookups instead of O(n) scans. */
+export function calculateRouteSpans(
   routeId: string,
-  state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'>,
-  defaultCostPerHour = 0,
-  deadheadFactor = 1.2,
-): RouteStats {
-  const route = state.routes.find((r) => r.route_id === routeId);
+  state: Pick<AppStore, 'routes' | 'trips' | 'calendars' | 'calendarDates'> & {
+    stopTimes: StopTime[];
+    stopTimesByTrip?: Map<string, StopTime[]>;
+  },
+): RouteSpans {
   const routeTrips = state.trips.filter((t) => t.route_id === routeId);
-  const costPerHour = route?._cost_per_revenue_hour ?? defaultCostPerHour;
+  const lookup = state.stopTimesByTrip || state.stopTimes;
 
-  // Group trips by service_id — trips on different service patterns don't run on the same day
+  // Group trips by service_id
   const tripsByService = new Map<string, typeof routeTrips>();
   for (const trip of routeTrips) {
     const group = tripsByService.get(trip.service_id) || [];
@@ -167,20 +189,17 @@ export function calculateRouteStats(
     tripsByService.set(trip.service_id, group);
   }
 
-  // Calculate stats per service pattern, then sum to weekly totals
   let weeklyRevHours = 0;
-  let weeklyTotalHours = 0;
   let weeklyTrips = 0;
   let maxPeakVehicles = 0;
-  let weeklyCost = 0;
-  let annualCost = 0;
+  const serviceBreakdown: RouteSpans['_serviceBreakdown'] = [];
 
   for (const [serviceId, serviceTrips] of tripsByService) {
     const spans: { start: number; end: number }[] = [];
     let revSeconds = 0;
 
     for (const trip of serviceTrips) {
-      const span = getTripSpan(trip.trip_id, state.stopTimes);
+      const span = getTripSpan(trip.trip_id, lookup);
       if (span) {
         spans.push(span);
         revSeconds += span.end - span.start;
@@ -188,38 +207,76 @@ export function calculateRouteStats(
     }
 
     const revHours = revSeconds / 3600;
-    const totalHours = revHours * deadheadFactor;
     const peak = computePeakVehicles(spans);
-    const dailyCostForPattern = totalHours * costPerHour;
 
-    // Count how many days per week this pattern operates
     const cal = state.calendars.find((c) => c.service_id === serviceId);
     const daysPerWeek = cal
       ? Number(cal.monday) + Number(cal.tuesday) + Number(cal.wednesday) + Number(cal.thursday) + Number(cal.friday) + Number(cal.saturday) + Number(cal.sunday)
       : 7;
 
     weeklyRevHours += revHours * daysPerWeek;
-    weeklyTotalHours += totalHours * daysPerWeek;
     weeklyTrips += serviceTrips.length * daysPerWeek;
     if (peak > maxPeakVehicles) maxPeakVehicles = peak;
-    weeklyCost += dailyCostForPattern * daysPerWeek;
 
     const serviceDaysPerYear = countServiceDaysPerYear([serviceId], state);
-    annualCost += dailyCostForPattern * serviceDaysPerYear;
+    serviceBreakdown.push({ serviceId, revHours, daysPerWeek, serviceDaysPerYear, peak });
   }
 
   return {
-    revenueHoursWeekly: weeklyRevHours,
-    totalHoursWeekly: weeklyTotalHours,
+    weeklyRevHours,
+    weeklyTotalHoursBase: weeklyRevHours, // same as rev hours before deadhead
     tripsPerWeek: weeklyTrips,
     peakVehicles: maxPeakVehicles,
+    _serviceBreakdown: serviceBreakdown,
+  };
+}
+
+/** Phase 2: Apply cost parameters to pre-computed spans (cheap multiplication). */
+export function applyRouteCosts(
+  spans: RouteSpans,
+  costPerHour: number,
+  deadheadFactor: number,
+): RouteStats {
+  const weeklyTotalHours = spans.weeklyRevHours * deadheadFactor;
+  let weeklyCost = 0;
+  let annualCost = 0;
+
+  for (const svc of spans._serviceBreakdown) {
+    const totalHoursForSvc = svc.revHours * deadheadFactor;
+    const dailyCost = totalHoursForSvc * costPerHour;
+    weeklyCost += dailyCost * svc.daysPerWeek;
+    annualCost += dailyCost * svc.serviceDaysPerYear;
+  }
+
+  return {
+    revenueHoursWeekly: spans.weeklyRevHours,
+    totalHoursWeekly: weeklyTotalHours,
+    tripsPerWeek: spans.tripsPerWeek,
+    peakVehicles: spans.peakVehicles,
     weeklyCost,
     annualCost,
   };
 }
 
+/** Combined convenience function (backward-compatible). */
+export function calculateRouteStats(
+  routeId: string,
+  state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'> & {
+    stopTimesByTrip?: Map<string, StopTime[]>;
+  },
+  defaultCostPerHour = 0,
+  deadheadFactor = 1.2,
+): RouteStats {
+  const route = state.routes.find((r) => r.route_id === routeId);
+  const costPerHour = route?._cost_per_revenue_hour ?? defaultCostPerHour;
+  const spans = calculateRouteSpans(routeId, state);
+  return applyRouteCosts(spans, costPerHour, deadheadFactor);
+}
+
 export function calculateSystemStats(
-  state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'>,
+  state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'> & {
+    stopTimesByTrip?: Map<string, StopTime[]>;
+  },
   defaultCostPerHour = 0,
   deadheadFactor = 1.2,
 ): SystemStats {

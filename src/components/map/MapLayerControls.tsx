@@ -9,6 +9,8 @@ interface MapLayerControlsProps {
   onMapStyleChange: (style: MapStyleId) => void;
   heatmapMetric: HeatmapMetric;
   onHeatmapMetricChange: (metric: HeatmapMetric) => void;
+  showDemandDots: boolean;
+  onShowDemandDotsChange: (show: boolean) => void;
 }
 
 export function MapLayerControls({
@@ -16,6 +18,8 @@ export function MapLayerControls({
   onMapStyleChange,
   heatmapMetric,
   onHeatmapMetricChange,
+  showDemandDots,
+  onShowDemandDotsChange,
 }: MapLayerControlsProps) {
   const [open, setOpen] = useState(false);
   const coverageData = useStore((s) => s.coverageData);
@@ -81,6 +85,43 @@ export function MapLayerControls({
             <p className="text-[11px] text-warm-gray">
               Run <strong className="text-dark-brown">Coverage Analysis</strong> first to load census data for the heatmap.
             </p>
+          )}
+
+          {/* Demand dots */}
+          <div className="text-[10px] font-bold text-warm-gray uppercase tracking-wider mb-1.5 mt-3">
+            Transit Demand
+          </div>
+          <label className="flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-semibold cursor-pointer hover:bg-cream transition-colors">
+            <input
+              type="checkbox"
+              checked={showDemandDots}
+              onChange={(e) => onShowDemandDotsChange(e.target.checked)}
+              className="accent-coral"
+            />
+            <span className="text-dark-brown">Demand Dots</span>
+          </label>
+          {showDemandDots && (
+            <div className="flex flex-col gap-0.5 mt-1 px-2">
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="w-2 h-2 rounded-full bg-green-500" />
+                <span className="text-warm-gray">High propensity</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="w-2 h-2 rounded-full bg-gray-400" />
+                <span className="text-warm-gray">Other adults</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="w-2 h-2 rounded-full bg-orange-500" />
+                <span className="text-warm-gray">Jobs</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="w-2 h-2 rounded-full bg-blue-500" />
+                <span className="text-warm-gray">New housing (multi)</span>
+              </div>
+              <p className="text-[9px] text-warm-gray/70 mt-1 leading-snug">
+                Population: ACS 2023 5-yr (renters, zero-vehicle HH, age 18-24). Jobs: LEHD LODES 8. Housing: Gallatin County building permits. 1 dot = 5 people/jobs or 4 housing units.
+              </p>
+            </div>
           )}
         </div>
       )}
