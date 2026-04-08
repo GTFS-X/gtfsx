@@ -2,7 +2,7 @@
 
 A web-based editor for creating, editing, and exporting [GTFS](https://gtfs.org/) (General Transit Feed Specification) transit feeds. Draw routes on a map, place stops, build timetables, and export a validated GTFS ZIP — all in the browser.
 
-**Live site:** [gtfsbuilder.net](https://gtfsbuilder.net)
+**Live site:** [www.gtfsbuilder.net](https://www.gtfsbuilder.net)
 
 ![GTFS Builder screenshot](docs/screenshot.png)
 
