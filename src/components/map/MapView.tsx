@@ -59,6 +59,7 @@ export function MapView() {
   const [showDemandDots, setShowDemandDots] = useState(false);
   // Cursor: pointer when hovering over a clickable feature in select mode
   const [hoveringFeature, setHoveringFeature] = useState(false);
+  const [hoveringStop, setHoveringStop] = useState(false);
   // Stop move state (for didDragStop compat with click handler)
   const didDragStopRef = useRef(false);
 
@@ -357,8 +358,12 @@ export function MapView() {
     const onMouseUp = () => {
       if (!draggingStopRef.current) return;
       draggingStopRef.current = false;
-      map.getCanvas().style.cursor = 'crosshair';
+      // Clear the inline cursor override so React's <Map cursor={…}> prop
+      // takes over — the mouse is still hovering the stop at this point,
+      // so it'll resolve to 'grab'.
+      map.getCanvas().style.cursor = '';
       map.dragPan.enable();
+      setHoveringStop(true);
       setTimeout(() => { didDragStopRef.current = false; }, 0);
     };
 
@@ -599,16 +604,28 @@ export function MapView() {
   }, []);
 
   const handleMouseMove = useCallback((e: any) => {
-    if (mapMode !== 'select') return;
-    setHoveringFeature(!!(e.features && e.features.length > 0));
+    if (mapMode === 'select') {
+      setHoveringFeature(!!(e.features && e.features.length > 0));
+      return;
+    }
+    if (mapMode === 'move_stop') {
+      // Track whether we're hovering over a stop circle so the cursor can
+      // switch to a grab affordance while in move mode. Skip updates during
+      // an active drag so the cursor doesn't flicker between grab and grabbing.
+      if (draggingStopRef.current) return;
+      const over = !!(e.features && e.features.some((f: any) => f.layer?.id === 'stop-circles'));
+      setHoveringStop(over);
+    }
   }, [mapMode]);
 
   const handleMouseLeave = useCallback(() => {
     setHoveringFeature(false);
+    setHoveringStop(false);
   }, []);
 
   const cursor = mapMode === 'draw_route' || mapMode === 'draw_flex_zone' ? 'crosshair'
-    : mapMode === 'place_stop' || mapMode === 'move_stop' ? 'crosshair'
+    : mapMode === 'place_stop' ? 'crosshair'
+    : mapMode === 'move_stop' ? (hoveringStop ? 'grab' : 'crosshair')
     : mapMode === 'edit_shape' || mapMode === 'edit_flex_zone' ? 'default'
     : hoveringFeature ? 'pointer'
     : 'grab';

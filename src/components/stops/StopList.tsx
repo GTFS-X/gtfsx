@@ -417,14 +417,19 @@ export function StopList() {
 
           <button
             onClick={() => setMapMode(mapMode === 'move_stop' ? 'select' : 'move_stop')}
-            className={`w-full mb-3 px-4 py-2 rounded-lg font-heading font-bold text-sm transition-colors
+            className={`w-full mb-1 px-4 py-2 rounded-lg font-heading font-bold text-sm transition-colors
               ${mapMode === 'move_stop'
-                ? 'bg-coral text-white'
+                ? 'bg-coral text-white hover:opacity-90'
                 : 'bg-sand text-brown hover:bg-coral-light hover:text-coral'
               }`}
           >
-            {mapMode === 'move_stop' ? 'Cancel Move' : 'Move Stop Location'}
+            {mapMode === 'move_stop' ? '✓ Save Location' : 'Move Stop Location'}
           </button>
+          {mapMode === 'move_stop' && (
+            <p className="text-[11px] text-warm-gray mb-3 px-1">
+              Drag the stop on the map, or click a new location. Your changes save automatically — press Save Location when you're done to exit move mode.
+            </p>
+          )}
 
           <div className="mb-3">
             <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
