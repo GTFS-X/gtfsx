@@ -3,6 +3,10 @@
   // Workers-with-Static-Assets platform. There's no Worker code — this is a
   // pure Vite SPA. The `dist/` directory is what `npm run build` produces
   // and what Cloudflare serves from the edge.
+  //
+  // Custom domains (apex + www) are managed directly by the Workers runtime
+  // via the `custom_domain: true` route flag — Cloudflare auto-creates the
+  // DNS records on the gtfsbuilder.net zone as part of `wrangler deploy`.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "gtfs-builder",
   "compatibility_date": "2026-04-12",
@@ -12,5 +16,9 @@
     // routing works. (Not strictly needed today since the app uses hash
     // routing, but harmless and future-proof.)
     "not_found_handling": "single-page-application"
-  }
+  },
+  "routes": [
+    { "pattern": "gtfsbuilder.net", "custom_domain": true },
+    { "pattern": "www.gtfsbuilder.net", "custom_domain": true }
+  ]
 }
