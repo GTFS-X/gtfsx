@@ -1,0 +1,16 @@
+{
+  // GTFS Builder — deployed as static assets on Cloudflare's unified
+  // Workers-with-Static-Assets platform. There's no Worker code — this is a
+  // pure Vite SPA. The `dist/` directory is what `npm run build` produces
+  // and what Cloudflare serves from the edge.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gtfs-builder",
+  "compatibility_date": "2026-04-12",
+  "assets": {
+    "directory": "./dist",
+    // SPA fallback — route all unknown paths to index.html so client-side
+    // routing works. (Not strictly needed today since the app uses hash
+    // routing, but harmless and future-proof.)
+    "not_found_handling": "single-page-application"
+  }
+}
