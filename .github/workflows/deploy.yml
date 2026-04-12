@@ -1,8 +1,11 @@
-name: Deploy to GitHub Pages
+name: Deploy to GitHub Pages (backup — Cloudflare is primary)
 
+# Production site is served from Cloudflare (Workers-with-Static-Assets, see
+# wrangler.jsonc). This workflow stays around as a manual fallback in case
+# Cloudflare has an issue — trigger via Actions tab → Run workflow.
+#
+# Removed the push trigger so every commit no longer double-deploys.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
