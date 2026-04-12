@@ -29,7 +29,7 @@ export function MapLayerControls({
       </button>
 
       {open && (
-        <div className="mt-1.5 bg-white rounded-xl shadow-lg p-3 min-w-[180px]">
+        <div className="mt-1.5 bg-white rounded-xl shadow-lg p-3 w-[240px]">
           {/* Base map style */}
           <div className="text-[10px] font-bold text-warm-gray uppercase tracking-wider mb-1.5">
             Base Map
