@@ -50,6 +50,11 @@ export function TopBar() {
           GTFS Builder
         </button>
 
+        {/* Tagline */}
+        <span className="hidden lg:inline text-sm font-medium text-warm-gray border-l border-sand pl-4 -ml-1">
+          The Free Online GTFS Feed Editor
+        </span>
+
         {/* Project name */}
         {editing ? (
           <input

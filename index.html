@@ -56,21 +56,42 @@
   <body>
     <div id="root"></div>
     <noscript>
-      <div style="font-family: sans-serif; max-width: 700px; margin: 60px auto; padding: 0 20px;">
-        <h1>GTFS Builder – Free Online GTFS Feed Editor</h1>
-        <p>GTFS Builder is a free, browser-based editor for creating and editing GTFS (General Transit Feed Specification) feeds. Build complete transit schedules including routes, stops, timetables, fares, and service calendars — all from your browser, with no account or installation required.</p>
+      <div style="font-family: sans-serif; max-width: 760px; margin: 60px auto; padding: 0 20px; line-height: 1.6; color: #2A1F18;">
+        <h1 style="margin-bottom: 4px;">GTFS Builder</h1>
+        <p style="font-size: 1.15rem; color: #6B5A4D; margin-top: 0;">The free online GTFS feed editor.</p>
+
+        <p>GTFS Builder is a free, browser-based editor for creating and editing GTFS (General Transit Feed Specification) feeds. Build complete transit schedules — agencies, routes, stops, timetables, fares, calendars, and demand-responsive zones — directly in your browser, with no account, no installation, and no data leaving your machine.</p>
+
+        <h2>Built for</h2>
+        <ul>
+          <li>Small and mid-size transit agencies publishing or updating their own GTFS feed</li>
+          <li>Microtransit and dial-a-ride operators that need GTFS-Flex booking rules</li>
+          <li>Transportation planning consultants sketching service alternatives</li>
+          <li>Researchers and students building example feeds for analysis</li>
+        </ul>
+
         <h2>Features</h2>
         <ul>
-          <li>Create and edit routes, stops, and shapes on an interactive map</li>
-          <li>Build service calendars and timetables</li>
-          <li>Define fare rules and pricing structures</li>
-          <li>GTFS-Flex support for demand-responsive transit</li>
-          <li>Import existing GTFS ZIP files</li>
-          <li>Export standards-compliant GTFS ZIP files</li>
-          <li>Ridership and demographic coverage analysis</li>
-          <li>Built-in GTFS feed validation</li>
+          <li>Draw routes on an interactive Mapbox map with snap-to-road</li>
+          <li>Place stops along routes with curbside-correct positioning</li>
+          <li>Timetable grid editor with auto-interpolation and trip duplication</li>
+          <li>Service calendars with bulk holiday exception support</li>
+          <li>Fare structures including zone-based fare matrices</li>
+          <li>Full GTFS-Flex support — polygon zones, pickup/drop-off windows, booking rules</li>
+          <li>Continuous validation against the GTFS spec</li>
+          <li>Import and export standards-compliant GTFS ZIP files</li>
+          <li>Census-based demographic and equity coverage analysis</li>
         </ul>
-        <p>Please enable JavaScript to use GTFS Builder.</p>
+
+        <h2>Learn more</h2>
+        <ul>
+          <li><a href="/about/">About GTFS Builder</a> — what the tool is and who it's for</li>
+          <li><a href="/docs/">Documentation</a> — step-by-step walkthrough of every feature</li>
+          <li><a href="/learn/gtfs/">What is GTFS?</a> — a plain-English introduction to the spec</li>
+          <li><a href="/learn/gtfs-flex/">What is GTFS-Flex?</a> — demand-responsive transit in GTFS</li>
+        </ul>
+
+        <p><strong>To use the editor itself, please enable JavaScript.</strong></p>
       </div>
     </noscript>
     <script type="module" src="/src/main.tsx"></script>

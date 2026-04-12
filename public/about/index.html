@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>About GTFS Builder – Free Browser-Based GTFS Editor</title>
+    <meta name="description" content="GTFS Builder is a free, browser-based editor for creating and maintaining GTFS transit feeds. Designed for small transit agencies, planners, and consultants who need a fast, no-install way to build standards-compliant feeds." />
+    <link rel="canonical" href="https://www.gtfsbuilder.net/about/" />
+    <meta property="og:title" content="About GTFS Builder" />
+    <meta property="og:description" content="A free, browser-based GTFS feed editor built for transit agencies, planners, and consultants." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.gtfsbuilder.net/about/" />
+    <style>
+      :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Inter", sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+      header, footer, main { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+      header { display:flex; align-items:center; justify-content:space-between; padding-top:24px; padding-bottom:24px; border-bottom:1px solid var(--rule); }
+      .brand { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--ink); font-weight:700; }
+      .brand img { width:28px; height:28px; }
+      .cta { display:inline-block; background:var(--accent); color:#fff; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:600; }
+      .cta:hover { filter: brightness(0.95); }
+      main { padding-top: 40px; padding-bottom: 60px; }
+      h1 { font-size: 2.2rem; line-height:1.2; margin: 0 0 12px; }
+      h2 { font-size: 1.4rem; margin-top: 2.2rem; }
+      .lede { font-size: 1.15rem; color:var(--muted); }
+      a { color: var(--accent); }
+      ul { padding-left: 1.2rem; }
+      li { margin: 0.3rem 0; }
+      footer { border-top: 1px solid var(--rule); padding-top:20px; padding-bottom:40px; color:var(--muted); font-size:0.95rem; display:flex; flex-wrap:wrap; gap:18px; }
+      footer a { color: var(--muted); }
+    </style>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "AboutPage",
+      "name": "About GTFS Builder",
+      "url": "https://www.gtfsbuilder.net/about/",
+      "about": {
+        "@type": "WebApplication",
+        "name": "GTFS Builder",
+        "url": "https://www.gtfsbuilder.net/",
+        "applicationCategory": "UtilitiesApplication"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"><img src="/favicon.svg" alt="" /> GTFS Builder</a>
+      <a href="/" class="cta">Launch the editor</a>
+    </header>
+    <main>
+      <h1>About GTFS Builder</h1>
+      <p class="lede">GTFS Builder is a free, browser-based editor for creating and maintaining GTFS (General Transit Feed Specification) feeds. It was built for the people who actually publish transit data — small agencies, mobility consultants, and transportation planners — and runs entirely in the browser with no server, account, or installation required.</p>
+
+      <h2>Why this exists</h2>
+      <p>Most existing GTFS tooling is either a command-line script aimed at engineers, a heavyweight desktop GIS application, or a hosted SaaS product that locks your data behind an account. None of those are a good fit for a planner who just wants to draw a route, lay down stops, type in a timetable, and walk away with a valid <code>gtfs.zip</code>. GTFS Builder fills that gap with an interactive map-based interface that mirrors how planners actually think about transit service.</p>
+
+      <h2>Who it's for</h2>
+      <ul>
+        <li><strong>Small and mid-size transit agencies</strong> publishing or updating their own GTFS feed without a dedicated GIS team.</li>
+        <li><strong>Microtransit and demand-responsive operators</strong> who need <a href="/learn/gtfs-flex/">GTFS-Flex</a> support for booking rules and service zones.</li>
+        <li><strong>Transportation planning consultants</strong> sketching service alternatives for client agencies.</li>
+        <li><strong>Researchers and students</strong> building example feeds for analysis, tutorials, or coursework.</li>
+        <li><strong>Anyone</strong> who needs to clean up, validate, or lightly edit an existing feed without setting up a Python environment.</li>
+      </ul>
+
+      <h2>What makes it different</h2>
+      <ul>
+        <li><strong>Runs entirely in your browser.</strong> Your feed data never leaves your machine. There is no backend, no upload, and no account. Projects are auto-saved to your browser's local storage.</li>
+        <li><strong>Map-first workflow.</strong> Draw route alignments on an interactive Mapbox map with snap-to-road, then place stops along the route with curbside-correct positioning.</li>
+        <li><strong>Standards-compliant export.</strong> Generates a valid GTFS ZIP that passes the canonical GTFS validator, including optional files like <code>fare_attributes.txt</code>, <code>calendar_dates.txt</code>, and <code>shapes.txt</code>.</li>
+        <li><strong>GTFS-Flex support.</strong> First-class support for demand-responsive zones, booking rules, and continuous pickup/drop-off — see the <a href="/learn/gtfs-flex/">GTFS-Flex overview</a>.</li>
+        <li><strong>Built-in validation.</strong> Errors and warnings are surfaced inline as you edit, not just at export time, so problems get caught early.</li>
+        <li><strong>Demographic coverage analysis.</strong> Overlay census data to see how many people live near your stops and routes — useful for Title VI equity analysis and grant applications.</li>
+      </ul>
+
+      <h2>What it costs</h2>
+      <p>GTFS Builder is free to use. There are no usage tiers, no paid features, and no plans to add any. The only cost on the project side is the Mapbox map tiles, which sit comfortably within Mapbox's free tier for typical agency-staff usage.</p>
+
+      <h2>Get started</h2>
+      <p>The fastest way to understand the tool is to <a href="/">open the editor</a> and click around. If you want a guided walkthrough, see the <a href="/docs/">documentation</a>. If you're new to GTFS itself, the <a href="/learn/gtfs/">What is GTFS?</a> primer is a good place to start.</p>
+    </main>
+    <footer>
+      <a href="/">Editor</a>
+      <a href="/about/">About</a>
+      <a href="/docs/">Docs</a>
+      <a href="/learn/gtfs/">What is GTFS?</a>
+      <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a>
+    </footer>
+  </body>
+</html>

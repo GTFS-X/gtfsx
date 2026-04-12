@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>What is GTFS-Flex? Demand-Responsive Transit in the GTFS Spec</title>
+    <meta name="description" content="GTFS-Flex extends the GTFS spec to cover demand-responsive transit: microtransit, dial-a-ride, deviated fixed-route, and on-demand zones. Learn what GTFS-Flex adds, how booking rules work, and when your service needs it." />
+    <link rel="canonical" href="https://www.gtfsbuilder.net/learn/gtfs-flex/" />
+    <meta property="og:title" content="What is GTFS-Flex?" />
+    <meta property="og:description" content="GTFS-Flex covers demand-responsive transit — microtransit, dial-a-ride, deviated fixed-route, and on-demand zones. Here's what it adds and when you need it." />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://www.gtfsbuilder.net/learn/gtfs-flex/" />
+    <style>
+      :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Inter", sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+      header, footer, main { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+      header { display:flex; align-items:center; justify-content:space-between; padding-top:24px; padding-bottom:24px; border-bottom:1px solid var(--rule); }
+      .brand { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--ink); font-weight:700; }
+      .brand img { width:28px; height:28px; }
+      .cta { display:inline-block; background:var(--accent); color:#fff; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:600; }
+      .cta:hover { filter: brightness(0.95); }
+      main { padding-top: 40px; padding-bottom: 60px; }
+      h1 { font-size: 2.2rem; line-height:1.2; margin: 0 0 12px; }
+      h2 { font-size: 1.4rem; margin-top: 2.2rem; }
+      .lede { font-size: 1.15rem; color:var(--muted); }
+      a { color: var(--accent); }
+      ul { padding-left: 1.2rem; }
+      li { margin: 0.3rem 0; }
+      code { background:#fff; border:1px solid var(--rule); padding:1px 6px; border-radius:4px; font-size:0.9em; }
+      footer { border-top: 1px solid var(--rule); padding-top:20px; padding-bottom:40px; color:var(--muted); font-size:0.95rem; display:flex; flex-wrap:wrap; gap:18px; }
+      footer a { color: var(--muted); }
+    </style>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      "headline": "What is GTFS-Flex?",
+      "url": "https://www.gtfsbuilder.net/learn/gtfs-flex/",
+      "description": "GTFS-Flex extends GTFS to cover demand-responsive transit — microtransit, dial-a-ride, deviated fixed-route, and on-demand zones."
+    }
+    </script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"><img src="/favicon.svg" alt="" /> GTFS Builder</a>
+      <a href="/" class="cta">Launch the editor</a>
+    </header>
+    <main>
+      <h1>What is GTFS-Flex?</h1>
+      <p class="lede">GTFS-Flex is an extension to the standard <a href="/learn/gtfs/">GTFS spec</a> that adds support for demand-responsive transit — microtransit, dial-a-ride, deviated fixed-route, and any other service where vehicles don't follow a strictly fixed route or strictly fixed schedule. Without GTFS-Flex, this kind of service is invisible to trip planners.</p>
+
+      <h2>Why the base spec isn't enough</h2>
+      <p>The original GTFS spec assumes a vehicle leaves stop A at 8:00, arrives at stop B at 8:07, and so on — a deterministic sequence of fixed stops at fixed times. That model breaks down for any service where:</p>
+      <ul>
+        <li>The vehicle goes wherever riders book it within a defined zone (microtransit, dial-a-ride).</li>
+        <li>Pickups and drop-offs can happen anywhere along a corridor, not just at marked stops.</li>
+        <li>The route follows a fixed path but will deviate on request (deviated fixed-route).</li>
+        <li>Riders need to book in advance (the trip doesn't run unless someone calls).</li>
+      </ul>
+      <p>GTFS-Flex extends the spec to cover all of these cases without breaking compatibility with consumers that only understand fixed-route GTFS.</p>
+
+      <h2>What GTFS-Flex adds</h2>
+      <h3 style="font-size:1.1rem; margin-top:1.6rem;">Service area zones (<code>locations.geojson</code>)</h3>
+      <p>Instead of (or in addition to) point stops, you define polygon zones using GeoJSON. Riders can request pickup and drop-off anywhere within the zone. This is how microtransit and dial-a-ride service areas are represented.</p>
+
+      <h3 style="font-size:1.1rem; margin-top:1.6rem;">Pickup/drop-off windows</h3>
+      <p>Instead of a fixed arrival time, a flex stop or zone has a pickup window and a drop-off window — for example, "pickups available between 8:00 and 9:00 AM, drop-off within 30 minutes." Trip planners can then surface this as a time range rather than a single departure time.</p>
+
+      <h3 style="font-size:1.1rem; margin-top:1.6rem;">Continuous pickup and drop-off</h3>
+      <p>For corridor-style flex service, you can mark a route segment as supporting continuous pickup or drop-off — meaning the vehicle will stop anywhere along that segment, not just at scheduled stops.</p>
+
+      <h3 style="font-size:1.1rem; margin-top:1.6rem;">Booking rules (<code>booking_rules.txt</code>)</h3>
+      <p>This is often the most important file in a flex feed. Booking rules tell riders (and trip planners) how to actually request a trip:</p>
+      <ul>
+        <li><strong>Booking type</strong> — real-time, same-day, or prior-day.</li>
+        <li><strong>Advance notice</strong> — the minimum lead time required, e.g. "book at least 60 minutes in advance" or "book by 5 PM the day before."</li>
+        <li><strong>Maximum advance window</strong> — how far in the future bookings are accepted.</li>
+        <li><strong>Booking contact</strong> — phone number, URL, or app deep link.</li>
+        <li><strong>Message text</strong> — human-readable instructions shown to riders ("Call (555) 555-1234 at least one hour before your desired pickup").</li>
+      </ul>
+
+      <h2>Who needs GTFS-Flex?</h2>
+      <ul>
+        <li><strong>Microtransit operators</strong> — Via, Spare, RideCo, and similar on-demand zone services.</li>
+        <li><strong>Rural transit agencies</strong> running dial-a-ride or deviated fixed-route service in low-density areas.</li>
+        <li><strong>Paratransit</strong> services that want to be visible in mainstream trip planners.</li>
+        <li><strong>Senior and ADA service</strong> with advance-booking requirements.</li>
+        <li><strong>Hybrid systems</strong> mixing fixed-route trunk service with first-mile/last-mile flex zones.</li>
+      </ul>
+
+      <h2>Why publish a flex feed?</h2>
+      <p>Demand-responsive service is often the most underutilized part of an agency's network — riders simply don't know it exists. Publishing it as GTFS-Flex makes it discoverable in Google Maps, Transit, and other mainstream apps, alongside fixed-route options. For rural and microtransit agencies in particular, this is often the single highest-leverage thing you can do for ridership.</p>
+
+      <h2>Building a flex feed in GTFS Builder</h2>
+      <p>GTFS Builder has first-class support for GTFS-Flex. You can draw polygon zones directly on the map, configure pickup and drop-off windows, mark route segments as continuous pickup, and define a full set of booking rules per zone or per trip. Mixed feeds (fixed-route plus flex) are fully supported. See the <a href="/docs/#flex">flex section of the docs</a> for the step-by-step workflow.</p>
+
+      <h2>Spec references</h2>
+      <ul>
+        <li>The official GTFS-Flex specification is maintained at <a href="https://gtfs.org/community/extensions/flex/" rel="noopener">gtfs.org/community/extensions/flex</a>.</li>
+        <li>The base GTFS spec is at <a href="https://gtfs.org/" rel="noopener">gtfs.org</a> — see <a href="/learn/gtfs/">our plain-English overview</a>.</li>
+      </ul>
+    </main>
+    <footer>
+      <a href="/">Editor</a>
+      <a href="/about/">About</a>
+      <a href="/docs/">Docs</a>
+      <a href="/learn/gtfs/">What is GTFS?</a>
+      <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a>
+    </footer>
+  </body>
+</html>
