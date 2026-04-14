@@ -74,6 +74,47 @@ export function HelpDialog({ onClose }: HelpDialogProps) {
           </Section>
 
           <div className="border-t border-sand pt-4 mt-2">
+            <h3 className="font-heading font-bold text-sm text-dark-brown mb-2">Flex (On-Demand) Service</h3>
+            <p className="text-warm-gray mb-2">
+              Click <B>Flex</B> in the sidebar to define GTFS-Flex zones for demand-response
+              or dial-a-ride service. Each zone automatically gets a paired route
+              (editable from the <B>Routes</B> panel) so it appears in trip planners.
+            </p>
+            <p className="text-warm-gray font-semibold mt-2 mb-1">Creating a zone</p>
+            <p className="text-warm-gray">
+              Click <B>+ Create New Flex Zone</B>, then pick one of three methods:
+            </p>
+            <ul className="mt-1 ml-4 list-disc text-warm-gray space-y-1">
+              <li><B>Draw Zone on Map</B> — click to place polygon vertices, double-click to close</li>
+              <li><B>Create Stop Group</B> — a named group of existing stops (location_groups.txt)</li>
+              <li><B>Auto-generate from fixed routes</B> — buffer existing routes into flex zones</li>
+            </ul>
+            <p className="text-warm-gray font-semibold mt-2 mb-1">Configuring a zone</p>
+            <p className="text-warm-gray">
+              Select a zone to open <B>Service Details</B>:
+            </p>
+            <ul className="mt-1 ml-4 list-disc text-warm-gray space-y-1">
+              <li><B>Service pattern</B> — pick from your calendars (or calendar_dates-only services)</li>
+              <li><B>Pickup window</B> — start/end times in HH:MM:SS (required to export)</li>
+              <li><B>Booking rule</B> — advance notice, phone/URL, messages (booking_rules.txt)</li>
+              <li><B>Additional service windows</B> — morning + evening shifts on one zone</li>
+              <li><B>Fare</B> — link to a fare defined in the Fares panel</li>
+              <li><B>Travel-time estimation</B> — mean/safe duration factors for trip planners</li>
+            </ul>
+            <p className="text-warm-gray mt-2">
+              Click a zone on the map to get a popup with quick links to <B>Edit Route</B> and
+              <B> Edit Service Details</B>. Zone fill colour tracks the linked route's colour.
+            </p>
+            <p className="text-warm-gray mt-2">
+              Export produces <code className="px-1 bg-sand rounded text-xs">locations.geojson</code>,
+              <code className="px-1 bg-sand rounded text-xs">booking_rules.txt</code>, and
+              (for stop-group zones) <code className="px-1 bg-sand rounded text-xs">location_groups.txt</code> +
+              <code className="px-1 bg-sand rounded text-xs">location_group_stops.txt</code>.
+              Zones missing a pickup window are flagged in the Export dialog and skipped.
+            </p>
+          </div>
+
+          <div className="border-t border-sand pt-4 mt-2">
             <h3 className="font-heading font-bold text-sm text-dark-brown mb-2">Analysis Tools</h3>
             <p className="text-warm-gray mb-2">
               <B>Costs</B> — Set a cost per revenue hour and deadhead factor to estimate

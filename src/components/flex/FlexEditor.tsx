@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import buffer from '@turf/buffer';
 import { featureCollection, multiLineString } from '@turf/helpers';
 import { useStore } from '../../store';
@@ -57,6 +57,10 @@ export function FlexEditor() {
   const [error, setError] = useState<string | null>(null);
   const [bufferInput, setBufferInput] = useState<string>(String(DEFAULT_FLEX_BUFFER_MILES));
   const [expandedZoneId, setExpandedZoneId] = useState<string | null>(null);
+  const [showCreatePanel, setShowCreatePanel] = useState(false);
+  const [confirmDeleteZoneId, setConfirmDeleteZoneId] = useState<string | null>(null);
+  // Persists only for the current session — the ref is re-initialized on reload.
+  const skipDeleteConfirmRef = useRef(false);
 
   // Let external triggers (e.g. the Flex zone map popup) expand a specific
   // zone's Details panel on mount.
@@ -194,59 +198,78 @@ export function FlexEditor() {
 
       {/* Actions (not shown while editing) */}
       {!isEditing && !isDrawing && (
-        <>
-          {/* Draw zone manually */}
+        !showCreatePanel ? (
           <button
-            onClick={handleDrawZone}
+            onClick={() => setShowCreatePanel(true)}
             className="w-full px-3 py-2 bg-purple text-white rounded-lg text-xs font-heading font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
           >
-            <span>✏</span> Draw Zone on Map
+            <span>+</span> Create New Flex Zone
           </button>
-
-          {/* Create stop group */}
-          <button
-            onClick={handleCreateGroup}
-            className="w-full px-3 py-2 bg-white border border-purple text-purple rounded-lg text-xs font-heading font-bold hover:bg-purple-50 transition-colors flex items-center justify-center gap-2"
-          >
-            <span>•••</span> Create Stop Group
-          </button>
-
-          {/* Auto-generate from fixed routes */}
-          <div className="bg-cream border border-sand rounded-lg p-3 space-y-2">
-            <p className="text-xs font-semibold text-dark-brown">Auto-generate from fixed routes</p>
-            <p className="text-[11px] text-warm-gray">
-              Buffer around all visible bus routes
-              ({busRoutes.length} route{busRoutes.length !== 1 ? 's' : ''}).
-              Light rail / tram excluded.
-            </p>
-            <div className="flex items-center gap-2">
-              <label className="text-[11px] text-dark-brown font-semibold whitespace-nowrap">
-                Buffer:
-              </label>
-              <input
-                type="number"
-                min="0.1"
-                max="25"
-                step="0.25"
-                value={bufferInput}
-                onChange={(e) => setBufferInput(e.target.value)}
-                className="w-20 px-2 py-1 border border-sand rounded text-xs text-dark-brown bg-white focus:outline-none focus:border-teal"
-              />
-              <span className="text-[11px] text-warm-gray">miles</span>
+        ) : (
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs font-semibold text-purple-800">Create new flex zone</p>
+              <button
+                onClick={() => setShowCreatePanel(false)}
+                className="text-[11px] text-warm-gray hover:text-dark-brown"
+              >
+                Cancel
+              </button>
             </div>
-            {error && <p className="text-[11px] text-red-600">{error}</p>}
+
+            {/* Draw zone manually */}
             <button
-              onClick={handleGenerate}
-              disabled={generating || !hasShapes || !bufferValid}
-              className="w-full px-3 py-2 bg-teal text-white rounded-lg text-xs font-heading font-bold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => { handleDrawZone(); setShowCreatePanel(false); }}
+              className="w-full px-3 py-2 bg-purple text-white rounded-lg text-xs font-heading font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
             >
-              {generating ? 'Generating…' : `Generate ${bufferValid ? bufferMiles : '?'} mi Buffer`}
+              <span>✏</span> Draw Zone on Map
             </button>
-            {!hasShapes && (
-              <p className="text-[11px] text-warm-gray">Draw route shapes on the map to enable.</p>
-            )}
+
+            {/* Create stop group */}
+            <button
+              onClick={() => { handleCreateGroup(); setShowCreatePanel(false); }}
+              className="w-full px-3 py-2 bg-white border border-purple text-purple rounded-lg text-xs font-heading font-bold hover:bg-purple-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <span>•••</span> Create Stop Group
+            </button>
+
+            {/* Auto-generate from fixed routes */}
+            <div className="bg-white border border-sand rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-dark-brown">Auto-generate from fixed routes</p>
+              <p className="text-[11px] text-warm-gray">
+                Buffer around all visible bus routes
+                ({busRoutes.length} route{busRoutes.length !== 1 ? 's' : ''}).
+                Light rail / tram excluded.
+              </p>
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] text-dark-brown font-semibold whitespace-nowrap">
+                  Buffer:
+                </label>
+                <input
+                  type="number"
+                  min="0.1"
+                  max="25"
+                  step="0.25"
+                  value={bufferInput}
+                  onChange={(e) => setBufferInput(e.target.value)}
+                  className="w-20 px-2 py-1 border border-sand rounded text-xs text-dark-brown bg-white focus:outline-none focus:border-teal"
+                />
+                <span className="text-[11px] text-warm-gray">miles</span>
+              </div>
+              {error && <p className="text-[11px] text-red-600">{error}</p>}
+              <button
+                onClick={() => { handleGenerate(); setShowCreatePanel(false); }}
+                disabled={generating || !hasShapes || !bufferValid}
+                className="w-full px-3 py-2 bg-teal text-white rounded-lg text-xs font-heading font-bold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {generating ? 'Generating…' : `Generate ${bufferValid ? bufferMiles : '?'} mi Buffer`}
+              </button>
+              {!hasShapes && (
+                <p className="text-[11px] text-warm-gray">Draw route shapes on the map to enable.</p>
+              )}
+            </div>
           </div>
-        </>
+        )
       )}
 
       {/* Zone list */}
@@ -302,7 +325,13 @@ export function FlexEditor() {
                         Edit
                       </button>
                       <button
-                        onClick={() => removeFlexZone(zone.id)}
+                        onClick={() => {
+                          if (skipDeleteConfirmRef.current) {
+                            removeFlexZone(zone.id);
+                          } else {
+                            setConfirmDeleteZoneId(zone.id);
+                          }
+                        }}
                         className="px-1.5 py-1 text-[11px] text-warm-gray hover:text-red-500 transition-colors rounded"
                         title="Remove zone"
                       >
@@ -334,6 +363,47 @@ export function FlexEditor() {
           <code className="px-1 bg-sand rounded">booking_rules.txt</code> per the GTFS-Flex spec.
         </p>
       </div>
+
+      {/* Delete confirmation */}
+      {confirmDeleteZoneId && (() => {
+        const zone = flexZones.find((z) => z.id === confirmDeleteZoneId);
+        if (!zone) { setConfirmDeleteZoneId(null); return null; }
+        const doDelete = () => { removeFlexZone(confirmDeleteZoneId); setConfirmDeleteZoneId(null); };
+        return (
+          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
+               onClick={() => setConfirmDeleteZoneId(null)}>
+            <div className="bg-white rounded-xl shadow-lg p-5 max-w-xs mx-4"
+                 onClick={(e) => e.stopPropagation()}>
+              <h3 className="font-heading font-bold text-base text-dark-brown mb-2">
+                Delete this flex zone?
+              </h3>
+              <p className="text-sm text-warm-gray mb-4">
+                "{zone.name}" will be removed, along with its paired route. This can't be undone.
+              </p>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => setConfirmDeleteZoneId(null)}
+                  className="w-full px-3 py-2 bg-sand text-brown rounded-lg font-heading font-bold text-sm hover:bg-cream transition-colors"
+                >
+                  No, keep it
+                </button>
+                <button
+                  onClick={doDelete}
+                  className="w-full px-3 py-2 bg-red-500 text-white rounded-lg font-heading font-bold text-sm hover:bg-red-600 transition-colors"
+                >
+                  Yes, delete
+                </button>
+                <button
+                  onClick={() => { skipDeleteConfirmRef.current = true; doDelete(); }}
+                  className="w-full px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg font-heading font-semibold text-sm hover:bg-red-100 transition-colors"
+                >
+                  Yes, and don't ask again this session
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
