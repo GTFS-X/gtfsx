@@ -43,13 +43,12 @@ export interface FlexZone {
   dropOffWindowStart?: string;
   dropOffWindowEnd?: string;
   /**
-   * Days of week the service runs. Used at export time to materialize a
-   * calendar.txt entry + flex trip. If undefined, defaults to all 7 days.
+   * service_id from calendar.txt that governs when this zone runs. Picked
+   * from the service patterns the user has defined in the Calendars tab.
+   * Required at export time for the flex trip; the UI falls back to the
+   * first available service_id if the user hasn't picked one yet.
    */
-  daysOfWeek?: {
-    mon: boolean; tue: boolean; wed: boolean; thu: boolean;
-    fri: boolean; sat: boolean; sun: boolean;
-  };
+  serviceId?: string;
   /**
    * Optional route_id from routes.txt. If unset, the export step
    * auto-creates a route per flex zone.

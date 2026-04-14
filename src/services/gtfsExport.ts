@@ -18,10 +18,9 @@ function stripUIFields(obj: Record<string, any>): Record<string, any> {
   return result;
 }
 
-const DAY_FIELDS: (keyof Calendar)[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-
 interface FlexMaterialized {
   routes: Route[];
+  /** Net-new calendar rows we had to synthesize (usually empty). */
   calendars: Calendar[];
   trips: Trip[];
   /** stop_times rows that reference a location_id (flex extension). */
@@ -30,9 +29,10 @@ interface FlexMaterialized {
 }
 
 /**
- * Turn each flex zone with a service window + days-of-week into a synthetic
- * trip + stop_times row + (if needed) a calendar entry + (if no route picked)
- * a synthetic flex route. Reuses existing calendars / routes when they match.
+ * Turn each flex zone with a service window + picked service_id into a
+ * synthetic trip + stop_times row + (if no route picked) a synthetic flex
+ * route. Uses the zone's chosen service_id (from calendar.txt). If the zone
+ * has no service_id yet, falls back to the first available calendar.
  */
 function materializeFlex(state: ReturnType<typeof useStore.getState>): FlexMaterialized {
   const out: FlexMaterialized = {
@@ -42,45 +42,18 @@ function materializeFlex(state: ReturnType<typeof useStore.getState>): FlexMater
   const eligibleZones = state.flexZones.filter((z) => z.pickupWindowStart && z.pickupWindowEnd);
   if (eligibleZones.length === 0) return out;
 
-  const defaultStartDate = state.calendars[0]?.start_date || '20260101';
-  const defaultEndDate = state.calendars[0]?.end_date || '20271231';
   const defaultAgencyId = state.agencies[0]?.agency_id || '';
-
-  // Index existing calendars by their day pattern so multiple zones with the
-  // same days share one service_id.
-  function calendarKey(c: Pick<Calendar, 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'>) {
-    return DAY_FIELDS.map((f) => c[f as keyof typeof c]).join('');
-  }
-  const existingCalKeys = new Map(state.calendars.map((c) => [calendarKey(c), c.service_id]));
-  const synthCalKeys = new Map<string, string>();
+  const defaultServiceId = state.calendars[0]?.service_id;
+  const knownServiceIds = new Set(state.calendars.map((c) => c.service_id));
 
   for (const zone of eligibleZones) {
-    const days = zone.daysOfWeek ?? { mon: true, tue: true, wed: true, thu: true, fri: true, sat: true, sun: true };
-    const calPattern = {
-      monday: (days.mon ? 1 : 0) as 0 | 1,
-      tuesday: (days.tue ? 1 : 0) as 0 | 1,
-      wednesday: (days.wed ? 1 : 0) as 0 | 1,
-      thursday: (days.thu ? 1 : 0) as 0 | 1,
-      friday: (days.fri ? 1 : 0) as 0 | 1,
-      saturday: (days.sat ? 1 : 0) as 0 | 1,
-      sunday: (days.sun ? 1 : 0) as 0 | 1,
-    };
-    const key = calendarKey(calPattern);
-    let serviceId = existingCalKeys.get(key) ?? synthCalKeys.get(key);
-    if (!serviceId) {
-      const dayLabel = DAY_FIELDS
-        .filter((d) => calPattern[d as keyof typeof calPattern] === 1)
-        .map((d) => d.slice(0, 2))
-        .join('') || 'never';
-      serviceId = `flex-${dayLabel}`;
-      synthCalKeys.set(key, serviceId);
-      out.calendars.push({
-        service_id: serviceId,
-        ...calPattern,
-        start_date: defaultStartDate,
-        end_date: defaultEndDate,
-      });
-    }
+    // Prefer the zone's picked service_id; fall back to the first calendar
+    // if the user hasn't chosen one yet. If there's no calendar at all, the
+    // zone can't be materialized into a spec-valid trip — skip it.
+    const serviceId = (zone.serviceId && knownServiceIds.has(zone.serviceId))
+      ? zone.serviceId
+      : defaultServiceId;
+    if (!serviceId) continue;
 
     // Route: reuse the user's pick, otherwise synthesize one per zone.
     let routeId = zone.routeId;

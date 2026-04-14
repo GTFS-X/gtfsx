@@ -11,27 +11,32 @@ const BOOKING_TYPES: { value: 0 | 1 | 2; label: string; hint: string }[] = [
   { value: 2, label: 'Prior day', hint: 'Booking closes day(s) before service' },
 ];
 
-const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
-type DayKey = typeof DAY_KEYS[number];
-const DAY_LABELS: Record<DayKey, string> = {
-  mon: 'M', tue: 'T', wed: 'W', thu: 'Th', fri: 'F', sat: 'Sa', sun: 'Su',
-};
-const DEFAULT_DAYS = { mon: true, tue: true, wed: true, thu: true, fri: true, sat: true, sun: true };
+function describeServicePattern(c: {
+  monday: 0 | 1; tuesday: 0 | 1; wednesday: 0 | 1; thursday: 0 | 1;
+  friday: 0 | 1; saturday: 0 | 1; sunday: 0 | 1;
+}): string {
+  const daysShort = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+  const flags = [c.monday, c.tuesday, c.wednesday, c.thursday, c.friday, c.saturday, c.sunday];
+  const active = flags.reduce<string[]>((acc, v, i) => (v ? [...acc, daysShort[i]] : acc), []);
+  if (active.length === 7) return 'Every day';
+  if (active.length === 0) return 'No days';
+  // Common patterns
+  const key = flags.join('');
+  if (key === '1111100') return 'Weekdays';
+  if (key === '0000011') return 'Weekends';
+  if (key === '1111110') return 'Mon–Sat';
+  return active.join(' ');
+}
 
 export function FlexZoneDetails({ zone }: Props) {
-  const { updateFlexZone, updateFlexZoneBooking, fareAttributes, routes } = useStore();
+  const { updateFlexZone, updateFlexZoneBooking, fareAttributes, routes, calendars, setSidebarSection } = useStore();
   const b: Partial<BookingRule> = zone.bookingRule ?? { bookingType: 1 };
-  const days = zone.daysOfWeek ?? DEFAULT_DAYS;
 
   const setField = <K extends keyof FlexZone>(k: K, v: FlexZone[K]) =>
     updateFlexZone(zone.id, { [k]: v } as Partial<FlexZone>);
 
   const setBooking = <K extends keyof BookingRule>(k: K, v: BookingRule[K]) =>
     updateFlexZoneBooking(zone.id, { [k]: v });
-
-  const toggleDay = (k: DayKey) => {
-    setField('daysOfWeek', { ...days, [k]: !days[k] });
-  };
 
   return (
     <div className="px-3 pb-3 pt-1 space-y-3 bg-purple-50/30 border-l-2 border-purple-200">
@@ -62,24 +67,37 @@ export function FlexZoneDetails({ zone }: Props) {
             />
           </div>
         </div>
-        <label className="block text-[10px] text-warm-gray mb-1">Days of week</label>
-        <div className="flex gap-1">
-          {DAY_KEYS.map((k) => (
-            <button
-              key={k}
-              onClick={() => toggleDay(k)}
-              className={`flex-1 px-1 py-1 rounded text-[11px] font-semibold transition-colors
-                ${days[k]
-                  ? 'bg-purple text-white'
-                  : 'bg-white text-warm-gray border border-sand hover:border-purple'}`}
+        <label className="block text-[10px] text-warm-gray mb-1">Service pattern</label>
+        {calendars.length > 0 ? (
+          <>
+            <select
+              value={zone.serviceId || ''}
+              onChange={(e) => setField('serviceId', e.target.value || undefined)}
+              className="w-full px-2 py-1 border border-sand rounded text-xs bg-white focus:outline-none focus:border-purple"
             >
-              {DAY_LABELS[k]}
+              <option value="">— Pick a service pattern —</option>
+              {calendars.map((c) => (
+                <option key={c.service_id} value={c.service_id}>
+                  {(c._description ? c._description + ' · ' : '') + c.service_id + ' — ' + describeServicePattern(c)}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-warm-gray/80 mt-1">
+              The flex trip on export uses this service_id. Manage patterns in the Calendars tab.
+            </p>
+          </>
+        ) : (
+          <div className="bg-cream border border-sand rounded px-2 py-1.5 text-[11px] text-warm-gray">
+            No calendars defined yet.{' '}
+            <button
+              type="button"
+              onClick={() => setSidebarSection('calendar')}
+              className="text-purple font-semibold hover:underline"
+            >
+              Create one →
             </button>
-          ))}
-        </div>
-        <p className="text-[10px] text-warm-gray/80 mt-1">
-          Used to create the calendar entry + flex trip on export.
-        </p>
+          </div>
+        )}
       </div>
 
       {/* Booking type */}
