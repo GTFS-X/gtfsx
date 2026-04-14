@@ -110,6 +110,21 @@ export function FlexEditor() {
     setMapMode('draw_flex_zone');
   };
 
+  const handleCreateGroup = useCallback(() => {
+    // Create an empty stop-group zone. User fills in stops via the zone's
+    // Details panel, which expands below the new row.
+    const zoneNum = useStore.getState().flexZones.length + 1;
+    const zoneId = `flex-group-${Date.now()}`;
+    createFlexZoneWithRoute({
+      id: zoneId,
+      name: `Stop Group ${zoneNum}`,
+      bufferMiles: 0,
+      geojson: { type: 'FeatureCollection', features: [] },
+      stopIds: [],
+    });
+    setExpandedZoneId(zoneId);
+  }, []);
+
   const handleEditZone = (zone: FlexZone) => {
     setEditingFlexZoneId(zone.id);
     setMapMode('edit_flex_zone');
@@ -188,6 +203,14 @@ export function FlexEditor() {
             <span>✏</span> Draw Zone on Map
           </button>
 
+          {/* Create stop group */}
+          <button
+            onClick={handleCreateGroup}
+            className="w-full px-3 py-2 bg-white border border-purple text-purple rounded-lg text-xs font-heading font-bold hover:bg-purple-50 transition-colors flex items-center justify-center gap-2"
+          >
+            <span>•••</span> Create Stop Group
+          </button>
+
           {/* Auto-generate from fixed routes */}
           <div className="bg-cream border border-sand rounded-lg p-3 space-y-2">
             <p className="text-xs font-semibold text-dark-brown">Auto-generate from fixed routes</p>
@@ -252,8 +275,9 @@ export function FlexEditor() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-dark-brown truncate">{zone.name}</p>
                     <p className="text-[11px] text-warm-gray">
-                      {zone.geojson.features.length} polygon{zone.geojson.features.length !== 1 ? 's' : ''}
-                      {zone.bufferMiles > 0 ? ` · ${zone.bufferMiles} mi buffer` : ' · hand-drawn'}
+                      {Array.isArray(zone.stopIds) && zone.stopIds.length >= 0 && !zone.geojson.features.length
+                        ? `${zone.stopIds.length} stop${zone.stopIds.length !== 1 ? 's' : ''}`
+                        : `${zone.geojson.features.length} polygon${zone.geojson.features.length !== 1 ? 's' : ''}${zone.bufferMiles > 0 ? ` · ${zone.bufferMiles} mi buffer` : ' · hand-drawn'}`}
                       {hasBooking && ' · booking set'}
                       {zone.fareId && ` · fare ${zone.fareId}`}
                     </p>

@@ -173,15 +173,18 @@ export async function importGtfsZip(file: File): Promise<{
       }))
     : [];
 
-  // Stop times. A flex stop_time has a location_id instead of a stop_id;
-  // we split those out so they can feed back into FlexZone metadata (and
-  // don't pollute the fixed-route stop_times table).
+  // Stop times. A flex stop_time has a location_id (polygon) or
+  // location_group_id (stop group) instead of stop_id; we split those out
+  // so they can feed back into FlexZone metadata (and don't pollute the
+  // fixed-route stop_times table).
   const stopTimesText = await readFile('stop_times.txt');
   const stopTimesAll = stopTimesText ? parseCSV<any>(stopTimesText) : [];
   const flexStopTimeRows: any[] = [];
   const stopTimes: StopTime[] = [];
   for (const row of stopTimesAll) {
-    if (row.location_id && !row.stop_id) {
+    const isFlex = (row.location_id && !row.stop_id) ||
+                   (row.location_group_id && !row.stop_id);
+    if (isFlex) {
       flexStopTimeRows.push(row);
       continue;
     }
@@ -344,9 +347,71 @@ export async function importGtfsZip(file: File): Promise<{
     }
   }
 
+  // location_groups.txt + location_group_stops.txt → group flex zones.
+  // Each group becomes a FlexZone with stopIds (no polygon geometry).
+  const locationGroupsText = await readFile('location_groups.txt');
+  const locationGroupStopsText = await readFile('location_group_stops.txt');
+  const groupNameById = new Map<string, string>();
+  const groupStopsById = new Map<string, string[]>();
+  if (locationGroupsText) {
+    for (const row of parseCSV<any>(locationGroupsText)) {
+      const id = String(row.location_group_id || '');
+      if (!id) continue;
+      groupNameById.set(id, row.location_group_name || id);
+    }
+  }
+  if (locationGroupStopsText) {
+    for (const row of parseCSV<any>(locationGroupStopsText)) {
+      const id = String(row.location_group_id || '');
+      const sid = String(row.stop_id || '');
+      if (!id || !sid) continue;
+      const list = groupStopsById.get(id) || [];
+      list.push(sid);
+      groupStopsById.set(id, list);
+    }
+  }
+
   // locations.geojson → FlexZone[]
   const locationsText = await readFile('locations.geojson');
   const flexZones: FlexZone[] = [];
+
+  // ── Group-based zones ─────────────────────────────────────────────
+  for (const [groupId, stopIds] of groupStopsById) {
+    const groupName = groupNameById.get(groupId) || groupId;
+    const flexRow = flexStopTimeRows.find(
+      (r) => String(r.location_group_id) === groupId,
+    );
+    const bookingId =
+      flexRow?.pickup_booking_rule_id ||
+      flexRow?.drop_off_booking_rule_id;
+    const bookingRule = bookingId ? bookingRuleMap.get(String(bookingId)) : undefined;
+    const pickupStart = flexRow?.start_pickup_drop_off_window;
+    const pickupEnd = flexRow?.end_pickup_drop_off_window;
+
+    let routeId: string | undefined;
+    let serviceId: string | undefined;
+    if (flexRow) {
+      const trip = trips.find((t) => t.trip_id === String(flexRow.trip_id));
+      if (trip) {
+        routeId = trip.route_id;
+        serviceId = trip.service_id;
+      }
+    }
+
+    flexZones.push({
+      // Mirror our own export's naming so a round-trip is stable.
+      id: groupId.replace(/-group$/, ''),
+      name: groupName,
+      bufferMiles: 0,
+      geojson: { type: 'FeatureCollection', features: [] },
+      stopIds,
+      bookingRule,
+      pickupWindowStart: pickupStart || undefined,
+      pickupWindowEnd: pickupEnd || undefined,
+      serviceId,
+      routeId,
+    });
+  }
   if (locationsText) {
     try {
       const geo = JSON.parse(locationsText) as GeoJSON.FeatureCollection;

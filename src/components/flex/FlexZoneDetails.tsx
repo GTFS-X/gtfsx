@@ -29,7 +29,8 @@ function describeServicePattern(c: {
 }
 
 export function FlexZoneDetails({ zone }: Props) {
-  const { updateFlexZone, updateFlexZoneBooking, fareAttributes, calendars, setSidebarSection } = useStore();
+  const { updateFlexZone, updateFlexZoneBooking, fareAttributes, calendars, stops, setSidebarSection } = useStore();
+  const isGroupZone = Array.isArray(zone.stopIds);
   const b: Partial<BookingRule> = zone.bookingRule ?? { bookingType: 1 };
 
   const setField = <K extends keyof FlexZone>(k: K, v: FlexZone[K]) =>
@@ -38,8 +39,69 @@ export function FlexZoneDetails({ zone }: Props) {
   const setBooking = <K extends keyof BookingRule>(k: K, v: BookingRule[K]) =>
     updateFlexZoneBooking(zone.id, { [k]: v });
 
+  const addStop = (stopId: string) => {
+    if (!stopId) return;
+    const current = zone.stopIds || [];
+    if (current.includes(stopId)) return;
+    setField('stopIds', [...current, stopId]);
+  };
+
+  const removeStop = (stopId: string) => {
+    if (!zone.stopIds) return;
+    setField('stopIds', zone.stopIds.filter((s) => s !== stopId));
+  };
+
   return (
     <div className="px-3 pb-3 pt-1 space-y-3 bg-purple-50/30 border-l-2 border-purple-200">
+      {/* Stops in group (only for group-based zones) */}
+      {isGroupZone && (
+        <div>
+          <div className="text-[10px] font-bold text-warm-gray uppercase tracking-wider mb-1.5">
+            Stops in This Group ({zone.stopIds?.length || 0})
+          </div>
+          {zone.stopIds && zone.stopIds.length > 0 ? (
+            <ul className="bg-white border border-sand rounded divide-y divide-sand mb-2 max-h-36 overflow-y-auto">
+              {zone.stopIds.map((sid) => {
+                const stop = stops.find((s) => s.stop_id === sid);
+                return (
+                  <li key={sid} className="flex items-center justify-between gap-2 px-2 py-1">
+                    <span className="text-xs text-dark-brown truncate">
+                      {stop ? (stop.stop_name || stop.stop_id) : sid}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeStop(sid)}
+                      className="text-[11px] text-warm-gray hover:text-red-500 shrink-0"
+                    >
+                      ×
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-[11px] text-warm-gray mb-2">No stops added yet.</p>
+          )}
+          <select
+            value=""
+            onChange={(e) => { addStop(e.target.value); e.target.value = ''; }}
+            className="w-full px-2 py-1 border border-sand rounded text-xs bg-white focus:outline-none focus:border-purple"
+          >
+            <option value="">— Add a stop —</option>
+            {stops
+              .filter((s) => !(zone.stopIds || []).includes(s.stop_id))
+              .map((s) => (
+                <option key={s.stop_id} value={s.stop_id}>
+                  {s.stop_name || s.stop_id}
+                </option>
+              ))}
+          </select>
+          <p className="text-[10px] text-warm-gray/80 mt-1">
+            Exported as <code>location_groups.txt</code> + <code>location_group_stops.txt</code>. The flex trip references <code>location_group_id</code> instead of a polygon.
+          </p>
+        </div>
+      )}
+
       {/* Service window + days */}
       <div>
         <div className="text-[10px] font-bold text-warm-gray uppercase tracking-wider mb-1.5">

@@ -145,9 +145,10 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
 
         {/* File summary */}
         {(() => {
-          const hasFlex = state.flexZones.length > 0;
           const exportableFlex = state.flexZones.filter((z) => z.pickupWindowStart && z.pickupWindowEnd);
           const skippedFlex = state.flexZones.filter((z) => !(z.pickupWindowStart && z.pickupWindowEnd));
+          const polygonZones = state.flexZones.filter((z) => !(Array.isArray(z.stopIds) && z.stopIds.length > 0));
+          const groupZones = state.flexZones.filter((z) => Array.isArray(z.stopIds) && z.stopIds.length > 0);
           const hasFlexBooking = state.flexZones.some((z) => z.bookingRule);
           const hasDirections = state.routes.some(
             (r) => r._direction_0_name || r._direction_1_name,
@@ -165,7 +166,9 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
             ['fare_attributes.txt', state.fareAttributes.length > 0, `${state.fareAttributes.length} fare${state.fareAttributes.length !== 1 ? 's' : ''}`],
             ['fare_rules.txt', state.fareRules.length > 0],
             ['feed_info.txt', !!state.feedInfo],
-            ['locations.geojson', hasFlex, `${state.flexZones.length} zone${state.flexZones.length !== 1 ? 's' : ''}`],
+            ['locations.geojson', polygonZones.length > 0, `${polygonZones.length} polygon zone${polygonZones.length !== 1 ? 's' : ''}`],
+            ['location_groups.txt', groupZones.length > 0, `${groupZones.length} stop group${groupZones.length !== 1 ? 's' : ''}`],
+            ['location_group_stops.txt', groupZones.length > 0],
             ['booking_rules.txt', hasFlexBooking],
           ];
           return (

@@ -32,8 +32,22 @@ export interface FlexZone {
   id: string;
   name: string;
   bufferMiles: number;
-  /** GeoJSON FeatureCollection of Polygon features making up the service area. */
+  /**
+   * GeoJSON FeatureCollection of Polygon features making up the service
+   * area. REQUIRED for polygon-based zones; empty FeatureCollection for
+   * group-based zones (where `stopIds` is the authoritative service area).
+   */
   geojson: GeoJSON.FeatureCollection;
+  /**
+   * Optional: for group-based zones this is the list of stop_id values that
+   * make up the flex service area (exported as `location_groups.txt` +
+   * `location_group_stops.txt`). When set, the zone's flex stop_times row
+   * references `location_group_id` instead of `location_id`.
+   *
+   * Mutually exclusive with geojson features — a zone is either polygon or
+   * group, not both.
+   */
+  stopIds?: string[];
   /** Optional booking rule. Exported to booking_rules.txt with id `${zone.id}-booking`. */
   bookingRule?: BookingRule;
   /** Optional pickup window (HH:MM:SS) when the zone is in service. */

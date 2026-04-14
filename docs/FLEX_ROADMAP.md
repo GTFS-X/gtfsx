@@ -27,13 +27,18 @@ pursue. Keep it current when a gap ships. Spec references assume the
 
 ### Open items, ranked by user-facing impact
 
-#### 1. 🔲 location_groups.txt + location_group_stops.txt
+#### 1. ✅ location_groups.txt + location_group_stops.txt
 
 **Spec:** defines named groups of existing stops; `stop_times.location_group_id` references a group.
-**Why it matters:** deviated-fixed-route and microtransit operators (Trillium's typical customer) often group discrete stops instead of drawing polygons. Brown County MN's flex feed uses these.
-**Current behaviour on import:** both files are ignored; group semantics are lost.
-**Scope:** new store slice, sidebar panel to author groups + assign stops, import/export of both files, update the flex export so zones can also be group-based.
-**Effort:** 2–3 days.
+**Shipped** as:
+- `src/store/flexSlice.ts` — `FlexZone.stopIds?: string[]` so a zone is either polygon (has `geojson.features`) or group (has non-empty `stopIds`).
+- `src/services/gtfsExport.ts` — emits `location_groups.txt` + `location_group_stops.txt` for group zones and references `location_group_id` in the flex `stop_times` row instead of `location_id`.
+- `src/services/gtfsImport.ts` — parses both files; each group becomes a FlexZone with `stopIds`. Flex `stop_times` rows with `location_group_id` are matched back to their zone.
+- `src/components/flex/FlexEditor.tsx` — new "Create Stop Group" button next to Draw Zone + auto-generate; zone list subtitle switches between "N stops" and "N polygons" based on zone type.
+- `src/components/flex/FlexZoneDetails.tsx` — when the zone has `stopIds`, shows a "Stops in This Group" editor (list with remove buttons + add-stop dropdown).
+- Map rendering skips group zones (their stops are already rendered via StopLayer); the on-click popup still works since clicks land on the stop circles.
+
+**Known limitation:** a zone can currently be polygon OR group — not a mix. Mixed zones are rare in practice and would require a larger refactor.
 
 #### 2. 🔲 continuous_pickup / continuous_drop_off
 

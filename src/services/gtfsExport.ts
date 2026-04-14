@@ -23,9 +23,13 @@ interface FlexMaterialized {
   /** Net-new calendar rows we had to synthesize (usually empty). */
   calendars: Calendar[];
   trips: Trip[];
-  /** stop_times rows that reference a location_id (flex extension). */
+  /** stop_times rows that reference a location_id or location_group_id. */
   flexStopTimes: Record<string, any>[];
   fareRules: Record<string, any>[];
+  /** location_groups.txt rows (for group-based flex zones). */
+  locationGroups: Record<string, any>[];
+  /** location_group_stops.txt rows (group_id, stop_id). */
+  locationGroupStops: Record<string, any>[];
 }
 
 /**
@@ -37,6 +41,7 @@ interface FlexMaterialized {
 function materializeFlex(state: ReturnType<typeof useStore.getState>): FlexMaterialized {
   const out: FlexMaterialized = {
     routes: [], calendars: [], trips: [], flexStopTimes: [], fareRules: [],
+    locationGroups: [], locationGroupStops: [],
   };
 
   const eligibleZones = state.flexZones.filter((z) => z.pickupWindowStart && z.pickupWindowEnd);
@@ -82,21 +87,50 @@ function materializeFlex(state: ReturnType<typeof useStore.getState>): FlexMater
     });
 
     const bookingId = zone.bookingRule ? `${zone.id}-booking` : undefined;
-    // For an area-based flex service, the spec accepts a single stop_times
-    // row referencing the location_id (no arrival/departure_time).
-    out.flexStopTimes.push({
-      trip_id: tripId,
-      stop_sequence: 1,
-      location_id: `${zone.id}-0`,
-      start_pickup_drop_off_window: zone.pickupWindowStart,
-      end_pickup_drop_off_window: zone.pickupWindowEnd,
-      pickup_type: 2,        // 2 = must phone agency to arrange
-      drop_off_type: 2,
-      ...(bookingId ? {
-        pickup_booking_rule_id: bookingId,
-        drop_off_booking_rule_id: bookingId,
-      } : {}),
-    });
+    const isGroupZone = Array.isArray(zone.stopIds) && zone.stopIds.length > 0;
+
+    if (isGroupZone) {
+      const groupId = `${zone.id}-group`;
+      out.locationGroups.push({
+        location_group_id: groupId,
+        location_group_name: zone.name,
+      });
+      for (const stopId of zone.stopIds!) {
+        out.locationGroupStops.push({
+          location_group_id: groupId,
+          stop_id: stopId,
+        });
+      }
+      out.flexStopTimes.push({
+        trip_id: tripId,
+        stop_sequence: 1,
+        location_group_id: groupId,
+        start_pickup_drop_off_window: zone.pickupWindowStart,
+        end_pickup_drop_off_window: zone.pickupWindowEnd,
+        pickup_type: 2,
+        drop_off_type: 2,
+        ...(bookingId ? {
+          pickup_booking_rule_id: bookingId,
+          drop_off_booking_rule_id: bookingId,
+        } : {}),
+      });
+    } else {
+      // Polygon-area flex: one stop_times row per zone, referencing
+      // the first polygon feature's location_id.
+      out.flexStopTimes.push({
+        trip_id: tripId,
+        stop_sequence: 1,
+        location_id: `${zone.id}-0`,
+        start_pickup_drop_off_window: zone.pickupWindowStart,
+        end_pickup_drop_off_window: zone.pickupWindowEnd,
+        pickup_type: 2,
+        drop_off_type: 2,
+        ...(bookingId ? {
+          pickup_booking_rule_id: bookingId,
+          drop_off_booking_rule_id: bookingId,
+        } : {}),
+      });
+    }
 
     if (zone.fareId) {
       out.fareRules.push({ fare_id: zone.fareId, route_id: routeId });
@@ -235,9 +269,20 @@ export async function exportGtfsZip(): Promise<Blob> {
     zip.file('feed_info.txt', toCSV([stripUIFields(state.feedInfo)]));
   }
 
-  // locations.geojson + booking_rules.txt (GTFS-Flex)
-  if (state.flexZones.length > 0) {
-    const allFeatures = state.flexZones.flatMap((zone) => {
+  // location_groups.txt + location_group_stops.txt (GTFS-Flex, group-based)
+  if (flex.locationGroups.length > 0) {
+    zip.file('location_groups.txt', toCSV(flex.locationGroups));
+  }
+  if (flex.locationGroupStops.length > 0) {
+    zip.file('location_group_stops.txt', toCSV(flex.locationGroupStops));
+  }
+
+  // locations.geojson (GTFS-Flex, polygon-based zones only)
+  const polygonZones = state.flexZones.filter(
+    (z) => !(Array.isArray(z.stopIds) && z.stopIds.length > 0),
+  );
+  if (polygonZones.length > 0) {
+    const allFeatures = polygonZones.flatMap((zone) => {
       const bookingId = zone.bookingRule ? `${zone.id}-booking` : undefined;
       return zone.geojson.features.map((f, i) => ({
         ...f,
@@ -255,6 +300,11 @@ export async function exportGtfsZip(): Promise<Blob> {
       }));
     });
     zip.file('locations.geojson', JSON.stringify({ type: 'FeatureCollection', features: allFeatures }, null, 2));
+  }
+
+  // booking_rules.txt (emitted whenever ANY zone has a booking rule,
+  // polygon or group — they share the same schema).
+  if (state.flexZones.some((z) => z.bookingRule)) {
 
     const bookingRows = state.flexZones
       .filter((z) => z.bookingRule)
