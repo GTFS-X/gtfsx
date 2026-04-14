@@ -247,7 +247,20 @@ export function MapView() {
     (window as any).__mapFlyTo = (lng: number, lat: number, zoom?: number) => {
       mapRef.current?.flyTo({ center: [lng, lat], zoom: zoom ?? mapRef.current.getZoom(), duration: 500 });
     };
-    return () => { delete (window as any).__mapFlyTo; };
+    (window as any).__mapFitBounds = (
+      bounds: [[number, number], [number, number]],
+      opts?: { padding?: number; maxZoom?: number; duration?: number },
+    ) => {
+      mapRef.current?.fitBounds(bounds, {
+        padding: opts?.padding ?? 60,
+        maxZoom: opts?.maxZoom ?? 14,
+        duration: opts?.duration ?? 800,
+      });
+    };
+    return () => {
+      delete (window as any).__mapFlyTo;
+      delete (window as any).__mapFitBounds;
+    };
   }, []);
 
   // Expose save/discard on window so RouteEditor / FlexEditor can call them

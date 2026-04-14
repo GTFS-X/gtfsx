@@ -9,6 +9,43 @@ type ImportSource = 'upload' | 'catalog';
 type ImportData = Awaited<ReturnType<typeof importGtfsZip>>;
 type ImportMode = 'replace' | 'merge';
 
+/** Compute a [[west, south], [east, north]] bounding box covering all stops
+ * and shape points in the imported feed. Returns null if no coordinates. */
+function computeImportBounds(data: ImportData): [[number, number], [number, number]] | null {
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  let any = false;
+  for (const s of data.stops) {
+    if (Number.isFinite(s.stop_lat) && Number.isFinite(s.stop_lon)) {
+      minLat = Math.min(minLat, s.stop_lat);
+      maxLat = Math.max(maxLat, s.stop_lat);
+      minLon = Math.min(minLon, s.stop_lon);
+      maxLon = Math.max(maxLon, s.stop_lon);
+      any = true;
+    }
+  }
+  for (const sh of data.shapes) {
+    for (const p of sh.points) {
+      if (Number.isFinite(p.shape_pt_lat) && Number.isFinite(p.shape_pt_lon)) {
+        minLat = Math.min(minLat, p.shape_pt_lat);
+        maxLat = Math.max(maxLat, p.shape_pt_lat);
+        minLon = Math.min(minLon, p.shape_pt_lon);
+        maxLon = Math.max(maxLon, p.shape_pt_lon);
+        any = true;
+      }
+    }
+  }
+  return any ? [[minLon, minLat], [maxLon, maxLat]] : null;
+}
+
+function fitMapToImport(data: ImportData) {
+  const bounds = computeImportBounds(data);
+  if (!bounds) return;
+  // Defer so the map has at least one tick to ingest the new route/stop
+  // layers before animating — otherwise fitBounds can race against the
+  // initial mount and appear to do nothing.
+  setTimeout(() => (window as any).__mapFitBounds?.(bounds), 100);
+}
+
 interface ImportDialogProps {
   onClose: () => void;
 }
@@ -44,6 +81,7 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
       if (useStore.getState().routes.length === 0) {
         loadImportIntoStore(data);
         useStore.getState().setProjectName(name);
+        fitMapToImport(data);
         setImportedCounts({
           routes: data.routes.length,
           stops: data.stops.length,
@@ -101,6 +139,7 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
     if (mode === 'replace') {
       loadImportIntoStore(parsedData);
       useStore.getState().setProjectName(fileName);
+      fitMapToImport(parsedData);
       setImportedCounts({
         routes: parsedData.routes.length,
         stops: parsedData.stops.length,
@@ -120,6 +159,19 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
           .filter((st) => selTripIds.has(st.trip_id))
           .map((st) => st.stop_id),
       );
+      // Fit the map to the subset of stops + shapes for the merged routes
+      // so the user isn't left looking at the wrong metro.
+      const selShapeIds = new Set(
+        parsedData.trips
+          .filter((t) => selectedRouteIds.has(t.route_id) && t.shape_id)
+          .map((t) => t.shape_id as string),
+      );
+      const subset: ImportData = {
+        ...parsedData,
+        stops: parsedData.stops.filter((s) => selStopIds.has(s.stop_id)),
+        shapes: parsedData.shapes.filter((sh) => selShapeIds.has(sh.shape_id)),
+      };
+      fitMapToImport(subset);
       setImportedCounts({
         routes: selectedRouteIds.size,
         stops: selStopIds.size,
