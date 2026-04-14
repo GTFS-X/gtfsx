@@ -65,7 +65,7 @@ function materializeFlex(state: ReturnType<typeof useStore.getState>): FlexMater
           agency_id: defaultAgencyId,
           route_short_name: zone.name,
           route_long_name: `${zone.name} (Flex)`,
-          route_type: 715, // Demand and Response Bus Service (extended GTFS route_types)
+          route_type: 3, // Bus — widely supported across validators
           route_color: '7C3AED',
           route_text_color: 'FFFFFF',
         });
