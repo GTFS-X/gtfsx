@@ -113,15 +113,26 @@ export function DrawControl({ onCreate, onUpdate, onDelete, drawRef }: DrawContr
       return d;
     },
     ({ map }) => {
-      // Use stable wrapper functions that delegate to refs
-      map.on('draw.create', (e: any) => onCreateRef.current?.(e));
-      map.on('draw.update', (e: any) => onUpdateRef.current?.(e));
-      map.on('draw.delete', (e: any) => onDeleteRef.current?.(e));
+      // map.off(type) silently no-ops without a listener reference, so we hold
+      // onto the wrappers and hand them back in the cleanup. Otherwise React
+      // StrictMode's mount/unmount/mount cycle leaves an old listener behind
+      // and every draw.create fires twice.
+      const onCreate = (e: unknown) => onCreateRef.current?.(e);
+      const onUpdate = (e: unknown) => onUpdateRef.current?.(e);
+      const onDelete = (e: unknown) => onDeleteRef.current?.(e);
+      (map as any).__gbDrawListeners = { onCreate, onUpdate, onDelete };
+      map.on('draw.create', onCreate);
+      map.on('draw.update', onUpdate);
+      map.on('draw.delete', onDelete);
     },
     ({ map }: { map: any }) => {
-      map.off('draw.create');
-      map.off('draw.update');
-      map.off('draw.delete');
+      const listeners = map.__gbDrawListeners;
+      if (listeners) {
+        map.off('draw.create', listeners.onCreate);
+        map.off('draw.update', listeners.onUpdate);
+        map.off('draw.delete', listeners.onDelete);
+        delete map.__gbDrawListeners;
+      }
     },
   );
 
