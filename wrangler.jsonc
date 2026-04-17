@@ -21,7 +21,11 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    // Backend paths must bypass the SPA fallback. Without this, browser
+    // navigations to /auth/verify etc. hit `not_found_handling` and get
+    // served index.html before the Worker ever runs.
+    "run_worker_first": ["/auth/*", "/api/*", "/_import/*", "/_demand-tiles/*"]
   },
   "r2_buckets": [
     {
