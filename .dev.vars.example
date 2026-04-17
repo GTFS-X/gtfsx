@@ -6,8 +6,10 @@
 # explicitly to .gitignore if your repo doesn't already cover it).
 
 # Point emailed links at the local Vite dev server, not production.
-APP_ORIGIN=http://127.0.0.1:5173
-FEEDS_ORIGIN=http://127.0.0.1:5173
+# Must be `localhost` (not 127.0.0.1) — Vite binds to localhost by default,
+# and cookies on 127.0.0.1 don't share with cookies on localhost.
+APP_ORIGIN=http://localhost:5173
+FEEDS_ORIGIN=http://localhost:5173
 AUTH_EMAIL_FROM=GTFS Builder Dev <dev@example.com>
 
 # Real Resend API key — reuse the one from bozeman-pod/.env if you have one,
