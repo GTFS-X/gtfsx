@@ -22,6 +22,14 @@ import { NotFoundPage } from './components/misc/NotFoundPage';
 import { BackendDisabledPage } from './components/misc/BackendDisabledPage';
 import { MyFeedsPage } from './components/feeds/MyFeedsPage';
 import { ConflictDialog } from './components/versions/ConflictDialog';
+import { AdminDashboardPage } from './components/admin/AdminDashboardPage';
+import { AdminUsersPage } from './components/admin/AdminUsersPage';
+import { AdminUserDetailPage } from './components/admin/AdminUserDetailPage';
+import { AdminOrgsPage } from './components/admin/AdminOrgsPage';
+import { AdminOrgDetailPage } from './components/admin/AdminOrgDetailPage';
+import { AdminAuditPage } from './components/admin/AdminAuditPage';
+import { ImpersonationBanner } from './components/admin/ImpersonationBanner';
+import { RtBreakageDialog } from './components/distribution/RtBreakageDialog';
 import { backendEnabled } from './utils/featureFlags';
 
 async function loadDemoFeed() {
@@ -184,6 +192,7 @@ function App() {
 
   return (
     <BrowserRouter>
+      <ImpersonationBanner />
       <Routes>
         <Route path="/" element={<EditorRoute />} />
         <Route path="/demo" element={<EditorRoute demo />} />
@@ -197,8 +206,18 @@ function App() {
         <Route path="/feeds" element={<MyFeedsPage />} />
         <Route path="/feeds/:slug" element={<ServerEditorRoute />} />
         <Route path="/feeds/*" element={<Navigate to="/feeds" replace />} />
+        <Route path="/admin" element={<AdminDashboardPage />} />
+        <Route path="/admin/users" element={<AdminUsersPage />} />
+        <Route path="/admin/users/:id" element={<AdminUserDetailPage />} />
+        <Route path="/admin/orgs" element={<AdminOrgsPage />} />
+        <Route path="/admin/orgs/:id" element={<AdminOrgDetailPage />} />
+        <Route path="/admin/audit" element={<AdminAuditPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      {/* Global RT-breakage dialog — listens for `gb:rt-breakage` events from
+          the PublishPanel and confirms before publishing a version that would
+          break the project's registered GTFS-RT feed. */}
+      <RtBreakageDialog />
     </BrowserRouter>
   );
 }

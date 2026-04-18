@@ -1,6 +1,27 @@
 import type { StateCreator } from 'zustand';
 import type { ProjectSummary, ProjectVersion } from '../services/projectsApi';
 
+export interface PublicationEntry {
+  id: string;
+  versionId: string | null;
+  action: string;
+  actorUserId: string | null;
+  createdAt: number;
+}
+
+export interface PublicationCurrent {
+  versionId: string;
+  publishedAt: number;
+  canonicalUrl?: string;
+}
+
+export interface DraftLinkEntry {
+  tokenHash: string;
+  versionId: string;
+  expiresAt: number;
+  createdAt: number;
+}
+
 export interface FeedsSlice {
   feedsProjects: ProjectSummary[];
   feedsQuotaWarning: string | null;
@@ -9,6 +30,9 @@ export interface FeedsSlice {
   workingStateVersion: number;
   versionList: ProjectVersion[];
   restoredBanner: string | null;
+  publicationHistory: PublicationEntry[];
+  currentPublication: PublicationCurrent | null;
+  draftLinks: DraftLinkEntry[];
   setFeedsProjects: (projects: ProjectSummary[], warning: string | null) => void;
   upsertFeedProject: (project: ProjectSummary) => void;
   removeFeedProject: (projectId: string) => void;
@@ -16,6 +40,9 @@ export interface FeedsSlice {
   setWorkingStateVersion: (version: number) => void;
   setVersionList: (versions: ProjectVersion[]) => void;
   setRestoredBanner: (msg: string | null) => void;
+  setPublicationHistory: (history: PublicationEntry[]) => void;
+  setCurrentPublication: (current: PublicationCurrent | null) => void;
+  setDraftLinks: (links: DraftLinkEntry[]) => void;
 }
 
 export const createFeedsSlice: StateCreator<
@@ -31,6 +58,9 @@ export const createFeedsSlice: StateCreator<
   workingStateVersion: 0,
   versionList: [],
   restoredBanner: null,
+  publicationHistory: [],
+  currentPublication: null,
+  draftLinks: [],
 
   setFeedsProjects: (projects, warning) =>
     set((state) => {
@@ -57,6 +87,9 @@ export const createFeedsSlice: StateCreator<
       if (projectId === null) {
         state.workingStateVersion = 0;
         state.versionList = [];
+        state.publicationHistory = [];
+        state.currentPublication = null;
+        state.draftLinks = [];
       }
     }),
 
@@ -73,5 +106,20 @@ export const createFeedsSlice: StateCreator<
   setRestoredBanner: (msg) =>
     set((state) => {
       state.restoredBanner = msg;
+    }),
+
+  setPublicationHistory: (history) =>
+    set((state) => {
+      state.publicationHistory = history;
+    }),
+
+  setCurrentPublication: (current) =>
+    set((state) => {
+      state.currentPublication = current;
+    }),
+
+  setDraftLinks: (links) =>
+    set((state) => {
+      state.draftLinks = links;
     }),
 });

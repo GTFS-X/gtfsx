@@ -10,7 +10,14 @@ export type SidebarSection =
   | 'coverage'
   | 'titlevi';
 
-export type BottomPanelTab = 'timetable' | 'stops' | 'service-summary' | 'validation' | 'versions';
+export type BottomPanelTab =
+  | 'timetable'
+  | 'stops'
+  | 'service-summary'
+  | 'validation'
+  | 'versions'
+  | 'publish'
+  | 'audit';
 
 export type MapMode =
   | 'select'

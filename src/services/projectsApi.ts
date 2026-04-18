@@ -337,3 +337,152 @@ export async function importProjects(items: ImportProjectItem[]): Promise<Import
     body: { projects },
   });
 }
+
+// ─── Publication, draft links ─────────────────────────────────────────────────
+
+export interface PublicationInfo {
+  projectId: string;
+  versionId: string;
+  publishedAt: number;
+  canonicalUrl: string;
+}
+
+export interface PublicationHistoryEntry {
+  id: string;
+  versionId: string | null;
+  action: string;
+  actorUserId: string | null;
+  createdAt: number;
+}
+
+export interface PublicationHistoryResponse {
+  history: PublicationHistoryEntry[];
+  current: { versionId: string; publishedAt: number } | null;
+}
+
+export interface DraftLinkInfo {
+  tokenHash: string;
+  versionId: string;
+  expiresAt: number;
+  createdAt: number;
+}
+
+export interface CreateDraftLinkResponse {
+  url: string;
+  token: string;
+  tokenHash: string;
+  expiresAt: number;
+}
+
+async function postFormData<T>(path: string, form: FormData): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { ...BASE_HEADERS },
+      body: form,
+    });
+  } catch (e) {
+    throw new ApiError('network_error', (e as Error)?.message ?? 'Network error', 0);
+  }
+  if (!res.ok) throw await parseErrorResponse(res);
+  if (res.status === 204) return undefined as T;
+  const contentType = res.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) return (await res.json()) as T;
+  return undefined as T;
+}
+
+export interface PublishInput {
+  versionId: string;
+  ignoreWarnings?: boolean;
+  ignoreRtBreakage?: boolean;
+  zip?: Blob;
+}
+
+export async function publishProject(
+  projectId: string,
+  input: PublishInput,
+): Promise<{ publication: PublicationInfo }> {
+  const meta = {
+    versionId: input.versionId,
+    ignoreWarnings: input.ignoreWarnings,
+    ignoreRtBreakage: input.ignoreRtBreakage,
+  };
+  if (input.zip) {
+    const form = new FormData();
+    form.append('meta', JSON.stringify(meta));
+    form.append('zip', input.zip, 'gtfs.zip');
+    return postFormData<{ publication: PublicationInfo }>(
+      `/api/projects/${encodeURIComponent(projectId)}/publish`,
+      form,
+    );
+  }
+  return requestJson<{ publication: PublicationInfo }>(
+    `/api/projects/${encodeURIComponent(projectId)}/publish`,
+    { method: 'POST', body: meta },
+  );
+}
+
+export function unpublishProject(projectId: string): Promise<void> {
+  return requestJson<void>(`/api/projects/${encodeURIComponent(projectId)}/unpublish`, {
+    method: 'POST',
+  });
+}
+
+export function rollbackPublication(
+  projectId: string,
+  versionId: string,
+): Promise<{ publication: PublicationInfo }> {
+  return requestJson<{ publication: PublicationInfo }>(
+    `/api/projects/${encodeURIComponent(projectId)}/publish/rollback`,
+    { method: 'POST', body: { versionId } },
+  );
+}
+
+export function getPublicationHistory(
+  projectId: string,
+): Promise<PublicationHistoryResponse> {
+  return requestJson<PublicationHistoryResponse>(
+    `/api/projects/${encodeURIComponent(projectId)}/publish/history`,
+  );
+}
+
+export interface CreateDraftLinkInput {
+  versionId: string;
+  ttlDays?: number;
+  zip?: Blob;
+}
+
+export async function createDraftLink(
+  projectId: string,
+  input: CreateDraftLinkInput,
+): Promise<CreateDraftLinkResponse> {
+  const meta = { versionId: input.versionId, ttlDays: input.ttlDays };
+  if (input.zip) {
+    const form = new FormData();
+    form.append('meta', JSON.stringify(meta));
+    form.append('zip', input.zip, 'gtfs.zip');
+    return postFormData<CreateDraftLinkResponse>(
+      `/api/projects/${encodeURIComponent(projectId)}/draft-links`,
+      form,
+    );
+  }
+  return requestJson<CreateDraftLinkResponse>(
+    `/api/projects/${encodeURIComponent(projectId)}/draft-links`,
+    { method: 'POST', body: meta },
+  );
+}
+
+export function listDraftLinks(projectId: string): Promise<{ links: DraftLinkInfo[] }> {
+  return requestJson<{ links: DraftLinkInfo[] }>(
+    `/api/projects/${encodeURIComponent(projectId)}/draft-links`,
+  );
+}
+
+export function revokeDraftLink(projectId: string, tokenHash: string): Promise<void> {
+  return requestJson<void>(
+    `/api/projects/${encodeURIComponent(projectId)}/draft-links/${encodeURIComponent(tokenHash)}`,
+    { method: 'DELETE' },
+  );
+}

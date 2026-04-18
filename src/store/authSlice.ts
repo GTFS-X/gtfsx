@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
 import { me as fetchMe, type AuthedUser } from '../services/authApi';
+import type { OrgsSlice } from './orgsSlice';
 
 export interface AuthSlice {
   currentUser: AuthedUser | null;
@@ -10,7 +11,16 @@ export interface AuthSlice {
   clearAuth: () => void;
 }
 
-export const createAuthSlice: StateCreator<AuthSlice, [['zustand/immer', never]], [], AuthSlice> = (set, get) => ({
+// AuthSlice reaches across to OrgsSlice to kick off loadOrgs on login and
+// clearOrgs on logout. Widening the StateCreator over the union keeps the
+// types honest without introducing a circular import at runtime (orgsSlice
+// doesn't import anything from authSlice).
+export const createAuthSlice: StateCreator<
+  AuthSlice & OrgsSlice,
+  [['zustand/immer', never]],
+  [],
+  AuthSlice
+> = (set, get) => ({
   currentUser: null,
   authLoading: false,
   authChecked: false,
@@ -27,6 +37,9 @@ export const createAuthSlice: StateCreator<AuthSlice, [['zustand/immer', never]]
         state.authLoading = false;
         state.authChecked = true;
       });
+      // Fetch the user's org memberships so the workspace switcher is
+      // populated before the user opens it.
+      get().loadOrgs().catch(() => {});
     } catch {
       set((state) => {
         state.currentUser = null;
@@ -42,9 +55,11 @@ export const createAuthSlice: StateCreator<AuthSlice, [['zustand/immer', never]]
       state.authChecked = true;
     }),
 
-  clearAuth: () =>
+  clearAuth: () => {
     set((state) => {
       state.currentUser = null;
       state.authChecked = true;
-    }),
+    });
+    get().clearOrgs();
+  },
 });

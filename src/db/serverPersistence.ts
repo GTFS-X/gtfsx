@@ -38,7 +38,7 @@ export function setCurrentWorkingStateVersion(projectId: string, version: number
   useStore.getState().setWorkingStateVersion(version);
 }
 
-function buildSnapshot(): Record<string, unknown> {
+export function buildSnapshot(): Record<string, unknown> {
   const state = useStore.getState() as unknown as Record<string, unknown>;
   const snapshot: Record<string, unknown> = {};
   for (const key of DATA_KEYS) {

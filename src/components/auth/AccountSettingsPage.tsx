@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { FormField } from '../ui/FormField';
 import { Badge } from '../ui/Badge';
@@ -13,6 +13,12 @@ import {
   logoutAll,
   updateProfile,
 } from '../../services/authApi';
+import {
+  downloadMyExport,
+  listMyAudit,
+  type AuditEvent,
+} from '../../services/distributionApi';
+import { AuditTable } from '../audit/AuditTable';
 import { useStore } from '../../store';
 
 export function AccountSettingsPage() {
@@ -102,6 +108,10 @@ export function AccountSettingsPage() {
         clearAuth();
         navigate('/');
       }} />
+      <Divider />
+      <RecentActivitySection currentUserId={currentUser.id} />
+      <Divider />
+      <DataExportSection />
       <Divider />
       <DeleteAccountSection
         email={currentUser.email}
@@ -378,7 +388,7 @@ function DeleteAccountSection({
     <section>
       <SectionHeader
         title="Delete account"
-        description="Your account is scheduled for deletion after 30 days. Published feeds remain available unless you take them down."
+        description="Your data will be permanently removed 30 days after deletion (grace period). Published feeds remain available unless you take them down. Sign back in within 30 days to cancel."
       />
       {step === 'idle' ? (
         <AuthButton variant="danger" onClick={() => setStep('confirm')}>
@@ -422,6 +432,200 @@ function DeleteAccountSection({
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Recent activity — last 50 events visible to this user. Modal expands to
+// the same data (pagination happens inside).
+// ───────────────────────────────────────────────────────────────────────────
+
+function RecentActivitySection({ currentUserId }: { currentUserId: string }) {
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await listMyAudit({ limit: 50 });
+      setEvents(res.events);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not load activity');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <section>
+      <SectionHeader
+        title="Recent activity"
+        description="The most recent audit events tied to your account and feeds."
+      />
+      {error && (
+        <div className="mb-3 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
+          {error}
+        </div>
+      )}
+      <div className="border border-sand rounded-lg overflow-hidden">
+        {loading && events.length === 0 ? (
+          <div className="p-4 text-sm text-warm-gray">Loading…</div>
+        ) : (
+          <div className="max-h-80 overflow-auto">
+            <AuditTable
+              events={events.slice(0, 10)}
+              currentUserId={currentUserId}
+              compact
+            />
+          </div>
+        )}
+      </div>
+      {events.length > 0 && (
+        <div className="mt-2">
+          <button
+            onClick={() => setExpanded(true)}
+            className="text-sm text-coral font-semibold hover:underline"
+          >
+            View all
+          </button>
+        </div>
+      )}
+
+      {expanded && (
+        <ActivityModal
+          events={events}
+          currentUserId={currentUserId}
+          onClose={() => setExpanded(false)}
+        />
+      )}
+    </section>
+  );
+}
+
+function ActivityModal({
+  events,
+  currentUserId,
+  onClose,
+}: {
+  events: AuditEvent[];
+  currentUserId: string;
+  onClose: () => void;
+}) {
+  const [allEvents, setAllEvents] = useState<AuditEvent[]>(events);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(events.length < 50);
+
+  const loadMore = async () => {
+    if (allEvents.length === 0 || done) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const last = allEvents[allEvents.length - 1];
+      const res = await listMyAudit({ limit: 50, before: last.id });
+      setAllEvents((prev) => [...prev, ...res.events]);
+      if (res.events.length < 50) setDone(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not load more');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-lg w-full max-w-3xl mx-4 max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-sand">
+          <h3 className="font-heading font-bold text-lg text-dark-brown">Recent activity</h3>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded hover:bg-sand text-warm-gray"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <AuditTable events={allEvents} currentUserId={currentUserId} />
+          {error && (
+            <div className="mx-4 my-2 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-xs">
+              {error}
+            </div>
+          )}
+          {!done && (
+            <div className="flex justify-center py-3">
+              <AuthButton variant="secondary" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </AuthButton>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Data export — "Download all my data" button. Streams a ZIP from the
+// server; rate-limited to 1 per 24 hours (server enforces, we surface the
+// 429 message).
+// ───────────────────────────────────────────────────────────────────────────
+
+function DataExportSection() {
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const handleExport = async () => {
+    setWorking(true);
+    setError(null);
+    setDone(false);
+    try {
+      await downloadMyExport();
+      setDone(true);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.code === 'rate_limited') {
+          setError(err.message || 'Data export limit: 1 per 24 hours. Try again later.');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('Could not prepare export');
+      }
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <section>
+      <SectionHeader
+        title="Download your data"
+        description="Get a ZIP of your profile, audit history, and every feed you own. Available once per 24 hours."
+      />
+      {error && (
+        <div className="mb-3 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
+          {error}
+        </div>
+      )}
+      {done && !error && (
+        <div className="mb-3 px-3 py-2 rounded-lg bg-teal-light text-teal text-sm">
+          Export ready — check your downloads.
+        </div>
+      )}
+      <AuthButton onClick={handleExport} disabled={working}>
+        {working ? 'Preparing your export…' : 'Download all my data'}
+      </AuthButton>
     </section>
   );
 }
