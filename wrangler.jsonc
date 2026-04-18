@@ -22,10 +22,15 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // Backend paths must bypass the SPA fallback. Without this, browser
-    // navigations to /auth/verify etc. hit `not_found_handling` and get
-    // served index.html before the Worker ever runs.
-    "run_worker_first": ["/auth/*", "/api/*", "/_import/*", "/_demand-tiles/*"]
+    // Every request runs the Worker first. The Worker dispatches feeds.*
+    // hostnames and /auth, /api, /_import, /_demand-tiles paths, then falls
+    // through to `env.ASSETS.fetch(request)` for the SPA (which still
+    // applies the `not_found_handling: single-page-application` fallback).
+    //
+    // Path-specific run_worker_first lists won't work: on the feeds
+    // subdomain we need the Worker to own every path, including `/robots.txt`
+    // and `/<slug>/gtfs.zip`.
+    "run_worker_first": ["/*"]
   },
   "r2_buckets": [
     {
@@ -75,5 +80,45 @@
   // 03:00 UTC daily: account-deletion reaper + weekly metrics rollup.
   "triggers": {
     "crons": ["0 3 * * *"]
+  },
+  // ─── Staging environment ───────────────────────────────────────────────────
+  // `wrangler deploy --env staging` deploys a separate Worker
+  // (`gtfs-builder-staging`) with its own D1 / KV / R2 and its own custom
+  // domain (staging.gtfsbuilder.net). Apps point at this for pre-prod testing.
+  //
+  // Wrangler env inheritance: when `env.<name>.<binding>` is present it
+  // COMPLETELY OVERRIDES the top-level equivalent, so we re-declare every
+  // binding/route/var here. `main`, `compatibility_date`, `compatibility_flags`,
+  // `assets`, and `triggers` are inherited from the top-level config.
+  "env": {
+    "staging": {
+      "name": "gtfs-builder-staging",
+      "r2_buckets": [
+        { "binding": "TILES", "bucket_name": "gtfs-builder-tiles" },
+        { "binding": "FEEDS", "bucket_name": "gtfs-builder-feeds-staging" }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "gtfs-builder-staging",
+          "database_id": "f62aa5db-329f-4a78-bf35-4b96f79d4392",
+          "migrations_dir": "worker/migrations"
+        }
+      ],
+      "kv_namespaces": [
+        { "binding": "KV", "id": "ceb1f063c83a4bec9306e66288a51dc8" }
+      ],
+      "vars": {
+        "AUTH_EMAIL_FROM": "GTFS Builder Staging <staging@gtfsbuilder.net>",
+        "APP_ORIGIN": "https://staging.gtfsbuilder.net",
+        "FEEDS_ORIGIN": "https://staging-feeds.gtfsbuilder.net",
+        "BACKEND_ENABLED": "true",
+        "HARD_LIMITS": "false"
+      },
+      "routes": [
+        { "pattern": "staging.gtfsbuilder.net", "custom_domain": true },
+        { "pattern": "staging-feeds.gtfsbuilder.net", "custom_domain": true }
+      ]
+    }
   }
 }

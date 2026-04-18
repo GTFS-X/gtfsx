@@ -56,10 +56,21 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // Public feed distribution lives on feeds.gtfsbuilder.net (and, for local
-    // dev, any hostname that starts with `feeds.`). Never auth-aware; no
-    // cookies. Handled by a dedicated module.
-    if (url.hostname === 'feeds.gtfsbuilder.net' || url.hostname.startsWith('feeds.')) {
+    // Public feed distribution lives on a separate hostname (FEEDS_ORIGIN):
+    //   prod:    feeds.gtfsbuilder.net
+    //   staging: staging-feeds.gtfsbuilder.net
+    //   dev:     anything starting with `feeds.` (localhost etc.)
+    // Never auth-aware; no cookies. Handled by a dedicated module.
+    let feedsHost: string | null = null;
+    try {
+      feedsHost = env.FEEDS_ORIGIN ? new URL(env.FEEDS_ORIGIN).hostname : null;
+    } catch {
+      feedsHost = null;
+    }
+    if (
+      (feedsHost && url.hostname === feedsHost) ||
+      url.hostname.startsWith('feeds.')
+    ) {
       try {
         return await feedsHandler(request, env, ctx);
       } catch (err) {
