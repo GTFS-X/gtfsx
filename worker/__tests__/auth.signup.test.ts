@@ -80,14 +80,15 @@ describe('auth /signup + /verify', () => {
     expect(me.user.status).toBe('active');
   });
 
-  it('duplicate signup returns 409 conflict', async () => {
+  it('duplicate signup for an already-active account returns 409 conflict', async () => {
     const client = makeClient();
-    const first = await client.post('/auth/signup', {
+    await client.post('/auth/signup', {
       email: 'dup@example.com',
       displayName: 'Dup',
       password: 'correct-horse-battery',
     });
-    expect(first.status).toBe(204);
+    // Move to active so the second attempt hits the "real existing" branch.
+    await dbRun(`UPDATE user SET status = 'active' WHERE email = ?`, 'dup@example.com');
 
     const second = await client.post('/auth/signup', {
       email: 'dup@example.com',
@@ -97,6 +98,113 @@ describe('auth /signup + /verify', () => {
     expect(second.status).toBe(409);
     const body = (await second.json()) as { error: string };
     expect(body.error).toBe('conflict');
+  });
+
+  it('signup for a pending_verification email is a retry: new password + fresh verify email', async () => {
+    const client = makeClient();
+    // First attempt establishes the pending user.
+    const first = await client.post('/auth/signup', {
+      email: 'retry@example.com',
+      displayName: 'First',
+      password: 'first-password-long',
+    });
+    expect(first.status).toBe(204);
+    expect(capture.emails).toHaveLength(1);
+    const firstToken = extractToken(capture.emails[0].text)!;
+    expect(firstToken).toBeTruthy();
+
+    // Second signup with a different password + display name — retry path.
+    const second = await client.post('/auth/signup', {
+      email: 'retry@example.com',
+      displayName: 'Second',
+      password: 'second-password-long',
+    });
+    expect(second.status).toBe(204);
+
+    // Old verify token is invalidated.
+    const oldTokenResult = await client.get(`/auth/verify?token=${firstToken}`);
+    expect(oldTokenResult.status).toBe(302);
+    expect(locationQuery(oldTokenResult, 'status')).toBe('invalid');
+
+    // New verify token (the second email) works.
+    expect(capture.emails).toHaveLength(2);
+    const newToken = extractToken(capture.emails[1].text)!;
+    expect(newToken).toBeTruthy();
+    expect(newToken).not.toBe(firstToken);
+    const verify = await client.get(`/auth/verify?token=${newToken}`);
+    expect(verify.status).toBe(302);
+
+    // Login uses the NEW password (not the first).
+    const loginOld = await client.post('/auth/login', {
+      email: 'retry@example.com',
+      password: 'first-password-long',
+    });
+    expect(loginOld.status).toBe(401);
+    const loginNew = await client.post('/auth/login', {
+      email: 'retry@example.com',
+      password: 'second-password-long',
+    });
+    expect(loginNew.status).toBe(200);
+
+    // Display name was updated to the one from the retry.
+    const row = await dbGet<{ display_name: string }>(
+      `SELECT display_name FROM user WHERE email = ?`,
+      'retry@example.com',
+    );
+    expect(row?.display_name).toBe('Second');
+  });
+
+  it('stuck pending_verification user with zero credentials can still sign up again', async () => {
+    // Reproduces the bug where an early-release PBKDF2-600k crash left a
+    // user row behind with no credential. A retry should now succeed.
+    await dbRun(
+      `INSERT INTO user (id, email, display_name, status, staff, created_at, updated_at)
+       VALUES ('stuck01HXSTUCK000000000000000', 'stuck@example.com', 'Stuck', 'pending_verification', 0, ?, ?)`,
+      Date.now(),
+      Date.now(),
+    );
+    const client = makeClient();
+    const res = await client.post('/auth/signup', {
+      email: 'stuck@example.com',
+      displayName: 'Unstuck',
+      password: 'fresh-password-long',
+    });
+    expect(res.status).toBe(204);
+    const token = capture.tokenFor('stuck@example.com');
+    expect(token).toBeTruthy();
+
+    // Verify and log in.
+    await client.get(`/auth/verify?token=${token}`);
+    const login = await client.post('/auth/login', {
+      email: 'stuck@example.com',
+      password: 'fresh-password-long',
+    });
+    expect(login.status).toBe(200);
+  });
+
+  it('fresh signup rolls back the user row when the verify email send fails', async () => {
+    capture.simulateSendFailure(401, '{"error":"unauthorized"}');
+    const client = makeClient();
+    const res = await client.post('/auth/signup', {
+      email: 'rollback@example.com',
+      displayName: 'Rollback',
+      password: 'correct-horse-battery',
+    });
+    expect(res.status).toBe(502);
+
+    // User row must be gone — otherwise the email would be blocked from
+    // re-signing-up until manual DB cleanup (the original bug).
+    const row = await dbGet(`SELECT id FROM user WHERE email = ?`, 'rollback@example.com');
+    expect(row).toBeNull();
+
+    // And indeed a fresh signup on the same email now succeeds.
+    capture.failWith = undefined;
+    const retry = await client.post('/auth/signup', {
+      email: 'rollback@example.com',
+      displayName: 'Rollback',
+      password: 'correct-horse-battery',
+    });
+    expect(retry.status).toBe(204);
   });
 
   it('invalid payload returns 422 validation_failed', async () => {
@@ -125,7 +233,7 @@ describe('auth /signup + /verify', () => {
     expect(res.status).toBe(422);
   });
 
-  it('both fresh-email and duplicate signups incur the 200ms floor (no timing enumeration)', async () => {
+  it('fresh + conflict signups both incur the 200ms floor (no timing enumeration)', async () => {
     const client = makeClient();
 
     const freshStart = Date.now();
@@ -137,6 +245,10 @@ describe('auth /signup + /verify', () => {
     expect(fresh.status).toBe(204);
     const freshElapsed = Date.now() - freshStart;
     expect(freshElapsed).toBeGreaterThanOrEqual(180);
+
+    // Promote to active so the next signup hits the "real existing" 409 path
+    // (pending_verification goes through retry now).
+    await dbRun(`UPDATE user SET status = 'active' WHERE email = ?`, 'timing@example.com');
 
     const dupStart = Date.now();
     const dup = await client.post('/auth/signup', {

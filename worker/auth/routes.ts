@@ -119,6 +119,21 @@ export const authRouter = new Hono<AppContext>();
 authRouter.get('/ping', (c) => c.json({ ok: true }));
 
 // ─── Signup ────────────────────────────────────────────────────────────────
+//
+// Three paths based on the existing user row:
+//   - none / deleted_soft: fresh signup (insert user + credential + token, email).
+//   - active / disabled:   409 — the email is in use by a real account.
+//   - pending_verification: treat as a *retry*. Refresh the password credential,
+//     invalidate outstanding verify tokens, send a new verify email. This
+//     recovers users who hit a previous partial-signup bug (user row written
+//     but credential INSERT failed — happened with an earlier PBKDF2-600k /
+//     workerd ceiling combination). Safe because only the email owner can
+//     consume the verify link; an unexpected email is the signal that
+//     someone else tried to sign up with this address.
+//
+// Fresh-signup writes are followed by `sendVerifyEmail`; if that throws we
+// roll back the user row (credential + token FK-cascade away) so the email
+// isn't stuck in pending_verification limbo.
 authRouter.post('/signup', async (c) => {
   const body = await parseJson(c, signupSchema);
   const ip = clientIp(c.req.raw);
@@ -127,10 +142,66 @@ authRouter.post('/signup', async (c) => {
 
   await withMinDelay(200, async () => {
     const existing = await findUserByEmail(c.env, body.email);
-    if (existing && existing.status !== 'deleted_soft') {
+
+    if (existing && (existing.status === 'active' || existing.status === 'disabled')) {
       throw conflict('Account already exists — sign in instead');
     }
 
+    if (existing && existing.status === 'pending_verification') {
+      // Retry path.
+      const now = Date.now();
+      const passwordHash = await hashPassword(body.password);
+
+      // Update display name if the caller provided a different one, so users
+      // can correct a typo from their first attempt.
+      await c.env.DB.prepare(
+        `UPDATE user SET display_name = ?, updated_at = ? WHERE id = ?`,
+      )
+        .bind(body.displayName, now, existing.id)
+        .run();
+
+      const existingCred = await c.env.DB.prepare(
+        `SELECT id FROM credential WHERE user_id = ? AND kind = 'password' LIMIT 1`,
+      )
+        .bind(existing.id)
+        .first<{ id: string }>();
+
+      if (existingCred) {
+        await c.env.DB.prepare(
+          `UPDATE credential SET password_hash = ?, updated_at = ? WHERE id = ?`,
+        )
+          .bind(passwordHash, now, existingCred.id)
+          .run();
+      } else {
+        await c.env.DB.prepare(
+          `INSERT INTO credential (id, user_id, kind, password_hash, created_at, updated_at)
+           VALUES (?, ?, 'password', ?, ?, ?)`,
+        )
+          .bind(ulid(), existing.id, passwordHash, now, now)
+          .run();
+      }
+
+      await invalidateAuthTokensForUser(c.env, existing.id, 'verify_email');
+      const token = await createAuthToken(c.env, { kind: 'verify_email', userId: existing.id });
+      const link = `${c.env.APP_ORIGIN}/auth/verify?token=${token}`;
+      try {
+        await sendVerifyEmail(c.env, body.email, link);
+      } catch (err) {
+        console.error('[signup:retry] verify email send failed', err);
+        throw emailSendFailed();
+      }
+
+      await logAudit(c.env, {
+        actorUserId: existing.id,
+        subjectType: 'user',
+        subjectId: existing.id,
+        action: 'user.signup.retry',
+        ip,
+      });
+      return;
+    }
+
+    // Fresh signup path (no existing user, or existing is deleted_soft).
     const now = Date.now();
     const userId = ulid();
     await c.env.DB.prepare(
@@ -140,29 +211,35 @@ authRouter.post('/signup', async (c) => {
       .bind(userId, body.email, body.displayName, now, now)
       .run();
 
-    const passwordHash = await hashPassword(body.password);
-    await c.env.DB.prepare(
-      `INSERT INTO credential (id, user_id, kind, password_hash, created_at, updated_at)
-       VALUES (?, ?, 'password', ?, ?, ?)`,
-    )
-      .bind(ulid(), userId, passwordHash, now, now)
-      .run();
-
-    const token = await createAuthToken(c.env, { kind: 'verify_email', userId });
-    const link = `${c.env.APP_ORIGIN}/auth/verify?token=${token}`;
     try {
+      const passwordHash = await hashPassword(body.password);
+      await c.env.DB.prepare(
+        `INSERT INTO credential (id, user_id, kind, password_hash, created_at, updated_at)
+         VALUES (?, ?, 'password', ?, ?, ?)`,
+      )
+        .bind(ulid(), userId, passwordHash, now, now)
+        .run();
+
+      const token = await createAuthToken(c.env, { kind: 'verify_email', userId });
+      const link = `${c.env.APP_ORIGIN}/auth/verify?token=${token}`;
       await sendVerifyEmail(c.env, body.email, link);
     } catch (err) {
-      console.error('[signup] verify email send failed', err);
+      // Roll back the user row so the email isn't blocked from retrying.
+      // FK-cascades wipe any credential + auth_token we may have inserted.
+      console.error('[signup] fresh signup failed — rolling back user row', err);
+      await c.env.DB.prepare(`DELETE FROM user WHERE id = ?`).bind(userId).run();
       await logAudit(c.env, {
-        actorUserId: userId,
+        actorUserId: null,
         subjectType: 'user',
         subjectId: userId,
-        action: 'user.signup.email_failed',
+        action: 'user.signup.rolled_back',
         metadata: { error: err instanceof Error ? err.message : String(err) },
         ip,
       });
-      throw emailSendFailed();
+      if (err instanceof Error && err.message.includes('Resend')) {
+        throw emailSendFailed();
+      }
+      throw err;
     }
 
     await logAudit(c.env, {
