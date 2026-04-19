@@ -78,7 +78,7 @@ All IDs are ULIDs (lexicographically sortable, URL-safe). Token values are store
 `user`, `credential`, `session`, `auth_token`.
 
 ### Backend deliverables
-- Password hashing via `@noble/hashes`' Argon2id (WASM, works in Workers).
+- Password hashing via Web Crypto's `PBKDF2-HMAC-SHA256` at 100,000 iterations (workerd's ceiling — see Risks below and NF-40a for the argon2id migration path). Zero-dependency.
 - Signup flow: `POST /auth/signup` → create pending user + email-verify `auth_token` → Resend email → `POST /auth/verify` activates.
 - Password login: `POST /auth/login` → check credential → issue session cookie.
 - Magic-link flow: `POST /auth/magic-link/request` → create `auth_token` → Resend email → `GET /auth/magic-link/consume?token=...` validates and redirects.
@@ -274,7 +274,7 @@ All IDs are ULIDs (lexicographically sortable, URL-safe). Token values are store
 | D1 row size or DB-size limits bite unexpectedly | Already designed around this (R2 for blobs). Monitor D1 DB size weekly; at 70% capacity plan migration. |
 | Working-state sync conflicts confuse users | Version token (BE-42) + clear "another device edited this" modal. Never silently lose changes; always offer "keep mine / reload theirs". |
 | Magic-link emails caught by spam filters | Use a dedicated sending domain with SPF/DKIM/DMARC, warm it up, monitor Resend's deliverability dashboard. Fall back to password login if a user reports the issue. |
-| Argon2id in a Worker is too slow | `@noble/hashes` benchmarks ~100 ms per hash at reasonable params. Acceptable; alternative is bcrypt (similar cost) or delegate to a separate service (overkill). |
+| Password hashing choice in workerd | Phase 1 ships PBKDF2-HMAC-SHA256 at 100,000 iterations — workerd caps PBKDF2 iteration count at 100k (NotSupportedError above that), so OWASP's 600k recommendation isn't reachable without a different algorithm. 100k matches NIST SP 800-63B's minimum and was the pragmatic launch choice. **Pre-RTAP hardening (NF-40a)**: swap to argon2id via WASM (`hash-wasm` or similar), verify <150 ms per hash at `m=19MiB, t=2, p=1`, dual-path `verifyPassword` so legacy PBKDF2 hashes still authenticate until each user's first successful sign-in re-hashes them. Caught in staging deploy via `wrangler tail` when miniflare-backed local tests had silently accepted the higher count. |
 | R2 + D1 consistency on publish | Two-phase: write R2 object first, flip D1 pointer second. The ZIP URL reads the D1 pointer on every request, so there's no window where the pointer refers to a missing object. |
 | Someone publishes a feed with PII (personal addresses, phone numbers in stop descriptions) | Publish flow includes a validation rule: warn on free-text fields that look like PII patterns. Terms of service require the publisher to have rights. |
 | RTAP changes licensing terms | Quota enforcement is a runtime config, not hardcoded. `plan` field on user/org is part of the schema even if everyone is on the same plan at launch. |

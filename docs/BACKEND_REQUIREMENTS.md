@@ -74,7 +74,7 @@ The `feeds.` subdomain lets us cache published feeds aggressively and keeps auth
 ### 3.2 Authentication methods
 **v1 ships with both email+password and magic link** — the user picks per login. Magic link removes the "forgot password" problem for casual users; password is faster for daily users. Google OAuth follows in v1.1 based on adoption data (~60% of signup-ready users click "Sign in with Google" when offered).
 
-- **BE-10**: Email + password login. Passwords hashed with Argon2id (or bcrypt, cost≥12).
+- **BE-10**: Email + password login. Passwords hashed with PBKDF2-HMAC-SHA256 at 100,000 iterations (workerd's ceiling as of 2026-04 — see NF-40 for the argon2id migration plan). Format is self-describing (`pbkdf2$<iter>$<salt>$<hash>`) so iteration counts can be raised per-hash without migrating older credentials.
 - **BE-11**: Magic-link login. Email a single-use, short-lived (15 min), rotating token; one click logs the user in on the device that requested it.
 - **BE-12**: "Forgot password" flow emails a reset token (single-use, 1-hour expiry).
 - **BE-13**: Sessions are HTTP-only, `Secure`, `SameSite=Lax` cookies scoped to `gtfsbuilder.net`.
@@ -236,7 +236,8 @@ Public feed URLs (no auth):
 ## 9. Non-Functional Requirements
 
 ### 9.1 Security
-- **NF-40**: Passwords Argon2id-hashed; never logged.
+- **NF-40**: Passwords hashed via Web Crypto's `PBKDF2-HMAC-SHA256` at 100,000 iterations — the current workerd ceiling. Matches NIST SP 800-63B's minimum for PBKDF2-SHA256 but is below OWASP 2023's recommended 600,000; **argon2id migration (NF-40a) is a pre-broad-rollout follow-up**. Hashes are stored in a self-describing format (`pbkdf2$<iter>$<salt>$<hash>`) so future higher-cost hashes can co-exist with legacy ones. Raw passwords and full hash strings are never logged.
+- **NF-40a** *(follow-up, before RTAP broad distribution)*: Swap password hashing to argon2id via a WASM bundle (`hash-wasm` or equivalent). Verify performance budget in workerd — target <150 ms per hash at `m=19MiB, t=2, p=1` per OWASP 2023. Keep `verifyPassword` dual-path (argon2id for new hashes, PBKDF2 for legacy) until all active users have logged in at least once and been re-hashed on successful password verify.
 - **NF-41**: All auth tokens (verify, magic-link, password-reset, draft-URL) are cryptographically random (≥128 bits), single-use where applicable, and hashed at rest (so a DB leak doesn't expose live tokens).
 - **NF-42**: CSRF protection on all state-changing endpoints (double-submit cookie or SameSite=Strict on a dedicated CSRF cookie).
 - **NF-43**: Rate limiting on auth and publish endpoints (KV-backed counters).
