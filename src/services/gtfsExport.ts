@@ -18,6 +18,39 @@ function stripUIFields(obj: Record<string, any>): Record<string, any> {
   return result;
 }
 
+/** Build the feed_info.txt row (returns null if we don't have enough info to
+ *  produce the three required fields). User-provided `state.feedInfo` always
+ *  wins; the three required slots — feed_publisher_name / feed_publisher_url /
+ *  feed_lang — fall back to the primary agency when unset. Optional fields
+ *  only appear when the user explicitly set them. Emitting this file clears
+ *  the validator's `missing_recommended_file` warning for feed_info.txt. */
+function buildFeedInfoRow(state: ReturnType<typeof useStore.getState>): Record<string, any> | null {
+  const primary = state.agencies[0];
+  const userInfo = state.feedInfo;
+
+  const publisher_name = userInfo?.feed_publisher_name || primary?.agency_name || '';
+  const publisher_url = userInfo?.feed_publisher_url || primary?.agency_url || '';
+  const lang = userInfo?.feed_lang
+    || primary?.agency_lang
+    || (typeof navigator !== 'undefined' ? navigator.language?.slice(0, 2) : undefined)
+    || 'en';
+
+  if (!publisher_name || !publisher_url) return null;
+
+  const row: Record<string, any> = {
+    feed_publisher_name: publisher_name,
+    feed_publisher_url: publisher_url,
+    feed_lang: lang,
+  };
+  if (userInfo?.default_lang) row.default_lang = userInfo.default_lang;
+  if (userInfo?.feed_start_date) row.feed_start_date = userInfo.feed_start_date;
+  if (userInfo?.feed_end_date) row.feed_end_date = userInfo.feed_end_date;
+  if (userInfo?.feed_version) row.feed_version = userInfo.feed_version;
+  if (userInfo?.feed_contact_email) row.feed_contact_email = userInfo.feed_contact_email;
+  if (userInfo?.feed_contact_url) row.feed_contact_url = userInfo.feed_contact_url;
+  return row;
+}
+
 interface FlexMaterialized {
   routes: Route[];
   /** Net-new calendar rows we had to synthesize (usually empty). */
@@ -284,9 +317,13 @@ export async function exportGtfsZip(): Promise<Blob> {
     zip.file('fare_rules.txt', toCSV(allFareRules));
   }
 
-  // feed_info.txt
-  if (state.feedInfo) {
-    zip.file('feed_info.txt', toCSV([stripUIFields(state.feedInfo)]));
+  // feed_info.txt — recommended per the GTFS spec (MobilityData's validator
+  // raises a `missing_recommended_file` warning when absent). When the user
+  // hasn't filled out feed info explicitly, synthesize the three required
+  // fields from the primary agency so every export carries a valid file.
+  const feedInfoRow = buildFeedInfoRow(state);
+  if (feedInfoRow) {
+    zip.file('feed_info.txt', toCSV([feedInfoRow]));
   }
 
   // location_groups.txt + location_group_stops.txt (GTFS-Flex, group-based)
