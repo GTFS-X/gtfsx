@@ -497,12 +497,15 @@ projectsRouter.get('/:id/working-state', async (c) => {
   if (!object) throw notFound('Working state blob missing');
 
   c.header('Content-Type', 'application/json');
-  c.header('Content-Encoding', 'gzip');
   c.header('X-Working-State-Version', String(row.working_state_version));
-  if (row.working_state_size != null) {
-    c.header('Content-Length', String(row.working_state_size));
-  }
-  return c.body(object.body);
+  // Decompress in the worker. Manually-set Content-Encoding on a Worker
+  // response isn't auto-decompressed by browser fetch (only transport-layer
+  // negotiated encodings are), so the client receives raw gzip bytes and
+  // JSON.parse fails with "Could not load feed". Streaming through
+  // DecompressionStream gives the client plain JSON; CF's edge re-gzips on
+  // the wire if the client sent Accept-Encoding: gzip.
+  const decompressed = object.body.pipeThrough(new DecompressionStream('gzip'));
+  return c.body(decompressed);
 });
 
 projectsRouter.put('/:id/working-state', async (c) => {
@@ -696,8 +699,8 @@ projectsRouter.get('/:id/versions/:vid/state', async (c) => {
   if (!object) throw notFound('Version state missing');
 
   c.header('Content-Type', 'application/json');
-  c.header('Content-Encoding', 'gzip');
-  return c.body(object.body);
+  const decompressed = object.body.pipeThrough(new DecompressionStream('gzip'));
+  return c.body(decompressed);
 });
 
 projectsRouter.post('/:id/versions/:vid/restore', async (c) => {
