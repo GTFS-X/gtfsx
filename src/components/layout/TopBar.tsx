@@ -5,9 +5,12 @@ import { useStore } from '../../store';
 import { ImportDialog } from '../import-export/ImportDialog';
 import { ExportDialog } from '../import-export/ExportDialog';
 import { HelpDialog } from '../help/HelpDialog';
+import { SaveAsDialog } from '../feeds/SaveAsDialog';
 import { db } from '../../db/dexie';
-import { logout as apiLogout } from '../../services/authApi';
+import { logout as apiLogout, ApiError } from '../../services/authApi';
 import { createOrg, type OrgRole } from '../../services/orgsApi';
+import { patchProject } from '../../services/projectsApi';
+import { saveProjectNow } from '../../db/serverPersistence';
 import { backendEnabled } from '../../utils/featureFlags';
 
 const ROLE_COLORS: Record<OrgRole, string> = {
@@ -33,6 +36,9 @@ export function TopBar() {
   const activeWorkspace = useStore((s) => s.activeWorkspace);
   const setActiveWorkspace = useStore((s) => s.setActiveWorkspace);
   const upsertUserOrg = useStore((s) => s.upsertUserOrg);
+  const activeServerProjectId = useStore((s) => s.activeServerProjectId);
+  const feedsProjects = useStore((s) => s.feedsProjects);
+  const upsertFeedProject = useStore((s) => s.upsertFeedProject);
   const navigate = useNavigate();
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -40,6 +46,9 @@ export function TopBar() {
   const [editing, setEditing] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showCreateOrg, setShowCreateOrg] = useState(false);
+  const [showSaveAs, setShowSaveAs] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleHomeClick = () => {
     // Check if there's any data worth warning about
@@ -53,6 +62,36 @@ export function TopBar() {
   };
 
   const saveStatus = isDirty ? 'Unsaved changes' : lastSavedAt ? 'Saved' : 'New project';
+
+  const handleSaveClick = async () => {
+    if (!backendEnabled) return;
+    setSaveError(null);
+    if (!currentUser) {
+      const next = `${window.location.pathname || '/'}?save=1`;
+      navigate(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
+    if (!activeServerProjectId) {
+      setShowSaveAs(true);
+      return;
+    }
+    setSaving(true);
+    try {
+      await saveProjectNow(activeServerProjectId);
+      // If the project name was edited via the pill, the change lives only
+      // in-memory until we PATCH the project metadata.
+      const proj = feedsProjects.find((p) => p.id === activeServerProjectId);
+      if (proj && proj.name !== projectName) {
+        const updated = await patchProject(activeServerProjectId, { name: projectName });
+        upsertFeedProject(updated);
+      }
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : (err as Error)?.message ?? 'Save failed';
+      setSaveError(msg);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <>
@@ -107,6 +146,29 @@ export function TopBar() {
           <div className={`w-1.5 h-1.5 rounded-full ${isDirty ? 'bg-gold' : 'bg-teal'}`} />
           {saveStatus}
         </div>
+
+        {/* Save button */}
+        {backendEnabled && (
+          <button
+            onClick={handleSaveClick}
+            disabled={saving || (!isDirty && !!activeServerProjectId)}
+            className="px-3 py-1.5 rounded-lg font-heading font-bold text-xs bg-teal text-white hover:bg-[#0e7e75] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={
+              !currentUser
+                ? 'Sign in to save'
+                : activeServerProjectId
+                  ? 'Save changes'
+                  : 'Save to your account'
+            }
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        )}
+        {saveError && (
+          <span className="text-xs text-red-600 truncate max-w-[14rem]" title={saveError}>
+            {saveError}
+          </span>
+        )}
 
         <div className="flex-1" />
 
@@ -247,6 +309,7 @@ export function TopBar() {
       {showImport && <ImportDialog onClose={() => setShowImport(false)} />}
       {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
       {showHelp && <HelpDialog onClose={() => setShowHelp(false)} />}
+      {showSaveAs && <SaveAsDialog onClose={() => setShowSaveAs(false)} />}
       {showCreateOrg && (
         <CreateOrgDialog
           onClose={() => setShowCreateOrg(false)}

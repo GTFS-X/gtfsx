@@ -1,20 +1,13 @@
 import { useEffect, useState } from 'react';
 import { AuthButton } from '../auth/AuthButton';
-import { loadProjectFromServer } from '../../db/serverPersistence';
-import type { ServerAutoSaveHandle } from '../../db/serverPersistence';
+import { loadProjectFromServer, forceSaveWithLatest } from '../../db/serverPersistence';
 
 interface ConflictEventDetail {
   projectId: string;
   currentVersion: number;
 }
 
-export function ConflictDialog({
-  projectId,
-  autoSave,
-}: {
-  projectId: string;
-  autoSave: ServerAutoSaveHandle | null;
-}) {
+export function ConflictDialog({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,11 +38,10 @@ export function ConflictDialog({
   };
 
   const keepMine = async () => {
-    if (!autoSave) return;
     setBusy(true);
     setError(null);
     try {
-      await autoSave.forceSaveWithLatest();
+      await forceSaveWithLatest(projectId);
       setOpen(false);
     } catch (err) {
       setError((err as Error)?.message ?? 'Save failed');

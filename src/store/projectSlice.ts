@@ -16,7 +16,11 @@ export const createProjectSlice: StateCreator<ProjectSlice, [['zustand/immer', n
   projectName: 'Untitled Feed',
   lastSavedAt: null,
   isDirty: false,
-  setProjectName: (name) => set((state) => { state.projectName = name; state.isDirty = true; }),
+  setProjectName: (name) => set((state) => {
+    if (state.projectName === name) return;
+    state.projectName = name;
+    state.isDirty = true;
+  }),
   markDirty: () => set((state) => { state.isDirty = true; }),
   markSaved: () => set((state) => { state.isDirty = false; state.lastSavedAt = Date.now(); }),
   setProjectId: (id) => set((state) => { state.projectId = id; }),

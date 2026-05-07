@@ -126,6 +126,7 @@ export function createProject(input: {
   name: string;
   description?: string;
   slug?: string;
+  owner?: { type: 'user' } | { type: 'org'; id: string };
 }): Promise<ProjectSummary> {
   return requestJson<ProjectSummary>('/api/projects', { method: 'POST', body: input });
 }

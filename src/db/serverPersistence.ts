@@ -5,8 +5,11 @@ import {
   ConflictError,
 } from '../services/projectsApi';
 
-// Mirrors DATA_KEYS in ./persistence.ts, plus flex zones which are part of
-// the editor state and should round-trip through the server snapshot.
+// Editor state that round-trips through the server snapshot. Notably excludes
+// projectId and projectName: those are project-level metadata served by
+// /api/projects/:id and re-applied by ServerEditorRoute on load. Including
+// them in the snapshot caused the displayed name to diverge from the
+// canonical project.name and re-marked dirty after reload.
 const DATA_KEYS = [
   'agencies',
   'calendars',
@@ -21,8 +24,6 @@ const DATA_KEYS = [
   'fareAttributes',
   'fareRules',
   'flexZones',
-  'projectId',
-  'projectName',
 ] as const;
 
 type DataKey = (typeof DATA_KEYS)[number];
@@ -81,8 +82,6 @@ export function applySnapshotToStore(snapshot: Record<string, unknown>) {
   if (Array.isArray(g('fareAttributes'))) state.setFareAttributes(g('fareAttributes') as never);
   if (Array.isArray(g('fareRules'))) state.setFareRules(g('fareRules') as never);
   if (Array.isArray(g('flexZones'))) state.setFlexZones(g('flexZones') as never);
-  if (typeof g('projectName') === 'string') state.setProjectName(g('projectName') as string);
-  if (typeof g('projectId') === 'string') state.setProjectId(g('projectId') as string);
 
   state.markSaved();
 }
@@ -90,120 +89,55 @@ export function applySnapshotToStore(snapshot: Record<string, unknown>) {
 export async function loadProjectFromServer(projectId: string): Promise<void> {
   const { snapshot, version } = await fetchWorkingState(projectId);
   setCurrentWorkingStateVersion(projectId, version);
-  if (snapshot) applySnapshotToStore(snapshot);
+  if (snapshot) {
+    applySnapshotToStore(snapshot);
+  } else {
+    // Brand-new project with no working state yet — still mark clean so any
+    // metadata setters that ran beforehand don't leave the editor "dirty".
+    useStore.getState().markSaved();
+  }
 }
 
-export interface ServerAutoSaveHandle {
-  unsubscribe: () => void;
-  /** Flush any pending debounced save immediately. */
-  flush: () => Promise<void>;
-  /** Force a save against the server's latest version (for conflict-resolve "keep mine"). */
-  forceSaveWithLatest: () => Promise<void>;
-}
-
-const DEBOUNCE_MS = 5000;
-
-export function setupServerAutoSave(projectId: string): ServerAutoSaveHandle {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let saving = false;
-  let pending = false;
-  let disposed = false;
-
-  const doSave = async (): Promise<void> => {
-    if (disposed) return;
-    if (saving) {
-      pending = true;
+/**
+ * One-shot save of the current store state to the server. Throws on network
+ * failure or unexpected error; on If-Match conflict, dispatches the
+ * `gb:working-state-conflict` event (so the existing ConflictDialog handles
+ * resolution) and resolves without throwing.
+ */
+export async function saveProjectNow(projectId: string): Promise<void> {
+  const snapshot = buildSnapshot();
+  const ifMatch = getCurrentWorkingStateVersion(projectId);
+  try {
+    const { workingStateVersion } = await saveWorkingState(projectId, snapshot, ifMatch);
+    setCurrentWorkingStateVersion(projectId, workingStateVersion);
+    useStore.getState().markSaved();
+  } catch (err) {
+    if (err instanceof ConflictError) {
+      window.dispatchEvent(
+        new CustomEvent('gb:working-state-conflict', {
+          detail: { projectId, currentVersion: err.currentVersion },
+        }),
+      );
       return;
     }
-    saving = true;
-    try {
-      const snapshot = buildSnapshot();
-      const ifMatch = getCurrentWorkingStateVersion(projectId);
-      try {
-        const { workingStateVersion } = await saveWorkingState(projectId, snapshot, ifMatch);
-        setCurrentWorkingStateVersion(projectId, workingStateVersion);
-        useStore.getState().markSaved();
-      } catch (err) {
-        if (err instanceof ConflictError) {
-          window.dispatchEvent(
-            new CustomEvent('gb:working-state-conflict', {
-              detail: { projectId, currentVersion: err.currentVersion },
-            }),
-          );
-        } else {
-          console.error('Working-state save failed', err);
-        }
-      }
-    } finally {
-      saving = false;
-      if (pending && !disposed) {
-        pending = false;
-        schedule();
-      }
-    }
-  };
+    throw err;
+  }
+}
 
-  const schedule = () => {
-    if (disposed) return;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      void doSave();
-    }, DEBOUNCE_MS);
-  };
-
-  const flush = async () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    await doSave();
-  };
-
-  const onBlur = () => {
-    if (timer || saving || useStore.getState().isDirty) {
-      void flush();
-    }
-  };
-
-  const unsubStore = useStore.subscribe((state, prev) => {
-    if (disposed) return;
-    // Only fire on data changes — use the same DATA_KEYS comparison as local
-    // persistence so UI-only changes (sidebar, selection) don't cause a save.
-    const s = state as unknown as Record<string, unknown>;
-    const p = prev as unknown as Record<string, unknown>;
-    const changed = DATA_KEYS.some((key) => s[key] !== p[key]);
-    if (!changed) return;
-    state.markDirty();
-    schedule();
+/**
+ * Used by the conflict dialog's "Keep mine" path: refresh the cached
+ * If-Match version to the server's latest, then save again so the user's
+ * local state overwrites the remote.
+ */
+export async function forceSaveWithLatest(projectId: string): Promise<void> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: { 'X-GB-Client': 'web' },
   });
-
-  window.addEventListener('blur', onBlur);
-
-  const forceSaveWithLatest = async () => {
-    // Fetch the server's current version, update our cache, then save.
-    // Don't clobber the store with the server snapshot — intent is to
-    // overwrite the remote with the local state.
-    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
-      method: 'GET',
-      credentials: 'include',
-      headers: { 'X-GB-Client': 'web' },
-    });
-    if (res.ok) {
-      const body = (await res.json()) as { workingStateVersion: number };
-      setCurrentWorkingStateVersion(projectId, body.workingStateVersion);
-    }
-    await flush();
-  };
-
-  return {
-    unsubscribe: () => {
-      disposed = true;
-      if (timer) clearTimeout(timer);
-      unsubStore();
-      window.removeEventListener('blur', onBlur);
-    },
-    flush,
-    forceSaveWithLatest,
-  };
+  if (res.ok) {
+    const body = (await res.json()) as { workingStateVersion: number };
+    setCurrentWorkingStateVersion(projectId, body.workingStateVersion);
+  }
+  await saveProjectNow(projectId);
 }

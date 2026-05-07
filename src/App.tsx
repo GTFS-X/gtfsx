@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
+import { SaveAsDialog } from './components/feeds/SaveAsDialog';
 import { setupAutoSave, loadProject } from './db/persistence';
 import {
   loadProjectFromServer,
-  setupServerAutoSave,
-  type ServerAutoSaveHandle,
 } from './db/serverPersistence';
 import { listProjects } from './services/projectsApi';
 import { ApiError } from './services/authApi';
@@ -44,6 +43,10 @@ async function loadDemoFeed() {
 
 function EditorRoute({ demo = false }: { demo?: boolean }) {
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const authChecked = useStore((s) => s.authChecked);
+  const currentUser = useStore((s) => s.currentUser);
+
   useEffect(() => {
     if (demo) {
       loadDemoFeed().catch(console.error);
@@ -55,7 +58,27 @@ function EditorRoute({ demo = false }: { demo?: boolean }) {
     return unsub;
   }, [demo, location.pathname]);
 
-  return <AppShell />;
+  // After a "save → sign in" round-trip, the login redirect lands here with
+  // ?save=1. Show the Save-As dialog as long as the param is present and
+  // auth is hydrated; closing the dialog strips the param.
+  const showSaveAs =
+    backendEnabled &&
+    authChecked &&
+    !!currentUser &&
+    searchParams.get('save') === '1';
+
+  const dismissSaveAs = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('save');
+    setSearchParams(next, { replace: true });
+  };
+
+  return (
+    <>
+      <AppShell />
+      {showSaveAs && <SaveAsDialog onClose={dismissSaveAs} />}
+    </>
+  );
 }
 
 function ServerEditorRoute() {
@@ -71,7 +94,6 @@ function ServerEditorRoute() {
 
   const [projectId, setProjectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [autoSaveHandle, setAutoSaveHandle] = useState<ServerAutoSaveHandle | null>(null);
 
   useEffect(() => {
     if (!authChecked) return;
@@ -81,7 +103,6 @@ function ServerEditorRoute() {
     }
     let cancelled = false;
     let localUnsub: (() => void) | null = null;
-    let serverHandle: ServerAutoSaveHandle | null = null;
     const resolveAndLoad = async () => {
       try {
         let proj = feedsProjects.find((p) => p.slug === slug);
@@ -97,12 +118,13 @@ function ServerEditorRoute() {
         }
         setProjectId(proj.id);
         setActiveServerProject(proj.id);
-        await loadProjectFromServer(proj.id);
-        if (cancelled) return;
+        // Set project metadata in the store BEFORE loading the snapshot,
+        // so the markSaved() at the end of the snapshot apply also covers
+        // the name/id assignment. Setting them after would re-mark dirty.
         useStore.getState().setProjectName(proj.name);
         useStore.getState().setProjectId(proj.id);
-        serverHandle = setupServerAutoSave(proj.id);
-        setAutoSaveHandle(serverHandle);
+        await loadProjectFromServer(proj.id);
+        if (cancelled) return;
         localUnsub = setupAutoSave();
       } catch (err) {
         if (cancelled) return;
@@ -114,8 +136,6 @@ function ServerEditorRoute() {
     return () => {
       cancelled = true;
       if (localUnsub) localUnsub();
-      if (serverHandle) serverHandle.unsubscribe();
-      setAutoSaveHandle(null);
       setActiveServerProject(null);
       setRestoredBanner(null);
     };
@@ -157,7 +177,7 @@ function ServerEditorRoute() {
         </div>
       )}
       <AppShell />
-      {projectId && <ConflictDialog projectId={projectId} autoSave={autoSaveHandle} />}
+      {projectId && <ConflictDialog projectId={projectId} />}
     </>
   );
 }
@@ -167,6 +187,18 @@ function App() {
     if (backendEnabled) {
       useStore.getState().hydrateAuth().catch(() => {});
     }
+  }, []);
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!useStore.getState().isDirty) return;
+      e.preventDefault();
+      // Most modern browsers ignore the message and show a generic prompt,
+      // but assigning returnValue is what triggers the prompt at all.
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
   if (!backendEnabled) {

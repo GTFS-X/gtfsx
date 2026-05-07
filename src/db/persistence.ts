@@ -26,7 +26,12 @@ export async function saveProject() {
     storeSnapshot: JSON.stringify(snapshot),
   });
 
-  state.markSaved();
+  // When the user is on a server-backed feed, "Saved" reflects server state,
+  // not the local IndexedDB cache. Local writes still happen for offline
+  // resilience, but the user-visible saved indicator only flips on a
+  // successful server save (see saveProjectNow in serverPersistence.ts).
+  const serverBacked = useStore.getState().activeServerProjectId !== null;
+  if (!serverBacked) state.markSaved();
 }
 
 export async function loadProject(projectId: string) {
