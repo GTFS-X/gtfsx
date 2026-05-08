@@ -1,0 +1,165 @@
+// Smoke tests for the embeddable maps + schedules at
+// feeds.*/<slug>/embed/route/<route_id> and /<slug>/embed/system-map.
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { SELF } from 'cloudflare:test';
+import { makeClient, type TestClient } from './_client';
+import {
+  applyMigrations,
+  gzip,
+  resetDb,
+  seedUser,
+  setupEmailCapture,
+  type EmailCapture,
+} from './_setup';
+
+async function loggedInClient(email: string): Promise<TestClient> {
+  const user = await seedUser({ email });
+  const client = makeClient();
+  await client.post('/auth/login', { email: user.email, password: user.password });
+  return client;
+}
+
+interface SnapshotState {
+  feedInfo: { feed_publisher_name: string; feed_start_date?: string; feed_end_date?: string };
+  agencies: { agency_id: string; agency_name: string; agency_url: string; agency_timezone: string }[];
+  routes: {
+    route_id: string;
+    agency_id: string;
+    route_short_name: string;
+    route_long_name: string;
+    route_type: number;
+    route_color: string;
+    route_text_color: string;
+  }[];
+  stops: { stop_id: string; stop_name: string; stop_lat: number; stop_lon: number; location_type?: number }[];
+  shapes: { shape_id: string; points: { shape_pt_lat: number; shape_pt_lon: number; shape_pt_sequence: number }[] }[];
+  calendars: {
+    service_id: string;
+    monday: 0 | 1; tuesday: 0 | 1; wednesday: 0 | 1; thursday: 0 | 1; friday: 0 | 1;
+    saturday: 0 | 1; sunday: 0 | 1;
+    start_date: string; end_date: string;
+  }[];
+  calendarDates: { service_id: string; date: string; exception_type: 1 | 2 }[];
+  trips: { trip_id: string; route_id: string; service_id: string; direction_id: 0 | 1; shape_id?: string; trip_headsign?: string }[];
+  stopTimes: { trip_id: string; arrival_time: string; departure_time: string; stop_id: string; stop_sequence: number }[];
+}
+
+function makeFeedState(): SnapshotState {
+  return {
+    feedInfo: { feed_publisher_name: 'EmbedAgency', feed_start_date: '20260101', feed_end_date: '20261231' },
+    agencies: [{ agency_id: 'a1', agency_name: 'Embed Agency', agency_url: 'https://x.test', agency_timezone: 'America/Denver' }],
+    routes: [
+      { route_id: 'R1', agency_id: 'a1', route_short_name: '1', route_long_name: 'Downtown', route_type: 3, route_color: '8e44ad', route_text_color: 'ffffff' },
+    ],
+    stops: [
+      { stop_id: 's1', stop_name: 'Main & 1st', stop_lat: 45.6, stop_lon: -111.0 },
+      { stop_id: 's2', stop_name: 'Main & 2nd', stop_lat: 45.61, stop_lon: -111.01 },
+      { stop_id: 's3', stop_name: 'Main & 3rd', stop_lat: 45.62, stop_lon: -111.02 },
+    ],
+    shapes: [
+      { shape_id: 'sh1', points: [
+        { shape_pt_lat: 45.6, shape_pt_lon: -111.0, shape_pt_sequence: 1 },
+        { shape_pt_lat: 45.62, shape_pt_lon: -111.02, shape_pt_sequence: 2 },
+      ] },
+    ],
+    calendars: [
+      { service_id: 'WKDY', monday: 1, tuesday: 1, wednesday: 1, thursday: 1, friday: 1, saturday: 0, sunday: 0, start_date: '20260101', end_date: '20261231' },
+      { service_id: 'SAT', monday: 0, tuesday: 0, wednesday: 0, thursday: 0, friday: 0, saturday: 1, sunday: 0, start_date: '20260101', end_date: '20261231' },
+    ],
+    calendarDates: [],
+    trips: [
+      { trip_id: 't1', route_id: 'R1', service_id: 'WKDY', direction_id: 0, shape_id: 'sh1', trip_headsign: 'Downtown' },
+      { trip_id: 't2', route_id: 'R1', service_id: 'WKDY', direction_id: 0, shape_id: 'sh1', trip_headsign: 'Downtown' },
+    ],
+    stopTimes: [
+      { trip_id: 't1', arrival_time: '08:00:00', departure_time: '08:00:00', stop_id: 's1', stop_sequence: 1 },
+      { trip_id: 't1', arrival_time: '08:05:00', departure_time: '08:05:00', stop_id: 's2', stop_sequence: 2 },
+      { trip_id: 't1', arrival_time: '08:10:00', departure_time: '08:10:00', stop_id: 's3', stop_sequence: 3 },
+      { trip_id: 't2', arrival_time: '08:30:00', departure_time: '08:30:00', stop_id: 's1', stop_sequence: 1 },
+      { trip_id: 't2', arrival_time: '08:35:00', departure_time: '08:35:00', stop_id: 's2', stop_sequence: 2 },
+      { trip_id: 't2', arrival_time: '08:40:00', departure_time: '08:40:00', stop_id: 's3', stop_sequence: 3 },
+    ],
+  };
+}
+
+async function createPublishedProject(client: TestClient, name: string): Promise<{ slug: string }> {
+  const proj = await client.json<{ id: string; slug: string }>(
+    await client.post('/api/projects', { name }),
+  );
+
+  const stateBuf = await gzip(JSON.stringify(makeFeedState()));
+  const versionForm = new FormData();
+  versionForm.append('state', new Blob([stateBuf], { type: 'application/json' }), 'state.json.gz');
+  versionForm.append('meta', JSON.stringify({ summary: {}, validationErrors: 0, validationWarnings: 0 }));
+  const version = await client.json<{ version: { id: string } }>(
+    await client.post(`/api/projects/${proj.id}/versions`, undefined, { body: versionForm }),
+  );
+
+  const publishForm = new FormData();
+  publishForm.append('meta', JSON.stringify({ versionId: version.version.id }));
+  publishForm.append('zip', new Blob([new Uint8Array([1, 2, 3])], { type: 'application/zip' }), 'gtfs.zip');
+  await client.post(`/api/projects/${proj.id}/publish`, undefined, { body: publishForm });
+
+  return { slug: proj.slug };
+}
+
+describe('embed routes', () => {
+  let capture: EmailCapture;
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+    capture = setupEmailCapture();
+  });
+  afterEach(() => capture.restore());
+
+  it('GET /<slug>/embed/system-map renders an HTML page with route list', async () => {
+    const client = await loggedInClient('emb1@example.com');
+    const { slug } = await createPublishedProject(client, 'EmbedSys');
+
+    const res = await SELF.fetch(`http://feeds.example.com/${slug}/embed/system-map`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/html');
+    expect(res.headers.get('Content-Security-Policy')).toContain('frame-ancestors *');
+    expect(res.headers.get('X-Robots-Tag')).toContain('noindex');
+    const html = await res.text();
+    expect(html).toContain('Embed Agency');
+    expect(html).toContain('System map');
+    // Route list should include the only route.
+    expect(html).toContain('Downtown');
+    // Map container present.
+    expect(html).toContain('id="gtfs-embed-map"');
+  });
+
+  it('GET /<slug>/embed/route/<id> renders schedule + map for that route', async () => {
+    const client = await loggedInClient('emb2@example.com');
+    const { slug } = await createPublishedProject(client, 'EmbedRoute');
+
+    const res = await SELF.fetch(`http://feeds.example.com/${slug}/embed/route/R1`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Downtown');
+    // Schedule table should have stop names.
+    expect(html).toContain('Main &amp; 1st');
+    expect(html).toContain('Main &amp; 2nd');
+    expect(html).toContain('Main &amp; 3rd');
+    // Trip times appear (12-hour format).
+    expect(html).toContain('8:00a');
+    expect(html).toContain('8:30a');
+    // Service-day tab labels (multiple profiles → tabs visible).
+    expect(html).toContain('Weekday');
+    expect(html).toContain('Saturday');
+  });
+
+  it('GET /<slug>/embed/route/<unknown> returns 404', async () => {
+    const client = await loggedInClient('emb3@example.com');
+    const { slug } = await createPublishedProject(client, 'EmbedMiss');
+    const res = await SELF.fetch(`http://feeds.example.com/${slug}/embed/route/no-such-route`);
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /<bad-slug>/embed/system-map returns 404', async () => {
+    const res = await SELF.fetch('http://feeds.example.com/no-such-slug/embed/system-map');
+    expect(res.status).toBe(404);
+  });
+});

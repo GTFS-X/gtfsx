@@ -64,7 +64,10 @@
     // and rebuild with `VITE_BACKEND_ENABLED=true` to re-enable. Existing user
     // accounts and feed projects in D1/R2 are preserved while disabled.
     "BACKEND_ENABLED": "false",
-    "HARD_LIMITS": "false"
+    "HARD_LIMITS": "false",
+    // Public Mapbox token — same as VITE_MAPBOX_TOKEN. Used by the embed
+    // pages on feeds.gtfsbuilder.net to render the system + per-route maps.
+    "MAPBOX_TOKEN": "pk.eyJ1IjoibWFya2VnZ2UiLCJhIjoiY2lrb245YWh3MHhtMXV4a21ld2R5Ymh0ciJ9.i0E2OrjPHLVtIRpN82tU5w"
     // Secrets (set via `wrangler secret put`):
     //   RESEND_API_KEY
     //   MOBILITY_DATABASE_REFRESH_TOKEN  (already set)
@@ -111,7 +114,8 @@
         "APP_ORIGIN": "https://staging.gtfsbuilder.net",
         "FEEDS_ORIGIN": "https://staging-feeds.gtfsbuilder.net",
         "BACKEND_ENABLED": "true",
-        "HARD_LIMITS": "false"
+        "HARD_LIMITS": "false",
+        "MAPBOX_TOKEN": "pk.eyJ1IjoibWFya2VnZ2UiLCJhIjoiY2lrb245YWh3MHhtMXV4a21ld2R5Ymh0ciJ9.i0E2OrjPHLVtIRpN82tU5w"
       },
       "routes": [
         { "pattern": "staging.gtfsbuilder.net", "custom_domain": true },

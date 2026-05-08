@@ -17,6 +17,8 @@ import type { Env } from '../env';
 import { sha256Hex } from '../util/crypto';
 import { getFeedBlob } from '../projects/r2';
 import { ungzip } from './ungzip';
+import { renderRouteEmbed } from '../embeds/route';
+import { renderSystemMapEmbed } from '../embeds/systemMap';
 
 interface PublicationRow {
   project_id: string;
@@ -106,6 +108,8 @@ async function loadDraft(env: Env, tokenHash: string): Promise<DraftRow | null> 
 const CANONICAL_RE = /^\/([a-z0-9][a-z0-9-]*)\/gtfs\.zip$/;
 const FEED_INFO_RE = /^\/([a-z0-9][a-z0-9-]*)\/feed_info\.json$/;
 const DRAFT_RE = /^\/([a-z0-9][a-z0-9-]*)\/draft\/([A-Za-z0-9_\-]+)\.zip$/;
+const EMBED_ROUTE_RE = /^\/([a-z0-9][a-z0-9-]*)\/embed\/route\/([^/?#]+)\/?$/;
+const EMBED_SYSMAP_RE = /^\/([a-z0-9][a-z0-9-]*)\/embed\/system-map\/?$/;
 
 export async function feedsHandler(
   request: Request,
@@ -137,6 +141,15 @@ export async function feedsHandler(
   const draft = url.pathname.match(DRAFT_RE);
   if (draft) {
     return serveDraft(request, env, draft[1], draft[2]);
+  }
+
+  const embedRoute = url.pathname.match(EMBED_ROUTE_RE);
+  if (embedRoute) {
+    return renderRouteEmbed(request, env, embedRoute[1], decodeURIComponent(embedRoute[2]));
+  }
+  const embedSystem = url.pathname.match(EMBED_SYSMAP_RE);
+  if (embedSystem) {
+    return renderSystemMapEmbed(request, env, embedSystem[1]);
   }
 
   return notFound();

@@ -7,6 +7,7 @@ import { ServiceSummary } from '../timetable/ServiceSummary';
 import { ValidationPanel } from '../validation/ValidationPanel';
 import { VersionHistoryPanel } from '../versions/VersionHistoryPanel';
 import { PublishWithDistribution } from '../distribution/PublishWithDistribution';
+import { EmbedPanel } from '../embed/EmbedPanel';
 import { ProjectAuditPanel } from '../audit/ProjectAuditPanel';
 
 const MIN_HEIGHT = 120;
@@ -85,7 +86,7 @@ export function BottomPanel() {
         <span className="text-xs text-warm-gray">{bottomPanelOpen ? '▼' : '▲'}</span>
         {(
           activeServerProjectId
-            ? (['timetable', 'stops', 'service-summary', 'validation', 'versions', 'publish', 'audit'] as const)
+            ? (['timetable', 'stops', 'service-summary', 'validation', 'versions', 'publish', 'embed', 'audit'] as const)
             : (['timetable', 'stops', 'service-summary', 'validation'] as const)
         ).map((tab) => {
           const labels: Record<string, string> = {
@@ -95,6 +96,7 @@ export function BottomPanel() {
             validation: 'Validation',
             versions: 'Versions',
             publish: 'Share & Publish',
+            embed: 'Embed',
             audit: 'Activity',
           };
           return (
@@ -142,6 +144,7 @@ export function BottomPanel() {
           {bottomPanelTab === 'validation' && <ValidationPanel />}
           {bottomPanelTab === 'versions' && activeServerProjectId && <VersionHistoryPanel />}
           {bottomPanelTab === 'publish' && activeServerProjectId && <PublishWithDistribution />}
+          {bottomPanelTab === 'embed' && activeServerProjectId && <EmbedPanel />}
           {bottomPanelTab === 'audit' && activeServerProjectId && <ProjectAuditPanel />}
         </div>
       )}

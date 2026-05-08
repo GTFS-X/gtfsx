@@ -17,6 +17,9 @@ export interface Env {
   FEEDS_ORIGIN: string;
   BACKEND_ENABLED: string;
   HARD_LIMITS: string;
+  // Public Mapbox publishable token used by the embed pages on the feeds
+  // origin. Same value as VITE_MAPBOX_TOKEN; not a secret.
+  MAPBOX_TOKEN?: string;
 
   // Secrets (wrangler secret put)
   RESEND_API_KEY: string;

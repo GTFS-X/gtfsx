@@ -17,6 +17,7 @@ export type BottomPanelTab =
   | 'validation'
   | 'versions'
   | 'publish'
+  | 'embed'
   | 'audit';
 
 export type MapMode =
