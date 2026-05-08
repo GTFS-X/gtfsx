@@ -28,6 +28,7 @@ import {
 } from './tokens';
 import { requireAuth } from './middleware';
 import { sendVerifyEmail, sendMagicLink, sendPasswordReset } from '../email';
+import { verifyTurnstile } from '../util/turnstile';
 
 const emailSchema = z.string().trim().toLowerCase().email();
 const passwordSchema = z.string().min(10).max(256);
@@ -37,6 +38,7 @@ const signupSchema = z.object({
   email: emailSchema,
   displayName: displayNameSchema,
   password: passwordSchema,
+  turnstileToken: z.string().max(2048).optional(),
 });
 
 const loginSchema = z.object({
@@ -139,6 +141,9 @@ authRouter.post('/signup', async (c) => {
   const ip = clientIp(c.req.raw);
   await rateLimit(c.env, { key: `auth:signup:ip:${ip}`, limit: 10, windowSec: 3600 });
   await rateLimit(c.env, { key: `auth:signup:email:${body.email}`, limit: 6, windowSec: 3600 });
+  // Bot gate. Verifies the Turnstile token before any DB write or email
+  // send. No-op when the secret isn't configured (dev fallback).
+  await verifyTurnstile(c.env, body.turnstileToken, ip);
 
   await withMinDelay(200, async () => {
     const existing = await findUserByEmail(c.env, body.email);

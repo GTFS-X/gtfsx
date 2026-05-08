@@ -99,7 +99,12 @@ async function request<T = unknown>(
   return undefined as T;
 }
 
-export function signup(input: { email: string; displayName: string; password: string }): Promise<void> {
+export function signup(input: {
+  email: string;
+  displayName: string;
+  password: string;
+  turnstileToken?: string;
+}): Promise<void> {
   return request('/auth/signup', { method: 'POST', body: input });
 }
 

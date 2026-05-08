@@ -21,6 +21,7 @@ export interface Env {
   // Secrets (wrangler secret put)
   RESEND_API_KEY: string;
   MOBILITY_DATABASE_REFRESH_TOKEN: string;
+  TURNSTILE_SECRET_KEY?: string;
 }
 
 // Hono context variables populated by middleware. Typed as a module augmentation
