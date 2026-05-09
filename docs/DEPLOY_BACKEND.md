@@ -1,110 +1,144 @@
 # Deploying the GTFS Builder backend
 
-One-time setup for the Phase 1 + Phase 2 backend (auth + feed management). Run from `gtfs-builder/` with `wrangler` available (installed via `npm install`).
+One-time provisioning + redeploy runbook. Run from `gtfs-builder/` with `wrangler` available (installed via `npm install`). For "what's currently deployed where," see [`BACKEND_STATUS.md`](./BACKEND_STATUS.md).
 
-## 1. Provision Cloudflare resources
+The deploy gotchas (API token scopes, the `--env=""` quirk, etc.) live in `BACKEND_STATUS.md` so they stay close to the live operational picture. This file covers the steps in order.
+
+---
+
+## 1. Provision Cloudflare resources (one-time)
 
 ```bash
-# D1 — holds users, sessions, projects, versions, audit.
+# D1 — users, sessions, projects, versions, publications, audit.
 wrangler d1 create gtfs-builder
-# → copy the database_id printed and paste it into wrangler.jsonc
-#    at d1_databases[0].database_id (replace REPLACE_WITH_D1_ID).
+# → paste the printed database_id into wrangler.jsonc
+#   at d1_databases[0].database_id (top-level block).
 
-# KV — rate-limit counters.
+# KV — auth + publish rate-limit counters.
 wrangler kv namespace create KV
-# → copy the id and paste it into wrangler.jsonc at
-#   kv_namespaces[0].id (replace REPLACE_WITH_KV_ID).
+# → paste the printed id into wrangler.jsonc kv_namespaces[0].id.
 
-# R2 — feed blobs (working states, version snapshots, ZIPs).
+# R2 — feed blobs (working states, version snapshots, ZIPs) AND org logos.
 wrangler r2 bucket create gtfs-builder-feeds
+# (gtfs-builder-tiles already exists for the demand-dot PMTiles archive.)
 ```
 
-Staging (optional but recommended — lets you rehearse migrations before prod):
+Staging (recommended — rehearse migrations against a separate D1 + R2):
 
 ```bash
 wrangler d1 create gtfs-builder-staging
 wrangler kv namespace create KV --preview
 wrangler r2 bucket create gtfs-builder-feeds-staging
+# Paste IDs into wrangler.jsonc env.staging block.
 ```
 
 ## 2. Apply database migrations
 
+Migrations live in `worker/migrations/`:
+
+| File | Adds |
+|---|---|
+| `0001_auth.sql` | `user`, `credential`, `session`, `auth_token`, `audit_event`. |
+| `0002_projects.sql` | `organization`, `organization_membership`, `feed_project`, `feed_version`, `draft_link`. |
+| `0003_distribution.sql` | `publication`, `publication_history`, `project_catalog_submission`, `project_rt_feed`. |
+| `0004_branding.sql` | `feed_project.brand_primary_color`. |
+| `0005_org_branding.sql` | `organization.brand_logo_r2_key` / `_content_type` / `_updated_at`. |
+
+Apply:
+
 ```bash
 # Prod
 wrangler d1 migrations apply gtfs-builder --remote
-# Local dev (wrangler dev --local uses a local SQLite)
+# Staging
+wrangler d1 migrations apply gtfs-builder-staging --remote --env staging
+# Local dev
 wrangler d1 migrations apply gtfs-builder --local
 ```
 
-Wrangler picks up migrations from `worker/migrations/` (configured in `wrangler.jsonc`). Today that's `0001_auth.sql` and `0002_projects.sql`.
+If the standard `migrations apply` errors on token scopes, fall back to applying the SQL via `execute --file`, then mark the migration as applied (see `BACKEND_STATUS.md` "Deploy gotchas").
 
 ## 3. Set secrets
 
 ```bash
 # Resend — transactional email for verify links, magic links, password resets.
 wrangler secret put RESEND_API_KEY
-# Paste your Resend API key when prompted.
+wrangler secret put RESEND_API_KEY --env staging
+
+# Cloudflare Turnstile — captcha gate on /auth/signup.
+wrangler secret put TURNSTILE_SECRET_KEY
+wrangler secret put TURNSTILE_SECRET_KEY --env staging
 ```
 
-`MOBILITY_DATABASE_REFRESH_TOKEN` is already set (from the existing catalog-search feature).
+`MOBILITY_DATABASE_REFRESH_TOKEN` is already set on both environments (from the existing catalog-search feature).
 
-## 4. DNS / custom hostname for the feeds subdomain
+## 4. Configure Resend sending domain
 
-Only needed once Phase 3 (publication) lands. You can skip this during Phase 1/2 rollout.
+Point Resend at `gtfsbuilder.net` (or a subdomain like `mail.gtfsbuilder.net`). Add the SPF / DKIM / DMARC records Resend generates to your DNS. Without this, verify and magic-link emails land in spam.
 
-```bash
-# Adds feeds.gtfsbuilder.net as a custom domain on the Worker.
-# wrangler.jsonc already lists the route; this just creates the DNS record.
-wrangler deploy --dry-run
-# then: in the Cloudflare dashboard, confirm the DNS CNAME for 'feeds'.
-```
+`AUTH_EMAIL_FROM` in `wrangler.jsonc` must match a verified Resend sender:
 
-## 5. Configure Resend sending domain
+- prod: `GTFS Builder <noreply@gtfsbuilder.net>`
+- staging: `GTFS Builder Staging <staging@gtfsbuilder.net>`
 
-Point Resend at `gtfsbuilder.net` (or a subdomain like `mail.gtfsbuilder.net`). Add the SPF, DKIM, and DMARC records Resend generates to your DNS. Without this, verify / magic-link emails land in spam.
+## 5. Configure Turnstile
 
-`AUTH_EMAIL_FROM` in `wrangler.jsonc` (`GTFS Builder <noreply@gtfsbuilder.net>`) must match a verified Resend sender.
+In the Cloudflare dashboard → **Turnstile** → **Add Site**:
 
-## 6. Deploy
+- Hostnames: `staging.gtfsbuilder.net`, `gtfsbuilder.net`, `www.gtfsbuilder.net` (one widget covers all environments).
+- Mode: **Managed**.
+- Copy the **site key** into `.env`'s `VITE_TURNSTILE_SITE_KEY` (public; baked into the SPA bundle).
+- Copy the **secret key** into the Worker secret `TURNSTILE_SECRET_KEY` (step 3 above).
+
+## 6. Build + deploy
 
 ```bash
 npm run build
-wrangler deploy
+# Source CLOUDFLARE_API_TOKEN from ~/proj/.env if needed.
+npx wrangler deploy --env=""        # prod (top-level block)
+npx wrangler deploy --env staging   # staging
 ```
+
+The empty `--env=""` flag explicitly targets the top-level (prod) block; without it wrangler warns about ambiguity since multiple environments are declared.
 
 ## 7. Smoke-test checklist
 
-After deploy, walk through this in an incognito window against `www.gtfsbuilder.net`:
+In an incognito window against the deployed origin:
 
-- [ ] Sign up with a fresh email → receives verify email (check spam).
+- [ ] Sign up with a fresh email → Turnstile widget appears, captures a token, signup succeeds, verify email arrives (check spam).
 - [ ] Click the verify link → lands on `/?welcome=1`, logged in.
 - [ ] Sign out, sign back in with password.
 - [ ] Sign out, request magic link, click it from email → logged in.
-- [ ] "Forgot password" → receives reset email → set new password → sessions revoked, login with new password works.
+- [ ] "Forgot password" → receives reset email → set new password → sessions revoked → login with new password works.
 - [ ] Account settings → change display name. Change email (→ confirm from new inbox). Change password. Sign out of all devices.
-- [ ] Create a project, edit, see it autosave. Reload — state restored from server.
-- [ ] Save a version. Restore the version. Delete a version.
-- [ ] Anonymous editor in another browser → sign in → local project imports.
+- [ ] Create a project (personal), edit, click Save → see it persisted. Reload — state restored from server.
+- [ ] Save a version. Restore. Delete a version.
+- [ ] Create an org. Switch workspace via the account menu. Create a project under the org. Move it back to personal via the kebab → Move to….
+- [ ] Org settings → upload a brand logo → reload, confirm it renders next to the org name.
+- [ ] Publish a version. Visit `feeds.<host>/<slug>/gtfs.zip` (200), `feeds.<host>/<slug>` (mini-site), `feeds.<host>/<slug>/embed/route/<id>` (per-route embed), `feeds.<host>/<slug>/embed/system-map`, `feeds.<host>/<slug>/embed/stop/<stop_id>`.
+- [ ] Anonymous editor in another browser → sign in → local IndexedDB feeds offered for import.
 
-If any step fails, check `wrangler tail` for structured logs. Each request has a `requestId` in its audit metadata to correlate user reports with logs.
+If any step fails, `wrangler tail` shows structured logs. Each request has a `requestId` in audit metadata to correlate user reports.
 
 ## 8. Runtime flags
 
-These are `vars` in `wrangler.jsonc` — edit and redeploy to change them:
+`vars` in `wrangler.jsonc` (edit + redeploy to change):
 
 | Var | Purpose |
 |---|---|
-| `BACKEND_ENABLED` | `false` hides the sign-in UI in the frontend. Use this as a kill switch pre-launch. |
-| `HARD_LIMITS` | `true` flips quota behavior from soft-warn (20/50/50 MB) to hard-block. Intended for post-RTAP-licensing launch. |
-| `APP_ORIGIN` | Base URL used in emailed links. Set to `https://www.gtfsbuilder.net` in prod, `http://localhost:5173` for local dev. |
-| `FEEDS_ORIGIN` | Base URL for published feeds (Phase 3). `https://feeds.gtfsbuilder.net`. |
+| `BACKEND_ENABLED` | `"false"` hides the sign-in / save / `/feeds*` UI in the frontend. Kill switch — pair with `VITE_BACKEND_ENABLED=false` in the SPA build. |
+| `HARD_LIMITS` | `"true"` flips quota behaviour from soft-warn (20 projects / 50 versions / 50 MB ZIP) to hard reject. For post-RTAP-licensing launch. |
+| `APP_ORIGIN` | Base URL used in emailed links. `https://www.gtfsbuilder.net` in prod; `http://localhost:5173` in dev. |
+| `FEEDS_ORIGIN` | Base URL for published feeds + embeds. `https://feeds.gtfsbuilder.net` in prod. |
+| `MAPBOX_TOKEN` | Public publishable Mapbox token used by the embed renderer (same value as `VITE_MAPBOX_TOKEN`; not a secret). |
 
 ## 9. Operator runbook
 
 | Task | Command |
 |---|---|
-| Tail live logs | `wrangler tail` |
-| Run a one-off query | `wrangler d1 execute gtfs-builder --remote --command "SELECT ..."` |
+| Tail live logs | `wrangler tail [<env>]` (NB: pass the worker name, not `--env`, e.g. `wrangler tail gtfs-builder-staging`). |
+| Run a one-off query | `unset CLOUDFLARE_API_TOKEN; wrangler d1 execute gtfs-builder --remote --command "SELECT ..."` |
 | Disable a user | `wrangler d1 execute gtfs-builder --remote --command "UPDATE user SET status='disabled' WHERE email='...'"` |
-| Revoke all a user's sessions | `wrangler d1 execute gtfs-builder --remote --command "UPDATE session SET revoked_at=unixepoch()*1000 WHERE user_id='...'"` |
+| Revoke all of a user's sessions | `wrangler d1 execute gtfs-builder --remote --command "UPDATE session SET revoked_at=unixepoch()*1000 WHERE user_id='...'"` |
 | Count active users (30d) | `wrangler d1 execute gtfs-builder --remote --command "SELECT COUNT(DISTINCT user_id) FROM session WHERE last_used_at > (unixepoch()-2592000)*1000"` |
+| Promote a user to staff | `wrangler d1 execute gtfs-builder --remote --command "UPDATE user SET staff=1 WHERE email='...'"` |
+| Reset rate limits during testing | `scripts/reset-rate-limits.sh [staging|prod|local]` |

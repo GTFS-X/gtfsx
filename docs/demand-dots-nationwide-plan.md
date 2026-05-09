@@ -1,6 +1,7 @@
 # Transit Demand Dot Map — Nationwide Scaling Plan
 
-**Status:** Planning. Not yet started.
+**Status:** ✅ Built. The `us-2026b` archive is live in R2 (`gtfs-builder-tiles`) and served at `/_demand-tiles/us-2026b/{z}/{x}/{y}.pbf`. The `DemandDotsLayer` is wired into the editor map. This document is preserved as the build pipeline + decision record for the next regen.
+
 **Owner:** mark@eateggs.com
 **Decision log (2026-04-12):**
 - Block-level resolution (not block group).

@@ -397,12 +397,13 @@ Read these when you need the deep version of a particular surface:
 
 | Doc | Scope |
 |---|---|
-| [`BACKEND_REQUIREMENTS.md`](./BACKEND_REQUIREMENTS.md) | Full feature spec for accounts, orgs, projects, publication, distribution, admin. Source of truth for `BE-*` and `NF-*` requirements. |
-| [`BACKEND_IMPLEMENTATION_PLAN.md`](./BACKEND_IMPLEMENTATION_PLAN.md) | Phased plan + risk register. Phase 1 → auth, Phase 2 → projects + sync + versions, Phase 3 → publication (public launch), Phase 4 → orgs, Phase 5 → distribution, Phase 6 → polish, Phase 7 → embeds (cross-references EMBEDS_REQUIREMENTS). |
-| [`BACKEND_STATUS.md`](./BACKEND_STATUS.md) | "Where we are now" snapshot — env state, deployed versions, known follow-ups. **Update this when you change deployed state.** |
-| [`DEPLOY_BACKEND.md`](./DEPLOY_BACKEND.md) | Provisioning runbook (D1 / KV / R2 / secrets / DNS / smoke-test). |
-| [`EMBEDS_REQUIREMENTS.md`](./EMBEDS_REQUIREMENTS.md) | Phase 7 (embeds) feature spec — `EM-*` requirements, sub-phases, design tradeoffs. |
-| [`FLEX_ROADMAP.md`](./FLEX_ROADMAP.md) | GTFS-Flex coverage tracker — shipped vs partial vs open vs deferred per spec field. |
-| [`demand-dots-nationwide-plan.md`](./demand-dots-nationwide-plan.md) | Build pipeline + refresh cadence for the demand-dot tile layer. |
+| [`BACKEND_REQUIREMENTS.md`](./BACKEND_REQUIREMENTS.md) | Reference spec — data model, API surface, security/privacy NFRs, decisions appendix. Anchors `BE-*` and `NF-*` numbers. |
+| [`BACKEND_STATUS.md`](./BACKEND_STATUS.md) | "Where we are now" snapshot — env state, deploy gotchas, outstanding work. **Update this when you change deployed state.** |
+| [`DEPLOY_BACKEND.md`](./DEPLOY_BACKEND.md) | Provisioning runbook (D1 / KV / R2 / Resend / Turnstile / smoke-test). |
+| [`EMBEDS_REQUIREMENTS.md`](./EMBEDS_REQUIREMENTS.md) | Embeds reference — research findings, architecture, what's shipped, what's queued, open questions. Anchors `EM-*` numbers. |
+| [`FLEX_ROADMAP.md`](./FLEX_ROADMAP.md) | GTFS-Flex coverage tracker — shipped / partial / open / deferred per spec field. |
+| [`demand-dots-nationwide-plan.md`](./demand-dots-nationwide-plan.md) | Build pipeline + decisions for the demand-dot tile archive. |
 | [`Title VI Transit Service Analysis - Calculation Procedures Memo.md`](./Title%20VI%20Transit%20Service%20Analysis%20-%20Calculation%20Procedures%20Memo.md) | Methodology for the Title VI equity analysis. |
 | [`wireframes.html`](./wireframes.html) | Original UI sketches — historical reference. |
+
+The previous `BACKEND_IMPLEMENTATION_PLAN.md` was retired in 2026-05 — Phases 1–5 are fully shipped, the live operational picture moved into `BACKEND_STATUS.md`, and the remaining outstanding items (NF-40a argon2id, transit.land submission, hard-mode quotas, Phase 7 embed sub-phases, etc.) are tracked in `BACKEND_STATUS.md` §"Outstanding work" or `EMBEDS_REQUIREMENTS.md` §3.

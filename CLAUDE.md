@@ -9,12 +9,12 @@
 - Wireframes/mockups: `docs/wireframes.html`
 - Example GTFS feed: `streamline_gtfs_march_2026/`
 
-## Backend (auth + feed management)
-- Feature spec: `docs/BACKEND_REQUIREMENTS.md`
-- Implementation plan: `docs/BACKEND_IMPLEMENTATION_PLAN.md`
+## Backend (auth + feed management + embeds)
+- Reference spec: `docs/BACKEND_REQUIREMENTS.md`
+- Live operational state: `docs/BACKEND_STATUS.md` (read first when picking work back up)
 - Deploy runbook: `docs/DEPLOY_BACKEND.md`
-- Embeddable maps & schedules (Phase 7, post-launch): `docs/EMBEDS_REQUIREMENTS.md`
-- Cloudflare Worker (same `wrangler.jsonc` as the SPA): `worker/` — Hono router composing `auth/`, `projects/`, `email/`, `util/`, with legacy tile/catalog handlers in `worker/legacy/`.
+- Embeds reference: `docs/EMBEDS_REQUIREMENTS.md`
+- Cloudflare Worker (same `wrangler.jsonc` as the SPA): `worker/` — Hono router composing `auth/`, `projects/`, `orgs/`, `admin/`, `publication/`, `embeds/`, `email/`, `util/`, with legacy tile/catalog handlers in `worker/legacy/`.
 - D1 migrations: `worker/migrations/*.sql` (run via `wrangler d1 migrations apply`).
 - Frontend gates on `VITE_BACKEND_ENABLED` — when false, auth and /feeds routes render a placeholder and the editor stays anonymous/local-only.
 - Anonymous IndexedDB editor still works; signed-in users' projects live in R2 (`gtfs-builder-feeds` bucket) with metadata in D1.

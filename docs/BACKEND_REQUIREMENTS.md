@@ -1,351 +1,292 @@
-# GTFS Builder — Backend Requirements (Draft)
+# GTFS Builder — Backend Reference
 
-## 0. Purpose & Scope
+Reference spec for the account / project / publication / distribution backend. The high-level overview lives in [`REQUIREMENTS.md`](./REQUIREMENTS.md) §3–§4; the live operational picture is in [`BACKEND_STATUS.md`](./BACKEND_STATUS.md); deployment instructions are in [`DEPLOY_BACKEND.md`](./DEPLOY_BACKEND.md). This file is the long-form companion: data model, full API surface, security posture, and the design decisions that shaped them.
 
-Today GTFS Builder is a pure browser app: everything lives in IndexedDB, and the only server-side code is a small Cloudflare Worker that proxies tiles and the Mobility Database catalog. This document proposes the feature set for a backend that adds:
-
-1. **User accounts** — identity, sessions, password/passwordless auth, account recovery.
-2. **Feed management** — server-side storage of feed projects so users can work across devices, recover from data loss, and organize multiple feeds.
-3. **Feed publication** — publish a feed to a stable public URL, share unlisted draft URLs for review, and optionally register the canonical URL with public GTFS catalogs.
-
-This is a **feature-set doc**, not an implementation plan. §12 captures the decisions made during review — refer there for the rationale behind anything that looks under-specified above.
-
-**Commercial model:** This product is intended to be licensed to the **Rural Transit Assistance Program (RTAP)**, which will provide free access to its member agencies. Every user gets the same quota (see BE-52), enforced as hard limits. No in-app billing in v1.
+`BE-*` and `NF-*` numbers are anchors that other docs and code comments reference; they're preserved even where the corresponding feature is shipped.
 
 ---
 
-## 1. Architecture Recommendation
-
-### Stay on Cloudflare
-The existing site is deployed as a Worker-with-static-assets on `gtfsbuilder.net`, with R2 for tiles. Extending the same Worker keeps the stack simple, deploys through the same `wrangler` pipeline, and avoids a second origin.
-
-| Concern | Proposed Service |
-|---|---|
-| Relational data (users, feeds, versions, publications) | **Cloudflare D1** (SQLite) |
-| Feed ZIP blobs (per-version) | **Cloudflare R2** (new bucket, e.g. `gtfs-builder-feeds`) |
-| Session tokens / rate-limit counters | **Cloudflare KV** (or a `sessions` table in D1) |
-| Transactional email (verify, magic link, password reset) | **Resend** (already used in sibling projects) |
-| Background jobs (nightly re-validate, catalog re-register) | **Cron Triggers** on the same Worker |
-| Secrets (`RESEND_API_KEY`, session signing key, OAuth client secrets) | `wrangler secret put` |
-
-Alternatives considered — a separate Node/Postgres backend, Supabase/Clerk/Auth0 — all add another origin, another bill, and another deploy surface. D1 + R2 is sufficient for the expected data shape (mostly small rows; the bulk of bytes are versioned ZIPs in R2). If we later outgrow D1 we can migrate without breaking the app contract.
-
-### Public URL layout
-```
-www.gtfsbuilder.net/                        # editor SPA (unchanged)
-www.gtfsbuilder.net/api/...                 # authenticated API
-www.gtfsbuilder.net/auth/...                # login, signup, callback, magic-link landing
-
-feeds.gtfsbuilder.net/<slug>/gtfs.zip           # canonical published feed
-feeds.gtfsbuilder.net/<slug>/feed_info.json     # sidecar metadata (BE-74, BE-85)
-feeds.gtfsbuilder.net/<slug>/draft/<token>.zip  # unlisted draft URL
-```
-
-The `feeds.` subdomain lets us cache published feeds aggressively and keeps auth cookies scoped to the editor origin so they never leak on public feed fetches.
-
----
-
-## 2. Data Model (Entities)
+## 1. Data model
 
 | Entity | Purpose |
 |---|---|
 | `user` | One row per person. Email is the primary identifier. |
-| `credential` | Auth material attached to a user: password hash, OAuth identity, or magic-link secret. A user may have multiple. |
-| `session` | Active login. HTTP-only cookie on the editor domain. |
-| `organization` *(see §7)* | Shared workspace for a team. |
-| `organization_membership` | Many-to-many join: a user belongs to any number of orgs with a role per org. **Critical for consultants** who work across multiple agency orgs simultaneously. |
-| `feed_project` | The editing artifact — one "feed" the user is working on. Owned by a user or organization. Has a slug, name, description, and a current working draft. |
-| `project_membership` *(optional, v2)* | Fine-grained access: grant a specific user access to one project inside an org without seeing the org's other projects. Useful when a consultant should only see the one feed they're hired to work on. |
-| `feed_version` | Immutable snapshot of a feed project's contents at a point in time. Stored as a GTFS ZIP in R2 plus a metadata row, along with a **version summary** (see BE-46). |
-| `publication` | Says "version X of project Y is live at this URL." At most one published version per project at any moment. |
-| `audit_event` | Append-only log of significant actions (login, publish, delete) for later debugging and user-visible history. |
+| `credential` | Auth material attached to a user: password hash or OAuth identity. A user may have multiple. |
+| `session` | Active login. HTTP-only cookie scoped to the editor domain. |
+| `auth_token` | Single-use bearer tokens hashed at rest: `verify_email`, `magic_link`, `password_reset`, `invitation`. |
+| `organization` | Shared workspace for a team. Soft-deletable. |
+| `organization_membership` | Many-to-many user↔org with a per-org role. **Many-to-many is critical for consultants** working across multiple agencies. |
+| `feed_project` | The editing artifact — one feed. Owned by a user or organization (`owner_type` + `owner_id`). Slug unique per owner. Includes per-project `brand_primary_color`. |
+| `project_membership` *(future)* | Per-project access inside an org without org-wide visibility — granted use case is a consultant retained for a single agency feed (BE-95). |
+| `feed_version` | Immutable snapshot. Two R2 blobs (gzipped JSON state + rendered ZIP) plus a metadata row with the version summary (BE-46). |
+| `draft_link` | Unguessable token (hashed at rest) pointing at a specific feed version, time-limited and revocable. |
+| `publication` | "Version X of project Y is live at canonical URL." At most one published version per project at any moment. |
+| `publication_history` | Append-only list of publish/unpublish/rollback events. |
+| `project_catalog_submission` | Opt-in record per (project, catalog) for Mobility DB / transit.land. Stores the external feed id. |
+| `project_rt_feed` | Registered external GTFS-RT feed URLs (BE-87). Metadata only — we don't proxy. |
+| `audit_event` | Append-only log of significant actions. |
+
+Schema lives in `worker/migrations/*.sql`. All IDs are ULIDs (lexicographically sortable, URL-safe). All bearer-token values are SHA-256 hashed at rest — the cleartext is delivered only once.
+
+Per-org branding columns (`brand_logo_r2_key`, `brand_logo_content_type`, `brand_logo_updated_at`) live on `organization`; logo bytes live in the FEEDS R2 bucket and are served publicly via the FEEDS origin.
 
 ---
 
-## 3. User Accounts & Authentication
+## 2. Authentication and accounts
 
-### 3.1 Sign-up & identity
-- **BE-1**: Users sign up with an email address and a display name.
-- **BE-2**: Email addresses are normalized (lowercase, trimmed) and unique per user.
-- **BE-3**: A new account is inactive until the email is verified (click a link emailed via Resend).
-- **BE-4**: Users can update display name, email (with re-verification), and delete their account.
-- **BE-5**: Account deletion is a soft-delete for 30 days (grace period), then a hard purge of PII and owned feed versions that have no other dependents.
+### 2.1 Sign-up & identity
 
-### 3.2 Authentication methods
-**v1 ships with both email+password and magic link** — the user picks per login. Magic link removes the "forgot password" problem for casual users; password is faster for daily users. Google OAuth follows in v1.1 based on adoption data (~60% of signup-ready users click "Sign in with Google" when offered).
+- **BE-1**: Sign up with email + display name.
+- **BE-2**: Email is normalized (lowercase + trimmed) and unique per user.
+- **BE-3**: A new account is `pending_verification` until the email is verified.
+- **BE-4**: User can change display name, email (with re-verify), password.
+- **BE-5**: Account deletion is a soft-delete (30-day grace) followed by hard-purge of PII and any owned feed versions with no other dependents.
 
-- **BE-10**: Email + password login. Passwords hashed with PBKDF2-HMAC-SHA256 at 100,000 iterations (workerd's ceiling as of 2026-04 — see NF-40 for the argon2id migration plan). Format is self-describing (`pbkdf2$<iter>$<salt>$<hash>`) so iteration counts can be raised per-hash without migrating older credentials.
-- **BE-11**: Magic-link login. Email a single-use, short-lived (15 min), rotating token; one click logs the user in on the device that requested it.
-- **BE-12**: "Forgot password" flow emails a reset token (single-use, 1-hour expiry).
-- **BE-13**: Sessions are HTTP-only, `Secure`, `SameSite=Lax` cookies scoped to `gtfsbuilder.net`.
-- **BE-14**: Session idle timeout (default 30 days), absolute timeout (default 90 days). "Log out of all devices" invalidates all sessions for a user.
-- **BE-15**: Rate-limit auth endpoints per IP and per email (e.g. 10 attempts / 10 min).
-- **BE-16** *(v1.1)*: Google OAuth as an alternate sign-in. Accounts keyed by verified email — a user who previously signed up with email+password can add Google later and log in either way. Microsoft OAuth deferred until an RTAP member agency requests it.
+### 2.2 Authentication methods
 
-### 3.3 Authorization & roles
-- **BE-20**: A user can read/write only feed projects they own personally or where their org role grants access (see §7 for role matrix).
-- **BE-21**: A `staff` flag on the `user` table gives us (the operators) support access — used only for debugging, gated behind an explicit "impersonate" audit entry visible to the user whose account was accessed.
+- **BE-10**: Email + password login. Hashes are stored as `pbkdf2$<iter>$<salt>$<hash>` so iteration counts can be raised per-hash without migrating existing credentials.
+- **BE-11**: Magic-link login via single-use, 15-minute, rotating token.
+- **BE-12**: "Forgot password" reset (single-use, 1-hour token).
+- **BE-13**: Sessions are `HttpOnly`, `Secure`, `SameSite=Lax` cookies scoped to the editor origin.
+- **BE-14**: Session idle timeout (30 d), absolute timeout (90 d). "Log out of all devices" invalidates all sessions for a user.
+- **BE-15**: Per-IP and per-email rate limits on auth endpoints.
+- **BE-16** *(deferred)*: Google OAuth as an alternate sign-in. Accounts keyed by verified email so users with existing password credentials can add Google later.
+
+A Cloudflare Turnstile gate sits in front of `/auth/signup` (signup is the primary email-amplification target). The site key is public (in the SPA bundle); the secret is a Worker secret.
+
+### 2.3 Authorization
+
+- **BE-20**: A user can read/write only feed projects they own personally or where their org role grants access. Role matrix: `owner` > `admin` > `editor` > `viewer`.
+- **BE-21**: A `staff` flag on the `user` table grants the operator console at `/admin/*`. Staff actions write `audit_event`s with an `admin.*` prefix that surface on the affected user's own audit log.
 - **BE-22**: No public read of editor state. Published feeds are public by design; drafts are public-but-unlisted via unguessable tokens.
 
 ---
 
-## 4. Feed Project Management
+## 3. Organizations
 
-### 4.1 CRUD
-- **BE-30**: Create a feed project. Name required; slug auto-generated from name but editable (unique per owner, lowercased-ASCII-dashes).
-- **BE-31**: List a user's feed projects with last-edited time, publication status, and version count.
-- **BE-32**: Open a feed project in the editor — loads the current working draft into the existing IndexedDB-backed editor state.
-- **BE-33**: Rename / edit description / change slug. Changing slug after publication keeps the old slug as a permanent redirect.
-- **BE-34**: Archive a feed project (hidden from default list, still restorable). Delete a feed project (soft-delete 30 days → hard purge).
-- **BE-35**: Duplicate a feed project ("Start new feed from this one") — copies the current working state but not the publication/version history.
+Specced as v1 (rather than v2) because the consultant-across-multiple-agencies workflow is a primary use case.
 
-### 4.2 Editor sync
-The editor currently autosaves to IndexedDB. We add server sync on top, not instead.
+- **BE-90/91**: Roles: `owner` / `admin` / `editor` / `viewer`. Membership is many-to-many. A feed project is owned by either a user or an org.
+- **BE-92**: Invitations email the invitee a single-use token (`auth_token` kind=`invitation`); the invitee accepts (signing up if needed) and joins with the specified role.
+- **BE-93**: Roles allow:
+  - `owner` — full control, including transfer ownership and delete the org.
+  - `admin` — manage members + projects.
+  - `editor` — edit projects, publish.
+  - `viewer` — read-only (auditors, stakeholders, clients reviewing a consultant's work-in-progress).
+- **BE-94**: Last owner cannot leave or self-demote until they transfer ownership.
+- **BE-95** *(future)*: Per-project membership — a user can be granted access to a single project inside an org without seeing the rest of the org. Specced; not built.
+- **BE-96**: No real-time multi-cursor editing in v1. Last-writer-wins working-state sync (BE-42) with a clear "another device edited this" modal.
+- **BE-97**: Workspace switcher in the top bar. Per-workspace project list.
 
-- **BE-40**: When a logged-in user opens a server-backed project, the editor loads the server's current working state and continues to autosave locally.
-- **BE-41**: Local changes are pushed to the server on a debounce (e.g. 5 s after last edit, or on window blur), as a single "save working draft" call that replaces the server's working state.
-- **BE-42**: Last-writer-wins with a version token. If the user's session has stale working state (e.g. edited on another device), the server rejects the save and the editor prompts: "This feed was edited elsewhere — reload or keep my changes?"
-- **BE-43**: Anonymous use continues to work (IndexedDB only). A banner invites sign-in. **On sign-in, any local-only IndexedDB projects are automatically imported to the server** and the local copy becomes a cache of the server version. If import would exceed the account quota (BE-52), the user is prompted to pick which projects to keep. If a local project was also opened as a server-backed project in the same browser (collision by slug or id), prompt rather than overwrite.
-- **BE-44**: Explicit "Save version" creates a named, immutable `feed_version` snapshot. Users can label it (e.g. "March 2026 service change").
-- **BE-45**: Version history view: list versions with timestamp, label, author, size, validation summary. Restore any version back into the working draft.
-- **BE-46**: Each version stores a **summary** computed at snapshot time: route count, stop count, trip count, service-day count, `feed_start_date`/`feed_end_date`, total revenue hours (we already compute this for costs), ZIP size, validation error/warning counts, and which GTFS files are populated. Shown inline in the version history so the user can scan "what changed between v12 and v13" without opening each version.
-- **BE-47**: Per-version `summary.json` sidecar available at `feeds.gtfsbuilder.net/<slug>/versions/<vid>/summary.json` (authenticated; owner/org-member only). Same data, reusable for future dashboarding.
+Cross-workspace project transfer is implemented as `POST /api/projects/:id/transfer` — admin+ on the source, editor+ on the destination org. Slug auto-suffixes on collision and `publication.canonical_slug` is updated in lockstep so a published URL keeps pointing at the same project after a move.
 
-### 4.3 Storage format
-- **BE-50**: Working drafts and version JSON live in **R2**, with a pointer row (path, size, hash, content-type, created-at) in D1. D1 stays small and fast; R2 handles arbitrarily large feed state. Working-draft blobs are gzipped before upload (GTFS JSON compresses ~10–20×).
-- **BE-51**: Each version stores **two** R2 objects: the internal JSON store state (for restore/edit) and the rendered GTFS ZIP (for publish/draft serving without re-render). Both are immutable once written.
-- **BE-52**: **Quota per account (user or org): 20 projects, 50 versions per project, 50 MB per ZIP.** Launch behavior: **soft-warn** ("You're at 18/20 projects — archive old ones or delete versions to free space."). Under the RTAP licensing model these become **hard limits** — hitting a limit blocks creation until space is freed. The transition from soft to hard is a config change, not a code change.
+---
+
+## 4. Project management
+
+### 4.1 CRUD & sync
+
+- **BE-30**: Create. Slug auto-generated from name; editable; unique per (owner_type, owner_id).
+- **BE-31**: List with last-edited time, version count, publication status.
+- **BE-32**: Open in the editor — server working state hydrates the Zustand store; local IndexedDB acts as cache.
+- **BE-33**: Rename / change description / change slug. Slug change after publication keeps the old slug as a permanent redirect.
+- **BE-34**: Archive (hidden from default list, restorable). Soft-delete (30-day grace → hard purge).
+- **BE-35**: Duplicate ("start new feed from this one") — copies working state, not version/publication history.
+
+Working-state sync (BE-40/41/42) uses `If-Match` on a monotonic `working_state_version` token. Conflicts return 409 with the server's current version; the client offers "reload theirs / keep mine."
+
+Anonymous → signed-in migration (BE-43): on first sign-in, the local IndexedDB editor uploads any local-only feeds via `POST /api/projects/import` (gzipped base64 snapshots). Slug or id collisions surface a prompt.
+
+### 4.2 Versions
+
+- **BE-44**: Explicit "Save version" creates an immutable named snapshot.
+- **BE-45**: Version history view. Restore a version into the working draft.
+- **BE-46**: Each version stores a **summary** (route count, stop count, trip count, service-day count, feed start/end dates, weekly revenue hours, ZIP size, validation error/warning counts, populated GTFS files). Lets a reviewer scan "what changed between v12 and v13" at a glance.
+- **BE-47**: Per-version `summary.json` sidecar at `feeds.*/<slug>/versions/<vid>/summary.json` (auth-gated). Same data as BE-46, reusable for dashboards.
+
+### 4.3 Storage and quotas
+
+- **BE-50/51**: Working drafts and version JSON blobs live in R2 (gzipped); D1 holds pointer rows. Each version has two immutable R2 objects: state JSON and rendered ZIP.
+- **BE-52**: **Quota: 20 projects per owner, 50 versions per project, 50 MB per ZIP.** Soft-warn at the 90% threshold. The runtime flag `HARD_LIMITS=true` flips behaviour to hard reject — intended for the eventual RTAP licensing model.
 
 ---
 
 ## 5. Publication
 
-### 5.1 Draft URL (for review / stakeholder sign-off)
-- **BE-60**: One click on any saved version: "Get review link." Generates `feeds.gtfsbuilder.net/<slug>/draft/<token>.zip` with an unguessable token.
-- **BE-61**: Draft URLs are unlisted (no directory listing, no indexing — `X-Robots-Tag: noindex`, `robots.txt` disallows `/draft/`).
-- **BE-62**: Draft URLs can be revoked. Default expiry: 30 days, renewable.
-- **BE-63**: A draft URL points to a specific `feed_version`, so the bytes never change once the link is shared.
-- **BE-64**: Drafts serve with `Cache-Control: private, max-age=300` and a `Content-Disposition` filename like `<slug>-draft-2026-04-17.zip`.
+### 5.1 Draft links
+
+- **BE-60**: One click on any saved version generates `feeds.*/<slug>/draft/<token>.zip` with an unguessable 192-bit token (hashed at rest).
+- **BE-61**: `X-Robots-Tag: noindex`; feeds-origin `robots.txt` disallows `/draft/`.
+- **BE-62**: Default 30-day expiry; renewable; revocable.
+- **BE-63**: Each draft URL points to a specific `feed_version` so the bytes don't change once shared.
+- **BE-64**: `Cache-Control: private, max-age=300`; downloadable filename derived from slug + draft date.
 
 ### 5.2 Canonical publication
-- **BE-70**: "Publish" promotes a specific version to the canonical URL: `feeds.gtfsbuilder.net/<slug>/gtfs.zip`.
-- **BE-71**: Publication blocks on validation: warnings allowed, errors not. (Same validator the editor already runs.)
-- **BE-72**: Published URL is stable across republishes; only the bytes change.
-- **BE-73**: Cache headers tuned for GTFS consumers: `Cache-Control: public, max-age=3600, s-maxage=3600`, correct `ETag`, `Last-Modified`. Publishing invalidates the edge cache.
-- **BE-74**: `feeds.gtfsbuilder.net/<slug>/feed_info.json` returns a small JSON sidecar (title, description, feed_start_date, feed_end_date, current version id, published_at, owner-contact) — useful for dashboards and for us.
-- **BE-75**: Unpublish (takedown) — returns `410 Gone`. Republish restores.
-- **BE-76**: Publication history view: show every time this project has been published, with rollback ("Publish this old version again").
-- **BE-77** *(stretch)*: Scheduled publish — "go live on 2026-06-01 at 02:00 UTC." Cron trigger flips the pointer.
+
+- **BE-70**: "Publish" promotes a version to `feeds.*/<slug>/gtfs.zip`. URL stable across republishes; only bytes change.
+- **BE-71**: Validation gate: errors block; warnings are configurable per-publish.
+- **BE-72**: Publication URL is stable; only bytes change across republishes.
+- **BE-73**: Cache headers tuned for ingestors: `public, max-age=3600, s-maxage=3600`, version-id ETag, `Last-Modified`, `If-None-Match` 304 support; cache invalidated on publish.
+- **BE-74**: `feeds.*/<slug>/feed_info.json` sidecar (title, description, effective dates, version_id, contact, distribution targets, registered RT feeds — see BE-85, BE-89).
+- **BE-75**: Unpublish — `410 Gone`; republish restores.
+- **BE-76**: Publication history view; rollback ("publish this old version again").
+- **BE-77** *(future, stretch)*: Scheduled publish ("go live on date X").
 
 ### 5.3 Custom domains
-**Not supported.** All published feeds live on `feeds.gtfsbuilder.net/<slug>/...`. If an agency wants their own domain later, they can `301` from it to our URL. Dropping custom-domain support removes a whole class of cert-management, CNAME-verification, and tenant-isolation work.
+
+**Not supported.** All published feeds live on `feeds.gtfsbuilder.net/<slug>/...`. Agencies can `301` from their own domain if they want. Eliminates per-tenant cert + CNAME-verification + isolation work.
 
 ---
 
-## 6. Distribution Integrations
+## 6. Distribution integrations
 
-### 6.1 Mobility Database
-We already read from MobilityData's catalog (see `worker/index.ts`). For outbound registration:
+- **BE-80**: One-time opt-in per project at first publish to register with the **Mobility Database**. Subsequent publishes update the same catalog entry automatically — no re-prompt. Implemented against the existing `MOBILITY_DATABASE_REFRESH_TOKEN`.
+- **BE-81**: Submission stores the returned `external_feed_id` on `project_catalog_submission`.
+- **BE-82**: Catalog link + status surfaced on the publication panel; opt-back-out stops future automatic updates.
+- **BE-83**: Same opt-in pattern for **transit.land** — currently stubbed (`status='pending'`, manual-review marker). Pre-RTAP follow-up; the abstraction (`CatalogClient`) is in place.
+- **BE-84**: Distribution checklist UI — Mobility DB (auto), transit.land (auto/stub), Google Transit Partners (external link + mark-done), Apple Maps Transit (external link + mark-done), Transit app (manual toggle; auto-discovers via Mobility DB in most cases).
+- **BE-85**: `feed_info.json` (BE-74) carries a list of where the feed is known to be distributed; updateable by the user.
+- **BE-86**: Generic GTFS consumers — valid `HEAD`, correct `ETag`/`Last-Modified`, stable filename for cheap polling.
 
-- **BE-80**: **One-time opt-in per project.** When the project is first published, the user checks a box: "Register this feed with the Mobility Database." From then on, subsequent publishes update the same catalog entry automatically — no re-prompt.
-- **BE-81**: On first submission we POST to MobilityData's API (falling back to generating a contribution PR if the API isn't available). Store the returned `feed_id` on the project.
-- **BE-82**: Surface catalog link and submission status in the publication panel. Let the user opt back out (stops future automatic updates; doesn't remove the existing entry).
+### GTFS-Realtime coordination
 
-### 6.2 transit.land
-- **BE-83**: Same pattern — one-time opt-in per project, reuse feed handle on subsequent publishes.
+We don't host or generate RT feeds, but many agencies have an existing one that references the static feed by ID:
 
-### 6.3 Google Maps / Apple Maps / Transit app
-These platforms don't have open registration APIs — they require partner applications. We don't automate, but we make the step unforgettable:
-
-- **BE-84**: Publication panel shows a checklist of distribution targets: Mobility DB (auto-submitted), transit.land (auto-submitted), Google Transit Partners (link to application form), Apple Maps Transit (link to application form), Transit app (link; auto-picked up from Mobility DB in most cases). Each item has a status and a "mark as done" toggle that the user maintains.
-- **BE-85**: `feed_info.json` (BE-74) includes a list of where the feed is known to be distributed. Updateable by the user.
-
-### 6.4 Generic GTFS consumers
-- **BE-86**: Serve valid HTTP `HEAD`, correct `ETag`/`Last-Modified`, and stable `gtfs.zip` filename so any trip-planner ingestor (OTP, Transitland, Google, Apple) can poll cheaply.
-
-### 6.5 GTFS-Realtime coordination
-We do **not** host or generate GTFS-RT feeds in v1 (different infrastructure pattern — live protobuf streams, not bytes-on-disk). But many agencies have an existing RT feed that references the static feed by ID, so we need to avoid breaking it:
-
-- **BE-87**: A project can record one or more external GTFS-RT feed URLs (trip-updates, vehicle-positions, service-alerts). These are metadata only — we don't proxy them.
-- **BE-88**: On publish, if the project has a registered RT feed, run an **ID-stability check** comparing the about-to-publish version against the currently-published version: any removed or renamed `trip_id`, `stop_id`, `route_id`, or `agency_id` triggers a warning — "This change will break your GTFS-RT feed. Re-check after publishing." Not a hard block — the user may know their RT producer already handles the change.
-- **BE-89**: Registered RT URLs are included in `feed_info.json` and forwarded to Mobility DB / transit.land so downstream consumers can discover them.
+- **BE-87**: A project can record one or more external GTFS-RT feed URLs (trip_updates, vehicle_positions, alerts). Metadata only.
+- **BE-88**: On publish, **ID-stability check** diffs the about-to-publish version's entity IDs against the currently-published version. Any removed/renamed `trip_id`/`stop_id`/`route_id`/`agency_id` triggers a warning ("This will break your registered RT feed at `<url>`. Re-check after publishing."). User acknowledges and proceeds; not a hard block.
+- **BE-89**: Registered RT URLs are included in `feed_info.json` and forwarded to Mobility DB / transit.land.
 
 ---
 
-## 7. Collaboration (v1)
+## 7. API surface
 
-Agencies rarely have a single person owning the feed, and the consultant workflow (one person serving multiple agencies) is a primary use case. The organization/membership model ships in v1.
+JSON over cookie-auth for the editor; fully public reads on the FEEDS origin. The list below is the source of truth for endpoints.
 
-- **BE-90**: An `organization` has members with roles: `owner`, `admin`, `editor`, `viewer`. Membership is a many-to-many relationship — **one user can belong to many organizations, and vice versa**. This is explicitly designed to support consultants who work with multiple agencies simultaneously.
-- **BE-91**: A feed project is owned by a user **or** an organization; if the latter, all members have access per their org role.
-- **BE-92**: Invite flow: owner/admin enters email + role, we send an invite link. Invitee accepts (signs up if needed) and joins the org with the specified role.
-- **BE-93**: Role definitions: `owner` (full control incl. billing/delete org), `admin` (manage members + projects, no billing), `editor` (edit all projects, publish), `viewer` (read-only — good for auditors, stakeholders, or a client who wants to see their consultant's work-in-progress).
-- **BE-94**: Leaving an org is user-initiated; removing a member is owner/admin-only. The last owner cannot leave or demote themselves until they transfer ownership.
-- **BE-95**: *(v2)* **Per-project membership** (`project_membership`) for finer-grained access — grant a user access to one project in an org without adding them to the org itself. Use case: a consultant retained to update only one of an agency's three feeds. Role on the project overrides inherited org role.
-- **BE-96**: No real-time multi-cursor editing in v1 — last-writer-wins (BE-42) is sufficient, with the version-token warning.
-- **BE-97**: "Switch workspace" affordance in the top bar: users with membership in multiple orgs (consultants, multi-agency staff) see a dropdown of orgs + "My personal feeds." Feed lists are scoped to the active workspace.
-
----
-
-## 8. Public / Authenticated API Surface
-
-All JSON, cookie-auth for the editor, optional API tokens for programmatic use.
+### Editor origin (auth-gated except `/auth/*`)
 
 | Method & Path | Purpose |
 |---|---|
-| `POST /auth/signup` | Start signup; sends verify email |
+| `POST /auth/signup` | Start signup; sends verify email (Turnstile-gated) |
 | `POST /auth/verify` | Consume email-verify token |
 | `POST /auth/login` | Password login |
 | `POST /auth/magic-link/request` | Request magic link |
-| `GET  /auth/magic-link/consume` | Consume magic-link token (redirect on success) |
+| `GET  /auth/magic-link/consume` | Consume magic-link token (redirects on success) |
 | `POST /auth/logout` | End current session |
+| `POST /auth/logout-all` | End all sessions for current user |
 | `POST /auth/password-reset/request` | Start password reset |
 | `POST /auth/password-reset/confirm` | Consume reset token, set new password |
-| `GET  /api/me` | Current user, memberships, and usage against quota |
-| `GET  /api/orgs` | Orgs this user belongs to |
+| `GET  /api/me` | Current user, memberships, usage against quota |
+| `PATCH /api/me` | Change display name |
+| `POST /api/me/email/change` | Start email change (re-verify) |
+| `POST /api/me/password` | Change password |
+| `DELETE /api/me` | Soft-delete account |
+| `GET  /api/me/export` | Stream a ZIP of all the user's data |
+| `GET  /api/orgs` | Orgs the user belongs to |
 | `POST /api/orgs` | Create an org |
-| `PATCH /api/orgs/:id` | Rename / transfer ownership |
-| `GET  /api/orgs/:id/members` | List members + roles |
-| `POST /api/orgs/:id/invitations` | Invite user by email + role |
-| `PATCH /api/orgs/:id/members/:uid` | Change member role |
+| `GET  /api/orgs/:id` | Org detail (members, project count) |
+| `PATCH /api/orgs/:id` | Rename / change slug |
+| `DELETE /api/orgs/:id` | Soft-delete (cascades to org-owned projects) |
+| `POST /api/orgs/:id/logo` | Upload brand logo (multipart, ≤1 MB, PNG/JPEG/WebP/SVG) |
+| `DELETE /api/orgs/:id/logo` | Remove brand logo |
+| `POST /api/orgs/:id/invitations` | Invite by email + role |
+| `GET  /api/orgs/:id/invitations` | List pending invitations |
+| `DELETE /api/orgs/:id/invitations/:tokenHash` | Rescind an invitation |
+| `PATCH /api/orgs/:id/members/:uid` | Change a member's role |
 | `DELETE /api/orgs/:id/members/:uid` | Remove member (or self-leave) |
-| `GET  /api/projects?scope=personal\|org:<id>` | List projects in a workspace |
-| `POST /api/projects` | Create project (body specifies owner: self or `org:<id>`) |
-| `GET  /api/projects/:id` | Get project + current working state |
-| `PATCH /api/projects/:id` | Update name/slug/description; archive/unarchive |
+| `POST /api/orgs/:id/transfer` | Transfer ownership |
+| `POST /api/orgs/invitations/accept` | Accept an invitation |
+| `GET  /api/orgs/invitations/pending` | The current user's pending invitations |
+| `GET  /api/projects?scope=personal\|org:<id>&include_archived=1` | List projects in a workspace |
+| `POST /api/projects` | Create (`owner: { type: 'user' \| 'org', id? }`) |
+| `GET  /api/projects/:id` | Get project + working-state pointer |
+| `PATCH /api/projects/:id` | Update name/slug/description/archivedAt/brandPrimaryColor |
 | `DELETE /api/projects/:id` | Soft-delete |
-| `PUT  /api/projects/:id/working-state` | Replace working draft (version-token guarded) |
-| `POST /api/projects/:id/versions` | Snapshot current working state as a version |
-| `GET  /api/projects/:id/versions` | List versions with per-version summary (BE-46) |
-| `POST /api/projects/:id/versions/:vid/restore` | Restore a version as working draft |
-| `POST /api/projects/:id/draft-links` | Create draft-URL token for a version |
-| `DELETE /api/draft-links/:token` | Revoke draft link |
-| `POST /api/projects/:id/publish` | Publish a version canonically (validation-gated) |
-| `POST /api/projects/:id/unpublish` | Take down the canonical feed |
-| `POST /api/projects/:id/catalog-submissions` | Submit to Mobility DB / transit.land (one-time opt-in) |
-| `PUT  /api/projects/:id/rt-feeds` | Register/update external GTFS-RT feed URLs (BE-87) |
-| `GET  /api/projects/:id/audit` | Action log for this project |
+| `POST /api/projects/:id/transfer` | Move between workspaces |
+| `GET  /api/projects/:id/working-state` | Fetch gzipped JSON |
+| `PUT  /api/projects/:id/working-state` | Replace (If-Match version-token guarded) |
+| `POST /api/projects/:id/versions` | Snapshot current working state |
+| `GET  /api/projects/:id/versions` | List versions with per-version summary |
+| `GET  /api/projects/:id/versions/:vid/state` | Fetch a version's gzipped JSON state |
+| `POST /api/projects/:id/versions/:vid/restore` | Restore as the working draft |
+| `DELETE /api/projects/:id/versions/:vid` | Delete a version |
+| `POST /api/projects/:id/draft-links` | Create a draft URL token |
+| `GET  /api/projects/:id/draft-links` | List active draft links |
+| `DELETE /api/projects/:id/draft-links/:tokenHash` | Revoke |
+| `POST /api/projects/:id/publish` | Publish (validation + ID-stability gated) |
+| `POST /api/projects/:id/unpublish` | Take down |
+| `POST /api/projects/:id/publish/rollback` | Rollback to a prior version |
+| `GET  /api/projects/:id/publish/history` | Publication history |
+| `POST /api/projects/:id/catalog-submissions` | Opt in to Mobility DB / transit.land |
+| `PUT  /api/projects/:id/rt-feeds` | Register/update RT feed URLs |
+| `GET  /api/projects/:id/audit` | Per-project action log |
+| `POST /api/projects/import` | Bulk-import local IndexedDB feeds (signed-in migration) |
+| `GET  /api/admin/*` | Operator console — staff-only, returns 404 to non-staff |
 
-Public feed URLs (no auth):
-- `GET feeds.gtfsbuilder.net/:slug/gtfs.zip`
-- `GET feeds.gtfsbuilder.net/:slug/feed_info.json`
-- `GET feeds.gtfsbuilder.net/:slug/draft/:token.zip`
+### Feeds origin (no auth)
+
+| Method & Path | Purpose |
+|---|---|
+| `GET feeds.*/<slug>/gtfs.zip` | Canonical published feed |
+| `GET feeds.*/<slug>/feed_info.json` | Sidecar metadata |
+| `GET feeds.*/<slug>/draft/<token>.zip` | Unlisted draft URL |
+| `GET feeds.*/<slug>` | Mini-site landing page |
+| `GET feeds.*/<slug>/embed/route/<route_id>` | Per-route embed |
+| `GET feeds.*/<slug>/embed/stop/<stop_id>` | Per-stop embed |
+| `GET feeds.*/<slug>/embed/system-map` | System-overview embed |
+| `GET feeds.*/_/orgs/<org_id>/logo` | Per-org brand logo |
+| `GET feeds.*/robots.txt` | `Disallow: /` (feeds aren't for crawling) |
 
 ---
 
-## 9. Non-Functional Requirements
+## 8. Non-functional requirements
 
-### 9.1 Security
-- **NF-40**: Passwords hashed via Web Crypto's `PBKDF2-HMAC-SHA256` at 100,000 iterations — the current workerd ceiling. Matches NIST SP 800-63B's minimum for PBKDF2-SHA256 but is below OWASP 2023's recommended 600,000; **argon2id migration (NF-40a) is a pre-broad-rollout follow-up**. Hashes are stored in a self-describing format (`pbkdf2$<iter>$<salt>$<hash>`) so future higher-cost hashes can co-exist with legacy ones. Raw passwords and full hash strings are never logged.
-- **NF-40a** *(follow-up, before RTAP broad distribution)*: Swap password hashing to argon2id via a WASM bundle (`hash-wasm` or equivalent). Verify performance budget in workerd — target <150 ms per hash at `m=19MiB, t=2, p=1` per OWASP 2023. Keep `verifyPassword` dual-path (argon2id for new hashes, PBKDF2 for legacy) until all active users have logged in at least once and been re-hashed on successful password verify.
-- **NF-41**: All auth tokens (verify, magic-link, password-reset, draft-URL) are cryptographically random (≥128 bits), single-use where applicable, and hashed at rest (so a DB leak doesn't expose live tokens).
-- **NF-42**: CSRF protection on all state-changing endpoints (double-submit cookie or SameSite=Strict on a dedicated CSRF cookie).
-- **NF-43**: Rate limiting on auth and publish endpoints (KV-backed counters).
+### 8.1 Security
+
+- **NF-40**: Passwords hashed via Web Crypto's `PBKDF2-HMAC-SHA256` at 100,000 iterations — the current workerd ceiling. Matches NIST SP 800-63B's minimum but is below OWASP 2023's 600k recommendation. Hashes are stored in a self-describing format (`pbkdf2$<iter>$<salt>$<hash>`) so a future higher-cost algorithm can co-exist with legacy hashes. Raw passwords and full hash strings are never logged.
+- **NF-40a** *(follow-up, before RTAP broad distribution)*: Swap to argon2id via WASM (`hash-wasm` or equivalent). Target <150 ms per hash at `m=19MiB, t=2, p=1` per OWASP 2023. `verifyPassword` must remain dual-path so legacy PBKDF2 hashes keep authenticating until each user's first successful sign-in re-hashes them.
+- **NF-41**: All bearer tokens (verify, magic-link, password-reset, draft-URL, invitation) are cryptographically random ≥128 bits, single-use where applicable, and SHA-256 hashed at rest.
+- **NF-42**: CSRF defense — `X-GB-Client: web` header required on state-changing endpoints (browsers can't set custom headers cross-origin without preflight; combined with `SameSite=Lax` cookies this stops drive-by CSRF).
+- **NF-43**: Rate limiting on auth and publish endpoints (KV-backed counters, per IP + per email).
 - **NF-44**: Content-Security-Policy headers on the editor origin.
-- **NF-45**: Audit log captures: login, logout, password change, publish, unpublish, delete, admin impersonation.
+- **NF-45**: Audit log captures login, logout, password change, publish, unpublish, delete, member changes, ownership transfer, admin impersonation, project transfer, logo upload/remove.
 
-### 9.2 Privacy
-- **NF-50**: PII stored: email, display name, IP + user-agent on active sessions (for security review), and the content of feeds the user creates. No billing info (§0), no marketing profile, nothing else by default.
-- **NF-51**: Email is never shared with third parties. We don't send marketing without explicit opt-in.
-- **NF-52**: Data export: user can download all their data as a ZIP (all projects + versions + JSON of their profile/audit log).
-- **NF-53**: Data deletion: hard-purge 30 days after account deletion (BE-5).
+### 8.2 Privacy
 
-### 9.3 Availability & performance
-- **NF-60**: Published feed URLs served from Cloudflare's edge cache. Target: p95 < 100 ms worldwide for a cached fetch.
-- **NF-61**: Editor API p95 < 500 ms for non-publish endpoints (D1 + single-region R2 latency).
+- **NF-50**: PII stored: email, display name, IP + user-agent on active sessions, and the contents of feeds the user creates. No billing data, no marketing profile.
+- **NF-51**: Email is never shared with third parties. No marketing without explicit opt-in.
+- **NF-52**: Data export — `GET /api/me/export` returns a ZIP of all the user's projects, versions, profile, and audit log.
+- **NF-53**: Hard-purge 30 days after account deletion (cron in `worker/cron/tasks.ts`).
+
+### 8.3 Availability & performance
+
+- **NF-60**: Published feed URLs served from Cloudflare's edge cache. Target p95 < 100 ms worldwide for a cached fetch.
+- **NF-61**: Editor API p95 < 500 ms for non-publish endpoints.
 - **NF-62**: Working-draft save is safe to retry (idempotent on version token).
-- **NF-63**: Publication is atomic — consumers never see a partial ZIP; the pointer flips only after the new object is fully uploaded.
+- **NF-63**: Publication is atomic — consumers never see a partial ZIP; the D1 pointer flips only after the new R2 object is fully uploaded.
 
-### 9.4 Observability
+### 8.4 Observability
+
 - **NF-70**: Cloudflare Workers Analytics + Logpush for the API.
-- **NF-71**: Basic product metrics: DAU, projects created, publishes per week, feed download counts per project (shown to the owner).
-- **NF-72**: Error reporting (Sentry or Cloudflare's built-in tail/logpush) with PII redaction.
+- **NF-71** *(planned)*: Per-project usage metrics shown to the owner (DAU, projects created, publishes/week, feed download counts).
+- **NF-72** *(planned)*: Error reporting (Sentry or Logpush sink) with PII redaction.
 
 ---
 
-## 10. Admin Panel (operator console)
+## 9. Decisions appendix
 
-A small internal console for the operators (us). **Primary purpose:** see how many orgs and users have been created, and handle the handful of support cases that can't wait for a `wrangler d1 execute` round-trip. Scoped tight on purpose — this is not a full IAM product. Ships post-launch (v1.1) once we have a few real operator needs to anchor the design.
-
-### 10.1 Access control
-- **BE-200**: Gated by `user.staff = 1` (already in the schema; set manually via `wrangler d1 execute` for now, bootstrapping the first admin that way).
-- **BE-201**: Route tree: `www.gtfsbuilder.net/admin/*`. Returns 404 for non-staff users to avoid advertising the surface.
-- **BE-202**: Every admin action writes an `audit_event` with `actor_user_id = staff.user.id` and a distinguishing `action` prefix (`admin.disable_user`, `admin.impersonate`, etc.). A user viewing their own audit log sees the staff action on their account — by design, for transparency.
-
-### 10.2 Dashboard (the month-one use case)
-One landing page. No chart library — simple SVG sparklines or a plain table are enough at this scale.
-
-- **BE-210**: Counters at the top:
-  - Total users (broken down: active / pending_verification / disabled / deleted_soft).
-  - Total organizations.
-  - Total projects (by owner_type: user-owned vs org-owned).
-  - Total feed versions created.
-  - Total canonical publications live (once Phase 3 lands).
-- **BE-211**: Signups this week / this month / all-time.
-- **BE-212**: Active-user proxy: distinct `session.user_id` with `last_used_at` in the trailing 24h / 7d / 30d.
-- **BE-213**: Trailing-8-week trend for new users + new projects as a small inline SVG sparkline or a 2-column table.
-
-### 10.3 Users
-- **BE-220**: Paginated table: email, display name, status, `created_at`, last session timestamp, owned-project count. Default sort: newest first.
-- **BE-221**: Filter by status (dropdown) and email substring (text).
-- **BE-222**: Row-level actions:
-  - **Disable / re-enable** — flips `user.status` between `active` ↔ `disabled`. Disabled users can't log in (existing check in auth routes).
-  - **Resend verification** — reuses the existing `/auth/verify-resend` internals to email a fresh link.
-  - **Impersonate** — creates a short-lived session for the target user with a distinguishing server-side flag. The editor renders a persistent red banner: "You are viewing as `<user.email>` — [Exit impersonation]." Exiting drops the impersonated session and restores the staff user's original session. Both enter and exit are audited on the target user's timeline (visible to the user).
-
-### 10.4 Organizations
-- **BE-230**: Paginated table: slug, name, member count, project count, `created_at`.
-- **BE-231**: Row view: members with roles, projects owned.
-- **BE-232**: Add / remove members, change roles — rarely used, but saves database surgery when an org owner locks themselves out.
-
-### 10.5 Audit log
-- **BE-240**: Global filterable view: actor user, subject type + id, action name, date range. Paginated, 50 per page, newest first.
-- **BE-241**: CSV export for the current filter.
-
-### 10.6 Explicitly not in v1.1
-- Global full-text search across users/projects (D1 isn't optimized for it — wait until needed).
-- Bulk operations (do via SQL until it hurts three times).
-- Billing or subscription management (RTAP licensing is flat — no billing surface).
-- Abuse review queues / content moderation.
-- Rate-limit override controls.
-- Publishing a user's feed on their behalf.
-
-### 10.7 Implementation notes
-- Frontend: new route tree under `src/components/admin/`, loaded only when `currentUser.staff === true`. Otherwise the route renders 404.
-- Backend: new `/api/admin/*` routes with `requireStaff` middleware (extends `requireAuth`: also requires `user.staff`). Returns 404 (not 403) for non-staff to avoid surface enumeration.
-- Uses the existing D1 schema — no new tables. Aggregate queries for counters.
-- No new dependencies.
-
-### 10.8 Effort estimate
-1–2 days for dashboard + user list + disable/enable/impersonate. Audit log view and org management follow as we hit real support needs.
-
----
-
-## 11. Out of Scope
-
-- Real-time collaborative editing (multi-cursor).
-- GTFS-Realtime feed generation or hosting (we coordinate with existing RT feeds only — see §6.5).
-- In-app billing. Commercial model is RTAP licensing (§0).
-- Custom domains for published feeds (§5.3).
-- Feed diffs / visual compare between versions. *(Per-version summary stats — BE-46 — give you "what changed" at a glance without building full diffs.)*
-- Public "directory" of feeds hosted on the site (would require moderation).
-- **Rider-facing rendering of the published feed** (agency mini-site, embeddable route maps and schedule tables). Scoped separately as Phase 7 — see [`EMBEDS_REQUIREMENTS.md`](./EMBEDS_REQUIREMENTS.md). Layered on top of Phase 3 publication; doesn't block launch.
-
----
-
-## 12. Decisions (resolved during review)
+Captures the "why is it built that way?" decisions from initial review. These don't change; they're here so future maintainers can find the rationale without digging through git history.
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | Auth UX primary path | **Both email+password and magic link** ship in v1; user picks per login (BE-10, BE-11). |
-| 2 | Google OAuth in v1 or later | **v1.1** — after launch, based on adoption data showing ~60% would click it (BE-16). |
-| 3 | Teams / organizations timing | **v1.** Many-to-many user↔org membership ships from day one to support consultants across agencies (§7). |
-| 4 | Free-tier limits | **20 projects, 50 versions/project, 50 MB/ZIP.** Soft-warn at launch; hard limits under RTAP licensing (BE-52). |
-| 5 | Publication URL scheme | **Subdomain:** `feeds.gtfsbuilder.net/<slug>/gtfs.zip`. Cleaner cache and auth-cookie boundaries (§1). |
-| 6 | Database for working drafts | **R2 with D1 pointer.** D1 for metadata; R2 for all JSON blobs and ZIPs, gzipped. Avoids D1's 2 MB row limit and keeps us on one platform (BE-50, BE-51). |
-| 7 | Custom domains for published feeds | **Not supported.** Agencies can `301` from their own domain if needed (§5.3). |
-| 8 | Catalog auto-submission | **One-time opt-in per project**, auto-update thereafter (BE-80, BE-83). |
-| 9 | Anonymous → signed-in migration | **Auto-import** local IndexedDB projects on sign-in; prompt only on collision or quota overflow (BE-43). |
-| 10 | Pricing intent | **License to RTAP**, free to RTAP members. No in-app billing. Quota is the same for everyone and enforced as hard limits (§0, BE-52). |
-
-Anything new that comes up during implementation lands here as a follow-up — this section is the changelog of "why is it built that way?"
+| 1 | Auth UX primary path | Both email+password and magic link ship in v1; user picks per login. |
+| 2 | Google OAuth in v1 or later | v1.1, deferred. ~60% adoption-data signal exists but it's not a launch blocker. |
+| 3 | Teams / organizations timing | v1. Many-to-many user↔org membership ships from day one to support consultants. |
+| 4 | Free-tier limits | 20 projects, 50 versions/project, 50 MB/ZIP. Soft-warn → hard-limit via runtime flag. |
+| 5 | Publication URL scheme | Subdomain `feeds.gtfsbuilder.net/<slug>/`. Cleaner cache + auth-cookie boundaries. |
+| 6 | Database for working drafts | R2 with D1 pointer. Avoids D1's 2 MB row limit; keeps us on one platform. |
+| 7 | Custom domains for published feeds | Not supported. Agencies `301` from their own domain if needed. |
+| 8 | Catalog auto-submission | One-time opt-in per project, auto-update thereafter. |
+| 9 | Anonymous → signed-in migration | Auto-import on sign-in; prompt only on collision or quota overflow. |
+| 10 | Pricing intent | License to RTAP, free to RTAP members. Quota the same for everyone. |
+| 11 | Captcha provider | Cloudflare Turnstile (Managed mode). Already on Cloudflare; no third-party tracking. |
+| 12 | Per-org branding storage | Logo bytes in R2 (`gtfs-builder-feeds`); served public via FEEDS origin. Brand color is a hex column on `feed_project` (per project, not per org — consultants who manage three agencies want three colours). |
