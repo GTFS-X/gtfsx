@@ -201,16 +201,14 @@ export async function exportGtfsZip(): Promise<Blob> {
     zip.file('directions.txt', toCSV(directionRows));
   }
 
-  // stops.txt — only export stops referenced by route-stop associations or stop_times
+  // stops.txt — export every stop in state. Editor state is the source of
+  // truth for export; orphans are flagged by the validator and can be
+  // auto-cleaned via the ExportDialog if the user opts in. Silently
+  // dropping unreferenced stops here would surprise users who batch-add
+  // stops before wiring them up (and broke round-trip fidelity — a stop
+  // added but not yet placed would vanish on save → reload).
   if (state.stops.length > 0) {
-    const referencedStopIds = new Set([
-      ...state.routeStops.map((rs) => rs.stop_id),
-      ...state.stopTimes.map((st) => st.stop_id),
-    ]);
-    const usedStops = state.stops.filter((s) => referencedStopIds.has(s.stop_id));
-    if (usedStops.length > 0) {
-      zip.file('stops.txt', toCSV(usedStops.map(stripUIFields)));
-    }
+    zip.file('stops.txt', toCSV(state.stops.map(stripUIFields)));
   }
 
   // trips.txt — populate trip_headsign from route direction names if not already set
