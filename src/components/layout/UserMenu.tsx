@@ -6,6 +6,7 @@ import { logout as apiLogout } from '../../services/authApi';
 import { createOrg, type OrgRole } from '../../services/orgsApi';
 import { FormField } from '../ui/FormField';
 import { backendEnabled } from '../../utils/featureFlags';
+import { PlanBadge } from '../billing/PlanBadge';
 
 const ROLE_COLORS: Record<OrgRole, string> = {
   owner: 'bg-coral/15 text-coral border-coral/30',
@@ -59,22 +60,45 @@ export function UserMenu() {
   if (!currentUser) {
     return (
       <div className="flex items-center pl-2 sm:pl-3 ml-1 border-l border-sand h-9">
-        <button
-          onClick={() => navigate('/login')}
-          title="Sign in"
-          aria-label="Sign in"
-          className="w-9 h-9 rounded-full bg-white border-2 border-sand text-warm-gray hover:border-coral hover:text-coral transition-colors flex items-center justify-center shrink-0"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="2" />
-            <path
-              d="M5 20c0-3.5 3-6.5 7-6.5s7 3 7 6.5"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
+        <Popover.Root>
+          <Popover.Trigger asChild>
+            <button
+              title="Sign in or sign up"
+              aria-label="Sign in or sign up"
+              className="w-9 h-9 rounded-full bg-white border-2 border-sand text-warm-gray hover:border-coral hover:text-coral transition-colors flex items-center justify-center shrink-0"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="2" />
+                <path
+                  d="M5 20c0-3.5 3-6.5 7-6.5s7 3 7 6.5"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              align="end"
+              sideOffset={8}
+              className="bg-white rounded-xl shadow-lg border border-sand p-2 w-44 z-50"
+            >
+              <button
+                onClick={() => navigate('/login')}
+                className="w-full text-left px-3 py-2 rounded-md text-sm text-dark-brown hover:bg-cream transition-colors"
+              >
+                Sign in
+              </button>
+              <button
+                onClick={() => navigate('/signup')}
+                className="w-full text-left px-3 py-2 rounded-md text-sm text-dark-brown hover:bg-cream transition-colors"
+              >
+                Sign up
+              </button>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       </div>
     );
   }
@@ -160,17 +184,35 @@ export function UserMenu() {
             >
               Account settings
             </button>
+            <button
+              onClick={() => navigate('/account/billing')}
+              className="w-full text-left px-3 py-2 rounded-md text-sm text-dark-brown hover:bg-cream transition-colors flex items-center justify-between gap-2"
+            >
+              <span>Billing & plan</span>
+              {currentUser.plan && currentUser.plan !== 'free' && (
+                <PlanBadge plan={currentUser.plan} />
+              )}
+            </button>
             {activeWorkspace.type === 'org' &&
               (() => {
                 const activeOrg = userOrgs.find((o) => o.id === activeWorkspace.orgId);
                 if (!activeOrg) return null;
                 return (
-                  <button
-                    onClick={() => navigate(`/orgs/${encodeURIComponent(activeOrg.slug)}`)}
-                    className="w-full text-left px-3 py-2 rounded-md text-sm text-dark-brown hover:bg-cream transition-colors"
-                  >
-                    Organization settings
-                  </button>
+                  <>
+                    <button
+                      onClick={() => navigate(`/orgs/${encodeURIComponent(activeOrg.slug)}`)}
+                      className="w-full text-left px-3 py-2 rounded-md text-sm text-dark-brown hover:bg-cream transition-colors"
+                    >
+                      Organization settings
+                    </button>
+                    <button
+                      onClick={() => navigate(`/orgs/${encodeURIComponent(activeOrg.slug)}/billing`)}
+                      className="w-full text-left px-3 py-2 rounded-md text-sm text-dark-brown hover:bg-cream transition-colors flex items-center justify-between gap-2"
+                    >
+                      <span>Org billing & seats</span>
+                      {activeOrg.plan && activeOrg.plan !== 'free' && <PlanBadge plan={activeOrg.plan} />}
+                    </button>
+                  </>
                 );
               })()}
             {currentUser.staff && (

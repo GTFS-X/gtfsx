@@ -82,11 +82,13 @@ interface UserRow {
   status: AuthedUser['status'];
   staff: number;
   deleted_at: number | null;
+  plan?: AuthedUser['plan'] | null;
+  plan_status?: AuthedUser['planStatus'] | null;
 }
 
 async function findUserByEmail(env: AppContext['Bindings'], email: string): Promise<UserRow | null> {
   return env.DB.prepare(
-    `SELECT id, email, display_name, status, staff, deleted_at FROM user WHERE email = ?`,
+    `SELECT id, email, display_name, status, staff, deleted_at, plan, plan_status FROM user WHERE email = ?`,
   )
     .bind(email)
     .first<UserRow>();
@@ -99,6 +101,8 @@ function shapeUser(row: UserRow): AuthedUser {
     displayName: row.display_name,
     status: row.status,
     staff: row.staff === 1,
+    plan: row.plan ?? 'free',
+    planStatus: row.plan_status ?? 'active',
   };
 }
 
@@ -260,11 +264,12 @@ authRouter.post('/signup', async (c) => {
 });
 
 // ─── Verify email ──────────────────────────────────────────────────────────
-// Activates the account and redirects to the login page with a success flag.
-// We deliberately do NOT auto-create a session here: setting a cookie on a
-// cross-origin-ish 302 (especially on http://localhost in Safari, or through
-// a Vite proxy in dev) is unreliable, and a silent half-logged-in state is
-// more confusing than asking the user to sign in once after verifying.
+// Activates the account, opens a session, and redirects to the editor with a
+// welcome flag — mirrors the magic-link consume flow so users land signed in
+// without re-entering credentials. The Set-Cookie on a same-origin 302 is the
+// same pattern magic-link relies on; both are served by the Worker behind the
+// SPA and via the Vite proxy in dev, so the cookie is set against the SPA
+// origin and visible on the redirect target.
 authRouter.get('/verify', async (c) => {
   const token = c.req.query('token');
   const invalidRedirect = () => c.redirect(`${c.env.APP_ORIGIN}/verify-email?status=invalid`, 302);
@@ -272,6 +277,13 @@ authRouter.get('/verify', async (c) => {
 
   const resolved = await resolveAuthToken(c.env, token, 'verify_email');
   if (!resolved || resolved.consumedAt || resolved.expiresAt <= Date.now() || !resolved.userId) {
+    return invalidRedirect();
+  }
+
+  const userRow = await c.env.DB.prepare(`SELECT id, status FROM user WHERE id = ?`)
+    .bind(resolved.userId)
+    .first<{ id: string; status: string }>();
+  if (!userRow || userRow.status === 'deleted_soft' || userRow.status === 'disabled') {
     return invalidRedirect();
   }
 
@@ -283,15 +295,31 @@ authRouter.get('/verify', async (c) => {
     .run();
   await consumeAuthToken(c.env, resolved.tokenHash);
 
+  const ip = clientIp(c.req.raw);
+  const session = await createSession(c.env, {
+    userId: resolved.userId,
+    ip,
+    userAgent: c.req.header('User-Agent') ?? null,
+  });
+  c.header('Set-Cookie', sessionCookie(session.token, session.expiresAt));
+
   await logAudit(c.env, {
     actorUserId: resolved.userId,
     subjectType: 'user',
     subjectId: resolved.userId,
     action: 'user.verify_email',
-    ip: clientIp(c.req.raw),
+    ip,
+  });
+  await logAudit(c.env, {
+    actorUserId: resolved.userId,
+    subjectType: 'session',
+    subjectId: resolved.userId,
+    action: 'session.login',
+    metadata: { method: 'verify_email' },
+    ip,
   });
 
-  return c.redirect(`${c.env.APP_ORIGIN}/login?verified=1`, 302);
+  return c.redirect(`${c.env.APP_ORIGIN}/?welcome=1`, 302);
 });
 
 // ─── Resend verification email ─────────────────────────────────────────────
@@ -408,7 +436,7 @@ authRouter.get('/magic-link/consume', async (c) => {
   }
 
   const userRow = await c.env.DB.prepare(
-    `SELECT id, email, display_name, status, staff, deleted_at FROM user WHERE id = ?`,
+    `SELECT id, email, display_name, status, staff, deleted_at, plan, plan_status FROM user WHERE id = ?`,
   )
     .bind(resolved.userId)
     .first<UserRow>();
