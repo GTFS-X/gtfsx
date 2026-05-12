@@ -19,7 +19,6 @@ import { generateId } from '../../services/idGenerator';
  */
 export function CreateStopPanel() {
   const stops = useStore((s) => s.stops);
-  const routes = useStore((s) => s.routes);
   const routeStops = useStore((s) => s.routeStops);
   const editingRouteId = useStore((s) => s.editingRouteId);
   const editingRoute = useStore((s) =>
