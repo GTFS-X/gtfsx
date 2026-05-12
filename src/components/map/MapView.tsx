@@ -638,7 +638,10 @@ export function MapView() {
         setPopupStopId(null);
         setPopupFlexZoneId(null);
         setPopupLngLat({ lng: e.lngLat.lng, lat: e.lngLat.lat });
-        currentState.setSidebarSection('routes');
+        // Don't auto-open the Routes panel on a map click — the popup is
+        // enough. The user explicitly opens the editor by clicking
+        // "Edit Route" in the popup, which sets editingRouteId and lands
+        // them directly in the route detail view.
         return;
       }
 
