@@ -108,11 +108,7 @@ export function StopPopup({ stopId, onClose }: StopPopupProps) {
                 Departures
               </p>
               <button
-                onClick={() => {
-                  useStore.getState().setBottomPanelOpen(true);
-                  useStore.getState().setBottomPanelTab('stops');
-                  onClose();
-                }}
+                onClick={handleEdit}
                 className="text-[10px] text-coral hover:underline"
               >
                 View All

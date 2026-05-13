@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store';
 import { TimetableGrid } from '../timetable/TimetableGrid';
-import { StopDepartures } from '../timetable/StopDepartures';
 import { ServiceSummary } from '../timetable/ServiceSummary';
 import { ValidationPanel } from '../validation/ValidationPanel';
 import { VersionHistoryPanel } from '../versions/VersionHistoryPanel';
@@ -89,8 +88,8 @@ export function BottomPanel() {
         <span className="text-xs text-warm-gray">{bottomPanelOpen ? '▼' : '▲'}</span>
         {(
           activeServerProjectId
-            ? (['timetable', 'stops', 'service-summary', 'validation', 'versions', 'publish', 'embed', 'audit'] as const)
-            : (['timetable', 'stops', 'service-summary', 'validation'] as const)
+            ? (['timetable', 'service-summary', 'validation', 'versions', 'publish', 'embed', 'audit'] as const)
+            : (['timetable', 'service-summary', 'validation'] as const)
         ).map((tab) => {
           const labels: Record<string, string> = {
             timetable: 'Timetable',
@@ -142,7 +141,6 @@ export function BottomPanel() {
       {bottomPanelOpen && (
         <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
           {bottomPanelTab === 'timetable' && <TimetableGrid />}
-          {bottomPanelTab === 'stops' && <StopDepartures />}
           {bottomPanelTab === 'service-summary' && <ServiceSummary />}
           {bottomPanelTab === 'validation' && <ValidationPanel />}
           {bottomPanelTab === 'versions' && activeServerProjectId && <VersionHistoryPanel />}

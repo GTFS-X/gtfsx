@@ -12,7 +12,6 @@ export type SidebarSection =
 
 export type BottomPanelTab =
   | 'timetable'
-  | 'stops'
   | 'service-summary'
   | 'validation'
   | 'versions'

@@ -1,6 +1,7 @@
 import { useStore } from '../../store';
 import { FormField } from '../ui/FormField';
 import { WHEELCHAIR_BOARDING, LOCATION_TYPES } from '../../utils/constants';
+import { StopDeparturesSection } from './StopDeparturesSection';
 
 /**
  * Stop edit sub-panel. Rendered by RightRail when `editingStopId` is set;
@@ -113,6 +114,8 @@ export function StopEditPanel() {
       >
         Delete stop
       </button>
+
+      <StopDeparturesSection />
     </div>
   );
 }
