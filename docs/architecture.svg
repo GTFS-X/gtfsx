@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 1000" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" role="img" aria-label="GTFS Builder cloud architecture (staging deployment)">
+
+  <title>GTFS Builder — Cloud architecture (staging)</title>
+  <desc>Architecture diagram of the GTFS Builder application as deployed to the staging environment, showing the React SPA, the Cloudflare Worker and its bindings (D1, KV, two R2 buckets, Static Assets, Cron, Turnstile, Workers Analytics), the external services Stripe, Resend, Mapbox, and the Mobility Database, and the GitHub Actions deploy pipeline.</desc>
+
+  <defs>
+    <!-- Subtle drop shadow for cards -->
+    <filter id="card-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+      <feOffset dx="0" dy="1.5" result="offset"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.18"/></feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Arrowheads -->
+    <marker id="arr-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#E8704A"/>
+    </marker>
+    <marker id="arr-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2F8A85"/>
+    </marker>
+    <marker id="arr-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8A7E6E"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1320" height="1000" fill="#FAF7F2"/>
+
+  <!-- ─── Title ─────────────────────────────────────────────── -->
+  <text x="40" y="42" font-size="22" font-weight="800" fill="#3D2E1F">GTFS Builder — Cloud architecture</text>
+  <text x="40" y="62" font-size="13" fill="#8A7E6E">Staging deployment (staging.gtfsbuilder.net + staging-feeds.gtfsbuilder.net). Production mirrors the same shape behind a kill switch.</text>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       CLIENT / BROWSER
+       ═══════════════════════════════════════════════════════════ -->
+  <g>
+    <rect x="40" y="90" width="1240" height="110" rx="14" fill="#FFFFFF" stroke="#E5D9C7" stroke-width="1.5" filter="url(#card-shadow)"/>
+    <text x="60" y="116" font-size="11" font-weight="700" fill="#8A7E6E" letter-spacing="1.2">CLIENT  ·  BROWSER</text>
+
+    <!-- React SPA card -->
+    <rect x="60" y="130" width="500" height="56" rx="10" fill="#FFF5EE" stroke="#F3CDB8" stroke-width="1.2"/>
+    <text x="78" y="152" font-weight="700" fill="#3D2E1F">React SPA  (Vite · TS · Zustand · Mapbox GL JS)</text>
+    <text x="78" y="172" fill="#8A7E6E">Editor at /, account at /feeds, admin at /admin/*, embeds rendered server-side</text>
+
+    <!-- Local storage card -->
+    <rect x="580" y="130" width="350" height="56" rx="10" fill="#F1F7F6" stroke="#C9DEDB" stroke-width="1.2"/>
+    <text x="598" y="152" font-weight="700" fill="#3D2E1F">IndexedDB  (Dexie)</text>
+    <text x="598" y="172" fill="#8A7E6E">Anonymous draft autosave; bulk-import on sign-in</text>
+
+    <!-- Session storage card -->
+    <rect x="950" y="130" width="310" height="56" rx="10" fill="#F1F7F6" stroke="#C9DEDB" stroke-width="1.2"/>
+    <text x="968" y="152" font-weight="700" fill="#3D2E1F">sessionStorage</text>
+    <text x="968" y="172" fill="#8A7E6E">Analytics session id + captured ?ref=</text>
+  </g>
+
+  <!-- Connector: browser ↔ Cloudflare -->
+  <line x1="660" y1="200" x2="660" y2="240" stroke="#E8704A" stroke-width="2" marker-end="url(#arr-coral)"/>
+  <text x="675" y="225" fill="#8A7E6E" font-size="11">HTTPS · SameSite=Lax session cookie · X-GB-Client CSRF header</text>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       CLOUDFLARE
+       ═══════════════════════════════════════════════════════════ -->
+  <g>
+    <rect x="40" y="250" width="1240" height="500" rx="16" fill="#FFFFFF" stroke="#F38020" stroke-width="1.8" filter="url(#card-shadow)"/>
+    <rect x="40" y="250" width="1240" height="34" rx="16" fill="#FFF3E5" stroke="none"/>
+    <rect x="40" y="270" width="1240" height="14" fill="#FFF3E5" stroke="none"/>
+    <text x="60" y="273" font-size="11" font-weight="800" fill="#A8550E" letter-spacing="1.2">CLOUDFLARE</text>
+    <text x="155" y="273" font-size="11" fill="#A8550E">— compute + storage + DNS, one account, everything pinned to the edge</text>
+
+    <!-- DNS / domains row -->
+    <rect x="60" y="298" width="1200" height="48" rx="10" fill="#FFF7EC" stroke="#F4D6A8" stroke-width="1"/>
+    <text x="78" y="318" font-weight="700" fill="#3D2E1F">DNS + Custom Domains</text>
+    <text x="78" y="336" fill="#8A7E6E" font-size="12">staging.gtfsbuilder.net &#160;·&#160; staging-feeds.gtfsbuilder.net &#160;·&#160; (prod mirrors at gtfsbuilder.net / feeds.gtfsbuilder.net)</text>
+
+    <!-- ─── Worker (the brain) ─── -->
+    <rect x="60" y="368" width="800" height="172" rx="12" fill="#FFF1E6" stroke="#E8704A" stroke-width="1.8"/>
+    <text x="78" y="392" font-weight="800" fill="#3D2E1F" font-size="15">Worker  ·  gtfs-builder-staging</text>
+    <text x="78" y="411" fill="#8A7E6E" font-size="12">Hono router. Edge runtime, cold start ~5 ms. <tspan font-family="ui-monospace, SF Mono, monospace">worker/index.ts</tspan></text>
+
+    <!-- Route boxes -->
+    <g font-size="12">
+      <rect x="78" y="424" width="180" height="42" rx="6" fill="#FFFFFF" stroke="#F3CDB8"/>
+      <text x="88" y="442" font-weight="700" fill="#3D2E1F">/auth/*  ·  /api/*</text>
+      <text x="88" y="458" fill="#8A7E6E">cookie-auth editor backend</text>
+
+      <rect x="266" y="424" width="180" height="42" rx="6" fill="#FFFFFF" stroke="#F3CDB8"/>
+      <text x="276" y="442" font-weight="700" fill="#3D2E1F">feeds.*  (public)</text>
+      <text x="276" y="458" fill="#8A7E6E">published feeds + embeds</text>
+
+      <rect x="454" y="424" width="180" height="42" rx="6" fill="#FFFFFF" stroke="#F3CDB8"/>
+      <text x="464" y="442" font-weight="700" fill="#3D2E1F">/_demand-tiles/*</text>
+      <text x="464" y="458" fill="#8A7E6E">PMTiles range serving</text>
+
+      <rect x="642" y="424" width="200" height="42" rx="6" fill="#FFFFFF" stroke="#F3CDB8"/>
+      <text x="652" y="442" font-weight="700" fill="#3D2E1F">/_import/search · /proxy</text>
+      <text x="652" y="458" fill="#8A7E6E">Mobility DB catalog + ZIP proxy</text>
+
+      <rect x="78" y="478" width="280" height="50" rx="6" fill="#FFFFFF" stroke="#F3CDB8"/>
+      <text x="88" y="497" font-weight="700" fill="#3D2E1F">Cron Triggers  ·  0 3 * * *</text>
+      <text x="88" y="515" fill="#8A7E6E">deletion reaper · weekly metrics rollup</text>
+
+      <rect x="366" y="478" width="280" height="50" rx="6" fill="#FFFFFF" stroke="#F3CDB8"/>
+      <text x="376" y="497" font-weight="700" fill="#3D2E1F">/api/events/track</text>
+      <text x="376" y="515" fill="#8A7E6E">cookieless page-view beacon (new)</text>
+
+      <rect x="654" y="478" width="190" height="50" rx="6" fill="#FFFFFF" stroke="#F3CDB8"/>
+      <text x="664" y="497" font-weight="700" fill="#3D2E1F">Webhook endpoints</text>
+      <text x="664" y="515" fill="#8A7E6E">/billing/webhooks/stripe</text>
+    </g>
+
+    <!-- ─── Side cards: Static Assets + Turnstile + Analytics ─── -->
+    <g>
+      <rect x="880" y="368" width="380" height="56" rx="10" fill="#F1F7F6" stroke="#C9DEDB"/>
+      <text x="898" y="390" font-weight="700" fill="#3D2E1F">Static Assets  (binding: ASSETS)</text>
+      <text x="898" y="410" fill="#8A7E6E" font-size="12">SPA build (dist/) served from CF edge cache</text>
+
+      <rect x="880" y="436" width="380" height="56" rx="10" fill="#F1F7F6" stroke="#C9DEDB"/>
+      <text x="898" y="458" font-weight="700" fill="#3D2E1F">Turnstile  (captcha)</text>
+      <text x="898" y="478" fill="#8A7E6E" font-size="12">/auth/signup verification — Managed mode</text>
+
+      <rect x="880" y="504" width="380" height="56" rx="10" fill="#F1F7F6" stroke="#C9DEDB"/>
+      <text x="898" y="526" font-weight="700" fill="#3D2E1F">Workers Analytics + Logpush</text>
+      <text x="898" y="546" fill="#8A7E6E" font-size="12">request metrics, structured logs (NF-70)</text>
+    </g>
+
+    <!-- ─── Storage row ─── -->
+    <g>
+      <!-- D1 -->
+      <rect x="60" y="572" width="290" height="158" rx="12" fill="#F1F7F6" stroke="#2F8A85" stroke-width="1.5"/>
+      <text x="78" y="596" font-weight="800" fill="#1F5E5A" font-size="14">D1  (SQLite at the edge)</text>
+      <text x="78" y="614" fill="#8A7E6E" font-size="11" font-family="ui-monospace, SF Mono, monospace">gtfs-builder-staging</text>
+      <line x1="78" y1="624" x2="332" y2="624" stroke="#C9DEDB"/>
+      <g font-size="11.5" fill="#3D2E1F">
+        <text x="78" y="642">user · credential · session · auth_token</text>
+        <text x="78" y="658">organization · organization_membership</text>
+        <text x="78" y="674">feed_project · feed_version · draft_link</text>
+        <text x="78" y="690">publication · publication_history</text>
+        <text x="78" y="706">subscription (billing) · audit_event</text>
+        <text x="78" y="722" font-weight="700" fill="#1F5E5A">event  (analytics, cookieless)</text>
+      </g>
+
+      <!-- KV -->
+      <rect x="370" y="572" width="240" height="158" rx="12" fill="#F1F7F6" stroke="#2F8A85" stroke-width="1.5"/>
+      <text x="388" y="596" font-weight="800" fill="#1F5E5A" font-size="14">KV  (key-value)</text>
+      <text x="388" y="614" fill="#8A7E6E" font-size="11">eventual-consistent counters</text>
+      <line x1="388" y1="624" x2="592" y2="624" stroke="#C9DEDB"/>
+      <g font-size="11.5" fill="#3D2E1F">
+        <text x="388" y="642">rate-limit buckets (auth, publish)</text>
+        <text x="388" y="658">export-throttle window</text>
+        <text x="388" y="674">short-lived caches</text>
+      </g>
+
+      <!-- R2: TILES -->
+      <rect x="630" y="572" width="300" height="76" rx="12" fill="#F1F7F6" stroke="#2F8A85" stroke-width="1.5"/>
+      <text x="648" y="596" font-weight="800" fill="#1F5E5A" font-size="14">R2  ·  TILES bucket</text>
+      <text x="648" y="614" fill="#8A7E6E" font-size="11" font-family="ui-monospace, SF Mono, monospace">gtfs-builder-tiles</text>
+      <text x="648" y="634" fill="#3D2E1F" font-size="11.5">PMTiles archive for the demand-dot map</text>
+
+      <!-- R2: FEEDS -->
+      <rect x="630" y="654" width="300" height="76" rx="12" fill="#F1F7F6" stroke="#2F8A85" stroke-width="1.5"/>
+      <text x="648" y="678" font-weight="800" fill="#1F5E5A" font-size="14">R2  ·  FEEDS bucket</text>
+      <text x="648" y="694" fill="#8A7E6E" font-size="11" font-family="ui-monospace, SF Mono, monospace">gtfs-builder-feeds-staging</text>
+      <text x="648" y="710" fill="#3D2E1F" font-size="11">working-state JSON · version snapshots</text>
+      <text x="648" y="724" fill="#3D2E1F" font-size="11">rendered ZIPs · per-org brand logos</text>
+
+      <!-- Legend swatch on right -->
+      <rect x="950" y="572" width="310" height="158" rx="12" fill="#FAFAF7" stroke="#E5D9C7" stroke-dasharray="3 3"/>
+      <text x="968" y="596" font-weight="800" fill="#3D2E1F" font-size="13">Bindings (wrangler.jsonc)</text>
+      <g font-size="11.5" fill="#3D2E1F" font-family="ui-monospace, SF Mono, monospace">
+        <text x="968" y="618">DB        →  D1 database</text>
+        <text x="968" y="634">KV        →  KV namespace</text>
+        <text x="968" y="650">TILES     →  R2 bucket (PMTiles)</text>
+        <text x="968" y="666">FEEDS     →  R2 bucket (feed blobs)</text>
+        <text x="968" y="682">ASSETS    →  static SPA fetcher</text>
+      </g>
+      <text x="968" y="708" font-size="11" fill="#8A7E6E">Secrets: RESEND_API_KEY,</text>
+      <text x="968" y="722" font-size="11" fill="#8A7E6E">TURNSTILE_SECRET_KEY, STRIPE_*, MDB token</text>
+    </g>
+
+    <!-- Internal arrows: Worker → bindings -->
+    <g stroke="#2F8A85" stroke-width="1.4" fill="none" marker-end="url(#arr-teal)">
+      <path d="M 200 540 L 200 572"/>
+      <path d="M 490 540 L 490 572"/>
+      <path d="M 720 540 L 720 572"/>
+    </g>
+    <!-- Worker → Static Assets / Turnstile / Analytics (lateral) -->
+    <g stroke="#2F8A85" stroke-width="1.4" fill="none" marker-end="url(#arr-teal)">
+      <path d="M 860 396 L 880 396"/>
+      <path d="M 860 464 L 880 464"/>
+      <path d="M 860 532 L 880 532"/>
+    </g>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       EXTERNAL SERVICES + CI/CD
+       ═══════════════════════════════════════════════════════════ -->
+  <g>
+    <!-- External services -->
+    <rect x="40" y="780" width="780" height="180" rx="14" fill="#FFFFFF" stroke="#E5D9C7" stroke-width="1.5" filter="url(#card-shadow)"/>
+    <text x="60" y="806" font-size="11" font-weight="800" fill="#8A7E6E" letter-spacing="1.2">EXTERNAL SERVICES  (outbound HTTPS from Worker)</text>
+
+    <!-- Stripe -->
+    <rect x="60" y="820" width="180" height="124" rx="10" fill="#F3F2FF" stroke="#635BFF" stroke-width="1.2"/>
+    <circle cx="80" cy="846" r="11" fill="#635BFF"/>
+    <text x="80" y="850" font-size="13" font-weight="800" fill="#FFFFFF" text-anchor="middle">S</text>
+    <text x="100" y="850" font-weight="700" fill="#3D2E1F">Stripe</text>
+    <g font-size="11" fill="#3D2E1F">
+      <text x="74" y="876">Checkout sessions</text>
+      <text x="74" y="892">Billing Portal</text>
+      <text x="74" y="908">Webhooks  →  D1.subscription</text>
+      <text x="74" y="924">6 price IDs · portal config</text>
+    </g>
+
+    <!-- Resend -->
+    <rect x="252" y="820" width="180" height="124" rx="10" fill="#F4F4F4" stroke="#1B1B1B" stroke-width="1.2"/>
+    <circle cx="272" cy="846" r="11" fill="#1B1B1B"/>
+    <text x="272" y="850" font-size="13" font-weight="800" fill="#FFFFFF" text-anchor="middle">R</text>
+    <text x="292" y="850" font-weight="700" fill="#3D2E1F">Resend</text>
+    <g font-size="11" fill="#3D2E1F">
+      <text x="266" y="876">Email verification</text>
+      <text x="266" y="892">Magic links</text>
+      <text x="266" y="908">Password resets</text>
+      <text x="266" y="924">Org invitations</text>
+    </g>
+
+    <!-- Mapbox -->
+    <rect x="444" y="820" width="180" height="124" rx="10" fill="#EEF2FF" stroke="#4264FB" stroke-width="1.2"/>
+    <circle cx="464" cy="846" r="11" fill="#4264FB"/>
+    <text x="464" y="850" font-size="13" font-weight="800" fill="#FFFFFF" text-anchor="middle">M</text>
+    <text x="484" y="850" font-weight="700" fill="#3D2E1F">Mapbox</text>
+    <g font-size="11" fill="#3D2E1F">
+      <text x="458" y="876">GL JS in SPA + embeds</text>
+      <text x="458" y="892">Vector tiles + styles</text>
+      <text x="458" y="908">Map Matching API</text>
+      <text x="458" y="924">(snap-to-road)</text>
+    </g>
+
+    <!-- Mobility Database -->
+    <rect x="636" y="820" width="170" height="124" rx="10" fill="#F2F8F4" stroke="#2F8A4F" stroke-width="1.2"/>
+    <circle cx="656" cy="846" r="11" fill="#2F8A4F"/>
+    <text x="656" y="850" font-size="13" font-weight="800" fill="#FFFFFF" text-anchor="middle">MDB</text>
+    <text x="682" y="850" font-weight="700" fill="#3D2E1F">Mobility DB</text>
+    <g font-size="11" fill="#3D2E1F">
+      <text x="650" y="876">Feed catalog search</text>
+      <text x="650" y="892">ZIP proxy on import</text>
+      <text x="650" y="908">Refresh-token auth</text>
+    </g>
+
+    <!-- CI/CD -->
+    <rect x="840" y="780" width="440" height="180" rx="14" fill="#FFFFFF" stroke="#E5D9C7" stroke-width="1.5" filter="url(#card-shadow)"/>
+    <text x="860" y="806" font-size="11" font-weight="800" fill="#8A7E6E" letter-spacing="1.2">SOURCE  ·  CI / DEPLOY</text>
+
+    <rect x="860" y="820" width="180" height="124" rx="10" fill="#FAFAFA" stroke="#181717" stroke-width="1.2"/>
+    <circle cx="880" cy="846" r="11" fill="#181717"/>
+    <text x="880" y="850" font-size="13" font-weight="800" fill="#FFFFFF" text-anchor="middle">GH</text>
+    <text x="900" y="850" font-weight="700" fill="#3D2E1F">GitHub</text>
+    <g font-size="11" fill="#3D2E1F">
+      <text x="874" y="876">markegge/gtfs_builder</text>
+      <text x="874" y="892">main branch is truth</text>
+      <text x="874" y="908">prod-YYYY-MM-DD tags</text>
+      <text x="874" y="924">trigger prod deploys</text>
+    </g>
+
+    <rect x="1060" y="820" width="200" height="124" rx="10" fill="#FAFAFA" stroke="#181717" stroke-width="1.2"/>
+    <circle cx="1080" cy="846" r="11" fill="#181717"/>
+    <text x="1080" y="850" font-size="13" font-weight="800" fill="#FFFFFF" text-anchor="middle">A</text>
+    <text x="1100" y="850" font-weight="700" fill="#3D2E1F">GitHub Actions</text>
+    <g font-size="11" fill="#3D2E1F">
+      <text x="1074" y="876" font-family="ui-monospace, SF Mono, monospace">.github/workflows/</text>
+      <text x="1074" y="891" font-family="ui-monospace, SF Mono, monospace">deploy.yml</text>
+      <text x="1074" y="909">npm run build  →</text>
+      <text x="1074" y="925">wrangler deploy</text>
+    </g>
+    <!-- GH → Actions arrow -->
+    <path d="M 1040 882 L 1060 882" stroke="#181717" stroke-width="1.4" marker-end="url(#arr-gray)" fill="none"/>
+  </g>
+
+  <!-- Connector: Worker ↔ external services (gray dashed)  -->
+  <g stroke="#8A7E6E" stroke-width="1.3" fill="none" stroke-dasharray="5 4">
+    <path d="M 160 740 C 160 760, 150 770, 150 778"/>
+    <path d="M 340 740 C 340 760, 342 770, 342 778"/>
+    <path d="M 520 740 C 520 760, 530 770, 530 778"/>
+    <path d="M 720 740 C 720 760, 720 770, 720 778"/>
+  </g>
+  <g fill="none" stroke="#8A7E6E" stroke-width="1.3" marker-end="url(#arr-gray)">
+    <path d="M 150 778 L 150 820"/>
+    <path d="M 342 778 L 342 820"/>
+    <path d="M 530 778 L 530 820"/>
+    <path d="M 720 778 L 720 820"/>
+  </g>
+
+  <!-- Connector: Actions → Worker (deploy) -->
+  <path d="M 1160 820 L 1160 765" stroke="#8A7E6E" stroke-width="1.4" fill="none" stroke-dasharray="5 4"/>
+  <path d="M 1160 765 L 1160 750" stroke="#8A7E6E" stroke-width="1.4" fill="none" marker-end="url(#arr-gray)"/>
+  <text x="1170" y="800" font-size="11" fill="#8A7E6E">wrangler deploy</text>
+
+  <!-- Footer note -->
+  <text x="40" y="985" font-size="11" fill="#8A7E6E">All compute + storage on a single Cloudflare account · No cross-cloud egress · Production has identical bindings; kill switch (BACKEND_ENABLED) gates user-facing surfaces.</text>
+
+</svg>
