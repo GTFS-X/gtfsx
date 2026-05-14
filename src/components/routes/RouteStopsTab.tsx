@@ -210,19 +210,29 @@ export function RouteStopsTab() {
   );
 
   // Build the assignment-filtered candidate set for the "Add existing" dropdown.
-  // 'unassigned' = stops not assigned to ANY route via route_stops.
-  // 'route:<id>' = stops on a specific other route.
-  // 'all'        = every stop in the feed.
+  // 'unassigned'      → stops not assigned to ANY route via route_stops.
+  // 'route:<id>'      → stops on a specific OTHER route (any direction).
+  // 'same-route-other-dir' → stops on the SAME route's other direction.
+  //   Common case: user just split outbound into outbound + inbound and
+  //   wants to grab the outbound's stops to populate the inbound side.
+  // 'all'             → every stop in the feed.
   const assignedAnywhere = new Set(routeStops.map((rs) => rs.stop_id));
-  const stopsOnOtherRoute = (otherRouteId: string) => new Set(
-    routeStops.filter((rs) => rs.route_id === otherRouteId).map((rs) => rs.stop_id),
+  const stopsOnRoute = (rid: string, dir?: 0 | 1) => new Set(
+    routeStops
+      .filter((rs) => rs.route_id === rid && (dir == null || rs.direction_id === dir))
+      .map((rs) => rs.stop_id),
   );
+  const oppositeDirection: 0 | 1 = directionId === 0 ? 1 : 0;
   const filterSet: ((sid: string) => boolean) = (() => {
     if (assignmentFilter === 'all') return () => true;
     if (assignmentFilter === 'unassigned') return (sid: string) => !assignedAnywhere.has(sid);
+    if (assignmentFilter === 'same-route-other-dir') {
+      const ids = stopsOnRoute(routeId, oppositeDirection);
+      return (sid: string) => ids.has(sid);
+    }
     if (assignmentFilter.startsWith('route:')) {
       const otherId = assignmentFilter.slice('route:'.length);
-      const ids = stopsOnOtherRoute(otherId);
+      const ids = stopsOnRoute(otherId);
       return (sid: string) => ids.has(sid);
     }
     return () => true;
@@ -275,6 +285,9 @@ export function RouteStopsTab() {
           >
             <option value="unassigned">Unassigned stops</option>
             <option value="all">All stops</option>
+            <option value="same-route-other-dir">
+              This route — {directionName(route, oppositeDirection)} direction
+            </option>
             {routes.filter((r) => r.route_id !== routeId).map((r) => (
               <option key={r.route_id} value={`route:${r.route_id}`}>
                 {r.route_short_name || r.route_long_name || 'Untitled Route'}
