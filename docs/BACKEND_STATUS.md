@@ -9,8 +9,8 @@ The high-level overview is in [`REQUIREMENTS.md`](./REQUIREMENTS.md). The refere
 ## TL;DR
 
 - **Branch**: `main` is the source of truth. The most recent merge (2026-05-11) was the rail refactor on `exploration/right-rail-and-responsive-left` — replaces the legacy 300 px sidebar with a two-rail editor shell (responsive left nav 40–260 px + configuration right rail at 460 px), unifies the header across all pages via shared `AppBrand` + `UserMenu`, hoists the route delete dialog, adds `duplicateRoute`, and tightens responsive behaviour. Prior `staging-features` work (Turnstile, embeds, org logo, cross-workspace transfer, orphan-stop choice, export-all-stops fix, requirements rewrite) had already landed on `main`.
-- **Staging is live.** Editor at https://staging.gtfsbuilder.net (worker version `e8b698fd-5e85-4405-9298-eb661bbd1fb8` as of 2026-05-11). Public feeds + embeds at https://staging-feeds.gtfsbuilder.net. First admin (`mark@eateggs.com`) is staff. One published demo feed: `bozeman-demo`.
-- **Production is DISABLED.** The Worker is deployed to `gtfsbuilder.net` (worker version `59147bd4-3f6b-45fb-9dc7-eec845ac4b7e` as of 2026-05-11, ships the rail refactor); the kill switch (`BACKEND_ENABLED=false` in `wrangler.jsonc` + `VITE_BACKEND_ENABLED=false` baked into the SPA bundle) remains flipped from 2026-05-08 after a premature launch (4 user accounts had been created within 24 hours, including 2 strangers). Existing data is preserved; flip both flags to re-enable.
+- **Staging is live.** Editor at https://staging.gtfsstudio.net (worker version `e8b698fd-5e85-4405-9298-eb661bbd1fb8` as of 2026-05-11). Public feeds + embeds at https://staging-feeds.gtfsstudio.net. First admin (`mark@eateggs.com`) is staff. One published demo feed: `bozeman-demo`.
+- **Production is DISABLED.** The Worker is deployed to `gtfsstudio.net` (worker version `59147bd4-3f6b-45fb-9dc7-eec845ac4b7e` as of 2026-05-11, ships the rail refactor); the kill switch (`BACKEND_ENABLED=false` in `wrangler.jsonc` + `VITE_BACKEND_ENABLED=false` baked into the SPA bundle) remains flipped from 2026-05-08 after a premature launch (4 user accounts had been created within 24 hours, including 2 strangers). Existing data is preserved; flip both flags to re-enable.
 - **NF-40a (argon2id)** is the only spec-level technical debt that should land before broad RTAP distribution. Tracked in `BACKEND_REQUIREMENTS.md` §8.1.
 - **Analytics (2026-05-14).** Cookieless page-view tracking is live: `POST /api/events/track` writes to the `event` table; `/admin/events` aggregates visits + page views grouped by inbound `?ref=` tag. No PII recorded. Beacon does not fire on prod until the kill switch is flipped (the frontend gates on `backendEnabled`). Migration 0007 is applied on both D1 databases.
 
@@ -29,7 +29,7 @@ The high-level overview is in [`REQUIREMENTS.md`](./REQUIREMENTS.md). The refere
 ### Staging — LIVE
 
 - Worker: `gtfs-builder-staging`.
-- Custom domains: `staging.gtfsbuilder.net`, `staging-feeds.gtfsbuilder.net`.
+- Custom domains: `staging.gtfsstudio.net`, `staging-feeds.gtfsstudio.net`.
 - D1: `gtfs-builder-staging` (id `f62aa5db-329f-4a78-bf35-4b96f79d4392`). Migrations 0001–0007 applied.
 - KV: id `ceb1f063c83a4bec9306e66288a51dc8`.
 - R2: `gtfs-builder-feeds-staging` (feed blobs + org logos).
@@ -47,7 +47,7 @@ The high-level overview is in [`REQUIREMENTS.md`](./REQUIREMENTS.md). The refere
   - KV: id `da2476e5027346988e380474fa6deef5`.
   - R2: `gtfs-builder-feeds`.
   - Secrets: `RESEND_API_KEY`, `MOBILITY_DATABASE_REFRESH_TOKEN`.
-  - Custom domains bound: `gtfsbuilder.net`, `www.gtfsbuilder.net`, `feeds.gtfsbuilder.net`. SSL certs provisioned.
+  - Custom domains bound: `gtfsstudio.net`, `www.gtfsstudio.net`, `feeds.gtfsstudio.net`. SSL certs provisioned.
 - 4 user accounts in prod D1 (`mark@eateggs.com` staff=1, 3 others including 2 strangers from the brief launch window). 0 published feeds.
 - **To re-enable**: flip `BACKEND_ENABLED=true` in `wrangler.jsonc` top-level vars; rebuild with `VITE_BACKEND_ENABLED=true` (see `.env.example`); set `TURNSTILE_SECRET_KEY` secret on prod; `wrangler deploy --env=""`. (Migrations 0001–0007 are already applied on the prod D1.)
 
@@ -57,7 +57,7 @@ The high-level overview is in [`REQUIREMENTS.md`](./REQUIREMENTS.md). The refere
 
 These tripped past deploys; capturing here so the next person doesn't have to retrace:
 
-- **API token scopes.** `CLOUDFLARE_API_TOKEN` (in `~/proj/.env`) needs **Workers KV Storage : Edit** + **Zone : Workers Routes : Edit** for the `gtfsbuilder.net` zone. The OAuth token from `wrangler login` is fine for everything except the binding-attach step on first deploy. If a future deploy fails with `code: 10023 (kv bindings require kv write perms)` or `code: 10000 (Authentication error)` on `/zones/.../workers/routes`, re-check the API token at https://dash.cloudflare.com/profile/api-tokens.
+- **API token scopes.** `CLOUDFLARE_API_TOKEN` (in `~/proj/.env`) needs **Workers KV Storage : Edit** + **Zone : Workers Routes : Edit** for the `gtfsstudio.net` zone. The OAuth token from `wrangler login` is fine for everything except the binding-attach step on first deploy. If a future deploy fails with `code: 10023 (kv bindings require kv write perms)` or `code: 10000 (Authentication error)` on `/zones/.../workers/routes`, re-check the API token at https://dash.cloudflare.com/profile/api-tokens.
 - **Empty `--env` flag.** `wrangler deploy --env=""` explicitly targets the top-level (prod) block. Without the empty value, wrangler warns about ambiguity since multiple environments are defined (top-level + `env.staging`).
 - **D1 SQL via OAuth.** The OAuth login from `wrangler login` has D1 write; the API token may not. For ad-hoc SQL: `unset CLOUDFLARE_API_TOKEN; npx wrangler d1 execute gtfs-builder-staging --remote --command "…"`.
 - **Migration apply via execute.** When `wrangler d1 migrations apply` fails on token scopes but `wrangler d1 execute --file <migration.sql>` works, you can apply the migration manually and then `INSERT INTO d1_migrations (name, applied_at) VALUES ('<file>', strftime('%Y-%m-%d %H:%M:%f', 'now'))` to keep wrangler's bookkeeping aligned.
@@ -76,8 +76,8 @@ In rough priority order. Items that have a long-form home elsewhere are linked.
 
 ### Re-enable production checklist
 
-1. Set the `TURNSTILE_SECRET_KEY` secret on the prod Worker (the same Turnstile site is configured for both `staging.gtfsbuilder.net` and `gtfsbuilder.net`).
-2. Verify `noreply@gtfsbuilder.net` is a verified Resend sender on the prod sending domain (`AUTH_EMAIL_FROM` in `wrangler.jsonc`).
+1. Set the `TURNSTILE_SECRET_KEY` secret on the prod Worker (the same Turnstile site is configured for both `staging.gtfsstudio.net` and `gtfsstudio.net`).
+2. Verify `noreply@gtfsstudio.net` is a verified Resend sender on the prod sending domain (`AUTH_EMAIL_FROM` in `wrangler.jsonc`).
 3. Flip `BACKEND_ENABLED` (worker var) and `VITE_BACKEND_ENABLED` (frontend env) to `true`.
 4. Promote yourself to staff after first signup: `wrangler d1 execute gtfs-builder --remote --command "UPDATE user SET staff=1 WHERE email='mark@eateggs.com'"`.
 5. Walk the smoke-test in `DEPLOY_BACKEND.md` §7 (now includes a `?ref=` analytics check).

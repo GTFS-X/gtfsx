@@ -106,7 +106,7 @@ export async function renderRouteEmbed(
       : ''}
     ${schedule}
     <footer class="embed-footer">
-      Powered by <a href="https://gtfsbuilder.net" target="_blank" rel="noopener">GTFS Builder</a>
+      Powered by <a href="https://gtfsstudio.net" target="_blank" rel="noopener">GTFS Studio</a>
       · ${agency?.agency_name ?? feed.projectName}
     </footer>
   `;

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" role="img" aria-label="GTFS Builder logo concept 5 coral brown refined v2">
+  <defs>
+    <style>
+      .coral { fill: #E8734A; }
+      .brown { fill: #5C4A3A; }
+      .cream { fill: #FFF8F0; }
+      .white-stroke { stroke: #FFFFFF; stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <!-- Transparent background intentionally omitted -->
+
+  <!-- Base ring -->
+  <ellipse cx="438" cy="935" rx="206" ry="87" fill="none" stroke="#E8734A" stroke-width="34"/>
+
+  <!-- Location pin -->
+  <path class="coral"
+        d="M451 145
+           C300 145 178 267 178 418
+           C178 509 222 594 290 692
+           L440 949
+           C445 958 458 958 463 949
+           L613 692
+           C681 594 725 509 725 418
+           C725 267 603 145 451 145 Z"/>
+  <circle class="cream" cx="451" cy="438" r="196"/>
+
+  <!-- Bus icon -->
+  <g class="brown">
+    <rect x="333" y="313" width="236" height="247" rx="36"/>
+    <rect class="cream" x="354" y="369" width="189" height="86" rx="13"/>
+    <rect class="cream" x="401" y="333" width="97" height="16" rx="8"/>
+    <circle class="cream" cx="378" cy="507" r="20"/>
+    <circle class="cream" cx="526" cy="507" r="20"/>
+    <rect x="354" y="541" width="39" height="37" rx="9"/>
+    <rect x="509" y="541" width="39" height="37" rx="9"/>
+  </g>
+
+  <!-- Calendar body: tightened right side for balanced left/right thickness -->
+  <path class="coral"
+        d="M651 603
+           H1020
+           C1053 603 1080 630 1080 663
+           V1042
+           C1080 1075 1053 1102 1020 1102
+           H660
+           C627 1102 600 1075 600 1042
+           V705
+           C600 690 606 675 616 664
+           L651 603 Z"/>
+
+  <!-- Binding rings with white outline -->
+  <rect class="coral white-stroke" x="724" y="550" width="44" height="96" rx="22"/>
+  <rect class="coral white-stroke" x="945" y="550" width="44" height="96" rx="22"/>
+
+  <!-- Calendar cells -->
+  <!-- Row 1 -->
+  <rect class="cream" x="640" y="709" width="118" height="103" rx="10"/>
+  <rect class="cream" x="781" y="709" width="118" height="103" rx="10"/>
+  <rect class="cream" x="922" y="709" width="118" height="103" rx="10"/>
+
+  <!-- Row 2 -->
+  <rect class="cream" x="640" y="835" width="118" height="103" rx="10"/>
+  <rect class="cream" x="781" y="835" width="118" height="103" rx="10"/>
+  <rect class="cream" x="922" y="835" width="118" height="103" rx="10"/>
+
+  <!-- Row 3 -->
+  <rect class="cream" x="640" y="961" width="118" height="103" rx="10"/>
+  <rect class="cream" x="781" y="961" width="118" height="103" rx="10"/>
+  <rect class="cream" x="922" y="961" width="118" height="103" rx="10"/>
+
+  <!-- Highlighted dates -->
+  <rect class="brown" x="797" y="730" width="86" height="66" rx="7"/>
+  <rect class="brown" x="938" y="730" width="86" height="66" rx="7"/>
+  <rect class="brown" x="797" y="856" width="86" height="66" rx="7"/>
+</svg>

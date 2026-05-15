@@ -1,4 +1,4 @@
-# Domain migration — `gtfsbuilder.net` → `gtfsstudio.net`
+# Domain migration — `gtfsstudio.net` → `gtfsstudio.net`
 
 Started 2026-05-14. Working runbook — update the checkboxes as steps complete.
 
@@ -6,8 +6,8 @@ Started 2026-05-14. Working runbook — update the checkboxes as steps complete.
 
 | Decision | Choice |
 |---|---|
-| Brand name | _TBD: keep "GTFS Builder" or rename to "GTFS Studio"_ |
-| Cutover style | Parallel — old domain stays bound to the Worker indefinitely and 301s to the new domain. Preserves `feeds.gtfsbuilder.net/<slug>/gtfs.zip` URLs already polled by external consumers. |
+| Brand name | _TBD: keep "GTFS Studio" or rename to "GTFS Studio"_ |
+| Cutover style | Parallel — old domain stays bound to the Worker indefinitely and 301s to the new domain. Preserves `feeds.gtfsstudio.net/<slug>/gtfs.zip` URLs already polled by external consumers. |
 | Email sending domain | `gtfsstudio.net` (subdomain `mail.gtfsstudio.net` optional; not required) |
 | Stripe webhooks | Add a new endpoint on the new domain; keep the old endpoint running until cutover is verified, then remove. |
 
@@ -15,10 +15,10 @@ Started 2026-05-14. Working runbook — update the checkboxes as steps complete.
 
 | Purpose | Old | New |
 |---|---|---|
-| Editor (apex + www) | `gtfsbuilder.net`, `www.gtfsbuilder.net` | `gtfsstudio.net`, `www.gtfsstudio.net` |
-| Public feeds + embeds | `feeds.gtfsbuilder.net` | `feeds.gtfsstudio.net` |
-| Staging editor | `staging.gtfsbuilder.net` | `staging.gtfsstudio.net` |
-| Staging feeds | `staging-feeds.gtfsbuilder.net` | `staging-feeds.gtfsstudio.net` |
+| Editor (apex + www) | `gtfsstudio.net`, `www.gtfsstudio.net` | `gtfsstudio.net`, `www.gtfsstudio.net` |
+| Public feeds + embeds | `feeds.gtfsstudio.net` | `feeds.gtfsstudio.net` |
+| Staging editor | `staging.gtfsstudio.net` | `staging.gtfsstudio.net` |
+| Staging feeds | `staging-feeds.gtfsstudio.net` | `staging-feeds.gtfsstudio.net` |
 
 ---
 
@@ -41,7 +41,7 @@ Branch: `domain-migration-gtfsstudio`.
 - [ ] `worker/email/index.ts` — sender footer copy (line 43).
 - [ ] `worker/embeds/{landing,route,stop,systemMap}.ts` — "Powered by …" footer link in 4 embed templates.
 - [ ] `worker/publication/feeds.ts`, `worker/legacy/imports.ts`, `worker/index.ts` — any fallback origin strings.
-- [ ] `src/components/auth/{LoginPage,SignupPage}.tsx` — "from gtfsbuilder.net" copy.
+- [ ] `src/components/auth/{LoginPage,SignupPage}.tsx` — "from gtfsstudio.net" copy.
 - [ ] `src/components/{billing/PricingPage,billing/WelcomePlanPage,embed/EmbedPanel,publication/PublishPanel}.tsx`, `src/services/orgsApi.ts` — example URLs / contact emails.
 - [ ] `public/{about,docs,embed-demo,learn/gtfs,learn/gtfs-flex}/index.html`, `index.html` — marketing pages + title/OG meta.
 - [ ] `tiles/cors.json` — R2 CORS allowed origins.
@@ -91,7 +91,7 @@ After Phase 1 zone is active and Phase 2 branch is ready:
 
 - [ ] In [Mapbox Account → Access Tokens](https://account.mapbox.com/access-tokens/), click the public token (`pk.eyJ1...`).
 - [ ] Under **URL allowlist**, add: `https://gtfsstudio.net/*`, `https://*.gtfsstudio.net/*`.
-- [ ] Leave the old `gtfsbuilder.net` entries (transition period).
+- [ ] Leave the old `gtfsstudio.net` entries (transition period).
 - [ ] Save.
 
 ### Phase 8 — Staging verification (Claude + user)
@@ -103,7 +103,7 @@ Once Phases 3–7 are done:
 - [ ] Run the full `DEPLOY_BACKEND.md` §7 smoke test against the new domain.
 - [ ] Hit `https://staging.gtfsstudio.net/?ref=migration-test`, check `/admin/events` shows the new ref.
 - [ ] Stripe test-mode checkout → confirm the new webhook fires and updates `subscription` row in D1.
-- [ ] On the old domain (`https://staging.gtfsbuilder.net`) — should still work normally until Phase 10 wires the redirect.
+- [ ] On the old domain (`https://staging.gtfsstudio.net`) — should still work normally until Phase 10 wires the redirect.
 
 ### Phase 9 — Production cutover (Claude)
 
@@ -116,9 +116,9 @@ Once Phases 3–7 are done:
 
 Done after Phase 9 is verified, so old-domain hits start sending traffic to the new home.
 
-- [ ] In `worker/index.ts`, add an early-return: if `url.hostname` ends in `gtfsbuilder.net`, return a 301 to the same path on the corresponding `gtfsstudio.net` host. Preserves query string + path + hash. Special case `www.` and `feeds.` and `staging.` / `staging-feeds.` subdomains.
-- [ ] Keep the old domain routes (`gtfsbuilder.net`, `www.gtfsbuilder.net`, `feeds.gtfsbuilder.net`, `staging.gtfsbuilder.net`, `staging-feeds.gtfsbuilder.net`) in `wrangler.jsonc` so the Worker still serves them — those bindings carry the redirect.
-- [ ] Deploy. Verify with `curl -I https://feeds.gtfsbuilder.net/bozeman-demo/gtfs.zip` — expect `HTTP/2 301` with `location: https://feeds.gtfsstudio.net/bozeman-demo/gtfs.zip`.
+- [ ] In `worker/index.ts`, add an early-return: if `url.hostname` ends in `gtfsstudio.net`, return a 301 to the same path on the corresponding `gtfsstudio.net` host. Preserves query string + path + hash. Special case `www.` and `feeds.` and `staging.` / `staging-feeds.` subdomains.
+- [ ] Keep the old domain routes (`gtfsstudio.net`, `www.gtfsstudio.net`, `feeds.gtfsstudio.net`, `staging.gtfsstudio.net`, `staging-feeds.gtfsstudio.net`) in `wrangler.jsonc` so the Worker still serves them — those bindings carry the redirect.
+- [ ] Deploy. Verify with `curl -I https://feeds.gtfsstudio.net/bozeman-demo/gtfs.zip` — expect `HTTP/2 301` with `location: https://feeds.gtfsstudio.net/bozeman-demo/gtfs.zip`.
 
 ### Phase 11 — Catalog notifications (user, async)
 
@@ -134,7 +134,7 @@ When confident no traffic is hitting the old domain:
 - [ ] Remove the 301 block from `worker/index.ts`.
 - [ ] Remove old hostnames from Turnstile + Mapbox allowlists.
 - [ ] Remove the old Stripe webhook endpoint.
-- [ ] Eventually: don't renew `gtfsbuilder.net` domain.
+- [ ] Eventually: don't renew `gtfsstudio.net` domain.
 
 ---
 
@@ -161,4 +161,4 @@ If something goes wrong after Phase 10 (redirect is live):
 | `feeds.gtfsstudio.net` | `gtfs-builder` Worker | Public feeds + embeds |
 | `staging.gtfsstudio.net` | `gtfs-builder-staging` Worker | SPA |
 | `staging-feeds.gtfsstudio.net` | `gtfs-builder-staging` Worker | Public feeds + embeds |
-| `gtfsbuilder.net` and all subdomains | `gtfs-builder` / `gtfs-builder-staging` Worker | 301 → corresponding `gtfsstudio.net` host |
+| `gtfsstudio.net` and all subdomains | `gtfs-builder` / `gtfs-builder-staging` Worker | 301 → corresponding `gtfsstudio.net` host |

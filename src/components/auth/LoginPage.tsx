@@ -92,7 +92,7 @@ export function LoginPage() {
   return (
     <AuthLayout
       title="Sign in"
-      subtitle="Welcome back to GTFS Builder."
+      subtitle="Welcome back to GTFS Studio."
       footer={
         <>
           New here?{' '}
@@ -145,7 +145,7 @@ export function LoginPage() {
               </p>
               {resendState === 'sent' ? (
                 <div className="px-2 py-1.5 rounded-md bg-teal-light text-teal text-xs">
-                  Sent — check your inbox for a link from gtfsbuilder.net.
+                  Sent — check your inbox for a link from gtfsstudio.net.
                 </div>
               ) : (
                 <>
@@ -197,7 +197,7 @@ export function LoginPage() {
       ) : magicSent ? (
         <div>
           <div className="px-3 py-3 rounded-lg bg-teal-light text-teal text-sm mb-4">
-            Check your email for a sign-in link from gtfsbuilder.net.
+            Check your email for a sign-in link from gtfsstudio.net.
           </div>
           <AuthButton
             variant="secondary"

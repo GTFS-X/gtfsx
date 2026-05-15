@@ -125,7 +125,7 @@ try {
 }
 
 const baseUrl = args.env === 'staging'
-  ? 'https://staging.gtfsbuilder.net'
+  ? 'https://staging.gtfsstudio.net'
   : 'http://127.0.0.1:5173';
 console.error(`\nDone. Sign in at ${baseUrl}/login with:`);
 console.error(`  email:    ${normEmail}`);

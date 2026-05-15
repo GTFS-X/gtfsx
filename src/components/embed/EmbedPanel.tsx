@@ -6,8 +6,8 @@ import { ApiError } from '../../services/authApi';
 const FEEDS_ORIGIN =
   (import.meta.env.VITE_FEEDS_ORIGIN as string | undefined) ||
   (typeof window !== 'undefined' && window.location.hostname.startsWith('staging.')
-    ? 'https://staging-feeds.gtfsbuilder.net'
-    : 'https://feeds.gtfsbuilder.net');
+    ? 'https://staging-feeds.gtfsstudio.net'
+    : 'https://feeds.gtfsstudio.net');
 
 interface PublicationInfo {
   slug: string;

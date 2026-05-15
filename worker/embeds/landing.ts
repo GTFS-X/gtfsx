@@ -117,7 +117,7 @@ export async function renderLandingPage(
       Click any stop on the map for upcoming departures.
     </p>
     <footer class="embed-footer">
-      Powered by <a href="https://gtfsbuilder.net" target="_blank" rel="noopener">GTFS Builder</a>
+      Powered by <a href="https://gtfsstudio.net" target="_blank" rel="noopener">GTFS Studio</a>
       · ${agencyName}
     </footer>
   `;

@@ -57,8 +57,8 @@ export default {
     const url = new URL(request.url);
 
     // Public feed distribution lives on a separate hostname (FEEDS_ORIGIN):
-    //   prod:    feeds.gtfsbuilder.net
-    //   staging: staging-feeds.gtfsbuilder.net
+    //   prod:    feeds.gtfsstudio.net
+    //   staging: staging-feeds.gtfsstudio.net
     //   dev:     anything starting with `feeds.` (localhost etc.)
     // Never auth-aware; no cookies. Handled by a dedicated module.
     let feedsHost: string | null = null;

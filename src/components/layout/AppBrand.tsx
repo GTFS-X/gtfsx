@@ -3,7 +3,7 @@ import { db } from '../../db/dexie';
 import { useStore } from '../../store';
 
 /**
- * Shared logo + "GTFS Builder" wordmark. Used by every page's top bar.
+ * Shared logo + "GTFS Studio" wordmark. Used by every page's top bar.
  *
  * - In the editor (default), clicking checks for unsaved work and pops a
  *   reset dialog before going home.
@@ -68,7 +68,7 @@ export function AppBrand({
           <circle cx="14" cy="19.5" r="1" fill="#FFF8F0" />
           <circle cx="18" cy="19.5" r="1" fill="#FFF8F0" />
         </svg>
-        GTFS Builder
+        GTFS Studio
       </button>
       {showTagline && (
         <span

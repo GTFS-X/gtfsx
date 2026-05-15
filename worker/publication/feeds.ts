@@ -1,4 +1,4 @@
-// Public feed distribution for feeds.gtfsbuilder.net (and any hostname starting
+// Public feed distribution for feeds.gtfsstudio.net (and any hostname starting
 // with `feeds.`). No auth cookies ever reach this handler — it routes from
 // worker/index.ts before entering Hono.
 //

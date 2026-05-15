@@ -1,8 +1,8 @@
-# GTFS Builder — Freemium Implementation Plan
+# GTFS Studio — Freemium Implementation Plan
 
 *Status: 🔲 planned. Source of truth for the freemium / paid-tier work. Companion to [`REQUIREMENTS.md`](./REQUIREMENTS.md) and [`BACKEND_REQUIREMENTS.md`](./BACKEND_REQUIREMENTS.md).*
 
-This document defines what needs to be built to turn the current backend (auth, orgs, projects, publication, embeds — see [`BACKEND_STATUS.md`](./BACKEND_STATUS.md)) into a monetised product with a free tier and paid plans. Strategic context lives in the business plan at `~/Library/CloudStorage/.../GTFS Builder/Business Plan.md` — the short version is: undercut Remix/Trillium on price *and* on procurement friction, free editor + self-hosted export, managed publishing is the paywall, analysis features are the second paywall, Enterprise covers state DOTs / RTAP / Cal-ITP.
+This document defines what needs to be built to turn the current backend (auth, orgs, projects, publication, embeds — see [`BACKEND_STATUS.md`](./BACKEND_STATUS.md)) into a monetised product with a free tier and paid plans. Strategic context lives in the business plan at `~/Library/CloudStorage/.../GTFS Studio/Business Plan.md` — the short version is: undercut Remix/Trillium on price *and* on procurement friction, free editor + self-hosted export, managed publishing is the paywall, analysis features are the second paywall, Enterprise covers state DOTs / RTAP / Cal-ITP.
 
 ---
 
@@ -22,7 +22,7 @@ This document defines what needs to be built to turn the current backend (auth, 
 
 **Out of scope for v1 (deferred):**
 
-- Discourse-hosted community message board (separate ops task; community.gtfsbuilder.net subdomain).
+- Discourse-hosted community message board (separate ops task; community.gtfsstudio.net subdomain).
 - Per-project membership inside an org (BE-95) — still future as in the existing spec.
 - Custom domains for published feeds (BE-77 area) — still not supported.
 - Real-time multi-cursor collaboration.
@@ -404,7 +404,7 @@ A nightly cron checks `plan_renewal_at` on enterprise grants and downgrades to F
 
 ## 6. Managed publishing as the paywall — implementation detail
 
-This is the operationally important piece. The free tier must be able to export a GTFS ZIP and host it anywhere, but not get a `feeds.gtfsbuilder.net/<slug>/gtfs.zip` URL.
+This is the operationally important piece. The free tier must be able to export a GTFS ZIP and host it anywhere, but not get a `feeds.gtfsstudio.net/<slug>/gtfs.zip` URL.
 
 **Concrete enforcement points:**
 
@@ -501,7 +501,7 @@ This is a **simultaneous launch** of backend re-enable + billing. Both `BACKEND_
 1. Complete "Re-enable production checklist" in `BACKEND_STATUS.md` *except* the final flag flip. All prerequisites (argon2id, migrations 0004 + 0005, Turnstile secret, Resend sender verification) done.
 2. Apply migration 0006 to prod D1.
 3. Stripe live-mode account configured; Products and Prices in live mode; secrets rotated to live.
-4. Webhook endpoint registered with Stripe pointing at prod `gtfsbuilder.net`.
+4. Webhook endpoint registered with Stripe pointing at prod `gtfsstudio.net`.
 5. **Compound-risk mitigations (REQUIRED):**
    a. Staging burn-in of full backend + billing flow for minimum 2 weeks before prod flip. Zero P0/P1 bugs open at flip time.
    b. Rollback playbook written and rehearsed. Single-flag rollback: `BILLING_ENABLED=false` (leaves backend up but disables paid checkout/webhooks). Full rollback: both flags to `false`.
@@ -524,7 +524,7 @@ This is a **simultaneous launch** of backend re-enable + billing. Both `BACKEND_
 
 1. Weekly review of conversion metrics: signups → Pro/Team/Consultant rate, paywall click-to-upgrade rate per feature, churn.
 2. Iterate on paywall copy and placement based on funnel data.
-3. Consider Discourse community board if free-tier email support burden materializes (separate ops task; community.gtfsbuilder.net).
+3. Consider Discourse community board if free-tier email support burden materializes (separate ops task; community.gtfsstudio.net).
 4. Begin Cal-ITP and state DOT outreach for Enterprise — see business plan §9 next steps.
 
 ---
@@ -546,7 +546,7 @@ These were the open questions; resolved with Mark before implementation.
 
 ## 10. Companion docs
 
-- Business plan (strategy, market, pricing rationale): `~/Library/CloudStorage/GoogleDrive-mark@eateggs.com/My Drive/Vector & Vertex/GTFS Builder/Business Plan.md`
+- Business plan (strategy, market, pricing rationale): `~/Library/CloudStorage/GoogleDrive-mark@eateggs.com/My Drive/Vector & Vertex/GTFS Studio/Business Plan.md`
 - Existing requirements: [`REQUIREMENTS.md`](./REQUIREMENTS.md)
 - Backend reference spec: [`BACKEND_REQUIREMENTS.md`](./BACKEND_REQUIREMENTS.md)
 - Backend live state: [`BACKEND_STATUS.md`](./BACKEND_STATUS.md)

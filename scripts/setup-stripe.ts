@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Idempotently configure Stripe for GTFS Builder freemium per docs/FREEMIUM_PLAN.md.
+// Idempotently configure Stripe for GTFS Studio freemium per docs/FREEMIUM_PLAN.md.
 // Creates 4 Products, 6 Prices, the Customer Portal config, and registers the
 // webhook endpoint. Re-runnable; existing objects are reused and only the
 // signing secret on the webhook is fresh on a first-time create.
@@ -23,10 +23,10 @@ const rotateWebhook = args.includes('--rotate-webhook');
 const webhookUrlArg = args.find((a) => a.startsWith('--webhook-url='))?.slice('--webhook-url='.length);
 
 const DEFAULT_WEBHOOK_URL = liveMode
-  ? 'https://www.gtfsbuilder.net/api/billing/webhooks/stripe'
-  : 'https://staging.gtfsbuilder.net/api/billing/webhooks/stripe';
+  ? 'https://www.gtfsstudio.net/api/billing/webhooks/stripe'
+  : 'https://staging.gtfsstudio.net/api/billing/webhooks/stripe';
 const WEBHOOK_URL = webhookUrlArg ?? DEFAULT_WEBHOOK_URL;
-const RETURN_URL_BASE = liveMode ? 'https://www.gtfsbuilder.net' : 'https://staging.gtfsbuilder.net';
+const RETURN_URL_BASE = liveMode ? 'https://www.gtfsstudio.net' : 'https://staging.gtfsstudio.net';
 const DESC_TAG = `gtfs-builder:freemium:${liveMode ? 'live' : 'staging'}`;
 
 function loadSecretKey(): string {
@@ -69,30 +69,30 @@ interface ProductSpec {
 const PRODUCTS: ProductSpec[] = [
   {
     id: 'gtfsb_pro',
-    name: 'GTFS Builder Pro',
+    name: 'GTFS Studio Pro',
     description:
       'For individual transit agencies and small operators. Save up to 10 feeds, publish 1 feed to a stable URL, plus demographic coverage and cost estimation analysis.',
     metadata: { app_id: 'gtfsb_pro', tier: 'pro' },
   },
   {
     id: 'gtfsb_team',
-    name: 'GTFS Builder Team',
+    name: 'GTFS Studio Team',
     description:
       'For transit agencies. Unlimited saved feeds, publish up to 5, full analysis tools (Title VI + propensity heatmap), team workspace with up to 10 seats.',
     metadata: { app_id: 'gtfsb_team', tier: 'team' },
   },
   {
     id: 'gtfsb_consultant',
-    name: 'GTFS Builder Consultant',
+    name: 'GTFS Studio Consultant',
     description:
       'For consultants serving multiple agencies. Cross-org membership, unlimited saved feeds, publish up to 5 per seat. Solo and firm billing share this product; firm subscribers add seats.',
     metadata: { app_id: 'gtfsb_consultant', tier: 'consultant' },
   },
   {
     id: 'gtfsb_enterprise',
-    name: 'GTFS Builder Enterprise',
+    name: 'GTFS Studio Enterprise',
     description:
-      'For state DOTs, RTAP networks, Cal-ITP, and large transit consortiums. Custom pricing, manually provisioned by staff. Contact sales@gtfsbuilder.net.',
+      'For state DOTs, RTAP networks, Cal-ITP, and large transit consortiums. Custom pricing, manually provisioned by staff. Contact sales@gtfsstudio.net.',
     metadata: { app_id: 'gtfsb_enterprise', tier: 'enterprise' },
   },
 ];
@@ -216,7 +216,7 @@ const portalFeatures: Stripe.BillingPortal.ConfigurationCreateParams.Features = 
 
 const portalParams: Stripe.BillingPortal.ConfigurationCreateParams = {
   business_profile: {
-    headline: 'Manage your GTFS Builder subscription',
+    headline: 'Manage your GTFS Studio subscription',
   },
   default_return_url: `${RETURN_URL_BASE}/account/billing`,
   features: portalFeatures,

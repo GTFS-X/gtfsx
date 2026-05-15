@@ -81,7 +81,7 @@ export function SignupPage() {
         }
       >
         <div className="px-3 py-3 rounded-lg bg-teal-light text-teal text-sm mb-4">
-          Check your email for a confirmation link from gtfsbuilder.net.
+          Check your email for a confirmation link from gtfsstudio.net.
         </div>
         <p className="text-sm text-warm-gray">
           We sent a message to <span className="font-semibold text-dark-brown">{email.trim()}</span>. Click the

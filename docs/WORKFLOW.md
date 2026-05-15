@@ -12,8 +12,8 @@ For first-time Cloudflare provisioning (D1, KV, R2, secrets, Resend, Turnstile) 
 main = source of truth.   Stays deployable at all times.
 Feature branches = short-lived, branched off main, merged via --ff-only.
 
-Push to main          → CI deploys to staging.gtfsbuilder.net  (auto)
-Tag a commit prod-*   → CI deploys to gtfsbuilder.net          (deliberate)
+Push to main          → CI deploys to staging.gtfsstudio.net  (auto)
+Tag a commit prod-*   → CI deploys to gtfsstudio.net          (deliberate)
 
 Kill-switch flags (BACKEND_ENABLED + VITE_BACKEND_ENABLED) keep prod safe
 while main races ahead with backend features under development.
@@ -97,7 +97,7 @@ npx wrangler deploy --env staging
 
 You can also re-run the staging deploy from `main` without a new commit via Actions → "Deploy" → Run workflow → `staging`.
 
-Visit https://staging.gtfsbuilder.net (editor) and https://staging-feeds.gtfsbuilder.net (feeds + embeds) to verify. Then iterate.
+Visit https://staging.gtfsstudio.net (editor) and https://staging-feeds.gtfsstudio.net (feeds + embeds) to verify. Then iterate.
 
 `wrangler tail gtfs-builder-staging` is your first stop when something looks off — the worker name (not the env flag) is the argument, and JSON output (`--format json`) is easier to grep.
 
@@ -146,7 +146,7 @@ git push origin --delete feature/<branch>
 
 Before tagging, in order:
 
-1. **Staging is healthy.** You've actually used staging.gtfsbuilder.net for the work being shipped, not just verified it built. Eyeball `wrangler tail --env staging` for unexpected errors in the last session.
+1. **Staging is healthy.** You've actually used staging.gtfsstudio.net for the work being shipped, not just verified it built. Eyeball `wrangler tail --env staging` for unexpected errors in the last session.
 2. **Migrations applied on prod first** (manual; staging-first). See "Schema migrations on prod" below.
 3. **Kill-switch flags reviewed.** If the commit being promoted relies on backend features, are `BACKEND_ENABLED` (wrangler.jsonc top-level) and `VITE_BACKEND_ENABLED` (workflow build env) flipped in sync? They're tied: the CI build of `production` uses the values in `.github/workflows/deploy.yml`; the worker reads `wrangler.jsonc`. Out-of-sync = SPA shows a feature the worker rejects, or vice versa.
 4. **Promote.** Tag and push:
@@ -244,7 +244,7 @@ In practice we haven't needed this yet because prod has stayed disabled — most
 If a deploy fails with `code: 10023 (kv bindings require kv write perms)` or `code: 10000 (Authentication error)` on `/zones/.../workers/routes`, it's the `CLOUDFLARE_API_TOKEN` (in `~/proj/.env`) missing scopes. Required scopes for a smooth deploy:
 
 - **Account** — Workers Scripts : Edit, Workers KV Storage : Edit, Workers R2 Storage : Edit, D1 : Edit, Account Settings : Read
-- **Zone** (`gtfsbuilder.net`) — Workers Routes : Edit, Zone : Read
+- **Zone** (`gtfsstudio.net`) — Workers Routes : Edit, Zone : Read
 
 Manage at https://dash.cloudflare.com/profile/api-tokens.
 

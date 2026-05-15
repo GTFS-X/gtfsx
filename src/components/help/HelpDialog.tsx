@@ -149,7 +149,7 @@ export function HelpDialog({ onClose }: HelpDialogProps) {
           <div className="border-t border-sand pt-4 mt-2">
             <h3 className="font-heading font-bold text-sm text-dark-brown mb-2">Transit Tools Suite</h3>
             <div className="bg-cream border border-sand rounded-xl px-4 py-3 text-xs text-warm-gray leading-relaxed">
-              GTFS Builder is part of the <strong className="text-dark-brown font-semibold">Transit Tools</strong> suite. Also available:{' '}
+              GTFS Studio is part of the <strong className="text-dark-brown font-semibold">Transit Tools</strong> suite. Also available:{' '}
               <a href="https://www.transitpeers.net" target="_blank" rel="noopener noreferrer" className="text-teal font-semibold hover:underline">
                 Transit Peers
               </a>{' '}

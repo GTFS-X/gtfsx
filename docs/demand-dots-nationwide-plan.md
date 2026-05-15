@@ -182,8 +182,8 @@ npx wrangler r2 bucket create gtfs-builder-tiles
 # This is NOT used by the map itself — the map hits /_demand-tiles/... on
 # the main gtfs-builder Worker, which reads the PMTiles via the R2 binding.
 npx wrangler r2 bucket domain add gtfs-builder-tiles \
-  --domain tiles.gtfsbuilder.net \
-  --zone-id <gtfsbuilder.net zone id> \
+  --domain tiles.gtfsstudio.net \
+  --zone-id <gtfsstudio.net zone id> \
   --force
 ```
 
@@ -424,7 +424,7 @@ npx wrangler r2 object put gtfs-builder-tiles/us-${YEAR}.pmtiles \
 #    Commit, push, CI auto-deploys.
 
 # 8. Verify
-#    - Load https://www.gtfsbuilder.net/, toggle demand layer on
+#    - Load https://www.gtfsstudio.net/, toggle demand layer on
 #    - Spot check 3 metros (Bozeman, Seattle, Miami) — dots load, numbers plausible
 #    - Check R2 bucket browser: confirm new file exists, old file can stay (cheap storage)
 

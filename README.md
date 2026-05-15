@@ -1,10 +1,10 @@
-# GTFS Builder
+# GTFS Studio
 
 A web-based editor for creating, editing, analyzing, and publishing [GTFS](https://gtfs.org/) (General Transit Feed Specification) transit feeds. Draw routes on a map, place stops, build timetables, run demographic and equity analysis, and publish a validated feed with rider-facing embeds — all in the browser.
 
-**Live site:** [www.gtfsbuilder.net](https://www.gtfsbuilder.net)
+**Live site:** [www.gtfsstudio.net](https://www.gtfsstudio.net)
 
-![GTFS Builder screenshot](docs/screenshot.png)
+![GTFS Studio screenshot](docs/screenshot.png)
 
 ## Features
 
@@ -39,7 +39,7 @@ A web-based editor for creating, editing, analyzing, and publishing [GTFS](https
 - Email + password signup with verification, magic-link login, password reset, Turnstile gate on signup.
 - Organizations with `owner` / `admin` / `editor` / `viewer` roles, invitations, ownership transfer, per-org logo + brand color.
 - Workspaces: personal feeds vs. org feeds, switcher in the top bar, cross-workspace transfer.
-- Canonical publication to `feeds.gtfsbuilder.net/<slug>/gtfs.zip` with ETag / `Last-Modified` / 304 support, validation gate, atomic R2→D1 pointer flip.
+- Canonical publication to `feeds.gtfsstudio.net/<slug>/gtfs.zip` with ETag / `Last-Modified` / 304 support, validation gate, atomic R2→D1 pointer flip.
 - Draft links with revocable 192-bit tokens, `X-Robots-Tag: noindex`.
 - Catalog submissions to the Mobility Database (live API).
 - Rider-facing embed surfaces (server-rendered HTML on the FEEDS origin):
@@ -50,7 +50,7 @@ A web-based editor for creating, editing, analyzing, and publishing [GTFS](https
   - Today's-service banner, feed-expiry warning, per-project brand color, per-org logo. Mobile-responsive. Open Graph / Twitter cards.
 - Admin console at `/admin` for staff users (dashboard counters, paginated users / orgs, audit-log viewer with CSV export).
 
-**Status:** Backend is **live on staging** at [staging.gtfsbuilder.net](https://staging.gtfsbuilder.net) and **disabled on production** behind a kill-switch (`BACKEND_ENABLED=false` worker var + `VITE_BACKEND_ENABLED=false` build flag). The production editor is anonymous-and-local-only by design today.
+**Status:** Backend is **live on staging** at [staging.gtfsstudio.net](https://staging.gtfsstudio.net) and **disabled on production** behind a kill-switch (`BACKEND_ENABLED=false` worker var + `VITE_BACKEND_ENABLED=false` build flag). The production editor is anonymous-and-local-only by design today.
 
 ## Tech stack
 
@@ -112,8 +112,8 @@ npx tsc -p tsconfig.worker.json --noEmit    # worker
 
 Deploys go to a single Cloudflare Worker with two environments:
 
-- **Staging:** `staging.gtfsbuilder.net` + `staging-feeds.gtfsbuilder.net` — deploy freely via `npx wrangler deploy --env staging`.
-- **Production:** `gtfsbuilder.net` / `www.gtfsbuilder.net` / `feeds.gtfsbuilder.net` — deploy deliberately via `npx wrangler deploy --env=""`.
+- **Staging:** `staging.gtfsstudio.net` + `staging-feeds.gtfsstudio.net` — deploy freely via `npx wrangler deploy --env staging`.
+- **Production:** `gtfsstudio.net` / `www.gtfsstudio.net` / `feeds.gtfsstudio.net` — deploy deliberately via `npx wrangler deploy --env=""`.
 
 Full day-to-day cadence lives in [`docs/WORKFLOW.md`](./docs/WORKFLOW.md). First-time Cloudflare provisioning runbook (D1, KV, R2, Resend, Turnstile) is in [`docs/DEPLOY_BACKEND.md`](./docs/DEPLOY_BACKEND.md). Live operational state — including kill-switch positions and outstanding work — is in [`docs/BACKEND_STATUS.md`](./docs/BACKEND_STATUS.md).
 

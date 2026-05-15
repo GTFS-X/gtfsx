@@ -253,8 +253,8 @@ export function orgLogoUrl(orgId: string, brandLogoUpdatedAt: number | null | un
   const feedsOrigin =
     (import.meta.env.VITE_FEEDS_ORIGIN as string | undefined) ||
     (typeof window !== 'undefined' && window.location.hostname.startsWith('staging.')
-      ? 'https://staging-feeds.gtfsbuilder.net'
-      : 'https://feeds.gtfsbuilder.net');
+      ? 'https://staging-feeds.gtfsstudio.net'
+      : 'https://feeds.gtfsstudio.net');
   return `${feedsOrigin}/_/orgs/${encodeURIComponent(orgId)}/logo?v=${brandLogoUpdatedAt}`;
 }
 
