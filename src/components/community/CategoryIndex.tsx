@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { listCategories, listThreads, type ForumCategory, type ForumThread } from '../../services/forumApi';
 import { relativeTime } from './time';
 import { Avatar } from './Avatar';
+import { SearchBar } from './SearchBar';
 
 export function CategoryIndex() {
   const navigate = useNavigate();
@@ -35,14 +36,20 @@ export function CategoryIndex() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h1 className="font-heading font-bold text-2xl text-dark-brown">Community</h1>
         <button
           onClick={() => navigate('/community/new')}
-          className="px-3 py-2 rounded-lg font-heading font-bold text-sm bg-coral text-white hover:bg-[#d4603a] transition-colors"
+          className="px-3 py-2 rounded-lg font-heading font-bold text-sm bg-coral text-white hover:bg-[#d4603a] transition-colors shrink-0"
         >
           + New thread
         </button>
+      </div>
+
+      <div>
+        <SearchBar
+          onSubmit={(q) => navigate(`/community/search?q=${encodeURIComponent(q)}`)}
+        />
       </div>
 
       <section>

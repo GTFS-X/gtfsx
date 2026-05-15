@@ -43,7 +43,9 @@ export function HelpPage() {
           <a href="/about/" className="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream">About</a>
           <a href="/docs/" className="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream">Docs</a>
           <a href="/learn/gtfs/" className="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream">Learn</a>
+          <a href="/docs/deep-links/" className="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream">Integrations</a>
           <Link to="/community" className="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream">Community</Link>
+          <Link to="/help" className="text-sm font-semibold px-3 py-2 rounded-md text-dark-brown bg-cream">Help</Link>
         </nav>
         <div className="ml-auto flex items-center gap-3">
           <button

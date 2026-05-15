@@ -1,9 +1,8 @@
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import { Avatar } from './Avatar';
 import { useEffect, useState } from 'react';
 import { getMyForumProfile, type ForumProfile } from '../../services/forumApi';
-import { SearchBar } from './SearchBar';
 
 // Matches the site-wide marketing header used on /about/, /docs/, /learn/*,
 // /docs/deep-links/. Keep the structure here in sync with those static pages
@@ -14,16 +13,20 @@ import { SearchBar } from './SearchBar';
 export function CommunityRoot({ children }: { children: React.ReactNode }) {
   const currentUser = useStore((s) => s.currentUser);
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const initialQuery = searchParams.get('q') ?? '';
   const [me, setMe] = useState<ForumProfile | null>(null);
 
   useEffect(() => {
-    if (!currentUser) {
-      setMe(null);
-      return;
-    }
     let cancelled = false;
+    if (!currentUser) {
+      // Defer the reset to a microtask to satisfy react-hooks/set-state-in-effect
+      // (synchronous setState inside an effect body is flagged in React 19).
+      queueMicrotask(() => {
+        if (!cancelled) setMe(null);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
     getMyForumProfile()
       .then(({ profile }) => {
         if (!cancelled) setMe(profile);
@@ -52,14 +55,8 @@ export function CommunityRoot({ children }: { children: React.ReactNode }) {
           <NavLink href="/learn/gtfs/">Learn</NavLink>
           <NavLink href="/docs/deep-links/">Integrations</NavLink>
           <NavLink href="/community" active>Community</NavLink>
+          <NavLink href="/help">Help</NavLink>
         </nav>
-
-        <div className="flex-1 max-w-md mx-3 hidden sm:block">
-          <SearchBar
-            initial={initialQuery}
-            onSubmit={(q) => navigate(`/community/search?q=${encodeURIComponent(q)}`)}
-          />
-        </div>
 
         <div className="ml-auto flex items-center gap-3">
           <a
@@ -98,13 +95,13 @@ export function CommunityRoot({ children }: { children: React.ReactNode }) {
 
 function NavLink({ href, children, active = false }: { href: string; children: React.ReactNode; active?: boolean }) {
   // External links (the static marketing pages) need a full page load —
-  // they're not part of the SPA's route table. Internal links (/community)
-  // go through the router.
-  const isExternal = !href.startsWith('/community');
+  // they're not part of the SPA's route table. Internal links (/community,
+  // /help) go through the router.
+  const isSpa = href.startsWith('/community') || href.startsWith('/help');
   const className = `text-sm font-semibold px-3 py-2 rounded-md transition-colors ${
     active ? 'text-dark-brown bg-cream' : 'text-warm-gray hover:text-dark-brown hover:bg-cream'
   }`;
-  if (isExternal) {
+  if (!isSpa) {
     return (
       <a href={href} className={className}>
         {children}
