@@ -72,17 +72,21 @@
     //   RESEND_API_KEY
     //   MOBILITY_DATABASE_REFRESH_TOKEN  (already set)
   },
-  // Both old (gtfsbuilder.net) and new (gtfsstudio.net) hostnames are bound to
-  // the Worker. Old-domain requests get a 301 redirect handled in
-  // worker/index.ts so existing inbound links — feed URLs in particular —
-  // keep resolving for downstream consumers.
+  // Multiple hostname families are bound to this Worker:
+  //   - gtfsstudio.net (canonical)
+  //   - gtfsbuilder.net (legacy; 301 to gtfsstudio.net)
+  //   - gtfsstudio.com (vanity; 301 to www.gtfsstudio.net)
+  // The redirect logic for the non-canonical hosts lives at the top of
+  // worker/index.ts.
   "routes": [
     { "pattern": "gtfsstudio.net", "custom_domain": true },
     { "pattern": "www.gtfsstudio.net", "custom_domain": true },
     { "pattern": "feeds.gtfsstudio.net", "custom_domain": true },
     { "pattern": "gtfsbuilder.net", "custom_domain": true },
     { "pattern": "www.gtfsbuilder.net", "custom_domain": true },
-    { "pattern": "feeds.gtfsbuilder.net", "custom_domain": true }
+    { "pattern": "feeds.gtfsbuilder.net", "custom_domain": true },
+    { "pattern": "gtfsstudio.com", "custom_domain": true },
+    { "pattern": "www.gtfsstudio.com", "custom_domain": true }
   ],
   // Scheduled Worker invocations. See worker/cron/index.ts.
   // 03:00 UTC daily: account-deletion reaper + weekly metrics rollup.

@@ -72,6 +72,18 @@ export default {
       );
     }
 
+    // Vanity TLD redirect. gtfsstudio.com is owned so the brand isn't squatted;
+    // every request 301s to the canonical www.gtfsstudio.net.
+    if (
+      url.hostname === 'gtfsstudio.com' ||
+      url.hostname === 'www.gtfsstudio.com'
+    ) {
+      return Response.redirect(
+        `https://www.gtfsstudio.net${url.pathname}${url.search}`,
+        301,
+      );
+    }
+
     // Public feed distribution lives on a separate hostname (FEEDS_ORIGIN):
     //   prod:    feeds.gtfsstudio.net
     //   staging: staging-feeds.gtfsstudio.net
