@@ -76,8 +76,8 @@ A web-based editor for creating, editing, analyzing, and publishing [GTFS](https
 ### Local development
 
 ```bash
-git clone https://github.com/markegge/gtfs_builder.git
-cd gtfs_builder
+git clone https://github.com/markegge/gtfs-studio.git
+cd gtfs-studio
 npm install
 cp .env.example .env
 # Edit .env: add VITE_MAPBOX_TOKEN

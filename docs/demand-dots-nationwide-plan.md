@@ -380,7 +380,7 @@ Run once per year, typically January (after Dec ACS 5-yr release). Full process,
 # - Cloudflare API token with R2 Object Write permission set as CLOUDFLARE_API_TOKEN
 # - CENSUS_API_KEY exported (get one at https://api.census.gov/data/key_signup.html)
 
-cd /Users/clippy2/proj/gtfs-builder
+cd /Users/clippy2/proj/gtfs-studio
 YEAR=2027  # bump each year
 ACS_YEAR=2025  # latest ACS 5-year release
 

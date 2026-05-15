@@ -1,6 +1,6 @@
 # Deploying the GTFS Studio backend
 
-One-time provisioning + redeploy runbook. Run from `gtfs-builder/` with `wrangler` available (installed via `npm install`). For "what's currently deployed where," see [`BACKEND_STATUS.md`](./BACKEND_STATUS.md).
+One-time provisioning + redeploy runbook. Run from `gtfs-studio/` with `wrangler` available (installed via `npm install`). For "what's currently deployed where," see [`BACKEND_STATUS.md`](./BACKEND_STATUS.md).
 
 The deploy gotchas (API token scopes, the `--env=""` quirk, etc.) live in `BACKEND_STATUS.md` so they stay close to the live operational picture. This file covers the steps in order.
 
