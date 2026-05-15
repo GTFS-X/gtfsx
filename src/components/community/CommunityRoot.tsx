@@ -1,8 +1,9 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { Avatar } from './Avatar';
 import { useEffect, useState } from 'react';
 import { getMyForumProfile, type ForumProfile } from '../../services/forumApi';
+import { SearchBar } from './SearchBar';
 
 // Matches the site-wide marketing header used on /about/, /docs/, /learn/*,
 // /docs/deep-links/. Keep the structure here in sync with those static pages
@@ -13,6 +14,8 @@ import { getMyForumProfile, type ForumProfile } from '../../services/forumApi';
 export function CommunityRoot({ children }: { children: React.ReactNode }) {
   const currentUser = useStore((s) => s.currentUser);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialQuery = searchParams.get('q') ?? '';
   const [me, setMe] = useState<ForumProfile | null>(null);
 
   useEffect(() => {
@@ -50,6 +53,13 @@ export function CommunityRoot({ children }: { children: React.ReactNode }) {
           <NavLink href="/docs/deep-links/">Integrations</NavLink>
           <NavLink href="/community" active>Community</NavLink>
         </nav>
+
+        <div className="flex-1 max-w-md mx-3 hidden sm:block">
+          <SearchBar
+            initial={initialQuery}
+            onSubmit={(q) => navigate(`/community/search?q=${encodeURIComponent(q)}`)}
+          />
+        </div>
 
         <div className="ml-auto flex items-center gap-3">
           <a

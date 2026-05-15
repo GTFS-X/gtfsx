@@ -48,6 +48,7 @@ import { ProfileEditor } from './components/community/ProfileEditor';
 import { ProfilePage } from './components/community/ProfilePage';
 import { DisplayNameGate } from './components/community/DisplayNameGate';
 import { HelpPage } from './components/help/HelpPage';
+import { SearchResults } from './components/community/SearchResults';
 
 function PageviewTracker() {
   const location = useLocation();
@@ -309,6 +310,7 @@ function App() {
         <Route path="/admin/audit" element={<AdminAuditPage />} />
         <Route path="/admin/events" element={<AdminEventsPage />} />
         <Route path="/community" element={<CommunityRoot><DisplayNameGate><CategoryIndex /></DisplayNameGate></CommunityRoot>} />
+        <Route path="/community/search" element={<CommunityRoot><SearchResults /></CommunityRoot>} />
         <Route path="/community/new" element={<CommunityRoot><DisplayNameGate><ComposeThread /></DisplayNameGate></CommunityRoot>} />
         <Route path="/community/profile" element={<CommunityRoot><DisplayNameGate><ProfileEditor /></DisplayNameGate></CommunityRoot>} />
         <Route path="/community/u/:userId" element={<CommunityRoot><ProfilePage /></CommunityRoot>} />

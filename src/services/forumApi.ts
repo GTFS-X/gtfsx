@@ -222,6 +222,25 @@ export function getMySubscription(threadId: string): Promise<{ subscribed: boole
   return requestJson(`/api/forum/threads/${encodeURIComponent(threadId)}/subscription`);
 }
 
+// ─── Search ─────────────────────────────────────────────────────────────────
+
+export interface ForumSearchHit {
+  thread: ForumThread;
+  // FTS5 snippet — already contains <mark>…</mark> around matched terms,
+  // safe to render with dangerouslySetInnerHTML since the worker generates
+  // it via SQLite's snippet() (no user-controlled HTML survives).
+  snippet: string;
+}
+
+export function searchForum(q: string, cursor?: string): Promise<{
+  results: ForumSearchHit[];
+  nextCursor: string | null;
+}> {
+  const params = new URLSearchParams({ q });
+  if (cursor) params.set('cursor', cursor);
+  return requestJson(`/api/forum/search?${params.toString()}`);
+}
+
 // ─── Image upload ───────────────────────────────────────────────────────────
 
 export interface UploadedImage {

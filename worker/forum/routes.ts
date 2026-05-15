@@ -5,7 +5,7 @@ import type { AppContext } from '../env';
 import { requireAuth } from '../auth/middleware';
 import { forbidden, notFound, rateLimited, validationFailed, ApiError } from '../util/errors';
 import { logAudit } from '../util/audit';
-import { clientIp } from '../util/rateLimit';
+import { clientIp, rateLimit } from '../util/rateLimit';
 import {
   canWriteToForum,
   loadForumProfile,
@@ -179,6 +179,77 @@ async function checkPostRateLimit(env: AppContext['Bindings'], userId: string, k
   await env.KV.put(dayKey, String(day + 1), { expirationTtl: 86400 });
   void now; // silence "unused"
 }
+
+// ─── Search ─────────────────────────────────────────────────────────────────
+
+// GET /search?q=<query>&limit=&cursor=<offset>
+// Public endpoint (no auth) backed by the forum_search FTS5 virtual table
+// (see migrations/0011). Matches on thread titles + post bodies, dedupes to
+// the best-matching post per thread, returns a thread DTO + a snippet that
+// highlights the term.
+forumRouter.get('/search', async (c) => {
+  const raw = (c.req.query('q') ?? '').trim();
+  if (!raw) return c.json({ results: [], nextCursor: null });
+  if (raw.length > 200) {
+    throw validationFailed('Query too long — keep it under 200 characters');
+  }
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10) || 20, 50);
+  const offset = Math.max(parseInt(c.req.query('cursor') ?? '0', 10) || 0, 0);
+
+  // Rate-limit per IP. Public endpoint — expensive FTS scan ⨯ cheap to spam.
+  const ip = clientIp(c.req.raw);
+  await rateLimit(c.env, { key: `forum:search:ip:${ip}`, limit: 60, windowSec: 60 });
+
+  // Translate the user-typed query into an FTS5 MATCH expression. We quote
+  // every non-empty token and AND them together; trailing partial tokens get
+  // a `*` so a search for "vali" matches "validation". FTS5 reserved chars
+  // are stripped so the query never throws a syntax error.
+  const tokens = raw
+    .toLowerCase()
+    .replace(/["()*]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 10);
+  if (tokens.length === 0) return c.json({ results: [], nextCursor: null });
+  const fts = tokens.map((t, i) =>
+    i === tokens.length - 1 && t.length >= 2 ? `"${t}"*` : `"${t}"`,
+  ).join(' AND ');
+
+  // Rank by best per thread (lowest FTS rank), tie-break by recency.
+  // bm25() weights: title kind ('title') gets a 0.5 multiplier (lower is
+  // better in bm25), body 1.0. We do that by selecting the min rank per
+  // thread + a title bonus.
+  const rows = await c.env.DB.prepare(
+    `WITH hits AS (
+       SELECT s.thread_id,
+              MIN(CASE WHEN s.kind='title' THEN bm25(forum_search) * 0.5 ELSE bm25(forum_search) END) AS score,
+              snippet(forum_search, 3, '<mark>', '</mark>', '…', 32) AS snippet,
+              s.kind AS best_kind
+         FROM forum_search s
+        WHERE forum_search MATCH ?
+        GROUP BY s.thread_id
+     )
+     SELECT t.*, h.score, h.snippet
+       FROM hits h
+       JOIN forum_thread t ON t.id = h.thread_id
+      WHERE t.deleted_at IS NULL
+      ORDER BY h.score ASC, t.last_post_at DESC
+      LIMIT ? OFFSET ?`,
+  ).bind(fts, limit + 1, offset).all<ThreadRow & { score: number; snippet: string }>();
+
+  const results = rows.results ?? [];
+  const hasMore = results.length > limit;
+  const page = hasMore ? results.slice(0, limit) : results;
+
+  const authors = await Promise.all(page.map((r) => userAuthorDto(c.env, r.author_user_id)));
+  return c.json({
+    results: page.map((r, i) => ({
+      thread: threadDto(r, authors[i]),
+      snippet: r.snippet,
+    })),
+    nextCursor: hasMore ? String(offset + limit) : null,
+  });
+});
 
 // ─── Categories ─────────────────────────────────────────────────────────────
 
