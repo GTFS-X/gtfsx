@@ -4,7 +4,7 @@ import { useStore } from '../../store';
 import type { Route } from '../../types/gtfs';
 import { CatalogSearch, type CatalogFeed } from './CatalogSearch';
 
-type ImportSource = 'upload' | 'catalog';
+type ImportSource = 'upload' | 'url' | 'catalog';
 
 type ImportData = Awaited<ReturnType<typeof importGtfsZip>>;
 type ImportMode = 'replace' | 'merge';
@@ -55,6 +55,7 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
   const [dragging, setDragging] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [urlInput, setUrlInput] = useState('');
 
   // After parsing
   const [parsedData, setParsedData] = useState<ImportData | null>(null);
@@ -135,6 +136,44 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
     const file = new File([blob], `${fileNameStem}.zip`, { type: 'application/zip' });
     await parseFile(file);
   }, [parseFile]);
+
+  const handleUrlFetch = useCallback(async () => {
+    const trimmed = urlInput.trim();
+    if (!trimmed) {
+      setError('Paste a GTFS feed URL first.');
+      return;
+    }
+    setError(null);
+    setParsing(true);
+    try {
+      const res = await fetch(
+        `/api/import/fetch?url=${encodeURIComponent(trimmed)}`,
+        { method: 'GET', headers: { 'X-GB-Client': 'web' }, credentials: 'omit' },
+      );
+      if (!res.ok) {
+        const ct = res.headers.get('content-type') || '';
+        let message = `Import failed (${res.status}).`;
+        if (ct.includes('application/json')) {
+          try {
+            const payload = (await res.json()) as { message?: string };
+            if (payload?.message) message = payload.message;
+          } catch {
+            // fall through with default message
+          }
+        }
+        throw new Error(message);
+      }
+      const blob = await res.blob();
+      const stem =
+        trimmed.split('/').pop()?.replace(/\.zip$/i, '') || 'imported-feed';
+      const file = new File([blob], `${stem}.zip`, { type: 'application/zip' });
+      await parseFile(file);
+    } catch (e) {
+      setError((e as Error).message || 'Failed to fetch feed.');
+    } finally {
+      setParsing(false);
+    }
+  }, [urlInput, parseFile]);
 
   const toggleRoute = (routeId: string) => {
     setSelectedRouteIds((prev) => {
@@ -351,6 +390,13 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
             Upload File
           </button>
           <button
+            onClick={() => setSource('url')}
+            className={`flex-1 px-3 py-1.5 rounded-md text-sm font-semibold transition-colors
+              ${source === 'url' ? 'bg-white text-dark-brown shadow-sm' : 'text-warm-gray hover:text-dark-brown'}`}
+          >
+            From URL
+          </button>
+          <button
             onClick={() => setSource('catalog')}
             className={`flex-1 px-3 py-1.5 rounded-md text-sm font-semibold transition-colors
               ${source === 'catalog' ? 'bg-white text-dark-brown shadow-sm' : 'text-warm-gray hover:text-dark-brown'}`}
@@ -365,7 +411,7 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
           </div>
         )}
 
-        {source === 'upload' ? (
+        {source === 'upload' && (
           <div
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
@@ -387,7 +433,42 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
               </>
             )}
           </div>
-        ) : (
+        )}
+
+        {source === 'url' && (
+          <div className="border border-sand rounded-2xl p-6">
+            <label className="block text-xs font-semibold text-warm-gray uppercase tracking-wide mb-2">
+              Public GTFS feed URL
+            </label>
+            <input
+              type="url"
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !parsing) {
+                  e.preventDefault();
+                  handleUrlFetch();
+                }
+              }}
+              disabled={parsing}
+              placeholder="https://example.org/gtfs.zip"
+              className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-white text-dark-brown focus:outline-none focus:border-coral disabled:opacity-50"
+            />
+            <p className="mt-2 text-xs text-warm-gray leading-relaxed">
+              Paste a direct link to a GTFS <code className="font-mono">.zip</code>. Up to 100 MB; HTTPS preferred.
+              Don't have a URL? Try <button onClick={() => setSource('catalog')} className="text-coral hover:underline">Search Catalog</button> to browse Mobility Database.
+            </p>
+            <button
+              onClick={handleUrlFetch}
+              disabled={parsing || !urlInput.trim()}
+              className="mt-4 w-full px-4 py-2.5 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {parsing ? 'Fetching…' : 'Fetch feed'}
+            </button>
+          </div>
+        )}
+
+        {source === 'catalog' && (
           parsing ? (
             <div className="border border-sand rounded-lg p-12 text-center text-warm-gray">Parsing feed…</div>
           ) : (
