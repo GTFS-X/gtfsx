@@ -39,6 +39,14 @@ import { OrgBillingPage } from './components/billing/OrgBillingPage';
 import { WelcomePlanPage } from './components/billing/WelcomePlanPage';
 import { backendEnabled } from './utils/featureFlags';
 import { captureRefFromUrl, trackPageview } from './services/trackBeacon';
+import { CommunityRoot } from './components/community/CommunityRoot';
+import { CategoryIndex } from './components/community/CategoryIndex';
+import { ThreadList } from './components/community/ThreadList';
+import { ThreadView } from './components/community/ThreadView';
+import { ComposeThread } from './components/community/ComposeThread';
+import { ProfileEditor } from './components/community/ProfileEditor';
+import { ProfilePage } from './components/community/ProfilePage';
+import { DisplayNameGate } from './components/community/DisplayNameGate';
 
 function PageviewTracker() {
   const location = useLocation();
@@ -251,6 +259,8 @@ function App() {
           <Route path="/signup" element={<BackendDisabledPage />} />
           <Route path="/feeds" element={<BackendDisabledPage />} />
           <Route path="/feeds/*" element={<BackendDisabledPage />} />
+          <Route path="/community" element={<BackendDisabledPage />} />
+          <Route path="/community/*" element={<BackendDisabledPage />} />
           <Route path="/account" element={<BackendDisabledPage />} />
           <Route path="/account/*" element={<BackendDisabledPage />} />
           <Route path="/verify-email" element={<BackendDisabledPage />} />
@@ -295,6 +305,12 @@ function App() {
         <Route path="/admin/orgs/:id" element={<AdminOrgDetailPage />} />
         <Route path="/admin/audit" element={<AdminAuditPage />} />
         <Route path="/admin/events" element={<AdminEventsPage />} />
+        <Route path="/community" element={<CommunityRoot><DisplayNameGate><CategoryIndex /></DisplayNameGate></CommunityRoot>} />
+        <Route path="/community/new" element={<CommunityRoot><DisplayNameGate><ComposeThread /></DisplayNameGate></CommunityRoot>} />
+        <Route path="/community/profile" element={<CommunityRoot><DisplayNameGate><ProfileEditor /></DisplayNameGate></CommunityRoot>} />
+        <Route path="/community/u/:userId" element={<CommunityRoot><ProfilePage /></CommunityRoot>} />
+        <Route path="/community/:catId" element={<CommunityRoot><DisplayNameGate><ThreadList /></DisplayNameGate></CommunityRoot>} />
+        <Route path="/community/:catId/:threadKey" element={<CommunityRoot><DisplayNameGate><ThreadView /></DisplayNameGate></CommunityRoot>} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
       {/* Global RT-breakage dialog — listens for `gb:rt-breakage` events from

@@ -179,6 +179,15 @@ export function UserMenu() {
               My Feeds
             </button>
             <button
+              onClick={() => navigate('/community')}
+              className="w-full text-left px-3 py-2 rounded-md text-sm text-dark-brown hover:bg-cream transition-colors flex items-center justify-between gap-2"
+            >
+              <span>Community</span>
+              <span className="text-[10px] font-bold uppercase tracking-wide bg-teal-light text-teal px-1.5 py-0.5 rounded">
+                New
+              </span>
+            </button>
+            <button
               onClick={() => navigate('/account')}
               className="w-full text-left px-3 py-2 rounded-md text-sm text-dark-brown hover:bg-cream transition-colors"
             >
