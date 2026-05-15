@@ -63,7 +63,7 @@ export function AppBrand({
         <span
           className={`${taglineClassName} text-sm font-medium text-warm-gray border-l border-sand pl-3 whitespace-nowrap`}
         >
-          The Free Online GTFS Feed Editor
+          The Online GTFS Feed Editor
         </span>
       )}
     </div>
