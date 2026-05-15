@@ -34,11 +34,16 @@ const emailSchema = z.string().trim().toLowerCase().email();
 const passwordSchema = z.string().min(10).max(256);
 const displayNameSchema = z.string().trim().min(1).max(120);
 
+// `next` is the path to land on after verify-email completes. Used by the
+// invitee flow to bounce the user back to /orgs/accept?token=… so they skip
+// the tier picker entirely. Validated as a same-origin relative path before
+// being honored at redirect time.
 const signupSchema = z.object({
   email: emailSchema,
   displayName: displayNameSchema,
   password: passwordSchema,
   turnstileToken: z.string().max(2048).optional(),
+  next: z.string().max(512).optional(),
 });
 
 const loginSchema = z.object({
@@ -59,6 +64,24 @@ function dummyHash(): Promise<string> {
   if (!dummyHashPromise) dummyHashPromise = hashPassword('timing-equalizer-' + ulid());
   return dummyHashPromise;
 }
+
+// Validate a post-verify redirect path. Must be a same-origin relative path —
+// reject anything that could resolve to a different host (`//evil`,
+// `http://…`, protocol-relative or absolute URLs). Returns undefined to mean
+// "no override; use the default redirect."
+function safeNext(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  if (!raw.startsWith('/')) return undefined;
+  if (raw.startsWith('//')) return undefined;
+  if (raw.length > 512) return undefined;
+  // Disallow control chars + newlines to keep this safe inside Location headers.
+  for (let i = 0; i < raw.length; i++) {
+    const code = raw.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) return undefined;
+  }
+  return raw;
+}
+
 
 // Fixed minimum latency on signup paths to avoid leaking existence via response-time skew.
 // The delay must settle even when `work()` throws — otherwise the conflict path returns
@@ -196,7 +219,7 @@ authRouter.post('/signup', async (c) => {
       const token = await createAuthToken(c.env, {
         kind: 'verify_email',
         userId: existing.id,
-        metadata: { flow: 'signup' },
+        metadata: { flow: 'signup', next: safeNext(body.next) },
       });
       const link = `${c.env.APP_ORIGIN}/auth/verify?token=${token}`;
       try {
@@ -238,7 +261,7 @@ authRouter.post('/signup', async (c) => {
       const token = await createAuthToken(c.env, {
         kind: 'verify_email',
         userId,
-        metadata: { flow: 'signup' },
+        metadata: { flow: 'signup', next: safeNext(body.next) },
       });
       const link = `${c.env.APP_ORIGIN}/auth/verify?token=${token}`;
       await sendVerifyEmail(c.env, body.email, link);
@@ -349,11 +372,19 @@ authRouter.get('/verify', async (c) => {
     ip,
   });
 
-  // Signup verifications land on the tier-picker page. Other verify-email
-  // flows (none today, but reserved for future re-verifications) fall back
-  // to the editor.
+  // Signup verifications land on the tier-picker page unless the signup
+  // carried a `next` (e.g. invitee accepting an org invite — they go
+  // straight to the accept page and skip the picker entirely). Other
+  // verify-email flows fall back to the editor.
   const isSignupFlow = resolved.metadata?.flow === 'signup';
-  const target = isSignupFlow ? '/upgrade?source=welcome' : '/?welcome=1';
+  const next = typeof resolved.metadata?.next === 'string'
+    ? safeNext(resolved.metadata.next)
+    : undefined;
+  const target = next
+    ? next
+    : isSignupFlow
+      ? '/upgrade?source=welcome'
+      : '/?welcome=1';
   return c.redirect(`${c.env.APP_ORIGIN}${target}`, 302);
 });
 

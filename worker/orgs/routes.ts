@@ -724,7 +724,11 @@ orgsRouter.post('/:id/invitations', async (c) => {
       inviterName: user.displayName,
     },
   });
-  const link = `${c.env.APP_ORIGIN}/orgs/accept?token=${token}`;
+  // Include the invited email as a query param so the SPA can pre-fill the
+  // signup form when the recipient doesn't already have an account. The
+  // server side is the real authority (token's metadata.email is checked at
+  // accept time), so this is informational only.
+  const link = `${c.env.APP_ORIGIN}/orgs/accept?token=${token}&email=${encodeURIComponent(body.email)}`;
 
   try {
     await sendInvitationEmail(c.env, body.email, user.displayName, org.name, body.role, link);

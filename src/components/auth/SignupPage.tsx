@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { FormField } from '../ui/FormField';
 import { AuthLayout } from './AuthLayout';
 import { AuthButton } from './AuthButton';
@@ -8,7 +8,19 @@ import { signup, ApiError } from '../../services/authApi';
 import { turnstileSiteKey } from '../../utils/featureFlags';
 
 export function SignupPage() {
-  const [email, setEmail] = useState('');
+  const [searchParams] = useSearchParams();
+  // Both pre-filled by the invitation flow. `email` populates the form;
+  // `next` threads through to the verify-email redirect so the user lands
+  // on /orgs/accept after confirming and bypasses the tier picker.
+  const initialEmail = searchParams.get('email') ?? '';
+  const nextPath = searchParams.get('next') ?? '';
+  // Login link from the footer should preserve the `next` so users with
+  // an existing account can still land in the right place.
+  const loginHref = useMemo(() => {
+    if (!nextPath) return '/login';
+    return `/login?next=${encodeURIComponent(nextPath)}`;
+  }, [nextPath]);
+  const [email, setEmail] = useState(initialEmail);
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38,6 +50,7 @@ export function SignupPage() {
         displayName: displayName.trim(),
         password,
         turnstileToken: turnstileToken ?? undefined,
+        next: nextPath || undefined,
       });
       setDone(true);
     } catch (err) {
@@ -98,7 +111,7 @@ export function SignupPage() {
       footer={
         <>
           Already have an account?{' '}
-          <Link to="/login" className="text-coral font-semibold hover:underline">
+          <Link to={loginHref} className="text-coral font-semibold hover:underline">
             Sign in
           </Link>
         </>

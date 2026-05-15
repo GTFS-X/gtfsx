@@ -21,6 +21,10 @@ export function AcceptInvitationPage() {
   const clearAuth = useStore((s) => s.clearAuth);
 
   const token = searchParams.get('token') ?? '';
+  // Invitation emails embed the recipient's address so we can pre-fill the
+  // signup form for first-time users. The server is the real authority on
+  // which address the token is valid for.
+  const invitedEmail = searchParams.get('email') ?? '';
 
   const [loading, setLoading] = useState(true);
   const [invite, setInvite] = useState<PendingInvitation | null>(null);
@@ -35,9 +39,16 @@ export function AcceptInvitationPage() {
   useEffect(() => {
     if (!authChecked) return;
     if (!currentUser) {
-      // Redirect to login, preserving the token in the next param.
-      const next = `/orgs/accept?token=${encodeURIComponent(token)}`;
-      navigate(`/login?next=${encodeURIComponent(next)}`, { replace: true });
+      // First-time invitees almost certainly don't have an account yet —
+      // default them to /signup with the email pre-filled and the accept
+      // URL threaded through as `next` so the post-verify redirect lands
+      // them straight in the org's workspace. The signup page surfaces a
+      // "have an account?" link for the existing-user case.
+      const acceptUrl = `/orgs/accept?token=${encodeURIComponent(token)}${invitedEmail ? `&email=${encodeURIComponent(invitedEmail)}` : ''}`;
+      const q = new URLSearchParams();
+      q.set('next', acceptUrl);
+      if (invitedEmail) q.set('email', invitedEmail);
+      navigate(`/signup?${q.toString()}`, { replace: true });
       return;
     }
     // We don't have a single-invitation lookup endpoint, so fetch the pending
@@ -51,7 +62,7 @@ export function AcceptInvitationPage() {
       })
       .catch(() => setInvite(null))
       .finally(() => setLoading(false));
-  }, [authChecked, currentUser, navigate, token]);
+  }, [authChecked, currentUser, navigate, token, invitedEmail]);
 
   const onAccept = async () => {
     if (!token) {

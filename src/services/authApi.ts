@@ -110,6 +110,9 @@ export function signup(input: {
   displayName: string;
   password: string;
   turnstileToken?: string;
+  // Optional post-verify redirect path. Used by invitee signups so the user
+  // lands on /orgs/accept instead of the tier picker.
+  next?: string;
 }): Promise<void> {
   return request('/auth/signup', { method: 'POST', body: input });
 }
