@@ -98,14 +98,27 @@ In the Cloudflare dashboard → **Turnstile** → **Add Site**:
 
 ## 6. Build + deploy
 
+**Production: auto.** Pushes to `main` trigger Cloudflare Workers Builds (configured in CF dashboard → gtfs-builder → Settings → Builds, connected to the GitHub repo). CF Builds runs `npm run build` with `VITE_*` build-env vars from the integration's "Variables and secrets" pane, then `npx wrangler deploy`. New deployment is live within ~1 minute. No GitHub Actions workflow involved.
+
+**Production: manual fallback** (only when CF Builds is broken):
+
 ```bash
 npm run build
-# Source CLOUDFLARE_API_TOKEN from ~/proj/.env if needed.
-npx wrangler deploy --env=""        # prod (top-level block)
-npx wrangler deploy --env staging   # staging
+unset CLOUDFLARE_API_TOKEN     # OAuth has the right scopes; env-file token may not
+npx wrangler deploy --env=""   # explicitly targets the top-level (prod) block
 ```
 
-The empty `--env=""` flag explicitly targets the top-level (prod) block; without it wrangler warns about ambiguity since multiple environments are declared.
+**Staging: manual only** (parked rehearsal env; no auto-deploy):
+
+```bash
+npm run build
+unset CLOUDFLARE_API_TOKEN
+npx wrangler deploy --env staging
+```
+
+The empty `--env=""` flag is required because multiple environments are declared in `wrangler.jsonc` (top-level + `env.staging`); without it wrangler warns about ambiguity.
+
+For day-to-day deploy cadence (kill-switch flag pairing, pre-push checklist, verification) see [`WORKFLOW.md`](./WORKFLOW.md).
 
 ## 7. Smoke-test checklist
 
