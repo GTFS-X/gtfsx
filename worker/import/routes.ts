@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppContext, Env } from '../env';
 import { clientIp, rateLimit } from '../util/rateLimit';
 import { getMobilityDbAccessToken } from '../distribution/mobility';
+import { DRAFT_URL_RE, loadDraftZipBytes } from '../publication/feeds';
 
 // Deep-link feed import endpoint.
 //
@@ -296,7 +297,26 @@ importRouter.get('/fetch', async (c) => {
       throw importError(400, 'missing_url', 'We need a GTFS feed URL to import.');
     }
 
-    const bytes = await fetchFeedZip(targetUrl);
+    // Same-zone short-circuit. CF refuses worker→its-own-zone fetches with
+    // a 522, so a /import?url=https://feeds.<our-zone>/<slug>/draft/<tok>.zip
+    // editor deep-link can't go through fetchFeedZip. Read the draft bytes
+    // straight from R2 instead.
+    let bytes: Uint8Array;
+    const feedsHost = new URL(c.env.FEEDS_ORIGIN).hostname;
+    const draftMatch = targetUrl.hostname === feedsHost
+      ? DRAFT_URL_RE.exec(targetUrl.pathname)
+      : null;
+    if (draftMatch) {
+      const [, slug, token] = draftMatch;
+      const result = await loadDraftZipBytes(c.env, slug, token);
+      if (!result.ok) {
+        const status = result.reason === 'revoked' || result.reason === 'expired' ? 410 : 404;
+        throw importError(status, 'fetch_failed', `Draft link ${result.reason.replace(/_/g, ' ')}.`);
+      }
+      bytes = result.bytes;
+    } else {
+      bytes = await fetchFeedZip(targetUrl);
+    }
 
     // Best-effort logging (Workers structured logs). No content, just the
     // resolved URL + source. Used for abuse review per spec §3.2.

@@ -105,6 +105,34 @@ async function loadDraft(env: Env, tokenHash: string): Promise<DraftRow | null> 
     .first<DraftRow>();
 }
 
+/**
+ * Same logic as the public draft endpoint (serveDraft) but returns either the
+ * raw bytes or a structured error — used by the import proxy to short-circuit
+ * same-zone fetches that CF refuses to route worker → its own domain (522).
+ */
+export type DraftLoadResult =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; reason: 'not_found' | 'revoked' | 'expired' | 'missing' };
+
+export async function loadDraftZipBytes(
+  env: Env,
+  slug: string,
+  token: string,
+): Promise<DraftLoadResult> {
+  const tokenHash = await sha256Hex(token);
+  const row = await loadDraft(env, tokenHash);
+  if (!row || row.slug !== slug) return { ok: false, reason: 'not_found' };
+  if (row.revoked_at !== null) return { ok: false, reason: 'revoked' };
+  if (row.expires_at < Date.now()) return { ok: false, reason: 'expired' };
+  const { draftZipKey } = await import('../projects/r2');
+  const object = await getFeedBlob(env, draftZipKey(row.project_id, tokenHash));
+  if (!object) return { ok: false, reason: 'missing' };
+  const buf = await object.arrayBuffer();
+  return { ok: true, bytes: new Uint8Array(buf) };
+}
+
+export const DRAFT_URL_RE = /^\/([a-z0-9][a-z0-9-]*)\/draft\/([A-Za-z0-9_\-]+)\.zip$/;
+
 // ─── Route dispatch ────────────────────────────────────────────────────────────
 
 const CANONICAL_RE = /^\/([a-z0-9][a-z0-9-]*)\/gtfs\.zip$/;
