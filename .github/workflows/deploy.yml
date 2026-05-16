@@ -66,15 +66,18 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: Build (prod — backend kill switch on)
+      - name: Build (prod — backend on)
         run: npm run build
         env:
           # Mirror the wrangler.jsonc top-level BACKEND_ENABLED / BILLING_ENABLED
           # kill switches. Flip both pairs in lockstep when re-enabling backend
-          # features on prod (see docs/WORKFLOW.md).
-          VITE_BACKEND_ENABLED: 'false'
-          VITE_BILLING_ENABLED: 'false'
+          # features on prod (see docs/WORKFLOW.md). Re-enabled 2026-05-15
+          # alongside live billing; SPA flags caught up here 2026-05-16.
+          VITE_BACKEND_ENABLED: 'true'
+          VITE_BILLING_ENABLED: 'true'
           VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
+          VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
       - name: Deploy to production
         run: npx wrangler deploy --env=""
         env:
