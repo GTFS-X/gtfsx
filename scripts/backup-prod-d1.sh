@@ -13,7 +13,7 @@ mkdir -p "$OUT"
 # Real tables only — exclude FTS5 shadow tables.
 TABLES=(
   audit_event auth_token checkout_session credential d1_migrations
-  draft_link event feed_project feed_version forum_category forum_image
+  draft_link event feed_project feed_snapshot forum_category forum_image
   forum_post forum_post_upvote forum_subscription forum_thread
   forum_user_state organization organization_membership
   project_catalog_submission project_rt_feed publication publication_history
