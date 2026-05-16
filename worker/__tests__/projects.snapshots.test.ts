@@ -83,9 +83,9 @@ describe('/api/projects/:id/snapshots', () => {
 
     const state = await client.get(`/api/projects/${proj.id}/snapshots/${v.snapshot.id}/state`);
     expect(state.status).toBe(200);
-    expect(state.headers.get('Content-Encoding')).toBe('gzip');
-    const decoded = await ungzip(await state.arrayBuffer());
-    expect(JSON.parse(decoded)).toEqual({ message: 'hello snapshots' });
+    // Worker decompresses server-side and streams plain JSON. See the
+    // matching note on GET /working-state in projects.sync.test.ts.
+    expect(await state.json()).toEqual({ message: 'hello snapshots' });
   });
 
   it('restore copies a snapshot\'s state into working state and bumps the version counter', async () => {
@@ -106,8 +106,7 @@ describe('/api/projects/:id/snapshots', () => {
 
     const ws = await client.get(`/api/projects/${proj.id}/working-state`);
     expect(ws.status).toBe(200);
-    const decoded = await ungzip(await ws.arrayBuffer());
-    expect(JSON.parse(decoded)).toEqual({ from: 'snapshot' });
+    expect(await ws.json()).toEqual({ from: 'snapshot' });
   });
 
   it('DELETE removes the snapshot from listing and from R2', async () => {

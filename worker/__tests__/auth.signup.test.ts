@@ -33,7 +33,9 @@ describe('auth /signup + /verify', () => {
       displayName: 'Alice',
       password: 'correct-horse-battery',
     });
-    expect(signup.status).toBe(204);
+    expect(signup.status).toBe(200);
+    const signupBody = (await signup.json()) as { activated: boolean };
+    expect(signupBody.activated).toBe(false);
     expect(capture.emails).toHaveLength(1);
     expect(capture.emails[0].to).toBe('alice@example.com');
 
@@ -54,11 +56,10 @@ describe('auth /signup + /verify', () => {
     const linkPath = new URL(link!).pathname + new URL(link!).search;
     const verify = await client.get(linkPath);
     expect(verify.status).toBe(302);
-    // Verify redirects to the login page with a success flag; we deliberately
-    // don't auto-create a session (avoids Safari/http Secure-cookie flakiness).
-    expect(locationPath(verify)).toBe('/login');
-    expect(locationQuery(verify, 'verified')).toBe('1');
-    expect(client.cookie).toBeNull();
+    // Verify auto-creates a session and lands signup users on the tier picker.
+    expect(locationPath(verify)).toBe('/upgrade');
+    expect(locationQuery(verify, 'source')).toBe('welcome');
+    expect(client.cookie).toMatch(/^gb_session=/);
 
     // DB shows active user.
     const postRow = await dbGet<{ status: string }>(
@@ -67,13 +68,7 @@ describe('auth /signup + /verify', () => {
     );
     expect(postRow?.status).toBe('active');
 
-    // Now the user can sign in with their password.
-    const login = await client.post('/auth/login', {
-      email: 'alice@example.com',
-      password: 'correct-horse-battery',
-    });
-    expect(login.status).toBe(200);
-    expect(client.cookie).toMatch(/^gb_session=/);
+    // Session from verify works against /api/me directly — no separate login.
     const meRes = await client.get('/api/me');
     const me = await client.json<{ user: { email: string; status: string } }>(meRes);
     expect(me.user.email).toBe('alice@example.com');
@@ -108,7 +103,7 @@ describe('auth /signup + /verify', () => {
       displayName: 'First',
       password: 'first-password-long',
     });
-    expect(first.status).toBe(204);
+    expect(first.status).toBe(200);
     expect(capture.emails).toHaveLength(1);
     const firstToken = extractToken(capture.emails[0].text)!;
     expect(firstToken).toBeTruthy();
@@ -119,7 +114,7 @@ describe('auth /signup + /verify', () => {
       displayName: 'Second',
       password: 'second-password-long',
     });
-    expect(second.status).toBe(204);
+    expect(second.status).toBe(200);
 
     // Old verify token is invalidated.
     const oldTokenResult = await client.get(`/auth/verify?token=${firstToken}`);
@@ -169,7 +164,7 @@ describe('auth /signup + /verify', () => {
       displayName: 'Unstuck',
       password: 'fresh-password-long',
     });
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
     const token = capture.tokenFor('stuck@example.com');
     expect(token).toBeTruthy();
 
@@ -204,7 +199,7 @@ describe('auth /signup + /verify', () => {
       displayName: 'Rollback',
       password: 'correct-horse-battery',
     });
-    expect(retry.status).toBe(204);
+    expect(retry.status).toBe(200);
   });
 
   it('invalid payload returns 422 validation_failed', async () => {
@@ -242,7 +237,7 @@ describe('auth /signup + /verify', () => {
       displayName: 'Timing',
       password: 'correct-horse-battery',
     });
-    expect(fresh.status).toBe(204);
+    expect(fresh.status).toBe(200);
     const freshElapsed = Date.now() - freshStart;
     expect(freshElapsed).toBeGreaterThanOrEqual(180);
 
@@ -292,15 +287,17 @@ describe('auth /signup + /verify', () => {
 
     const first = await client.get(`/auth/verify?token=${token}`);
     expect(first.status).toBe(302);
-    expect(locationQuery(first, 'verified')).toBe('1');
+    expect(locationPath(first)).toBe('/upgrade');
+    expect(locationQuery(first, 'source')).toBe('welcome');
 
-    // Reusing a fresh client so we're not sending the session cookie — the
-    // redirect target should still be the invalid path.
+    // Reusing a fresh client so we're not sending the session cookie. The
+    // token is consumed and the user is active, so the friendlier
+    // "already verified" page is the right landing — not the invalid page.
     const fresh = makeClient();
     const reuse = await fresh.get(`/auth/verify?token=${token}`);
     expect(reuse.status).toBe(302);
     expect(locationPath(reuse)).toBe('/verify-email');
-    expect(locationQuery(reuse, 'status')).toBe('invalid');
+    expect(locationQuery(reuse, 'status')).toBe('already_verified');
   });
 
   it('verify with a bogus token redirects to /verify-email?status=invalid', async () => {

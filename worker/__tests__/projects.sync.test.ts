@@ -12,8 +12,8 @@ import {
   type EmailCapture,
 } from './_setup';
 
-async function loggedInClient(email: string) {
-  const user = await seedUser({ email });
+async function loggedInClient(email: string, plan: 'free' | 'pro' | 'team' | 'enterprise' = 'team') {
+  const user = await seedUser({ email, plan });
   const client = makeClient();
   await client.post('/auth/login', { email: user.email, password: user.password });
   return client;
@@ -74,11 +74,11 @@ describe('/api/projects/:id/working-state', () => {
     const getRes = await client.get(`/api/projects/${proj.id}/working-state`);
     expect(getRes.status).toBe(200);
     expect(getRes.headers.get('X-Working-State-Version')).toBe('1');
-    expect(getRes.headers.get('Content-Encoding')).toBe('gzip');
-
-    const buf = await getRes.arrayBuffer();
-    const decoded = await ungzip(buf);
-    expect(JSON.parse(decoded)).toEqual({ hello: 'world', n: 42 });
+    // Worker decompresses the R2 blob and streams plain JSON to the client —
+    // a manually-set Content-Encoding header on a Worker response isn't
+    // auto-decoded by browser fetch, so we send the bytes raw. CF's edge
+    // re-gzips on the wire when the client sends Accept-Encoding: gzip.
+    expect(await getRes.json()).toEqual({ hello: 'world', n: 42 });
   });
 
   it('stale If-Match on second write returns 409 conflict with currentVersion', async () => {
@@ -116,14 +116,15 @@ describe('/api/projects/:id/working-state', () => {
     expect(res.status).toBe(409);
   });
 
-  it('oversize body (>50 MB) is rejected with 413', async () => {
-    const client = await loggedInClient('sync6@example.com');
+  it('oversize body is rejected with 413', async () => {
+    // Free plan caps the blob at 20 MB (per quotas.ts). Send 21 MB.
+    const client = await loggedInClient('sync6@example.com', 'free');
     const proj = await client.json<{ id: string }>(
       await client.post('/api/projects', { name: 'Huge' }),
     );
 
-    // Build a >50 MB incompressible body. Random bytes gzip to ~same size.
-    const raw = new Uint8Array(51 * 1024 * 1024);
+    // Build a >20 MB incompressible body. Random bytes gzip to ~same size.
+    const raw = new Uint8Array(21 * 1024 * 1024);
     crypto.getRandomValues(raw.subarray(0, 1024));
     // Fill the rest with pseudo-random from the seed so gzip can't squash it.
     for (let i = 1024; i < raw.length; i += 1024) raw.set(raw.subarray(0, 1024), i);
@@ -133,7 +134,7 @@ describe('/api/projects/:id/working-state', () => {
       body: raw,
       headers: { 'Content-Encoding': 'gzip', 'If-Match': '0' },
     });
-    // Implementation returns 413 on >MAX_BLOB_BYTES. (A 409 would mean the
+    // Implementation returns 413 on >plan.blobBytes. (A 409 would mean the
     // concurrency guard tripped first — check that didn't happen.)
     expect(res.status).toBe(413);
     const body = (await res.json()) as { error: string };
