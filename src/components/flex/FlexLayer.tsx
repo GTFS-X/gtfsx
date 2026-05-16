@@ -15,10 +15,15 @@ export function FlexLayer() {
   const flexZones = useStore((s) => s.flexZones);
   const routes = useStore((s) => s.routes);
   const editingFlexZoneId = useStore((s) => s.editingFlexZoneId);
+  const hiddenRouteIds = useStore((s) => s.hiddenRouteIds);
 
   const combinedGeojson = useMemo(() => {
     // Exclude the zone currently being edited in draw (draw renders it instead)
-    const zones = flexZones.filter((z) => z.id !== editingFlexZoneId);
+    // and any zone tied to a route that's been hidden via the routes pane.
+    const hiddenSet = new Set(hiddenRouteIds);
+    const zones = flexZones.filter(
+      (z) => z.id !== editingFlexZoneId && !(z.routeId && hiddenSet.has(z.routeId)),
+    );
     if (zones.length === 0) return featureCollection([]) as GeoJSON.FeatureCollection;
     const routesById = new Map(routes.map((r) => [r.route_id, r]));
     const allFeatures = zones.flatMap((z) => {
@@ -35,7 +40,7 @@ export function FlexLayer() {
       }));
     });
     return featureCollection(allFeatures) as GeoJSON.FeatureCollection;
-  }, [flexZones, editingFlexZoneId, routes]);
+  }, [flexZones, editingFlexZoneId, routes, hiddenRouteIds]);
 
   if (flexZones.length === 0) return null;
 
