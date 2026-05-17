@@ -7,6 +7,7 @@ import { Fragment, type ReactNode } from 'react';
 //   - Blockquotes (> ...)
 //   - Unordered lists (- ... or * ...)
 //   - Ordered lists (1. ...)
+//   - GFM-style tables (| col | col |\n|---|---| with optional :---: alignment)
 //   - Inline code (`code`)
 //   - Bold (**text**) and italic (*text* or _text_)
 //   - Links [text](url) — http/https only, otherwise text passes through unlinked
@@ -18,7 +19,7 @@ import { Fragment, type ReactNode } from 'react';
 //   - Hard line breaks within paragraphs
 //
 // Anything else passes through as plain text. We deliberately do NOT support
-// raw HTML, tables, or footnotes in v1.
+// raw HTML or footnotes.
 
 interface MarkdownProps {
   children: string;
@@ -30,14 +31,42 @@ export function Markdown({ children, className = '' }: MarkdownProps) {
   return <div className={`forum-md leading-relaxed ${className}`}>{blocks.map((b, i) => <Fragment key={i}>{renderBlock(b)}</Fragment>)}</div>;
 }
 
+type Align = 'left' | 'right' | 'center' | null;
 type Block =
   | { kind: 'code'; lang: string; body: string }
   | { kind: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; text: string }
   | { kind: 'quote'; lines: string[] }
   | { kind: 'ul'; items: string[] }
   | { kind: 'ol'; items: string[] }
+  | { kind: 'table'; headers: string[]; aligns: Align[]; rows: string[][] }
   | { kind: 'p'; text: string }
   | { kind: 'hr' };
+
+// Split a table row on unescaped `|`, trim each cell, and drop the
+// leading/trailing empty produced by `| a | b |`.
+function splitTableRow(line: string): string[] {
+  const cells = line.split('|').map((c) => c.trim());
+  if (cells.length > 0 && cells[0] === '') cells.shift();
+  if (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
+  return cells;
+}
+
+// Parse a GFM table separator row (`|---|:---:|---:|`) into alignment
+// hints, or return null if the line doesn't look like a separator.
+function parseTableSeparator(line: string): Align[] | null {
+  const trimmed = line.trim();
+  if (!/^\|?[\s:|-]+\|?$/.test(trimmed) || !trimmed.includes('-')) return null;
+  const cells = splitTableRow(trimmed);
+  if (cells.length === 0) return null;
+  const aligns: Align[] = [];
+  for (const cell of cells) {
+    if (!/^:?-+:?$/.test(cell)) return null;
+    const left = cell.startsWith(':');
+    const right = cell.endsWith(':');
+    aligns.push(left && right ? 'center' : right ? 'right' : left ? 'left' : null);
+  }
+  return aligns;
+}
 
 function parseBlocks(src: string): Block[] {
   const lines = src.replace(/\r\n/g, '\n').split('\n');
@@ -115,6 +144,30 @@ function parseBlocks(src: string): Block[] {
       continue;
     }
 
+    // GFM table: a row containing `|` immediately followed by a separator
+    // row (`|---|---|`). If the second line doesn't match the separator
+    // shape, fall through to the paragraph branch and render the lines as
+    // text — same as a stray `|` in prose.
+    if (line.includes('|') && i + 1 < lines.length) {
+      const aligns = parseTableSeparator(lines[i + 1]);
+      if (aligns) {
+        const headers = splitTableRow(line);
+        i += 2;
+        const rows: string[][] = [];
+        while (i < lines.length && lines[i].includes('|') && !/^\s*$/.test(lines[i])) {
+          const cells = splitTableRow(lines[i]);
+          // Pad / truncate to header width so the renderer always sees a
+          // rectangular grid.
+          while (cells.length < headers.length) cells.push('');
+          if (cells.length > headers.length) cells.length = headers.length;
+          rows.push(cells);
+          i++;
+        }
+        out.push({ kind: 'table', headers, aligns, rows });
+        continue;
+      }
+    }
+
     // Paragraph: accumulate non-blank lines.
     const buf: string[] = [line];
     i++;
@@ -135,7 +188,14 @@ function isBlockStart(line: string): boolean {
     || /^\s*[-*]\s+/.test(line)
     || /^\s*\d+\.\s+/.test(line)
     || /^(\s*)([-*_]\s*){3,}$/.test(line)
+    || line.includes('|')
   );
+}
+
+function alignClass(align: Align): string {
+  if (align === 'right') return 'text-right';
+  if (align === 'center') return 'text-center';
+  return 'text-left';
 }
 
 function renderBlock(b: Block): ReactNode {
@@ -175,6 +235,39 @@ function renderBlock(b: Block): ReactNode {
         <ol className="list-decimal pl-6 my-2 space-y-1">
           {b.items.map((it, i) => <li key={i}>{renderInline(it)}</li>)}
         </ol>
+      );
+    case 'table':
+      return (
+        <div className="my-3 overflow-x-auto">
+          <table className="text-sm border-collapse w-full">
+            <thead>
+              <tr>
+                {b.headers.map((h, i) => (
+                  <th
+                    key={i}
+                    className={`border border-sand px-3 py-1.5 bg-cream font-semibold ${alignClass(b.aligns[i] ?? null)}`}
+                  >
+                    {renderInline(h)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {b.rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td
+                      key={ci}
+                      className={`border border-sand px-3 py-1.5 align-top ${alignClass(b.aligns[ci] ?? null)}`}
+                    >
+                      {renderInline(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       );
     case 'hr':
       return <hr className="my-4 border-sand" />;

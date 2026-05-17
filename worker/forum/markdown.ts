@@ -31,14 +31,38 @@ export function markdownToPlainText(src: string, maxLen = 200): string {
   return text.slice(0, maxLen - 1).trimEnd() + '…';
 }
 
+type Align = 'left' | 'right' | 'center' | null;
 type Block =
   | { kind: 'code'; lang: string; body: string }
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'quote'; lines: string[] }
   | { kind: 'ul'; items: string[] }
   | { kind: 'ol'; items: string[] }
+  | { kind: 'table'; headers: string[]; aligns: Align[]; rows: string[][] }
   | { kind: 'p'; text: string }
   | { kind: 'hr' };
+
+function splitTableRow(line: string): string[] {
+  const cells = line.split('|').map((c) => c.trim());
+  if (cells.length > 0 && cells[0] === '') cells.shift();
+  if (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
+  return cells;
+}
+
+function parseTableSeparator(line: string): Align[] | null {
+  const trimmed = line.trim();
+  if (!/^\|?[\s:|-]+\|?$/.test(trimmed) || !trimmed.includes('-')) return null;
+  const cells = splitTableRow(trimmed);
+  if (cells.length === 0) return null;
+  const aligns: Align[] = [];
+  for (const cell of cells) {
+    if (!/^:?-+:?$/.test(cell)) return null;
+    const left = cell.startsWith(':');
+    const right = cell.endsWith(':');
+    aligns.push(left && right ? 'center' : right ? 'right' : left ? 'left' : null);
+  }
+  return aligns;
+}
 
 function parseBlocks(src: string): Block[] {
   const lines = src.replace(/\r\n/g, '\n').split('\n');
@@ -109,6 +133,27 @@ function parseBlocks(src: string): Block[] {
       continue;
     }
 
+    // GFM-style table: header row containing `|` followed by a separator
+    // (`|---|---|`). If the second line isn't a separator we fall through
+    // to the paragraph branch (matches the SPA renderer).
+    if (line.includes('|') && i + 1 < lines.length) {
+      const aligns = parseTableSeparator(lines[i + 1]);
+      if (aligns) {
+        const headers = splitTableRow(line);
+        i += 2;
+        const rows: string[][] = [];
+        while (i < lines.length && lines[i].includes('|') && !/^\s*$/.test(lines[i])) {
+          const cells = splitTableRow(lines[i]);
+          while (cells.length < headers.length) cells.push('');
+          if (cells.length > headers.length) cells.length = headers.length;
+          rows.push(cells);
+          i++;
+        }
+        out.push({ kind: 'table', headers, aligns, rows });
+        continue;
+      }
+    }
+
     const buf: string[] = [line];
     i++;
     while (i < lines.length && !/^\s*$/.test(lines[i]) && !isBlockStart(lines[i])) {
@@ -128,7 +173,15 @@ function isBlockStart(line: string): boolean {
     || /^\s*[-*]\s+/.test(line)
     || /^\s*\d+\.\s+/.test(line)
     || /^(\s*)([-*_]\s*){3,}$/.test(line)
+    || line.includes('|')
   );
+}
+
+function alignAttr(align: Align): string {
+  if (align === 'right') return ' style="text-align:right"';
+  if (align === 'center') return ' style="text-align:center"';
+  if (align === 'left') return ' style="text-align:left"';
+  return '';
 }
 
 function renderBlock(b: Block, opts: MdRenderOptions): string {
@@ -147,6 +200,20 @@ function renderBlock(b: Block, opts: MdRenderOptions): string {
       return `<ul>${b.items.map((it) => `<li>${renderInline(it, opts)}</li>`).join('')}</ul>`;
     case 'ol':
       return `<ol>${b.items.map((it) => `<li>${renderInline(it, opts)}</li>`).join('')}</ol>`;
+    case 'table': {
+      const head = `<thead><tr>${b.headers
+        .map((h, i) => `<th${alignAttr(b.aligns[i] ?? null)}>${renderInline(h, opts)}</th>`)
+        .join('')}</tr></thead>`;
+      const body = `<tbody>${b.rows
+        .map(
+          (row) =>
+            `<tr>${row
+              .map((cell, ci) => `<td${alignAttr(b.aligns[ci] ?? null)}>${renderInline(cell, opts)}</td>`)
+              .join('')}</tr>`,
+        )
+        .join('')}</tbody>`;
+      return `<table>${head}${body}</table>`;
+    }
     case 'hr':
       return `<hr/>`;
     case 'p':
