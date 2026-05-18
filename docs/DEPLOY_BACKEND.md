@@ -1,4 +1,4 @@
-# Deploying the GTFS Studio backend
+# Deploying the GTFS·X backend
 
 One-time provisioning + redeploy runbook. Run from `gtfs-studio/` with `wrangler` available (installed via `npm install`). For "what's currently deployed where," see [`BACKEND_STATUS.md`](./BACKEND_STATUS.md).
 
@@ -80,18 +80,18 @@ wrangler secret put TURNSTILE_SECRET_KEY --env staging
 
 ## 4. Configure Resend sending domain
 
-Point Resend at `gtfsstudio.net` (or a subdomain like `mail.gtfsstudio.net`). Add the SPF / DKIM / DMARC records Resend generates to your DNS. Without this, verify and magic-link emails land in spam.
+Point Resend at `gtfsx.com` (or a subdomain like `mail.gtfsx.com`). Add the SPF / DKIM / DMARC records Resend generates to your DNS. Without this, verify and magic-link emails land in spam.
 
 `AUTH_EMAIL_FROM` in `wrangler.jsonc` must match a verified Resend sender:
 
-- prod: `GTFS Studio <noreply@gtfsstudio.net>`
-- staging: `GTFS Studio Staging <staging@gtfsstudio.net>`
+- prod: `GTFS·X <noreply@gtfsx.com>`
+- staging: `GTFS·X Staging <staging@gtfsx.com>`
 
 ## 5. Configure Turnstile
 
 In the Cloudflare dashboard → **Turnstile** → **Add Site**:
 
-- Hostnames: `staging.gtfsstudio.net`, `gtfsstudio.net`, `www.gtfsstudio.net` (one widget covers all environments).
+- Hostnames: `staging.gtfsx.com`, `gtfsx.com`, `www.gtfsx.com` (one widget covers all environments).
 - Mode: **Managed**.
 - Copy the **site key** into `.env`'s `VITE_TURNSTILE_SITE_KEY` (public; baked into the SPA bundle).
 - Copy the **secret key** into the Worker secret `TURNSTILE_SECRET_KEY` (step 3 above).
@@ -148,8 +148,8 @@ If any step fails, `wrangler tail` shows structured logs. Each request has a `re
 |---|---|
 | `BACKEND_ENABLED` | `"false"` hides the sign-in / save / `/feeds*` UI in the frontend. Kill switch — pair with `VITE_BACKEND_ENABLED=false` in the SPA build. |
 | `HARD_LIMITS` | `"true"` flips quota behaviour from soft-warn (20 projects / 50 versions / 50 MB ZIP) to hard reject. For post-RTAP-licensing launch. |
-| `APP_ORIGIN` | Base URL used in emailed links. `https://www.gtfsstudio.net` in prod; `http://localhost:5173` in dev. |
-| `FEEDS_ORIGIN` | Base URL for published feeds + embeds. `https://feeds.gtfsstudio.net` in prod. |
+| `APP_ORIGIN` | Base URL used in emailed links. `https://www.gtfsx.com` in prod; `http://localhost:5173` in dev. |
+| `FEEDS_ORIGIN` | Base URL for published feeds + embeds. `https://feeds.gtfsx.com` in prod. |
 | `MAPBOX_TOKEN` | Public publishable Mapbox token used by the embed renderer (same value as `VITE_MAPBOX_TOKEN`; not a secret). |
 
 ## 9. Operator runbook

@@ -11,7 +11,7 @@ import type { ThreadRow, PostRow } from './types';
 //   - Admin alerts on new-thread are NOT batched — admins want fast triage.
 //     Add batching once daily thread volume sustains >10/day.
 
-const APP_ORIGIN_FALLBACK = 'https://www.gtfsstudio.net';
+const APP_ORIGIN_FALLBACK = 'https://www.gtfsx.com';
 
 function appOrigin(env: Env): string {
   return env.APP_ORIGIN || APP_ORIGIN_FALLBACK;
@@ -212,7 +212,7 @@ export async function notifyAuthorMarkedSolved(
 function wrapWithUnsub(env: Env, bodyHtml: string, unsubUrl: string): string {
   return `<!doctype html>
 <html><body style="font-family: -apple-system, system-ui, sans-serif; max-width: 560px; margin: 32px auto; padding: 24px; color: #1a1a1a; line-height: 1.5;">
-  <h1 style="font-size: 18px; margin: 0 0 16px; color: #2a1a0e;">GTFS Studio Community</h1>
+  <h1 style="font-size: 18px; margin: 0 0 16px; color: #2a1a0e;">GTFS·X Community</h1>
   ${bodyHtml}
   <hr style="border: 0; border-top: 1px solid #eee; margin: 32px 0 16px;" />
   <p style="color: #888; font-size: 12px;">

@@ -1,4 +1,4 @@
-# GTFS Studio — Community Forum Requirements
+# GTFS·X — Community Forum Requirements
 
 High-level spec for an embedded community-support forum, comparable to the Caltopo community (Zendesk Gather) but built on the existing Cloudflare Worker + D1 + R2 + auth + email stack. `FM-*` anchors are reserved for cross-doc references.
 
@@ -8,7 +8,7 @@ Status: 🔲 not yet built. This document is the v1 spec for discussion.
 
 ## 1. Why this exists
 
-Support for GTFS Studio is currently ad-hoc (email, the occasional GitHub issue). For a small-agency tool, three properties make a forum disproportionately valuable:
+Support for GTFS·X is currently ad-hoc (email, the occasional GitHub issue). For a small-agency tool, three properties make a forum disproportionately valuable:
 
 - **Long-tail self-serve.** Every answered question becomes a search hit for the next user who hits the same wall.
 - **Peer-to-peer.** Transit-agency users often share problems with one another (GTFS quirks, fare-rule edge cases, validator errors) that we don't need to be in the middle of.
@@ -131,7 +131,7 @@ State: lightweight per-page fetch + cache via SWR-style hook; no Zustand slice n
 
 Threads and category pages render server-side from the Worker (same pattern as `worker/embeds/`), producing indexable HTML with Open Graph + canonical-URL tags. The SPA hydrates over the SSR markup when the user clicks deeper. Sitemap entry per non-deleted thread; `X-Robots-Tag: index` on `/community/*`.
 
-This is the main reason to host the forum ourselves rather than embed Giscus: the answers become organic search results pointing back at GTFS Studio.
+This is the main reason to host the forum ourselves rather than embed Giscus: the answers become organic search results pointing back at GTFS·X.
 
 ---
 

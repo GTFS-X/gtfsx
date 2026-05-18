@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
-    <title>Deep-link imports – GTFS Studio for ecosystem partners</title>
-    <meta name="description" content="Open any GTFS feed in GTFS Studio with a single URL. Build 'Edit in GTFS Studio' buttons for Mobility Database, transit.land, the Canonical GTFS Validator, or any tool that knows a feed's URL." />
-    <link rel="canonical" href="https://www.gtfsstudio.net/docs/deep-links/" />
-    <meta property="og:title" content="Deep-link imports – GTFS Studio" />
-    <meta property="og:description" content="Open any GTFS feed in GTFS Studio with a single URL. Designed for ecosystem partners building 'Edit in GTFS Studio' buttons." />
+    <title>Deep-link imports – GTFS·X for ecosystem partners</title>
+    <meta name="description" content="Open any GTFS feed in GTFS·X with a single URL. Build 'Edit in GTFS·X' buttons for Mobility Database, transit.land, the Canonical GTFS Validator, or any tool that knows a feed's URL." />
+    <link rel="canonical" href="https://www.gtfsx.com/docs/deep-links/" />
+    <meta property="og:title" content="Deep-link imports – GTFS·X" />
+    <meta property="og:description" content="Open any GTFS feed in GTFS·X with a single URL. Designed for ecosystem partners building 'Edit in GTFS·X' buttons." />
     <meta property="og:type" content="article" />
-    <meta property="og:url" content="https://www.gtfsstudio.net/docs/deep-links/" />
+    <meta property="og:url" content="https://www.gtfsx.com/docs/deep-links/" />
     <style>
       :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; --code-bg:#FFFFFF; }
       * { box-sizing: border-box; }
@@ -65,8 +65,8 @@
   <body>
     <header class="site-header">
       <a href="/" class="brand">
-        <img src="/gtfs-studio-logo.svg" alt="" />
-        <span class="brand-name">GTFS Studio</span>
+        <img src="/gtfsx-mark.svg" alt="" />
+        <span class="brand-name">GTFS·X</span>
       </a>
       <nav>
         <a href="/about/">About</a>
@@ -86,23 +86,23 @@
 
     <main>
       <h1>Deep-link imports</h1>
-      <p class="lede">Build an "Edit in GTFS Studio" button. One URL opens any GTFS feed in the editor — no upload, no download, no account.</p>
+      <p class="lede">Build an "Edit in GTFS·X" button. One URL opens any GTFS feed in the editor — no upload, no download, no account.</p>
 
       <h2>What it is</h2>
-      <p>GTFS Studio accepts inbound URLs that name a GTFS feed by direct ZIP URL or by catalog id. A click on such a link fetches the feed server-side, validates that it parses as GTFS, and drops the user straight into the editor. Designed for catalogs (Mobility Database, transit.land), validators, blog posts, and cold-email outreach.</p>
+      <p>GTFS·X accepts inbound URLs that name a GTFS feed by direct ZIP URL or by catalog id. A click on such a link fetches the feed server-side, validates that it parses as GTFS, and drops the user straight into the editor. Designed for catalogs (Mobility Database, transit.land), validators, blog posts, and cold-email outreach.</p>
 
       <h2>Quick start</h2>
 
       <h3>1. Direct feed URL</h3>
-      <pre><code>https://www.gtfsstudio.net/import?url=https%3A%2F%2Fexample.org%2Fgtfs.zip</code></pre>
+      <pre><code>https://www.gtfsx.com/import?url=https%3A%2F%2Fexample.org%2Fgtfs.zip</code></pre>
       <p>URL-encode the feed URL (use <code>encodeURIComponent</code> in JavaScript). HTTPS feeds preferred; HTTP is accepted but discouraged.</p>
 
       <h3>2. Mobility Database feed id</h3>
-      <pre><code>https://www.gtfsstudio.net/import?source=mobilitydb&amp;feed_id=mdb-1234</code></pre>
+      <pre><code>https://www.gtfsx.com/import?source=mobilitydb&amp;feed_id=mdb-1234</code></pre>
       <p>We resolve <code>feed_id</code> to the feed's latest hosted dataset via the Mobility Database API, then load it. Use the <code>id</code> field from the catalog (e.g. <code>mdb-1234</code>).</p>
 
       <h3>3. transit.land Onestop id</h3>
-      <pre><code>https://www.gtfsstudio.net/import?source=transitland&amp;onestop_id=f-9q9-bart</code></pre>
+      <pre><code>https://www.gtfsx.com/import?source=transitland&amp;onestop_id=f-9q9-bart</code></pre>
       <p><em>Status: not yet wired up — requires a transit.land API key on our end. Coming soon. Use the direct-URL variant in the meantime.</em></p>
 
       <h2>URL parameters</h2>
@@ -142,21 +142,21 @@
       <h2>Button snippets</h2>
 
       <h3>Text link</h3>
-      <pre><code>&lt;a href="https://www.gtfsstudio.net/import?url=https%3A%2F%2Fexample.org%2Fgtfs.zip&amp;ref=YOUR_REF"&gt;Edit in GTFS Studio&lt;/a&gt;</code></pre>
+      <pre><code>&lt;a href="https://www.gtfsx.com/import?url=https%3A%2F%2Fexample.org%2Fgtfs.zip&amp;ref=YOUR_REF"&gt;Edit in GTFS·X&lt;/a&gt;</code></pre>
 
       <h3>Logo button</h3>
       <p>Renders like this:</p>
-      <p><a class="button-preview" href="/import?url=https%3A%2F%2Fexample.org%2Fgtfs.zip&amp;ref=docs_preview"><img src="/gtfs-studio-logo.svg" alt="" />Edit in GTFS Studio</a></p>
-      <pre><code>&lt;a href="https://www.gtfsstudio.net/import?url=https%3A%2F%2Fexample.org%2Fgtfs.zip&amp;ref=YOUR_REF"
+      <p><a class="button-preview" href="/import?url=https%3A%2F%2Fexample.org%2Fgtfs.zip&amp;ref=docs_preview"><img src="/gtfsx-mark.svg" alt="" />Edit in GTFS·X</a></p>
+      <pre><code>&lt;a href="https://www.gtfsx.com/import?url=https%3A%2F%2Fexample.org%2Fgtfs.zip&amp;ref=YOUR_REF"
    style="display:inline-flex;align-items:center;gap:10px;
           background:#E8734A;color:#fff;padding:10px 18px;
           border-radius:8px;text-decoration:none;font-weight:600;
           font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;"&gt;
-  &lt;img src="https://www.gtfsstudio.net/gtfs-studio-logo.svg"
+  &lt;img src="https://www.gtfsx.com/gtfsx-mark.svg"
        alt="" width="24" height="24" /&gt;
-  Edit in GTFS Studio
+  Edit in GTFS·X
 &lt;/a&gt;</code></pre>
-      <p>Use the logo SVG at <a href="/gtfs-studio-logo.svg">https://www.gtfsstudio.net/gtfs-studio-logo.svg</a>. Square aspect, transparent background, hot-link friendly.</p>
+      <p>Use the logo SVG at <a href="/gtfsx-mark.svg">https://www.gtfsx.com/gtfsx-mark.svg</a>. Square aspect, transparent background, hot-link friendly.</p>
 
       <h2>Errors and edge cases</h2>
       <p>The <code>/import</code> page handles every common failure mode with a user-facing message and a path forward. Partners don't need to validate URLs themselves; just hand off and we'll show the right error.</p>
@@ -186,7 +186,7 @@
       <p>Pass <code>ref=&lt;your-name&gt;</code> on the import URL to (a) show up in our analytics dashboard so we can track which integrations send traffic, and (b) render a small "Loaded from &lt;partner&gt;" badge in the editor — visible only for known partner refs. Currently recognised: <code>mobilitydb</code>, <code>transitland</code>, <code>gtfs_validator</code>. Get in touch to add yours.</p>
 
       <h2>Contact</h2>
-      <p>Mark Egge — <a href="mailto:mark@gtfsstudio.net">mark@gtfsstudio.net</a>. Happy to whitelist partner domains for higher rate limits, register additional ref tags for attribution badges, or pair on integration design.</p>
+      <p>Mark Egge — <a href="mailto:mark@gtfsx.com">mark@gtfsx.com</a>. Happy to whitelist partner domains for higher rate limits, register additional ref tags for attribution badges, or pair on integration design.</p>
     </main>
 
     <footer>

@@ -9,15 +9,15 @@ The high-level overview is in [`REQUIREMENTS.md`](./REQUIREMENTS.md). The refere
 ## TL;DR
 
 - **Branch**: `main` is the source of truth.
-- **🚀 Production launched 2026-05-15.** Backend re-enabled (`BACKEND_ENABLED=true`, `VITE_BACKEND_ENABLED=true`) and Stripe live-mode billing turned on (`BILLING_ENABLED=true`) in a single coordinated deploy. Live worker at https://www.gtfsstudio.net (version `11a80739-48b6-492e-800a-105902d73b25`). Public feeds + embeds at https://feeds.gtfsstudio.net. Live Stripe Price IDs + portal config + webhook all wired (per the earlier prod-launch testing plan). The 4 grandfathered prod users were preserved through the flip; `mark@eateggs.com` is staff + enterprise.
+- **🚀 Production launched 2026-05-15.** Backend re-enabled (`BACKEND_ENABLED=true`, `VITE_BACKEND_ENABLED=true`) and Stripe live-mode billing turned on (`BILLING_ENABLED=true`) in a single coordinated deploy. Live worker at https://www.gtfsx.com (version `11a80739-48b6-492e-800a-105902d73b25`). Public feeds + embeds at https://feeds.gtfsx.com. Live Stripe Price IDs + portal config + webhook all wired (per the earlier prod-launch testing plan). The 4 grandfathered prod users were preserved through the flip; `mark@eateggs.com` is staff + enterprise.
 - **Two SPA hot-fixes shipped immediately after the flip** (both surfaced during smoke test):
   - `+ Create organization…` in the user menu now routes Free/Pro users to `/upgrade?feature=org_workspace` (plan picker, not auto-checkout) instead of opening the inline create form. Server-side gating was already correct; this closes the UX hole that let Free users create empty orgs.
   - `PaywallOverlay` reworked: `bg-white` card on `bg-cream/85` wash (was `bg-cream`-on-`bg-cream`, invisible), `items-start` instead of `items-center`, `h-full overflow-hidden` so the wash + card no longer extend off-screen.
 - **Snapshots rename (2026-05-15, post-launch).** What we used to call "versions" (point-in-time saves of editor state) are now uniformly **snapshots** — UI tab "Snapshots", API routes `/api/projects/:id/snapshots[...]`, DB table `feed_snapshot` (FK columns `snapshot_id` on `draft_link` / `publication` / `publication_history`), R2 path `projects/{id}/snapshots/{id}/...`, audit actions `project.create_snapshot` / `restore_snapshot` / `delete_snapshot` (legacy `*_version` strings still render in the audit log via a backward-compat lookup in `auditFormat.ts`), feature key `snapshot_history`. Done now to avoid terminology collision with GTFS spec's own `feed_version` field. Migration `0012_rename_version_to_snapshot.sql` applied on both staging and prod.
-- **Staging is parked (2026-05-16).** Worker, D1, R2, KV all still exist at `gtfs-builder-staging` / `staging.gtfsstudio.net`, but no longer auto-deployed (CF Workers Builds deploys prod only on push to main; the old GitHub Actions workflow that deployed staging was retired). Manual rehearsal still works via `npx wrangler deploy --env staging`; otherwise staging stays at whatever was last shipped.
+- **Staging is parked (2026-05-16).** Worker, D1, R2, KV all still exist at `gtfs-builder-staging` / `staging.gtfsx.com`, but no longer auto-deployed (CF Workers Builds deploys prod only on push to main; the old GitHub Actions workflow that deployed staging was retired). Manual rehearsal still works via `npx wrangler deploy --env staging`; otherwise staging stays at whatever was last shipped.
 - **NF-40a (argon2id)** remains the only spec-level technical debt that should land before broad RTAP distribution. Tracked in `BACKEND_REQUIREMENTS.md` §8.1.
 - **Analytics.** Cookieless page-view tracking is live: `POST /api/events/track` writes to the `event` table; `/admin/events` aggregates visits + page views grouped by inbound `?ref=` tag. No PII recorded. Now firing on prod since the launch flip.
-- **Domain rebrand (2026-05-15).** Product renamed GTFS Builder → GTFS Studio; primary domain moved gtfsbuilder.net → gtfsstudio.net. All five legacy hostnames (apex, www, feeds, staging, staging-feeds) remain bound to the Worker and 301 to their gtfsstudio.net equivalents (path + query preserved). Internal Cloudflare resource identifiers (Worker names `gtfs-builder` / `gtfs-builder-staging`, D1 db names, R2 bucket names) intentionally kept as-is. Runbook: `docs/DOMAIN_MIGRATION.md`. Phase 12 cleanup (remove legacy routes + redirect block) is deferred until traffic on the old domain decays — months from now.
+- **Domain rebrand (2026-05-15).** Product renamed GTFS Builder → GTFS·X; primary domain moved gtfsbuilder.net → gtfsx.com. All five legacy hostnames (apex, www, feeds, staging, staging-feeds) remain bound to the Worker and 301 to their gtfsx.com equivalents (path + query preserved). Internal Cloudflare resource identifiers (Worker names `gtfs-builder` / `gtfs-builder-staging`, D1 db names, R2 bucket names) intentionally kept as-is. Runbook: `docs/DOMAIN_MIGRATION.md`. Phase 12 cleanup (remove legacy routes + redirect block) is deferred until traffic on the old domain decays — months from now.
 
 ---
 
@@ -36,7 +36,7 @@ The high-level overview is in [`REQUIREMENTS.md`](./REQUIREMENTS.md). The refere
 Infra still exists (cheap insurance) but no longer auto-deployed. Use as a manual rehearsal env for risky changes before pushing to main.
 
 - Worker: `gtfs-builder-staging`.
-- Custom domains: `staging.gtfsstudio.net`, `staging-feeds.gtfsstudio.net`.
+- Custom domains: `staging.gtfsx.com`, `staging-feeds.gtfsx.com`.
 - D1: `gtfs-builder-staging` (id `f62aa5db-329f-4a78-bf35-4b96f79d4392`). Migrations 0001–0012 applied.
 - KV: id `ceb1f063c83a4bec9306e66288a51dc8`.
 - R2: `gtfs-builder-feeds-staging` (feed blobs + org logos).
@@ -55,8 +55,8 @@ Infra still exists (cheap insurance) but no longer auto-deployed. Use as a manua
   - R2: `gtfs-builder-feeds` (and `gtfs-builder-forum-images`).
   - Secrets: `RESEND_API_KEY`, `MOBILITY_DATABASE_REFRESH_TOKEN`, `TURNSTILE_SECRET_KEY`, `STRIPE_SECRET_KEY` (live, `sk_live_…`), `STRIPE_WEBHOOK_SIGNING_SECRET` (live).
   - Vars: `BACKEND_ENABLED=true`, `BILLING_ENABLED=true`, `HARD_LIMITS=false`, plus Stripe **live-mode** Price IDs (`STRIPE_PRICE_PRO_MONTHLY/_ANNUAL`, `STRIPE_PRICE_TEAM_MONTHLY/_ANNUAL`) and `STRIPE_PORTAL_CONFIG_ID="bpc_1TXTFdJHDvzBbFH9qciNWCsV"`.
-  - Custom domains bound: `gtfsstudio.net`, `www.gtfsstudio.net`, `feeds.gtfsstudio.net` (+ legacy `gtfsbuilder.net`/`www.`/`feeds.` and `gtfsstudio.com`/`www.` redirecting). SSL certs provisioned.
-- Live Stripe webhook endpoint: `we_1TXTFeJHDvzBbFH9o7SviqI4` → `https://www.gtfsstudio.net/api/billing/webhooks/stripe`. Signature verification confirmed end-to-end during Phase 2 of the launch testing plan.
+  - Custom domains bound: `gtfsx.com`, `www.gtfsx.com`, `feeds.gtfsx.com` (+ legacy `gtfsbuilder.net`/`www.`/`feeds.` and `gtfsx.com`/`www.` redirecting). SSL certs provisioned.
+- Live Stripe webhook endpoint: `we_1TXTFeJHDvzBbFH9o7SviqI4` → `https://www.gtfsx.com/api/billing/webhooks/stripe`. Signature verification confirmed end-to-end during Phase 2 of the launch testing plan.
 - 4 grandfathered user accounts in prod D1 (`mark@eateggs.com` plan=enterprise/staff=1, plus `mark+test@eateggs.com` and 2 strangers — all plan=free, status=active). 0 published feeds at launch.
 - Pre-launch backup of prod D1 lives in `backups/prod-d1-20260515-150154/` (gitignored; 26 tables, 120 KB).
 - **Rollback playbook (still valid):** `BILLING_ENABLED=false` alone disables paid checkout/portal but leaves auth + editor up. `BACKEND_ENABLED=false` (with rebuild) hides the entire backend UI. Both are wrangler.jsonc edits + redeploy.
@@ -67,7 +67,7 @@ Infra still exists (cheap insurance) but no longer auto-deployed. Use as a manua
 
 These tripped past deploys; capturing here so the next person doesn't have to retrace:
 
-- **API token scopes.** `CLOUDFLARE_API_TOKEN` (in `~/proj/.env`) needs **Workers KV Storage : Edit** + **Zone : Workers Routes : Edit** for the `gtfsstudio.net` zone. The OAuth token from `wrangler login` is fine for everything except the binding-attach step on first deploy. If a future deploy fails with `code: 10023 (kv bindings require kv write perms)` or `code: 10000 (Authentication error)` on `/zones/.../workers/routes`, re-check the API token at https://dash.cloudflare.com/profile/api-tokens.
+- **API token scopes.** `CLOUDFLARE_API_TOKEN` (in `~/proj/.env`) needs **Workers KV Storage : Edit** + **Zone : Workers Routes : Edit** for the `gtfsx.com` zone. The OAuth token from `wrangler login` is fine for everything except the binding-attach step on first deploy. If a future deploy fails with `code: 10023 (kv bindings require kv write perms)` or `code: 10000 (Authentication error)` on `/zones/.../workers/routes`, re-check the API token at https://dash.cloudflare.com/profile/api-tokens.
 - **Empty `--env` flag.** `wrangler deploy --env=""` explicitly targets the top-level (prod) block. Without the empty value, wrangler warns about ambiguity since multiple environments are defined (top-level + `env.staging`).
 - **D1 SQL via OAuth.** The OAuth login from `wrangler login` has D1 write; the API token may not. For ad-hoc SQL: `unset CLOUDFLARE_API_TOKEN; npx wrangler d1 execute gtfs-builder-staging --remote --command "…"`.
 - **Migration apply via execute.** When `wrangler d1 migrations apply` fails on token scopes but `wrangler d1 execute --file <migration.sql>` works, you can apply the migration manually and then `INSERT INTO d1_migrations (name, applied_at) VALUES ('<file>', strftime('%Y-%m-%d %H:%M:%f', 'now'))` to keep wrangler's bookkeeping aligned.
@@ -87,7 +87,7 @@ In rough priority order. Items that have a long-form home elsewhere are linked.
 ### Re-enable production checklist — ✅ done 2026-05-15
 
 Kept here as a historical artifact. The full launch testing plan + post-deploy hot-fixes are captured in the TL;DR. Items that surfaced as gotchas during the actual launch (worth knowing if you ever do this again):
-- The original `RESEND_API_KEY` on the prod Worker was scoped to the legacy `gtfsbuilder.net` sending domain; the first signup attempt failed with "The associated domain with your API key is not verified." Fix: regenerate a full-access (or `gtfsstudio.net`-scoped) Resend API key and re-`wrangler secret put`.
+- The original `RESEND_API_KEY` on the prod Worker was scoped to the legacy `gtfsbuilder.net` sending domain; the first signup attempt failed with "The associated domain with your API key is not verified." Fix: regenerate a full-access (or `gtfsx.com`-scoped) Resend API key and re-`wrangler secret put`.
 - Server-side feature gating *was* correctly wired via `requireOwnerFeature` everywhere — but the SPA's `+ Create organization…` button was unconditionally visible, letting Free users create empty Free orgs that they then couldn't do anything with. Fixed with a one-line UserMenu gate (`/upgrade?feature=org_workspace` for Free/Pro).
 - `PaywallOverlay` had `bg-cream` cards on a `bg-cream/85` wash → invisible. Switched cards to `bg-white`, `items-start`, `h-full overflow-hidden`. Snapshots tab + Embed panel were the visible victims.
 

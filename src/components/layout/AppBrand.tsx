@@ -3,7 +3,7 @@ import { db } from '../../db/dexie';
 import { useStore } from '../../store';
 
 /**
- * Shared logo + "GTFS Studio" wordmark. Used by every page's top bar.
+ * Shared logo + "GTFS·X" wordmark. Used by every page's top bar.
  *
  * - In the editor (default), clicking checks for unsaved work and pops a
  *   reset dialog before going home.
@@ -47,17 +47,15 @@ export function AppBrand({
     <div className="flex items-center gap-3 shrink-0">
       <button
         onClick={handleClick}
-        className="flex items-center gap-2.5 font-heading font-extrabold text-2xl text-coral hover:opacity-80 transition-opacity whitespace-nowrap"
+        className="flex items-center hover:opacity-80 transition-opacity"
         title={mode === 'editor' ? 'Start new project' : 'Home'}
       >
         <img
-          src={`${import.meta.env.BASE_URL}gtfs-studio-logo.svg`}
-          alt=""
-          width="44"
-          height="44"
-          className="shrink-0"
+          src={`${import.meta.env.BASE_URL}gtfsx-lockup.svg`}
+          alt="GTFS·X"
+          height="36"
+          className="shrink-0 h-9 w-auto"
         />
-        GTFS Studio
       </button>
       {showTagline && (
         <span

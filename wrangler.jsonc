@@ -1,5 +1,5 @@
 {
-  // GTFS Studio — deployed as static assets + a Worker on Cloudflare's
+  // GTFS·X — deployed as static assets + a Worker on Cloudflare's
   // Workers-with-Static-Assets platform.
   //
   // - Static SPA assets live in `dist/` and are served first.
@@ -8,7 +8,7 @@
   //     /_demand-tiles/...          — PMTiles out of R2 (TILES)
   //     /_import/search, /_import/proxy — Mobility DB catalog + ZIP proxy
   //     /auth/*, /api/*              — backend auth + feed management (D1 + R2 FEEDS)
-  //     feeds.gtfsstudio.net/*      — public published feed distribution
+  //     feeds.gtfsx.com/*           — public published feed distribution
   //   The SPA fallback catches anything else.
   //
   // Run `scripts/setup-backend.sh` (or follow docs/DEPLOY_BACKEND.md) to
@@ -61,9 +61,9 @@
     }
   ],
   "vars": {
-    "AUTH_EMAIL_FROM": "GTFS Studio <noreply@gtfsstudio.net>",
-    "APP_ORIGIN": "https://www.gtfsstudio.net",
-    "FEEDS_ORIGIN": "https://feeds.gtfsstudio.net",
+    "AUTH_EMAIL_FROM": "GTFS·X <noreply@gtfsx.com>",
+    "APP_ORIGIN": "https://www.gtfsx.com",
+    "FEEDS_ORIGIN": "https://feeds.gtfsx.com",
     // Kill switch. Originally disabled 2026-05-08 after premature launch;
     // re-enabled 2026-05-15 alongside live billing.
     "BACKEND_ENABLED": "true",
@@ -71,8 +71,8 @@
     "BILLING_ENABLED": "true",
     "HARD_LIMITS": "false",
     // Public Mapbox token — same as VITE_MAPBOX_TOKEN. Used by the embed
-    // pages on feeds.gtfsstudio.net to render the system + per-route maps.
-    "MAPBOX_TOKEN": "pk.eyJ1IjoibWFya2VnZ2UiLCJhIjoiY2lrb245YWh3MHhtMXV4a21ld2R5Ymh0ciJ9.i0E2OrjPHLVtIRpN82tU5w",
+    // pages on feeds.gtfsx.com to render the system + per-route maps.
+    "MAPBOX_TOKEN": "pk.eyJ1IjoibWFya2VnZ2UiLCJhIjoiY21wYjlrdnhlMDRuZjJzb21mMXQwZTJlaSJ9.qCTIAgzwRD4nt6F2YA4OuQ",
     // Stripe live-mode price + portal config IDs (created 2026-05-15 via
     // scripts/setup-stripe.ts --live). Test-mode equivalents live in env.staging.
     "STRIPE_PRICE_PRO_MONTHLY": "price_1TXTFcJHDvzBbFH9B1BaGXCH",
@@ -88,20 +88,24 @@
     //   STRIPE_WEBHOOK_SIGNING_SECRET (live; webhook id we_1TXTFeJHDvzBbFH9o7SviqI4)
   },
   // Multiple hostname families are bound to this Worker:
-  //   - gtfsstudio.net (canonical)
-  //   - gtfsbuilder.net (legacy; 301 to gtfsstudio.net)
-  //   - gtfsstudio.com (vanity; 301 to www.gtfsstudio.net)
+  //   - gtfsx.com (canonical, post-rebrand 2026-05-18)
+  //   - gtfsstudio.net (legacy; 301 to gtfsx.com)
+  //   - gtfsstudio.com (legacy vanity; 301 to gtfsx.com)
+  //   - gtfsbuilder.net (legacy; 301 to gtfsx.com)
   // The redirect logic for the non-canonical hosts lives at the top of
   // worker/index.ts.
   "routes": [
+    { "pattern": "gtfsx.com", "custom_domain": true },
+    { "pattern": "www.gtfsx.com", "custom_domain": true },
+    { "pattern": "feeds.gtfsx.com", "custom_domain": true },
     { "pattern": "gtfsstudio.net", "custom_domain": true },
     { "pattern": "www.gtfsstudio.net", "custom_domain": true },
     { "pattern": "feeds.gtfsstudio.net", "custom_domain": true },
+    { "pattern": "gtfsstudio.com", "custom_domain": true },
+    { "pattern": "www.gtfsstudio.com", "custom_domain": true },
     { "pattern": "gtfsbuilder.net", "custom_domain": true },
     { "pattern": "www.gtfsbuilder.net", "custom_domain": true },
-    { "pattern": "feeds.gtfsbuilder.net", "custom_domain": true },
-    { "pattern": "gtfsstudio.com", "custom_domain": true },
-    { "pattern": "www.gtfsstudio.com", "custom_domain": true }
+    { "pattern": "feeds.gtfsbuilder.net", "custom_domain": true }
   ],
   // Scheduled Worker invocations. See worker/cron/index.ts.
   // 03:00 UTC daily: account-deletion reaper + weekly metrics rollup.
@@ -111,7 +115,7 @@
   // ─── Staging environment ───────────────────────────────────────────────────
   // `wrangler deploy --env staging` deploys a separate Worker
   // (`gtfs-builder-staging`) with its own D1 / KV / R2 and its own custom
-  // domain (staging.gtfsstudio.net). Apps point at this for pre-prod testing.
+  // domain (staging.gtfsx.com). Apps point at this for pre-prod testing.
   //
   // Wrangler env inheritance: when `env.<name>.<binding>` is present it
   // COMPLETELY OVERRIDES the top-level equivalent, so we re-declare every
@@ -137,13 +141,13 @@
         { "binding": "KV", "id": "ceb1f063c83a4bec9306e66288a51dc8" }
       ],
       "vars": {
-        "AUTH_EMAIL_FROM": "GTFS Studio Staging <staging@gtfsstudio.net>",
-        "APP_ORIGIN": "https://staging.gtfsstudio.net",
-        "FEEDS_ORIGIN": "https://staging-feeds.gtfsstudio.net",
+        "AUTH_EMAIL_FROM": "GTFS·X Staging <staging@gtfsx.com>",
+        "APP_ORIGIN": "https://staging.gtfsx.com",
+        "FEEDS_ORIGIN": "https://staging-feeds.gtfsx.com",
         "BACKEND_ENABLED": "true",
         "BILLING_ENABLED": "true",
         "HARD_LIMITS": "false",
-        "MAPBOX_TOKEN": "pk.eyJ1IjoibWFya2VnZ2UiLCJhIjoiY2lrb245YWh3MHhtMXV4a21ld2R5Ymh0ciJ9.i0E2OrjPHLVtIRpN82tU5w",
+        "MAPBOX_TOKEN": "pk.eyJ1IjoibWFya2VnZ2UiLCJhIjoiY21wYjlrdnhlMDRuZjJzb21mMXQwZTJlaSJ9.qCTIAgzwRD4nt6F2YA4OuQ",
         "STRIPE_PRICE_PRO_MONTHLY": "price_1TVzRAJThEbTJMIVZjGyn24F",
         "STRIPE_PRICE_PRO_ANNUAL": "price_1TVzRBJThEbTJMIVu3BX60VV",
         "STRIPE_PRICE_TEAM_MONTHLY": "price_1TVzRBJThEbTJMIVtvRTKzp3",
@@ -151,6 +155,8 @@
         "STRIPE_PORTAL_CONFIG_ID": "bpc_1TVzRDJThEbTJMIVVFsRoSaM"
       },
       "routes": [
+        { "pattern": "staging.gtfsx.com", "custom_domain": true },
+        { "pattern": "staging-feeds.gtfsx.com", "custom_domain": true },
         { "pattern": "staging.gtfsstudio.net", "custom_domain": true },
         { "pattern": "staging-feeds.gtfsstudio.net", "custom_domain": true },
         { "pattern": "staging.gtfsstudio.com", "custom_domain": true },

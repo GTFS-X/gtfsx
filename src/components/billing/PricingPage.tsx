@@ -78,7 +78,7 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
 
 const POPULAR_PLAN: Plan = 'team';
 const ENTERPRISE_MAIL =
-  'mailto:sales@gtfsstudio.net?subject=GTFS Studio Enterprise inquiry&body=Hi%20—%20I%27d%20like%20to%20learn%20more%20about%20the%20Enterprise%20plan.';
+  'mailto:sales@gtfsx.com?subject=GTFS·X Enterprise inquiry&body=Hi%20—%20I%27d%20like%20to%20learn%20more%20about%20the%20Enterprise%20plan.';
 
 export function PricingPage() {
   const navigate = useNavigate();
@@ -237,7 +237,7 @@ export function PricingPage() {
             <div>
               <p className="font-semibold">What does “managed publishing” mean?</p>
               <p className="text-warm-gray">
-                We host your feed at <code>feeds.gtfsstudio.net/&lt;slug&gt;/gtfs.zip</code> — a stable
+                We host your feed at <code>feeds.gtfsx.com/&lt;slug&gt;/gtfs.zip</code> — a stable
                 URL you can hand to the Mobility Database, riders, or regulators. We also generate a
                 rider-facing mini-site and embed widgets you can drop on your own website.
               </p>

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
 
-// Integration-test harness for the GTFS Studio Worker (D1 + KV + R2 + Hono).
+// Integration-test harness for the GTFS·X Worker (D1 + KV + R2 + Hono).
 // Each test file gets its own workerd instance and therefore its own isolated
 // storage. Within a test file we manually clean state between tests.
 //

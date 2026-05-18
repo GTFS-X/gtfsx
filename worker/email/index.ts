@@ -37,52 +37,52 @@ async function send(env: Env, opts: SendOpts): Promise<void> {
 function wrap(body: string): string {
   return `<!doctype html>
 <html><body style="font-family: -apple-system, system-ui, sans-serif; max-width: 560px; margin: 32px auto; padding: 24px; color: #1a1a1a; line-height: 1.5;">
-  <h1 style="font-size: 20px; margin: 0 0 16px;">GTFS Studio</h1>
+  <h1 style="font-size: 20px; margin: 0 0 16px;">GTFS·X</h1>
   ${body}
   <hr style="border: 0; border-top: 1px solid #eee; margin: 32px 0 16px;" />
-  <p style="color: #888; font-size: 12px;">Sent by gtfsstudio.net. If you didn't request this, you can ignore this email.</p>
+  <p style="color: #888; font-size: 12px;">Sent by gtfsx.com. If you didn't request this, you can ignore this email.</p>
 </body></html>`;
 }
 
 export async function sendVerifyEmail(env: Env, to: string, link: string): Promise<void> {
   await send(env, {
     to,
-    subject: 'Confirm your email for GTFS Studio',
+    subject: 'Confirm your email for GTFS·X',
     html: wrap(`
       <p>Welcome! Click the link below to confirm your email and activate your account:</p>
       <p><a href="${link}" style="display: inline-block; background: #8a5a3b; color: white; padding: 10px 18px; border-radius: 6px; text-decoration: none;">Confirm my email</a></p>
       <p style="color: #666; font-size: 13px;">Or paste this URL into your browser: <br /><code>${link}</code></p>
       <p style="color: #666; font-size: 13px;">This link expires in 24 hours.</p>
     `),
-    text: `Welcome to GTFS Studio! Confirm your email by visiting: ${link}\n\nThis link expires in 24 hours.`,
+    text: `Welcome to GTFS·X! Confirm your email by visiting: ${link}\n\nThis link expires in 24 hours.`,
   });
 }
 
 export async function sendMagicLink(env: Env, to: string, link: string): Promise<void> {
   await send(env, {
     to,
-    subject: 'Your sign-in link for GTFS Studio',
+    subject: 'Your sign-in link for GTFS·X',
     html: wrap(`
       <p>Click the link below to sign in. If you didn't request this, you can safely ignore this email.</p>
       <p><a href="${link}" style="display: inline-block; background: #8a5a3b; color: white; padding: 10px 18px; border-radius: 6px; text-decoration: none;">Sign me in</a></p>
       <p style="color: #666; font-size: 13px;">Or paste this URL into your browser: <br /><code>${link}</code></p>
       <p style="color: #666; font-size: 13px;">This link expires in 15 minutes and can only be used once.</p>
     `),
-    text: `Sign in to GTFS Studio: ${link}\n\nThis link expires in 15 minutes.`,
+    text: `Sign in to GTFS·X: ${link}\n\nThis link expires in 15 minutes.`,
   });
 }
 
 export async function sendPasswordReset(env: Env, to: string, link: string): Promise<void> {
   await send(env, {
     to,
-    subject: 'Reset your GTFS Studio password',
+    subject: 'Reset your GTFS·X password',
     html: wrap(`
       <p>We received a request to reset your password. Click the link below to choose a new one:</p>
       <p><a href="${link}" style="display: inline-block; background: #8a5a3b; color: white; padding: 10px 18px; border-radius: 6px; text-decoration: none;">Reset password</a></p>
       <p style="color: #666; font-size: 13px;">Or paste this URL into your browser: <br /><code>${link}</code></p>
       <p style="color: #666; font-size: 13px;">This link expires in 1 hour. If you didn't request this, you can ignore this email — your password won't change.</p>
     `),
-    text: `Reset your GTFS Studio password: ${link}\n\nThis link expires in 1 hour.`,
+    text: `Reset your GTFS·X password: ${link}\n\nThis link expires in 1 hour.`,
   });
 }
 
@@ -99,15 +99,15 @@ export async function sendInvitationEmail(
   const safeRole = escapeHtml(role);
   await send(env, {
     to,
-    subject: `You're invited to ${orgName} on GTFS Studio`,
+    subject: `You're invited to ${orgName} on GTFS·X`,
     html: wrap(`
-      <p><strong>${safeInviter}</strong> has invited you to join the <strong>${safeOrg}</strong> organization on GTFS Studio as a <strong>${safeRole}</strong>.</p>
-      <p>Click the link below to accept the invitation. If you don't already have a GTFS Studio account you'll be asked to sign up with this email address first.</p>
+      <p><strong>${safeInviter}</strong> has invited you to join the <strong>${safeOrg}</strong> organization on GTFS·X as a <strong>${safeRole}</strong>.</p>
+      <p>Click the link below to accept the invitation. If you don't already have a GTFS·X account you'll be asked to sign up with this email address first.</p>
       <p><a href="${link}" style="display: inline-block; background: #8a5a3b; color: white; padding: 10px 18px; border-radius: 6px; text-decoration: none;">Accept invitation</a></p>
       <p style="color: #666; font-size: 13px;">Or paste this URL into your browser: <br /><code>${link}</code></p>
       <p style="color: #666; font-size: 13px;">This link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
     `),
-    text: `${inviterName} has invited you to join ${orgName} on GTFS Studio as a ${role}.\n\nAccept the invitation: ${link}\n\nThis link expires in 7 days.`,
+    text: `${inviterName} has invited you to join ${orgName} on GTFS·X as a ${role}.\n\nAccept the invitation: ${link}\n\nThis link expires in 7 days.`,
   });
 }
 

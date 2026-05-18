@@ -1,15 +1,15 @@
-# GTFS Studio — Requirements
+# GTFS·X — Requirements
 
 ## Overview
 
-GTFS Studio is a web application for creating, editing, analysing, and publishing GTFS (and GTFS-Flex) transit feeds. It targets small-to-mid-sized transit agencies and the consultants who serve them. The primary surface is a Mapbox-backed editor where alignments are drawn before stops are placed; analysis features let users size service against demand, demographics, and cost; and a backend tier handles accounts, multi-agency workspaces, publication, and embeddable rider-facing widgets.
+GTFS·X is a web application for creating, editing, analysing, and publishing GTFS (and GTFS-Flex) transit feeds. It targets small-to-mid-sized transit agencies and the consultants who serve them. The primary surface is a Mapbox-backed editor where alignments are drawn before stops are placed; analysis features let users size service against demand, demographics, and cost; and a backend tier handles accounts, multi-agency workspaces, publication, and embeddable rider-facing widgets.
 
 ### Status snapshot
 
 | | |
 |---|---|
-| **Editor (anonymous, IndexedDB-only)** | Live in production at https://www.gtfsstudio.net. Two-rail layout (responsive left nav + configuration right rail) shipped 2026-05-11. |
-| **Backend (auth, projects, orgs, publication, embeds)** | Live on staging at https://staging.gtfsstudio.net (and feeds at https://staging-feeds.gtfsstudio.net). **Disabled in production** since 2026-05-08 (kill switch) — backend code is deployed but `BACKEND_ENABLED=false` and the SPA bundle ships with `VITE_BACKEND_ENABLED=false`. |
+| **Editor (anonymous, IndexedDB-only)** | Live in production at https://www.gtfsx.com. Two-rail layout (responsive left nav + configuration right rail) shipped 2026-05-11. |
+| **Backend (auth, projects, orgs, publication, embeds)** | Live on staging at https://staging.gtfsx.com (and feeds at https://staging-feeds.gtfsx.com). **Disabled in production** since 2026-05-08 (kill switch) — backend code is deployed but `BACKEND_ENABLED=false` and the SPA bundle ships with `VITE_BACKEND_ENABLED=false`. |
 | **Active development branch** | `main` (rail refactor merged via `exploration/right-rail-and-responsive-left` on 2026-05-11). Earlier `staging-features` work — Turnstile signup gate; embeds with mini-site landing, per-route, per-stop, system map; org logo upload + brand colour; cross-workspace feed transfer; orphan-stop deletion choice on route delete; export-all-stops fidelity fix — landed on `main` previously. |
 
 If you are picking this project up cold: read this overview, then `docs/BACKEND_STATUS.md` for the live operational picture, then the section below that matches the area you're working in.
@@ -243,7 +243,7 @@ The backend tier is implemented as a single Cloudflare Worker that also serves t
 ### 3.6 Org branding
 
 - ✅ Per-project primary color (hex) — drives the active service-day tab + accent links on every embed surface (CSS custom property `--brand`).
-- ✅ Per-org logo upload (PNG / JPEG / WebP / SVG; ≤1 MB) at `/api/orgs/:id/logo`. Public read at `feeds.gtfsstudio.net/_/orgs/<id>/logo` with edge cache + ETag.
+- ✅ Per-org logo upload (PNG / JPEG / WebP / SVG; ≤1 MB) at `/api/orgs/:id/logo`. Public read at `feeds.gtfsx.com/_/orgs/<id>/logo` with edge cache + ETag.
 - ✅ Logo renders next to the agency name on the mini-site landing, per-route, per-stop, and system-map embeds.
 - 🔲 Custom CSS variables / advanced theming (specced in EMBEDS_REQUIREMENTS EM-60, deferred for now).
 - 🔲 Per-route display-name override (specced as EMBEDS_REQUIREMENTS EM-61, deferred).
@@ -256,7 +256,7 @@ Specced in [`BACKEND_REQUIREMENTS.md`](./BACKEND_REQUIREMENTS.md) §5–6 and [`
 
 ### 4.1 Canonical publication
 
-- ✅ "Publish" promotes a saved version to the canonical URL `feeds.gtfsstudio.net/<slug>/gtfs.zip`. Stable across republishes; only the bytes change.
+- ✅ "Publish" promotes a saved version to the canonical URL `feeds.gtfsx.com/<slug>/gtfs.zip`. Stable across republishes; only the bytes change.
 - ✅ Validation gate: errors block publish; warnings allowed (configurable per-publish).
 - ✅ Cache headers tuned for GTFS ingestors: `public, max-age=3600, s-maxage=3600`, version-id ETag, `Last-Modified`, 304 support, atomic R2 → D1 pointer flip.
 - ✅ Sidecar `feeds.*/<slug>/feed_info.json` with title, description, effective dates, version id, contact, distribution targets, registered RT feeds.
@@ -334,13 +334,13 @@ We use `react-map-gl` + `@mapbox/mapbox-gl-draw` in the editor and Mapbox GL JS 
 Single Cloudflare account; everything runs as a single Worker with static-asset binding and multiple custom domains.
 
 ```
-www.gtfsstudio.net          → editor SPA + /api + /auth + /_demand-tiles
-gtfsstudio.net (apex)       → same as www
-feeds.gtfsstudio.net        → public feed distribution + embed renderer
+www.gtfsx.com          → editor SPA + /api + /auth + /_demand-tiles
+gtfsx.com (apex)       → same as www
+feeds.gtfsx.com        → public feed distribution + embed renderer
                                + /_/orgs/<id>/logo public read
 
-staging.gtfsstudio.net      → staging editor
-staging-feeds.gtfsstudio.net → staging feeds origin
+staging.gtfsx.com      → staging editor
+staging-feeds.gtfsx.com → staging feeds origin
 ```
 
 | Concern | Service |

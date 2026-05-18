@@ -58,43 +58,35 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // Legacy-domain 301 redirect (post-rebrand 2026-05-14). gtfsbuilder.net
-    // and every subdomain were bound to this Worker before the rename; we
-    // keep them bound and 301 to the matching gtfsstudio.net host so that
-    // already-shared links — especially feed URLs polled by downstream
-    // catalogs (Mobility DB, transit.land) — keep working.
-    if (
-      url.hostname === 'gtfsbuilder.net' ||
-      url.hostname.endsWith('.gtfsbuilder.net')
-    ) {
-      const newHost = url.hostname.replace(/gtfsbuilder\.net$/, 'gtfsstudio.net');
-      return Response.redirect(
-        `https://${newHost}${url.pathname}${url.search}`,
-        301,
-      );
-    }
-
-    // Vanity TLD redirect. gtfsstudio.com is owned so the brand isn't squatted;
-    // every request 301s to the canonical .net counterpart.
-    //   gtfsstudio.com        → www.gtfsstudio.net (bare → canonical landing)
-    //   www.gtfsstudio.com    → www.gtfsstudio.net
-    //   staging.gtfsstudio.com → staging.gtfsstudio.net (etc — any subdomain)
-    if (
-      url.hostname === 'gtfsstudio.com' ||
-      url.hostname.endsWith('.gtfsstudio.com')
-    ) {
-      const newHost = url.hostname === 'gtfsstudio.com'
-        ? 'www.gtfsstudio.net'
-        : url.hostname.replace(/\.gtfsstudio\.com$/, '.gtfsstudio.net');
-      return Response.redirect(
-        `https://${newHost}${url.pathname}${url.search}`,
-        301,
-      );
+    // Legacy-domain 301 redirect (post-rebrand 2026-05-18 — GTFS·X). Three
+    // prior brand domains stay bound to the Worker and 301 to the matching
+    // gtfsx.com host in a single hop, so already-shared links (especially
+    // feed URLs polled by downstream catalogs) keep working:
+    //
+    //   <sub>.gtfsstudio.net   → <sub>.gtfsx.com   (bare → www.gtfsx.com)
+    //   <sub>.gtfsstudio.com   → <sub>.gtfsx.com
+    //   <sub>.gtfsbuilder.net  → <sub>.gtfsx.com
+    //
+    // We collapse the two-hop chain (gtfsbuilder.net → gtfsstudio.net →
+    // gtfsx.com) into one redirect on purpose — each extra hop costs latency
+    // and a chance for an external poller to give up.
+    const LEGACY_SUFFIXES = ['gtfsstudio.net', 'gtfsstudio.com', 'gtfsbuilder.net'];
+    for (const suffix of LEGACY_SUFFIXES) {
+      if (url.hostname === suffix || url.hostname.endsWith(`.${suffix}`)) {
+        const sub = url.hostname === suffix
+          ? 'www'
+          : url.hostname.slice(0, -(suffix.length + 1));
+        const newHost = `${sub}.gtfsx.com`;
+        return Response.redirect(
+          `https://${newHost}${url.pathname}${url.search}`,
+          301,
+        );
+      }
     }
 
     // Public feed distribution lives on a separate hostname (FEEDS_ORIGIN):
-    //   prod:    feeds.gtfsstudio.net
-    //   staging: staging-feeds.gtfsstudio.net
+    //   prod:    feeds.gtfsx.com
+    //   staging: staging-feeds.gtfsx.com
     //   dev:     anything starting with `feeds.` (localhost etc.)
     // Never auth-aware; no cookies. Handled by a dedicated module.
     let feedsHost: string | null = null;

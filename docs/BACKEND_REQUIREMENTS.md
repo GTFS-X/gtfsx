@@ -1,4 +1,4 @@
-# GTFS Studio — Backend Reference
+# GTFS·X — Backend Reference
 
 Reference spec for the account / project / publication / distribution backend. The high-level overview lives in [`REQUIREMENTS.md`](./REQUIREMENTS.md) §3–§4; the live operational picture is in [`BACKEND_STATUS.md`](./BACKEND_STATUS.md); deployment instructions are in [`DEPLOY_BACKEND.md`](./DEPLOY_BACKEND.md). This file is the long-form companion: data model, full API surface, security posture, and the design decisions that shaped them.
 
@@ -135,7 +135,7 @@ Anonymous → signed-in migration (BE-43): on first sign-in, the local IndexedDB
 
 ### 5.3 Custom domains
 
-**Not supported.** All published feeds live on `feeds.gtfsstudio.net/<slug>/...`. Agencies can `301` from their own domain if they want. Eliminates per-tenant cert + CNAME-verification + isolation work.
+**Not supported.** All published feeds live on `feeds.gtfsx.com/<slug>/...`. Agencies can `301` from their own domain if they want. Eliminates per-tenant cert + CNAME-verification + isolation work.
 
 ---
 
@@ -287,7 +287,7 @@ Captures the "why is it built that way?" decisions from initial review. These do
 | 2 | Google OAuth in v1 or later | v1.1, deferred. ~60% adoption-data signal exists but it's not a launch blocker. |
 | 3 | Teams / organizations timing | v1. Many-to-many user↔org membership ships from day one to support consultants. |
 | 4 | Free-tier limits | 20 projects, 50 versions/project, 50 MB/ZIP. Soft-warn → hard-limit via runtime flag. |
-| 5 | Publication URL scheme | Subdomain `feeds.gtfsstudio.net/<slug>/`. Cleaner cache + auth-cookie boundaries. |
+| 5 | Publication URL scheme | Subdomain `feeds.gtfsx.com/<slug>/`. Cleaner cache + auth-cookie boundaries. |
 | 6 | Database for working drafts | R2 with D1 pointer. Avoids D1's 2 MB row limit; keeps us on one platform. |
 | 7 | Custom domains for published feeds | Not supported. Agencies `301` from their own domain if needed. |
 | 8 | Catalog auto-submission | One-time opt-in per project, auto-update thereafter. |

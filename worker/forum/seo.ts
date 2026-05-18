@@ -33,7 +33,7 @@ import type {
   ThreadRow,
 } from './types';
 
-const APP_NAME = 'GTFS Studio Community';
+const APP_NAME = 'GTFS·X Community';
 
 export interface ForumSeo {
   title: string;
@@ -53,7 +53,7 @@ function imageOriginHost(env: Env): string | null {
 }
 
 function appOrigin(env: Env): string {
-  return env.APP_ORIGIN || 'https://www.gtfsstudio.net';
+  return env.APP_ORIGIN || 'https://www.gtfsx.com';
 }
 
 // ─── /community ─────────────────────────────────────────────────────────────
@@ -80,13 +80,13 @@ export async function renderCommunityIndexSeo(env: Env): Promise<ForumSeo> {
   }).join('');
 
   const body = `
-    <h1>GTFS Studio Community</h1>
+    <h1>GTFS·X Community</h1>
     <p>Ask questions, share feeds, request features, and trade notes with other GTFS authors.</p>
     <ul class="forum-categories">${items}</ul>`;
 
   return {
     title: `${APP_NAME} — discussion forum`,
-    description: 'Q&A and discussion for transit agencies, consultants, and GTFS authors using GTFS Studio. Get help with the editor, share feeds, request features.',
+    description: 'Q&A and discussion for transit agencies, consultants, and GTFS authors using GTFS·X. Get help with the editor, share feeds, request features.',
     canonicalUrl: `${appOrigin(env)}/community`,
     body,
     jsonLd: null,
@@ -133,7 +133,7 @@ export async function renderCategorySeo(env: Env, catId: string): Promise<ForumS
 
   return {
     title: `${cat.title} — ${APP_NAME}`,
-    description: cat.description || `Discussion in ${cat.title} on the GTFS Studio community forum.`,
+    description: cat.description || `Discussion in ${cat.title} on the GTFS·X community forum.`,
     canonicalUrl: `${appOrigin(env)}/community/${encodeURIComponent(catId)}`,
     body,
     jsonLd: null,
@@ -291,7 +291,7 @@ function buildThreadJsonLd(
     url: canonicalUrl,
     isPartOf: {
       '@type': 'WebSite',
-      name: 'GTFS Studio',
+      name: 'GTFS·X',
       url: origin,
     },
   };
@@ -326,7 +326,7 @@ export async function renderProfileSeo(env: Env, userId: string): Promise<ForumS
 
   return {
     title: `${author.displayName} — ${APP_NAME}`,
-    description: `Forum profile and recent threads by ${author.displayName} on GTFS Studio Community.`,
+    description: `Forum profile and recent threads by ${author.displayName} on GTFS·X Community.`,
     canonicalUrl: `${appOrigin(env)}/community/u/${encodeURIComponent(userId)}`,
     body,
     jsonLd: null,

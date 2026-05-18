@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 1000" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" role="img" aria-label="GTFS Studio cloud architecture (staging deployment)">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 1000" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" role="img" aria-label="GTFS·X cloud architecture (staging deployment)">
 
-  <title>GTFS Studio — Cloud architecture (staging)</title>
-  <desc>Architecture diagram of the GTFS Studio application as deployed to the staging environment, showing the React SPA, the Cloudflare Worker and its bindings (D1, KV, two R2 buckets, Static Assets, Cron, Turnstile, Workers Analytics), the external services Stripe, Resend, Mapbox, and the Mobility Database, and the GitHub Actions deploy pipeline.</desc>
+  <title>GTFS·X — Cloud architecture (staging)</title>
+  <desc>Architecture diagram of the GTFS·X application as deployed to the staging environment, showing the React SPA, the Cloudflare Worker and its bindings (D1, KV, two R2 buckets, Static Assets, Cron, Turnstile, Workers Analytics), the external services Stripe, Resend, Mapbox, and the Mobility Database, and the GitHub Actions deploy pipeline.</desc>
 
   <defs>
     <!-- Subtle drop shadow for cards -->
@@ -32,8 +32,8 @@
   <rect width="1320" height="1000" fill="#FAF7F2"/>
 
   <!-- ─── Title ─────────────────────────────────────────────── -->
-  <text x="40" y="42" font-size="22" font-weight="800" fill="#3D2E1F">GTFS Studio — Cloud architecture</text>
-  <text x="40" y="62" font-size="13" fill="#8A7E6E">Staging deployment (staging.gtfsstudio.net + staging-feeds.gtfsstudio.net). Production mirrors the same shape behind a kill switch.</text>
+  <text x="40" y="42" font-size="22" font-weight="800" fill="#3D2E1F">GTFS·X — Cloud architecture</text>
+  <text x="40" y="62" font-size="13" fill="#8A7E6E">Staging deployment (staging.gtfsx.com + staging-feeds.gtfsx.com). Production mirrors the same shape behind a kill switch.</text>
 
   <!-- ═══════════════════════════════════════════════════════════
        CLIENT / BROWSER
@@ -75,7 +75,7 @@
     <!-- DNS / domains row -->
     <rect x="60" y="298" width="1200" height="48" rx="10" fill="#FFF7EC" stroke="#F4D6A8" stroke-width="1"/>
     <text x="78" y="318" font-weight="700" fill="#3D2E1F">DNS + Custom Domains</text>
-    <text x="78" y="336" fill="#8A7E6E" font-size="12">staging.gtfsstudio.net &#160;·&#160; staging-feeds.gtfsstudio.net &#160;·&#160; (prod mirrors at gtfsstudio.net / feeds.gtfsstudio.net)</text>
+    <text x="78" y="336" fill="#8A7E6E" font-size="12">staging.gtfsx.com &#160;·&#160; staging-feeds.gtfsx.com &#160;·&#160; (prod mirrors at gtfsx.com / feeds.gtfsx.com)</text>
 
     <!-- ─── Worker (the brain) ─── -->
     <rect x="60" y="368" width="800" height="172" rx="12" fill="#FFF1E6" stroke="#E8704A" stroke-width="1.8"/>

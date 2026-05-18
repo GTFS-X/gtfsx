@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
-    <title>GTFS Studio Documentation – How to Build a GTFS Feed</title>
-    <meta name="description" content="Step-by-step documentation for GTFS Studio. Learn how to draw routes, place stops, build timetables, define fares, configure GTFS-Flex zones and booking rules, validate, and export a standards-compliant GTFS ZIP." />
-    <link rel="canonical" href="https://www.gtfsstudio.net/docs/" />
-    <meta property="og:title" content="GTFS Studio Documentation" />
+    <title>GTFS·X Documentation – How to Build a GTFS Feed</title>
+    <meta name="description" content="Step-by-step documentation for GTFS·X. Learn how to draw routes, place stops, build timetables, define fares, configure GTFS-Flex zones and booking rules, validate, and export a standards-compliant GTFS ZIP." />
+    <link rel="canonical" href="https://www.gtfsx.com/docs/" />
+    <meta property="og:title" content="GTFS·X Documentation" />
     <meta property="og:description" content="A complete guide to building a GTFS feed in the browser — routes, stops, timetables, fares, GTFS-Flex, and export." />
     <meta property="og:type" content="article" />
-    <meta property="og:url" content="https://www.gtfsstudio.net/docs/" />
+    <meta property="og:url" content="https://www.gtfsx.com/docs/" />
     <style>
       :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
       * { box-sizing: border-box; }
@@ -56,8 +56,8 @@
     {
       "@context": "https://schema.org",
       "@type": "TechArticle",
-      "headline": "GTFS Studio Documentation",
-      "url": "https://www.gtfsstudio.net/docs/",
+      "headline": "GTFS·X Documentation",
+      "url": "https://www.gtfsx.com/docs/",
       "about": "GTFS feed editing and authoring",
       "audience": {
         "@type": "Audience",
@@ -69,8 +69,8 @@
   <body>
     <header class="site-header">
       <a href="/" class="brand">
-        <img src="/gtfs-studio-logo.svg" alt="" />
-        <span class="brand-name">GTFS Studio</span>
+        <img src="/gtfsx-mark.svg" alt="" />
+        <span class="brand-name">GTFS·X</span>
       </a>
       <nav>
         <a href="/about/">About</a>
@@ -88,8 +88,8 @@
       </div>
     </header>
     <main>
-      <h1>GTFS Studio Documentation</h1>
-      <p class="lede">A walkthrough of every part of GTFS Studio, ordered the way you'll actually use them. If you've never authored a GTFS feed before, start with <a href="/learn/gtfs/">What is GTFS?</a> first, then come back here.</p>
+      <h1>GTFS·X Documentation</h1>
+      <p class="lede">A walkthrough of every part of GTFS·X, ordered the way you'll actually use them. If you've never authored a GTFS feed before, start with <a href="/learn/gtfs/">What is GTFS?</a> first, then come back here.</p>
 
       <div class="toc">
         <h2>On this page</h2>
@@ -125,7 +125,7 @@
 
       <h2 id="stops">4. Stops</h2>
       <p>With a route selected, click along the route line to drop stops. By default each stop snaps to the nearest point on the route line and is rendered visually offset to the right side of the line, mimicking real-world curbside placement. To place a stop that isn't on any route (a park &amp; ride, a transfer center, an off-street terminal), toggle freehand stop mode.</p>
-      <p>If you click near an existing stop, GTFS Studio will prompt you to reuse that stop instead of creating a duplicate. This is the right behavior — a stop served by multiple routes should be a single record in <code>stops.txt</code>.</p>
+      <p>If you click near an existing stop, GTFS·X will prompt you to reuse that stop instead of creating a duplicate. This is the right behavior — a stop served by multiple routes should be a single record in <code>stops.txt</code>.</p>
       <p>Reorder stops along a route by dragging them in the sidebar list. Stop attributes (name, code, wheelchair boarding, parent station) are edited in the property panel.</p>
 
       <h2 id="timetable">5. Timetables &amp; trips</h2>
@@ -133,7 +133,7 @@
       <p>For repeating service, use "Duplicate trip with offset" to spawn a new trip every N minutes — much faster than typing a full weekday schedule by hand. For headway-based service (every 10 minutes from 6am to 9pm, no scheduled times), use the frequency editor instead, which writes <code>frequencies.txt</code>.</p>
 
       <h2 id="fares">6. Fares</h2>
-      <p>Fares are <strong>strongly encouraged</strong>. Trip planners and rider-facing apps depend on accurate fare data, and a feed without fares is materially less useful for the people consuming it. GTFS Studio will surface a persistent reminder if no fare data is defined.</p>
+      <p>Fares are <strong>strongly encouraged</strong>. Trip planners and rider-facing apps depend on accurate fare data, and a feed without fares is materially less useful for the people consuming it. GTFS·X will surface a persistent reminder if no fare data is defined.</p>
       <p>The simplest setup is a single flat fare assigned to all routes. For zone-based systems, define fare zones on the map, assign stops to zones, and create a zone-to-zone fare matrix. Multiple fare types (regular, reduced, senior, student) are supported via separate <code>fare_attributes.txt</code> records.</p>
 
       <h2 id="flex">7. GTFS-Flex zones &amp; booking rules</h2>

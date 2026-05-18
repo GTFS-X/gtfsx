@@ -72,7 +72,7 @@ export function ProfileEditor() {
         <Link to="/community" className="text-xs text-warm-gray hover:text-coral">← Community</Link>
         <h1 className="font-heading font-bold text-2xl text-dark-brown mt-1">Your community profile</h1>
         <p className="text-sm text-warm-gray mt-1">
-          How you appear to other GTFS Studio users in the forum. This is separate from your account settings.
+          How you appear to other GTFS·X users in the forum. This is separate from your account settings.
         </p>
       </div>
 

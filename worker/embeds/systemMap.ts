@@ -69,7 +69,7 @@ export async function renderSystemMapEmbed(
     <h3>Routes</h3>
     <div class="route-list">${routeLinks}</div>
     <footer class="embed-footer">
-      Powered by <a href="https://gtfsstudio.net" target="_blank" rel="noopener">GTFS Studio</a>
+      Powered by <a href="https://gtfsx.com" target="_blank" rel="noopener">GTFS·X</a>
     </footer>
   `;
 

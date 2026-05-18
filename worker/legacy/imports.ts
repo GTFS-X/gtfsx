@@ -120,7 +120,7 @@ export async function handleProxy(request: Request, ctx: ExecutionContext): Prom
   if (hit) return hit;
 
   const upstream = await fetch(target, {
-    headers: { 'User-Agent': 'gtfsstudio.net/1.0 (+https://www.gtfsstudio.net/)' },
+    headers: { 'User-Agent': 'gtfsx.com/1.0 (+https://www.gtfsx.com/)' },
     redirect: 'follow',
   });
   if (!upstream.ok) {

@@ -1,4 +1,4 @@
-# GTFS Studio — Embeds Reference
+# GTFS·X — Embeds Reference
 
 Reference + future-work tracker for the rider-facing render layer (mini-site landing, per-route embed, per-stop embed, system map embed, demo agency page). The high-level overview lives in [`REQUIREMENTS.md`](./REQUIREMENTS.md) §4.4. The phases that motivated the original spec — mini-site MVP (7a), iframe embeds (7b), branding + brand color (7d) — are shipped on staging; this file keeps the underlying research findings and the unbuilt-phase backlog.
 
@@ -29,11 +29,11 @@ A survey of five small-agency websites (Streamline / Bozeman MT, Mountain Line /
 Server-rendered HTML on the FEEDS origin, edge-cached, version-id ETag, same renderer powers all surfaces. Hono `html` template tag, no SSR machinery to maintain. Mapbox GL JS via CDN for the map; tile token bound to the Worker as `MAPBOX_TOKEN`.
 
 ```
-feeds.gtfsstudio.net/<slug>/                          # mini-site landing (indexable)
-feeds.gtfsstudio.net/<slug>/embed/system-map          # system overview embed
-feeds.gtfsstudio.net/<slug>/embed/route/<route_id>    # per-route map + schedule
-feeds.gtfsstudio.net/<slug>/embed/stop/<stop_id>      # per-stop "departures today"
-feeds.gtfsstudio.net/_/orgs/<org_id>/logo             # public org-logo bytes (CORS open)
+feeds.gtfsx.com/<slug>/                          # mini-site landing (indexable)
+feeds.gtfsx.com/<slug>/embed/system-map          # system overview embed
+feeds.gtfsx.com/<slug>/embed/route/<route_id>    # per-route map + schedule
+feeds.gtfsx.com/<slug>/embed/stop/<stop_id>      # per-stop "departures today"
+feeds.gtfsx.com/_/orgs/<org_id>/logo             # public org-logo bytes (CORS open)
 ```
 
 Cross-cutting headers: `Content-Security-Policy: frame-ancestors *` on embeds (publicly framable), `frame-ancestors 'none'` on the mini-site landing (canonical destination, anti-clickjacking). `X-Robots-Tag: noindex` on the embeds (don't outrank the host page); the landing is indexable.

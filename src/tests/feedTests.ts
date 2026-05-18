@@ -1,5 +1,5 @@
 /**
- * Comprehensive integration tests for GTFS Studio.
+ * Comprehensive integration tests for GTFS·X.
  * Run in browser console via: window.__runTests()
  *
  * Tests import a real GTFS feed (Pittsburgh Regional Transit),
@@ -28,7 +28,7 @@ function s() { return useStore.getState(); }
 
 export async function runAllTests(zipFile: File): Promise<TestResult[]> {
   results.length = 0;
-  console.log('=== GTFS Studio Test Suite ===');
+  console.log('=== GTFS·X Test Suite ===');
 
   // =============================================
   // PHASE 1: IMPORT

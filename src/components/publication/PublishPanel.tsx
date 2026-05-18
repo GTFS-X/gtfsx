@@ -495,7 +495,7 @@ function CurrentPublicationView({
   const url =
     pub.canonicalUrl ??
     (project
-      ? `https://feeds.gtfsstudio.net/${project.slug}/gtfs.zip`
+      ? `https://feeds.gtfsx.com/${project.slug}/gtfs.zip`
       : null);
 
   return (

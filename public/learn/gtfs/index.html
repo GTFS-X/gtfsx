@@ -6,11 +6,11 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <title>What is GTFS? A Plain-English Guide to the General Transit Feed Specification</title>
     <meta name="description" content="GTFS (General Transit Feed Specification) is the standard format for sharing public transit schedules and route information. This guide explains what GTFS is, what files it contains, who consumes it, and how to publish a feed for your transit agency." />
-    <link rel="canonical" href="https://www.gtfsstudio.net/learn/gtfs/" />
+    <link rel="canonical" href="https://www.gtfsx.com/learn/gtfs/" />
     <meta property="og:title" content="What is GTFS? A Plain-English Guide" />
     <meta property="og:description" content="A clear introduction to the General Transit Feed Specification — what it is, what the files mean, and how to publish your own feed." />
     <meta property="og:type" content="article" />
-    <meta property="og:url" content="https://www.gtfsstudio.net/learn/gtfs/" />
+    <meta property="og:url" content="https://www.gtfsx.com/learn/gtfs/" />
     <style>
       :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
       * { box-sizing: border-box; }
@@ -57,7 +57,7 @@
       "@context": "https://schema.org",
       "@type": "Article",
       "headline": "What is GTFS? A Plain-English Guide to the General Transit Feed Specification",
-      "url": "https://www.gtfsstudio.net/learn/gtfs/",
+      "url": "https://www.gtfsx.com/learn/gtfs/",
       "description": "A clear introduction to the General Transit Feed Specification: what it is, what the files mean, and how to publish your own feed."
     }
     </script>
@@ -65,8 +65,8 @@
   <body>
     <header class="site-header">
       <a href="/" class="brand">
-        <img src="/gtfs-studio-logo.svg" alt="" />
-        <span class="brand-name">GTFS Studio</span>
+        <img src="/gtfsx-mark.svg" alt="" />
+        <span class="brand-name">GTFS·X</span>
       </a>
       <nav>
         <a href="/about/">About</a>
@@ -125,7 +125,7 @@
       </ul>
 
       <h2>GTFS Schedule vs. GTFS Realtime</h2>
-      <p>"GTFS" by itself usually means <strong>GTFS Schedule</strong> — the static, planned schedule. There's a separate companion specification, <strong>GTFS Realtime</strong>, that publishes live data: actual vehicle positions, trip updates (delays, cancellations), and service alerts. Realtime feeds reference the static feed by ID — so you need a clean, accurate schedule feed before realtime makes sense. GTFS Studio is focused on the schedule side.</p>
+      <p>"GTFS" by itself usually means <strong>GTFS Schedule</strong> — the static, planned schedule. There's a separate companion specification, <strong>GTFS Realtime</strong>, that publishes live data: actual vehicle positions, trip updates (delays, cancellations), and service alerts. Realtime feeds reference the static feed by ID — so you need a clean, accurate schedule feed before realtime makes sense. GTFS·X is focused on the schedule side.</p>
 
       <h2>What about demand-responsive transit?</h2>
       <p>The base GTFS spec assumes fixed routes and fixed schedules. For microtransit, dial-a-ride, and other demand-responsive service, there's an extension called <strong>GTFS-Flex</strong> that adds polygon service zones, pickup/drop-off windows, and booking rules. See <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a> for the details.</p>
@@ -133,14 +133,14 @@
       <h2>How do I publish a feed?</h2>
       <p>Three steps:</p>
       <ol>
-        <li><strong>Build the feed</strong> — describe your routes, stops, trips, and schedule in the GTFS format. You can do this by hand in a spreadsheet, with scripts, or with an editor like <a href="/">GTFS Studio</a>.</li>
-        <li><strong>Validate it</strong> — run the feed through the <a href="https://github.com/MobilityData/gtfs-validator" rel="noopener">canonical GTFS validator</a> to catch errors before consumers do. GTFS Studio validates as you go.</li>
+        <li><strong>Build the feed</strong> — describe your routes, stops, trips, and schedule in the GTFS format. You can do this by hand in a spreadsheet, with scripts, or with an editor like <a href="/">GTFS·X</a>.</li>
+        <li><strong>Validate it</strong> — run the feed through the <a href="https://github.com/MobilityData/gtfs-validator" rel="noopener">canonical GTFS validator</a> to catch errors before consumers do. GTFS·X validates as you go.</li>
         <li><strong>Host it at a stable URL</strong> — put the ZIP file at a permanent URL on your agency's website and submit it to consumers. The <a href="https://mobilitydatabase.org/" rel="noopener">Mobility Database</a> is the canonical registry; once you're listed there, most major trip planners will pick up your feed automatically.</li>
       </ol>
 
       <h2>Where to go from here</h2>
       <ul>
-        <li><a href="/">Open GTFS Studio</a> and start drawing your first route.</li>
+        <li><a href="/">Open GTFS·X</a> and start drawing your first route.</li>
         <li>Read the <a href="/docs/">documentation</a> for a step-by-step walkthrough of the editor.</li>
         <li>Read the <a href="/learn/gtfs-flex/">GTFS-Flex primer</a> if you operate demand-responsive service.</li>
         <li>The official spec lives at <a href="https://gtfs.org/" rel="noopener">gtfs.org</a> and is the authoritative reference.</li>

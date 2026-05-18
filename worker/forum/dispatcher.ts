@@ -75,7 +75,7 @@ export async function maybeRenderForumPage(
 async function buildResponse(env: Env, seo: ForumSeo): Promise<Response> {
   // Pull the SPA shell from the static assets binding. The same response is
   // mutated to inject the SEO head + visible content.
-  const shellReq = new Request(`${env.APP_ORIGIN || 'https://www.gtfsstudio.net'}/index.html`);
+  const shellReq = new Request(`${env.APP_ORIGIN || 'https://www.gtfsx.com'}/index.html`);
   const shell = await env.ASSETS.fetch(shellReq);
   if (!shell.ok) {
     // Should not happen — fall back to a minimal HTML response so the

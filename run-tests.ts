@@ -1,5 +1,5 @@
 /**
- * Run GTFS Studio integration tests headlessly via tsx.
+ * Run GTFS·X integration tests headlessly via tsx.
  * Usage: npx tsx run-tests.ts
  */
 import { readFileSync } from 'fs';
@@ -38,7 +38,7 @@ function assert(name: string, condition: boolean, detail?: string) {
 function s() { return useStore.getState(); }
 
 async function main() {
-  console.log('=== GTFS Studio Integration Tests ===\n');
+  console.log('=== GTFS·X Integration Tests ===\n');
 
   // Load Pittsburgh GTFS — pass Buffer directly, JSZip handles it natively
   const zipBuffer = readFileSync('pittsburgh_gtfs.zip');

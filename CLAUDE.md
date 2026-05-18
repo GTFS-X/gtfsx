@@ -1,4 +1,4 @@
-# GTFS Studio — Agent Guidelines
+# GTFS·X — Agent Guidelines
 
 ## Browser & Chrome Tools
 - Proactively open HTML files, wireframes, and local dev servers in Chrome using `open` or browser automation tools — don't wait to be asked.

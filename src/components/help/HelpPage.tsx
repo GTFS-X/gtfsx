@@ -34,9 +34,9 @@ export function HelpPage() {
     <div className="min-h-screen bg-cream">
       <header className="sticky top-0 z-10 bg-white border-b border-sand h-14 flex items-center px-5 gap-4">
         <Link to="/" className="inline-flex items-center gap-2.5 shrink-0">
-          <img src="/gtfs-studio-logo.svg" alt="" className="w-11 h-11 max-[720px]:w-9 max-[720px]:h-9" />
+          <img src="/gtfsx-mark.svg" alt="" className="w-11 h-11 max-[720px]:w-9 max-[720px]:h-9" />
           <span className="font-extrabold text-2xl text-coral tracking-tight max-[720px]:text-xl">
-            GTFS Studio
+            GTFS·X
           </span>
         </Link>
         <nav className="hidden min-[720px]:flex gap-1 ml-3">
@@ -148,7 +148,7 @@ export function HelpPage() {
           <ul className="list-disc pl-5 space-y-1">
             <li><a href="/learn/gtfs/" className="text-coral underline hover:text-[#d4603a]">What is GTFS?</a> — plain-English intro to the spec.</li>
             <li><a href="/learn/gtfs-flex/" className="text-coral underline hover:text-[#d4603a]">What is GTFS-Flex?</a> — demand-responsive transit in GTFS.</li>
-            <li><a href="/docs/deep-links/" className="text-coral underline hover:text-[#d4603a]">Deep-link integration</a> — opening GTFS Studio from your own tools.</li>
+            <li><a href="/docs/deep-links/" className="text-coral underline hover:text-[#d4603a]">Deep-link integration</a> — opening GTFS·X from your own tools.</li>
             <li><Link to="/pricing" className="text-coral underline hover:text-[#d4603a]">Pricing &amp; plans</Link>.</li>
           </ul>
         </section>

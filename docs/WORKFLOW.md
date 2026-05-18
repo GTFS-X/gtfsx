@@ -13,14 +13,14 @@ main = source of truth.   Stays deployable at all times.
 Feature branches = short-lived, branched off main, merged via --ff-only.
 
 Push to main → Cloudflare Workers Builds auto-deploys gtfs-builder
-               (prod, gtfsstudio.net) within ~1 minute.
+               (prod, gtfsx.com) within ~1 minute.
 
 Kill-switch flags (BACKEND_ENABLED + VITE_BACKEND_ENABLED) gate backend
 visibility. Flip the wrangler.jsonc value AND the CF Workers Builds
 build-env value in lockstep when changing prod's stance.
 ```
 
-There is no long-lived "develop" branch and no tag-driven promotion gate. Every push to `main` is a prod deploy. Staging (`gtfs-builder-staging` worker, `staging.gtfsstudio.net`) is parked — no longer auto-deployed; available as a manual rehearsal env via `wrangler deploy --env staging` for risky changes you want to validate before merging to main.
+There is no long-lived "develop" branch and no tag-driven promotion gate. Every push to `main` is a prod deploy. Staging (`gtfs-builder-staging` worker, `staging.gtfsx.com`) is parked — no longer auto-deployed; available as a manual rehearsal env via `wrangler deploy --env staging` for risky changes you want to validate before merging to main.
 
 ---
 
@@ -84,7 +84,7 @@ npx tsc -p tsconfig.worker.json --noEmit                      # worker typecheck
 
 ## Manual staging deploys (optional)
 
-Staging (`gtfs-builder-staging` worker, `staging.gtfsstudio.net`, separate D1 / R2 / KV) is **not auto-deployed** — it sits parked at whatever was last shipped via `wrangler deploy --env staging`. Use it as an escape hatch when a change feels risky enough to want a rehearsal before pushing to main:
+Staging (`gtfs-builder-staging` worker, `staging.gtfsx.com`, separate D1 / R2 / KV) is **not auto-deployed** — it sits parked at whatever was last shipped via `wrangler deploy --env staging`. Use it as an escape hatch when a change feels risky enough to want a rehearsal before pushing to main:
 
 ```bash
 npm run build
@@ -92,7 +92,7 @@ unset CLOUDFLARE_API_TOKEN     # OAuth has the right scopes
 npx wrangler deploy --env staging
 ```
 
-Visit https://staging.gtfsstudio.net (editor) and https://staging-feeds.gtfsstudio.net (feeds + embeds) to verify. The staging worker has its own D1/R2/KV so writes don't affect prod. Staging uses test-mode Stripe.
+Visit https://staging.gtfsx.com (editor) and https://staging-feeds.gtfsx.com (feeds + embeds) to verify. The staging worker has its own D1/R2/KV so writes don't affect prod. Staging uses test-mode Stripe.
 
 `wrangler tail gtfs-builder-staging` is your first stop when something looks off — the worker name (not the env flag) is the argument, and JSON output (`--format json`) is easier to grep.
 
@@ -164,7 +164,7 @@ Before pushing to main:
 
    ```bash
    # Hash on the live site
-   curl -sS https://www.gtfsstudio.net/ | grep -oE 'index-[a-zA-Z0-9_-]+\.js'
+   curl -sS https://www.gtfsx.com/ | grep -oE 'index-[a-zA-Z0-9_-]+\.js'
    # Compare against the hash in the CF dashboard → Builds → latest run logs.
    ```
 
@@ -240,7 +240,7 @@ In practice we haven't needed this yet because prod has stayed disabled — most
 If a deploy fails with `code: 10023 (kv bindings require kv write perms)` or `code: 10000 (Authentication error)` on `/zones/.../workers/routes`, it's the `CLOUDFLARE_API_TOKEN` (in `~/proj/.env`) missing scopes. Required scopes for a smooth deploy:
 
 - **Account** — Workers Scripts : Edit, Workers KV Storage : Edit, Workers R2 Storage : Edit, D1 : Edit, Account Settings : Read
-- **Zone** (`gtfsstudio.net`) — Workers Routes : Edit, Zone : Read
+- **Zone** (`gtfsx.com`) — Workers Routes : Edit, Zone : Read
 
 Manage at https://dash.cloudflare.com/profile/api-tokens.
 

@@ -43,9 +43,9 @@ export function CommunityRoot({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-cream">
       <header className="sticky top-0 z-10 bg-white border-b border-sand h-14 flex items-center px-5 gap-4">
         <Link to="/" className="inline-flex items-center gap-2.5 shrink-0">
-          <img src="/gtfs-studio-logo.svg" alt="" className="w-11 h-11 max-[720px]:w-9 max-[720px]:h-9" />
+          <img src="/gtfsx-mark.svg" alt="" className="w-11 h-11 max-[720px]:w-9 max-[720px]:h-9" />
           <span className="font-extrabold text-2xl text-coral tracking-tight max-[720px]:text-xl">
-            GTFS Studio
+            GTFS·X
           </span>
         </Link>
 

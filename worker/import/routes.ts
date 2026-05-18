@@ -169,7 +169,7 @@ async function fetchFeedZip(initialUrl: URL): Promise<Uint8Array> {
       try {
         res = await fetch(current.toString(), {
           headers: {
-            'User-Agent': 'GTFSStudio-DeepLink/1.0 (+https://www.gtfsstudio.net/docs/deep-links/)',
+            'User-Agent': 'GTFSX-DeepLink/1.0 (+https://www.gtfsx.com/docs/deep-links/)',
             Accept: 'application/zip, application/octet-stream;q=0.9, */*;q=0.5',
           },
           redirect: 'manual',
