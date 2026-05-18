@@ -19,7 +19,7 @@
       /* ─── site header (matches the editor) ─── */
       .site-header { position: sticky; top: 0; z-index: 10; background:#fff; border-bottom:1px solid var(--rule); height:56px; display:flex; align-items:center; padding: 0 20px; gap:16px; }
       .site-header .brand { display:inline-flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
-      .site-header .brand img { width:44px; height:44px; }
+      .site-header .brand img { height:36px; width:auto; }
       .site-header .brand-name { font-weight:800; font-size:1.5rem; color:var(--accent); letter-spacing:-0.01em; }
       .site-header nav { display:flex; gap:4px; margin-left:12px; }
       .site-header nav a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; padding:8px 12px; border-radius:6px; transition:color 0.15s, background 0.15s; }
@@ -35,7 +35,7 @@
       @media (max-width: 720px) {
         .site-header nav, .site-header .cta { display:none; }
         .site-header .brand-name { font-size:1.25rem; }
-        .site-header .brand img { width:36px; height:36px; }
+        .site-header .brand img { height:30px; width:auto; }
       }
       main { padding-top: 40px; padding-bottom: 60px; }
       h1 { font-size: 2.2rem; line-height:1.2; margin: 0 0 12px; }
@@ -61,8 +61,7 @@
   <body>
     <header class="site-header">
       <a href="/" class="brand">
-        <img src="/gtfsx-mark.svg" alt="" />
-        <span class="brand-name">GTFS·X</span>
+        <img src="/gtfsx-lockup.svg" alt="GTFS·X" />
       </a>
       <nav>
         <a href="/about/">About</a>
