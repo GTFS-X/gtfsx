@@ -38,8 +38,8 @@ export function ValidationPanel() {
   };
 
   return (
-    <div className="p-2">
-      <div className="flex items-center gap-2 px-2 mb-2">
+    <div className="p-2 h-full overflow-y-auto min-h-0">
+      <div className="flex items-center gap-2 px-2 mb-2 sticky top-0 bg-white py-1 z-10">
         <span className="font-heading font-bold text-sm">Validation</span>
         {errors.length > 0 && <Badge variant="error">{errors.length} Errors</Badge>}
         {warnings.length > 0 && <Badge variant="warning">{warnings.length} Warnings</Badge>}
