@@ -16,7 +16,7 @@ The high-level overview is in [`REQUIREMENTS.md`](./REQUIREMENTS.md). The refere
 - **Snapshots rename (2026-05-15, post-launch).** What we used to call "versions" (point-in-time saves of editor state) are now uniformly **snapshots** — UI tab "Snapshots", API routes `/api/projects/:id/snapshots[...]`, DB table `feed_snapshot` (FK columns `snapshot_id` on `draft_link` / `publication` / `publication_history`), R2 path `projects/{id}/snapshots/{id}/...`, audit actions `project.create_snapshot` / `restore_snapshot` / `delete_snapshot` (legacy `*_version` strings still render in the audit log via a backward-compat lookup in `auditFormat.ts`), feature key `snapshot_history`. Done now to avoid terminology collision with GTFS spec's own `feed_version` field. Migration `0012_rename_version_to_snapshot.sql` applied on both staging and prod.
 - **Staging is parked (2026-05-16).** Worker, D1, R2, KV all still exist at `gtfs-builder-staging` / `staging.gtfsx.com`, but no longer auto-deployed (CF Workers Builds deploys prod only on push to main; the old GitHub Actions workflow that deployed staging was retired). Manual rehearsal still works via `npx wrangler deploy --env staging`; otherwise staging stays at whatever was last shipped.
 - **NF-40a (argon2id)** remains the only spec-level technical debt that should land before broad RTAP distribution. Tracked in `BACKEND_REQUIREMENTS.md` §8.1.
-- **Analytics.** Cookieless page-view tracking is live: `POST /api/events/track` writes to the `event` table; `/admin/events` aggregates visits + page views grouped by inbound `?ref=` tag. No PII recorded. Now firing on prod since the launch flip.
+- **Analytics.** Cookieless tracking is live: `POST /api/events/track` writes to the `event` table; `/admin/events` aggregates by inbound `?ref=` tag. No PII recorded. **Extended 2026-05-20 (migration 0013)** beyond page views to a marketing funnel — `kind` now ∈ `{page_view, editor_loaded, feed_exported, paywall_view}`, with an optional `label` (e.g. the gated feature key on a paywall view). The frontend fires `editor_loaded` on editor-shell mount, `feed_exported` after a ZIP download, and `paywall_view` when `PaywallOverlay` shows. `/admin/events/summary` pivots every kind into per-`ref` columns (visits / editor sessions / exports / paywall views / page views) + totals; the Events page surfaces them as cards + table columns. Funnel KPIs for the 90-day marketing plan, attributable via `?ref=`.
 - **Domain rebrand (2026-05-15).** Product renamed GTFS Builder → GTFS·X; primary domain moved gtfsbuilder.net → gtfsx.com. All five legacy hostnames (apex, www, feeds, staging, staging-feeds) remain bound to the Worker and 301 to their gtfsx.com equivalents (path + query preserved). Internal Cloudflare resource identifiers (Worker names `gtfs-builder` / `gtfs-builder-staging`, D1 db names, R2 bucket names) intentionally kept as-is. Runbook: `docs/DOMAIN_MIGRATION.md`. Phase 12 cleanup (remove legacy routes + redirect block) is deferred until traffic on the old domain decays — months from now.
 
 ---
@@ -37,7 +37,7 @@ Infra still exists (cheap insurance) but no longer auto-deployed. Use as a manua
 
 - Worker: `gtfs-builder-staging`.
 - Custom domains: `staging.gtfsx.com`, `staging-feeds.gtfsx.com`.
-- D1: `gtfs-builder-staging` (id `f62aa5db-329f-4a78-bf35-4b96f79d4392`). Migrations 0001–0012 applied.
+- D1: `gtfs-builder-staging` (id `f62aa5db-329f-4a78-bf35-4b96f79d4392`). Migrations 0001–0013 applied.
 - KV: id `ceb1f063c83a4bec9306e66288a51dc8`.
 - R2: `gtfs-builder-feeds-staging` (feed blobs + org logos).
 - Secrets: `RESEND_API_KEY`, `TURNSTILE_SECRET_KEY`, `MOBILITY_DATABASE_REFRESH_TOKEN`, `STRIPE_SECRET_KEY` (test), `STRIPE_WEBHOOK_SIGNING_SECRET` (test).
@@ -50,7 +50,7 @@ Infra still exists (cheap insurance) but no longer auto-deployed. Use as a manua
 
 - Worker `gtfs-builder` (current version `11a80739-48b6-492e-800a-105902d73b25`). SPA renders the full editor + auth + billing UI.
 - Resources:
-  - D1: `gtfs-builder` (id `cfb27d4e-6ba8-488e-95f9-674cc0560cbe`). Migrations 0001–0012 applied.
+  - D1: `gtfs-builder` (id `cfb27d4e-6ba8-488e-95f9-674cc0560cbe`). Migrations 0001–0013 applied.
   - KV: id `da2476e5027346988e380474fa6deef5`.
   - R2: `gtfs-builder-feeds` (and `gtfs-builder-forum-images`).
   - Secrets: `RESEND_API_KEY`, `MOBILITY_DATABASE_REFRESH_TOKEN`, `TURNSTILE_SECRET_KEY`, `STRIPE_SECRET_KEY` (live, `sk_live_…`), `STRIPE_WEBHOOK_SIGNING_SECRET` (live).
