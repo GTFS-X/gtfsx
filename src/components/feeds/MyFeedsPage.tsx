@@ -13,12 +13,15 @@ import {
   deleteProject,
   listProjects,
   patchProject,
+  saveWorkingState,
   transferProject,
   type ProjectSummary,
   type TransferResult,
 } from '../../services/projectsApi';
 import { ApiError } from '../../services/authApi';
 import { roleAtLeast } from '../../services/orgsApi';
+import { ImportDialog } from '../import-export/ImportDialog';
+import { buildSnapshot, setCurrentWorkingStateVersion } from '../../db/serverPersistence';
 
 function formatDate(ms: number | null | undefined): string {
   if (!ms) return '—';
@@ -42,10 +45,15 @@ export function MyFeedsPage() {
   const setFeedsProjects = useStore((s) => s.setFeedsProjects);
   const upsertFeedProject = useStore((s) => s.upsertFeedProject);
   const removeFeedProject = useStore((s) => s.removeFeedProject);
+  const setProjectId = useStore((s) => s.setProjectId);
+  const setProjectName = useStore((s) => s.setProjectName);
+  const setActiveServerProject = useStore((s) => s.setActiveServerProject);
+  const markSaved = useStore((s) => s.markSaved);
 
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [includeArchived, setIncludeArchived] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
@@ -86,6 +94,28 @@ export function MyFeedsPage() {
     fetchList();
   }, [authChecked, currentUser, fetchList]);
 
+  // After ImportDialog loads the feed into the editor store, persist it as a
+  // new project owned by the active workspace (mirrors SaveAsDialog), then
+  // open it in the editor. ImportDialog surfaces errors inline and stays open
+  // on failure, so we let exceptions propagate.
+  const handleImportComplete = async () => {
+    const owner: { type: 'user' } | { type: 'org'; id: string } =
+      activeWorkspace.type === 'org'
+        ? { type: 'org', id: activeWorkspace.orgId }
+        : { type: 'user' };
+    const name = useStore.getState().projectName?.trim() || 'Imported Feed';
+    const project = await createProject({ name, owner });
+    setProjectId(project.id);
+    setProjectName(project.name);
+    const snapshot = buildSnapshot();
+    const { workingStateVersion } = await saveWorkingState(project.id, snapshot, 0);
+    setCurrentWorkingStateVersion(project.id, workingStateVersion);
+    setActiveServerProject(project.id);
+    upsertFeedProject({ ...project, workingStateVersion });
+    markSaved();
+    navigate(`/feeds/${encodeURIComponent(project.slug)}`);
+  };
+
   if (!authChecked) {
     return (
       <AuthLayout title="My Feeds">
@@ -119,7 +149,12 @@ export function MyFeedsPage() {
                 : 'Feeds saved to your account. They sync across devices.'}
             </p>
           </div>
-          <AuthButton onClick={() => setShowCreate(true)}>+ Create feed</AuthButton>
+          <div className="flex items-center gap-2 shrink-0">
+            <AuthButton variant="secondary" onClick={() => setShowImport(true)}>
+              Import feed
+            </AuthButton>
+            <AuthButton onClick={() => setShowCreate(true)}>+ Create feed</AuthButton>
+          </div>
         </div>
 
         {feedsQuotaWarning && (() => {
@@ -168,8 +203,13 @@ export function MyFeedsPage() {
         ) : feedsProjects.length === 0 ? (
           <div className="bg-white border border-sand rounded-2xl p-10 text-center">
             <div className="font-heading font-bold text-lg text-dark-brown mb-1">No feeds yet</div>
-            <p className="text-warm-gray text-sm mb-4">Create your first one to get started.</p>
-            <AuthButton onClick={() => setShowCreate(true)}>+ Create feed</AuthButton>
+            <p className="text-warm-gray text-sm mb-4">Create a feed, or import an existing GTFS feed to get started.</p>
+            <div className="flex items-center justify-center gap-2">
+              <AuthButton variant="secondary" onClick={() => setShowImport(true)}>
+                Import feed
+              </AuthButton>
+              <AuthButton onClick={() => setShowCreate(true)}>+ Create feed</AuthButton>
+            </div>
           </div>
         ) : (
           <div className="grid gap-3">
@@ -207,6 +247,14 @@ export function MyFeedsPage() {
             setShowCreate(false);
             navigate(`/feeds/${encodeURIComponent(p.slug)}`);
           }}
+        />
+      )}
+
+      {showImport && (
+        <ImportDialog
+          onClose={() => setShowImport(false)}
+          onComplete={handleImportComplete}
+          completeLabel={`Save to ${workspaceLabel}`}
         />
       )}
 
