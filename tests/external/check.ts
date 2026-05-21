@@ -19,6 +19,10 @@
 
 const CENSUS_API_KEY = process.env.CENSUS_API_KEY ?? '';
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN ?? '';
+// Referer to send with Mapbox requests so a URL-restricted token is accepted
+// server-side. Defaults to the prod origin; override via MAPBOX_REFERER if the
+// token's allowlist uses a different host.
+const MAPBOX_REFERER = process.env.MAPBOX_REFERER ?? 'https://gtfsx.com';
 
 // Known-good fixture: Gallatin County, Montana (state 30, county 031) —
 // Bozeman's home county. The bundled streamline feed lives here, so any
@@ -145,7 +149,12 @@ const checks: Check[] = [
       const url =
         `https://api.mapbox.com/matching/v5/mapbox/driving/${coordString}` +
         `?access_token=${MAPBOX_TOKEN}&geometries=geojson&steps=false&overview=full`;
-      const res = await fetch(url);
+      // The prod Mapbox token is URL-restricted to gtfsx.com. URL restrictions
+      // are enforced against the Referer header, and a server-side request
+      // (CI/Node) sends none — so any restricted token 403s without this.
+      // Sending the prod origin faithfully simulates the browser's call and
+      // lets the check run with the same token the SPA ships.
+      const res = await fetch(url, { headers: { Referer: MAPBOX_REFERER } });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await httpBody(res)}`);
       const data = await res.json();
       assert(data.code === 'Ok', `expected code "Ok", got "${data.code}"`);
