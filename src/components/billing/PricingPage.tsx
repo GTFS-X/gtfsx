@@ -5,6 +5,7 @@ import { AuthButton } from '../auth/AuthButton';
 import { useStore } from '../../store';
 import { billingEnabled } from '../../utils/featureFlags';
 import { fetchPlanCatalog, type PlanCatalogEntry, type Plan } from '../../services/billingApi';
+import { trackCtaClick } from '../../services/trackBeacon';
 import { TestModeBanner } from './TestModeBanner';
 
 // Fallback catalog used when the worker is unreachable (e.g. /pricing rendered
@@ -80,6 +81,18 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
 const POPULAR_PLAN: Plan = 'team';
 const ENTERPRISE_MAIL =
   'mailto:sales@gtfsx.com?subject=GTFS·X Enterprise inquiry&body=Hi%20—%20I%27d%20like%20to%20learn%20more%20about%20the%20Enterprise%20plan.';
+
+// Done-for-you services: primary CTA books a scoping call via Fantastical;
+// email is the secondary path, using the same inquiry-driven mailto pattern
+// as Enterprise (no contact-form backend). Distinct mail subjects let Mark
+// route in his inbox; pre-filled bodies force the agency to scope before sending.
+const SCHEDULE_CALL_URL = 'https://fantastical.app/markegge/gtfsx-feed-consult';
+
+const FIX_FEED_MAIL =
+  'mailto:hello@gtfsx.com?subject=GTFS%C2%B7X%20—%20Fix%20my%20feed&body=Hi%20Mark%20—%0A%0AAgency%20name%3A%20%0AAgency%20website%3A%20%0ACurrent%20feed%20URL%20(if%20any)%3A%20%0AWhat%27s%20broken%3A%20%0A';
+
+const BUILD_FEED_MAIL =
+  'mailto:hello@gtfsx.com?subject=GTFS%C2%B7X%20—%20Build%20a%20feed&body=Hi%20Mark%20—%0A%0AAgency%20name%3A%20%0AAgency%20website%3A%20%0ARoute%20count%3A%20%0AService%20type%20(fixed-route%2C%20Flex%2C%20both)%3A%20%0ASchedule%20source%20(spreadsheet%2C%20PDF%2C%20website)%3A%20%0A';
 
 export function PricingPage() {
   const navigate = useNavigate();
@@ -224,6 +237,112 @@ export function PricingPage() {
             the switch — you can still create a free account and explore the editor today.
           </div>
         )}
+
+        <section>
+          <h2 className="font-heading text-lg font-bold text-dark-brown">Need a hand?</h2>
+          <p className="mt-1 text-sm text-warm-gray">
+            Prefer to have it done for you? We offer hands-on, done-for-you GTFS work.
+          </p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="flex flex-col rounded-2xl border border-sand bg-cream p-5">
+              <div>
+                <h3 className="font-heading text-lg font-bold text-dark-brown">Fix my feed for me</h3>
+                <p className="mt-1 text-xs text-warm-gray">
+                  We’ll repair validator errors, refresh stale data, and hand back a clean feed ready to publish.
+                </p>
+              </div>
+              <ul className="mt-4 space-y-2 text-sm text-brown flex-1">
+                {[
+                  'Diagnose validator errors against your existing feed',
+                  'Fix shapes, calendars, fares, and stop placements as needed',
+                  'Re-validate and hand back as a ready-to-publish GTFS ZIP',
+                  'Most fixes turn around in under a week',
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2">
+                    <span className="mt-0.5 text-teal">✓</span>
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-4 text-xs text-warm-gray">
+                Priced per feed after a 10-min scoping call — most jobs land in the $500–$1,500 range.
+              </p>
+              <div className="mt-5 space-y-2">
+                <a
+                  href={SCHEDULE_CALL_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => trackCtaClick('pricing_fix_my_feed_schedule')}
+                  className="block w-full rounded-lg bg-coral py-2.5 text-center font-heading text-sm font-bold text-white hover:bg-[#d4603a]"
+                >
+                  Book a scoping call
+                </a>
+                <a
+                  href={FIX_FEED_MAIL}
+                  onClick={() => trackCtaClick('pricing_fix_my_feed_email')}
+                  className="block w-full rounded-lg border border-sand bg-cream py-2.5 text-center font-heading text-sm font-bold text-brown hover:border-coral hover:text-coral"
+                >
+                  Or email us your details
+                </a>
+              </div>
+            </div>
+
+            <div className="flex flex-col rounded-2xl border border-sand bg-cream p-5">
+              <div>
+                <h3 className="font-heading text-lg font-bold text-dark-brown">Build a feed from scratch</h3>
+                <p className="mt-1 text-xs text-warm-gray">
+                  New service, no existing feed — we’ll author it from your schedules and route data.
+                </p>
+              </div>
+              <ul className="mt-4 space-y-2 text-sm text-brown flex-1">
+                {[
+                  'Schedule, route geometry, stops, fares',
+                  'GTFS-Flex zones and booking rules if you need them',
+                  'Validated and ready to register with the Mobility Database',
+                  'Scoped against route count and source-data quality',
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2">
+                    <span className="mt-0.5 text-teal">✓</span>
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-4 text-xs text-warm-gray">
+                Priced per project after a 10-min scoping call.
+              </p>
+              <div className="mt-5 space-y-2">
+                <a
+                  href={SCHEDULE_CALL_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => trackCtaClick('pricing_build_feed_schedule')}
+                  className="block w-full rounded-lg bg-coral py-2.5 text-center font-heading text-sm font-bold text-white hover:bg-[#d4603a]"
+                >
+                  Book a scoping call
+                </a>
+                <a
+                  href={BUILD_FEED_MAIL}
+                  onClick={() => trackCtaClick('pricing_build_feed_email')}
+                  className="block w-full rounded-lg border border-sand bg-cream py-2.5 text-center font-heading text-sm font-bold text-brown hover:border-coral hover:text-coral"
+                >
+                  Or email us your details
+                </a>
+              </div>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-warm-gray">
+            Services delivered by Mark Egge (
+            <a
+              href="https://vectorvertex.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-brown underline hover:text-coral"
+            >
+              Vector &amp; Vertex
+            </a>
+            ) — AICP-certified transit planner, GTFS·X founder.
+          </p>
+        </section>
 
         <section className="rounded-2xl border border-sand bg-cream p-6">
           <h2 className="font-heading text-lg font-bold text-dark-brown">FAQ</h2>

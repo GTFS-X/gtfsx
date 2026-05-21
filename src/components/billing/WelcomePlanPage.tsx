@@ -38,12 +38,12 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
   {
     plan: 'pro', displayName: 'Pro', monthlyPriceUsd: 49, annualPriceUsd: 499, perSeat: false,
     tagline: 'For individual operators and consultants.',
-    features: ['Up to 10 saved feeds', 'Publish 1 feed to a stable URL', 'Rider-facing embeds + mini-site', 'Demographic coverage analysis', 'Cost estimation analysis', 'Custom brand color', 'Email support'],
+    features: ['Up to 10 saved feeds', 'Publish 1 feed to a stable URL', 'Rider-facing embeds + mini-site', 'Demographic coverage analysis', 'Cost estimation analysis', 'Ridership propensity heatmap', 'Custom brand color', 'Email support'],
   },
   {
     plan: 'team', displayName: 'Team', monthlyPriceUsd: 199, annualPriceUsd: 1999, perSeat: false,
     tagline: 'For transit agencies and consultants serving multiple clients.',
-    features: ['Unlimited saved feeds', 'Publish up to 5 feeds', 'Full analysis: Title VI + propensity heatmap', 'Unlimited team members in your organization', 'Cross-org membership (work in unlimited client orgs)', 'Custom brand color + org logo', 'Email support'],
+    features: ['Unlimited saved feeds', 'Publish up to 5 feeds', 'Title VI equity analysis', 'Unlimited team members in your organization', 'Cross-org membership (work in unlimited client orgs)', 'Custom brand color + org logo', 'Email support'],
   },
   {
     plan: 'enterprise', displayName: 'Enterprise', monthlyPriceUsd: null, annualPriceUsd: null, perSeat: false,

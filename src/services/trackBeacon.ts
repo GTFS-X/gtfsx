@@ -60,7 +60,7 @@ export function captureRefFromUrl(): void {
   }
 }
 
-type TrackKind = 'page_view' | 'editor_loaded' | 'feed_exported' | 'paywall_view';
+type TrackKind = 'page_view' | 'editor_loaded' | 'feed_exported' | 'paywall_view' | 'cta_click';
 
 function send(kind: TrackKind, opts?: { path?: string; label?: string | null }): void {
   try {
@@ -107,4 +107,10 @@ export function trackFeedExported(): void {
 // Fires when a Pro/Team paywall is shown; `feature` is the gated feature key.
 export function trackPaywallView(feature: string): void {
   send('paywall_view', { label: feature });
+}
+
+// Fires when a marketing CTA is clicked; `name` identifies the specific CTA
+// (e.g. 'pricing_fix_my_feed_click'). Lets us measure intent on inquiry flows.
+export function trackCtaClick(name: string): void {
+  send('cta_click', { label: name });
 }

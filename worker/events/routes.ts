@@ -18,9 +18,10 @@ import { clientIp, rateLimit } from '../util/rateLimit';
 // header. We don't accept cross-origin POSTs.
 
 const TrackSchema = z.object({
-  // page_view is the original signal; the other three feed the marketing
-  // funnel (editor sessions, exports, paywall intent). See migration 0013.
-  kind: z.enum(['page_view', 'editor_loaded', 'feed_exported', 'paywall_view']),
+  // page_view is the original signal; the others feed the marketing funnel
+  // (editor sessions, exports, paywall intent, marketing-CTA clicks). See
+  // migration 0013. `kind` is a plain TEXT column — new kinds need no migration.
+  kind: z.enum(['page_view', 'editor_loaded', 'feed_exported', 'paywall_view', 'cta_click']),
   path: z.string().min(1).max(512),
   ref: z.string().min(1).max(128).nullable().optional(),
   sessionId: z.string().min(8).max(64),
