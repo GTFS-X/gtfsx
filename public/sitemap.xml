@@ -6,6 +6,11 @@
     <changefreq>monthly</changefreq>
   </url>
   <url>
+    <loc>https://www.gtfsx.com/pricing/</loc>
+    <priority>0.9</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
     <loc>https://www.gtfsx.com/about/</loc>
     <priority>0.8</priority>
     <changefreq>monthly</changefreq>
@@ -128,6 +133,16 @@
   <url>
     <loc>https://www.gtfsx.com/docs/deep-links/</loc>
     <priority>0.7</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.gtfsx.com/demo/</loc>
+    <priority>0.7</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.gtfsx.com/help</loc>
+    <priority>0.6</priority>
     <changefreq>monthly</changefreq>
   </url>
   <url>
