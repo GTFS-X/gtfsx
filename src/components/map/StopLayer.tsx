@@ -267,7 +267,7 @@ export function StopLayer({ clustered = false }: { clustered?: boolean }) {
   // them, each Source has a stable id for its whole lifetime.
   if (clustered) {
     return (
-      <Source key="stops-cluster" id="stops-cluster" type="geojson" data={geojson} cluster clusterMaxZoom={13} clusterRadius={50}>
+      <Source key="stops-cluster" id="stops-cluster" type="geojson" data={geojson} cluster clusterMaxZoom={11} clusterRadius={50}>
         <Layer {...clusterCircle} />
         <Layer {...clusterCount} />
         <Layer {...clusterPoint} />
