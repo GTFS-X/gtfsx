@@ -299,7 +299,7 @@ function StopEditHeader() {
           <p className="text-[11px] text-warm-gray">Stop ID: {stop.stop_id}</p>
         </div>
         <button
-          onClick={() => useStore.getState().setRightRailOpen(false)}
+          onClick={() => useStore.getState().setSidebarSection(null)}
           className="w-7 h-7 rounded-md flex items-center justify-center text-warm-gray hover:bg-cream hover:text-coral transition-colors"
           title="Close editor"
         >
@@ -369,7 +369,7 @@ function CreateStopHeader() {
           </h2>
         </div>
         <button
-          onClick={() => useStore.getState().setRightRailOpen(false)}
+          onClick={() => useStore.getState().setSidebarSection(null)}
           className="w-7 h-7 rounded-md flex items-center justify-center text-warm-gray hover:bg-cream hover:text-coral transition-colors"
           title="Close editor"
         >
@@ -385,7 +385,6 @@ function CalendarDetailHeader() {
     s.calendars.find((c) => c.service_id === s.editingCalendarServiceId) ?? null,
   );
   const setEditingCalendarServiceId = useStore((s) => s.setEditingCalendarServiceId);
-  const setRightRailOpen = useStore((s) => s.setRightRailOpen);
 
   if (!calendar) return null;
   const title = calendar._description || calendar.service_id;
@@ -404,7 +403,7 @@ function CalendarDetailHeader() {
           <span className="text-dark-brown font-semibold truncate">{title}</span>
         </div>
         <button
-          onClick={() => setRightRailOpen(false)}
+          onClick={() => useStore.getState().setSidebarSection(null)}
           className="w-7 h-7 rounded-md flex items-center justify-center text-warm-gray hover:bg-cream hover:text-coral transition-colors"
           title="Close editor"
         >
@@ -421,7 +420,6 @@ function CalendarDetailHeader() {
 }
 
 function GenericHeader({ section }: { section: SidebarSection }) {
-  const setRightRailOpen = useStore((s) => s.setRightRailOpen);
   const title = SECTION_TITLES[section] ?? 'Configuration';
   const group = SECTION_GROUP[section];
 
@@ -438,7 +436,7 @@ function GenericHeader({ section }: { section: SidebarSection }) {
         </h2>
       </div>
       <button
-        onClick={() => setRightRailOpen(false)}
+        onClick={() => useStore.getState().setSidebarSection(null)}
         className="w-7 h-7 rounded-md flex items-center justify-center text-warm-gray hover:bg-cream hover:text-coral transition-colors"
         title="Close editor"
       >

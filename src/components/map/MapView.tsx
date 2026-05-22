@@ -32,6 +32,7 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 export function MapView() {
   const mapRef = useRef<MapRef | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const drawRef = useRef<MapboxDraw | null>(null);
   // Only destructure values used for rendering; handlers read from useStore.getState() directly
   const mapMode = useStore((s) => s.mapMode);
@@ -220,14 +221,21 @@ export function MapView() {
     };
   }, []);
 
-  // Keep visible features anchored to the same DOM position when the map
-  // container resizes (right rail open/close, bottom panel toggle, drag).
-  // Mapbox's default resize() keeps the camera lng/lat fixed, which shifts
-  // every feature by half the canvas-width delta — making popups slide under
-  // the left rail when the right rail opens. We compensate with a panBy of
-  // half the size delta so the content that was visually centered stays
-  // visually centered. Attached via onLoad so the mapbox-gl instance is
-  // guaranteed to exist; a useEffect on mount races with map creation.
+  // Resize the map whenever its container changes size — not just on window
+  // resize. The rails (left/right) and bottom panel resize the container
+  // without a window resize event, so Mapbox's default trackResize misses
+  // them and the canvas is left smaller than its box (the gap next to the
+  // right rail). A ResizeObserver covers every layout change.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      mapRef.current?.getMap?.()?.resize();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // === Shape editing: Save and Discard ===
 
   const saveShapeEdit = useCallback(() => {
@@ -934,7 +942,7 @@ export function MapView() {
     : 'grab';
 
   return (
-    <div className="flex-1 relative min-h-0">
+    <div ref={containerRef} className="flex-1 relative min-h-0">
       <Map
         ref={mapRef}
         initialViewState={initialView}

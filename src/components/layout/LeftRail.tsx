@@ -232,9 +232,16 @@ function useNavClick() {
   const setSidebarSection = useStore((s) => s.setSidebarSection);
   const rightRailOpen = useStore((s) => s.rightRailOpen);
   const setRightRailOpen = useStore((s) => s.setRightRailOpen);
+  const editingRouteId = useStore((s) => s.editingRouteId);
   return (key: SidebarSection) => {
     if (sidebarSection === key) {
-      setRightRailOpen(!rightRailOpen);
+      // Re-clicking the active section fully closes the rail (not minimize),
+      // EXCEPT while editing a route, where minimize-to-strip is intended.
+      if (editingRouteId) {
+        setRightRailOpen(!rightRailOpen);
+      } else {
+        setSidebarSection(null);
+      }
     } else {
       setSidebarSection(key);
     }
