@@ -7,7 +7,18 @@ import { authRouter } from './auth/routes';
 import { apiRouter } from './api';
 import { feedsHandler } from './publication/feeds';
 import { maybeRenderForumPage } from './forum/dispatcher';
+import { maybeRenderMarketingPage } from './marketing/ssr';
 import { serveSitemap } from './forum/sitemap';
+
+// Legacy aliases that were advertised from the old /about nav and may still
+// have inbound links. Their real content lives elsewhere, so 301 (permanent)
+// to the canonical URL and let inbound link equity follow. Query strings are
+// preserved.
+const LEGACY_ALIAS_REDIRECTS: Record<string, string> = {
+  '/quickstart': '/docs/quick-start/',
+  '/gtfs-flex': '/learn/gtfs-flex/',
+  '/what-is-gtfs': '/learn/gtfs/',
+};
 
 const app = new Hono<AppContext>();
 
@@ -126,6 +137,26 @@ export default {
       url.pathname.startsWith('/_import')
     ) {
       return app.fetch(request, env, ctx);
+    }
+
+    // Legacy-alias 301 redirects (/quickstart, /gtfs-flex, /what-is-gtfs).
+    // Match with or without a trailing slash; preserve the query string.
+    {
+      const aliasKey = url.pathname.replace(/\/+$/, '') || '/';
+      const target = LEGACY_ALIAS_REDIRECTS[aliasKey];
+      if (target) {
+        return Response.redirect(`${url.origin}${target}${url.search}`, 301);
+      }
+    }
+
+    // Marketing routes that are otherwise live React pages (/pricing, /demo)
+    // get route-specific SEO head + an indexable body skeleton injected into
+    // the SPA shell, then hydrate normally. Returns null for other paths.
+    try {
+      const marketing = await maybeRenderMarketingPage(request, env);
+      if (marketing) return marketing;
+    } catch (err) {
+      console.error('[marketing-ssr] render error, falling back to SPA shell:', err);
     }
 
     // Forum pages get server-rendered SEO content injected into the SPA shell
