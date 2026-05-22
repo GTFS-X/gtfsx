@@ -33,6 +33,7 @@ export function RouteLayer({ simplified = false }: { simplified?: boolean }) {
   const editingShapeId = useStore((s) => s.editingShapeId);
   const mapMode = useStore((s) => s.mapMode);
   const hiddenRouteIds = useStore((s) => s.hiddenRouteIds);
+  const hiddenRouteTypes = useStore((s) => s.hiddenRouteTypes);
   const hiddenShapeIds = useStore((s) => s.hiddenShapeIds);
   const bottomPanelOpen = useStore((s) => s.bottomPanelOpen);
   const bottomPanelTab = useStore((s) => s.bottomPanelTab);
@@ -52,6 +53,7 @@ export function RouteLayer({ simplified = false }: { simplified?: boolean }) {
   const geojson = useMemo(() => {
     const hiddenRouteSet = new Set(hiddenRouteIds);
     const hiddenShapeSet = new Set(hiddenShapeIds);
+    const hiddenTypeSet = new Set(hiddenRouteTypes);
     const features = shapes
     // Hide the shape being edited in draw (to avoid double-rendering)
     .filter((shape) => !(mapMode === 'edit_shape' && shape.shape_id === editingShapeId))
@@ -72,6 +74,8 @@ export function RouteLayer({ simplified = false }: { simplified?: boolean }) {
           color: route ? `#${route.route_color}` : '#888888',
           isSelected,
           direction_id: trip?.direction_id ?? 0,
+          // Route-type filter: dim (don't hide) routes of a filtered-out mode.
+          typeDimmed: route ? hiddenTypeSet.has(route.route_type) : false,
         },
         geometry: {
           type: 'LineString' as const,
@@ -83,7 +87,7 @@ export function RouteLayer({ simplified = false }: { simplified?: boolean }) {
     }).filter((f): f is NonNullable<typeof f> => f !== null);
 
     return { type: 'FeatureCollection' as const, features };
-  }, [shapes, routes, trips, selectedRouteId, editingShapeId, mapMode, hiddenRouteIds, hiddenShapeIds, simplified]);
+  }, [shapes, routes, trips, selectedRouteId, editingShapeId, mapMode, hiddenRouteIds, hiddenRouteTypes, hiddenShapeIds, simplified]);
 
   const isEditing = mapMode === 'edit_shape';
 
@@ -98,21 +102,26 @@ export function RouteLayer({ simplified = false }: { simplified?: boolean }) {
         ['get', 'isSelected'], 5,
         3,
       ],
-      'line-opacity': isEditing
-        ? 0.15
-        : isTimetableEditing
-          ? ['case',
-              ['all', ['get', 'isSelected'], ['==', ['get', 'direction_id'], timetableDirectionId]], 1,
-              ['get', 'isSelected'], 0.4,
-              0.2,
-            ]
-          : isRouteStopsEditing
+      // Routes of a filtered-out type are dimmed (visibly disabled) regardless
+      // of the editing context.
+      'line-opacity': ['case',
+        ['get', 'typeDimmed'], 0.12,
+        isEditing
+          ? 0.15
+          : isTimetableEditing
             ? ['case',
-                ['all', ['get', 'isSelected'], ['==', ['get', 'direction_id'], stopPlacementDirection]], 1,
-                ['get', 'isSelected'], 0.3,
+                ['all', ['get', 'isSelected'], ['==', ['get', 'direction_id'], timetableDirectionId]], 1,
+                ['get', 'isSelected'], 0.4,
                 0.2,
               ]
-            : ['case', ['get', 'isSelected'], 1, 0.7],
+            : isRouteStopsEditing
+              ? ['case',
+                  ['all', ['get', 'isSelected'], ['==', ['get', 'direction_id'], stopPlacementDirection]], 1,
+                  ['get', 'isSelected'], 0.3,
+                  0.2,
+                ]
+              : ['case', ['get', 'isSelected'], 1, 0.7],
+      ],
     },
     layout: {
       'line-join': 'round',
@@ -143,21 +152,24 @@ export function RouteLayer({ simplified = false }: { simplified?: boolean }) {
       'text-color': ['get', 'color'],
       'text-halo-color': '#FFFFFF',
       'text-halo-width': 1,
-      'text-opacity': isEditing
-        ? 0.1
-        : isTimetableEditing
-          ? ['case',
-              ['all', ['get', 'isSelected'], ['==', ['get', 'direction_id'], timetableDirectionId]], 1,
-              ['get', 'isSelected'], 0.3,
-              0.15,
-            ]
-          : isRouteStopsEditing
+      'text-opacity': ['case',
+        ['get', 'typeDimmed'], 0,
+        isEditing
+          ? 0.1
+          : isTimetableEditing
             ? ['case',
-                ['all', ['get', 'isSelected'], ['==', ['get', 'direction_id'], stopPlacementDirection]], 1,
-                ['get', 'isSelected'], 0.25,
+                ['all', ['get', 'isSelected'], ['==', ['get', 'direction_id'], timetableDirectionId]], 1,
+                ['get', 'isSelected'], 0.3,
                 0.15,
               ]
-            : ['case', ['get', 'isSelected'], 1, 0.6],
+            : isRouteStopsEditing
+              ? ['case',
+                  ['all', ['get', 'isSelected'], ['==', ['get', 'direction_id'], stopPlacementDirection]], 1,
+                  ['get', 'isSelected'], 0.25,
+                  0.15,
+                ]
+              : ['case', ['get', 'isSelected'], 1, 0.6],
+      ],
     },
   };
 

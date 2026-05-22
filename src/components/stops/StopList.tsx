@@ -39,6 +39,8 @@ export function StopList() {
   const [wheelchairFilter, setWheelchairFilter] = useState<number>(-1);
   const [locationTypeFilter, setLocationTypeFilter] = useState<number>(-1);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Quick text filter (stop name / id / code / description).
+  const [text, setText] = useState('');
 
   // True only when a real route is selected (not "All" or "Unassigned").
   const routeSelected = !!routeFilter && routeFilter !== UNASSIGNED;
@@ -87,11 +89,21 @@ export function StopList() {
       pool = pool.filter((s) => s.location_type === locationTypeFilter);
     }
 
+    const q = text.trim().toLowerCase();
+    if (q) {
+      pool = pool.filter((s) =>
+        s.stop_name?.toLowerCase().includes(q) ||
+        s.stop_id?.toLowerCase().includes(q) ||
+        s.stop_code?.toLowerCase().includes(q) ||
+        s.stop_desc?.toLowerCase().includes(q),
+      );
+    }
+
     return pool;
   }, [
     stops, routeFilter, effectiveDirection, effectiveService,
     routeStops, trips, stopTimes,
-    wheelchairFilter, locationTypeFilter,
+    wheelchairFilter, locationTypeFilter, text,
   ]);
 
   const sortedStops = useMemo(
@@ -107,7 +119,8 @@ export function StopList() {
   const filtersActive =
     !!routeFilter
     || wheelchairFilter >= 0
-    || locationTypeFilter >= 0;
+    || locationTypeFilter >= 0
+    || !!text.trim();
 
   useEffect(() => {
     if (filtersActive) {
@@ -151,6 +164,7 @@ export function StopList() {
     setWheelchairFilter(-1);
     setLocationTypeFilter(-1);
     setConfirmingDelete(false);
+    setText('');
   };
 
   const deleteAllShown = () => {
@@ -204,6 +218,13 @@ export function StopList() {
             </button>
           )}
         </div>
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Filter stops…"
+          className="w-full px-2.5 py-1.5 border border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
+        />
         <div>
           <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
             Route

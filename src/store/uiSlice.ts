@@ -37,6 +37,9 @@ export interface UISlice {
   mapStopFilter: { matched: string[] } | null;
   snapToRoad: boolean;
   hiddenRouteIds: string[];
+  // route_type values toggled OFF in the Routes panel's type filter. Empty =
+  // no filter (all types shown). Routes of a hidden type are dimmed on the map.
+  hiddenRouteTypes: number[];
   hiddenShapeIds: string[];
   leftRailWidth: number;
   rightRailOpen: boolean;
@@ -44,6 +47,7 @@ export interface UISlice {
   routeDetailTab: RouteDetailTab;
   routeDeleteConfirmId: string | null;
   toggleRouteVisibility: (routeId: string) => void;
+  toggleRouteType: (routeType: number) => void;
   toggleShapeVisibility: (shapeId: string) => void;
   setSidebarSection: (section: SidebarSection | null) => void;
   setBottomPanelOpen: (open: boolean) => void;
@@ -95,6 +99,7 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   mapStopFilter: null,
   snapToRoad: true,
   hiddenRouteIds: [],
+  hiddenRouteTypes: [],
   hiddenShapeIds: [],
   // Default width is set responsively in App init based on viewport — 96 for
   // medium screens, 260 for wide ones. The store falls back to 96 if it loads
@@ -108,6 +113,11 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
     const idx = state.hiddenRouteIds.indexOf(routeId);
     if (idx === -1) state.hiddenRouteIds.push(routeId);
     else state.hiddenRouteIds.splice(idx, 1);
+  }),
+  toggleRouteType: (routeType) => set((state) => {
+    const idx = state.hiddenRouteTypes.indexOf(routeType);
+    if (idx === -1) state.hiddenRouteTypes.push(routeType);
+    else state.hiddenRouteTypes.splice(idx, 1);
   }),
   toggleShapeVisibility: (shapeId) => set((state) => {
     const idx = state.hiddenShapeIds.indexOf(shapeId);
