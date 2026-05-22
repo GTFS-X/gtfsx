@@ -30,6 +30,10 @@ import { lineString, point } from '@turf/helpers';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
+// Round map-derived coordinates to 6 decimals (~0.1 m) so dragging/placing a
+// stop doesn't litter the lat/lon fields and stops.txt with float noise.
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
 export function MapView() {
   const mapRef = useRef<MapRef | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -512,8 +516,8 @@ export function MapView() {
       if (!stopId) return;
       didDragStopRef.current = true;
       useStore.getState().updateStop(stopId, {
-        stop_lat: e.lngLat.lat,
-        stop_lon: e.lngLat.lng,
+        stop_lat: round6(e.lngLat.lat),
+        stop_lon: round6(e.lngLat.lng),
       });
     };
 
@@ -679,8 +683,8 @@ export function MapView() {
     if (currentState.mapMode === 'move_stop' && currentState.selectedStopId) {
       if (!didDragStopRef.current) {
         currentState.updateStop(currentState.selectedStopId, {
-          stop_lat: e.lngLat.lat,
-          stop_lon: e.lngLat.lng,
+          stop_lat: round6(e.lngLat.lat),
+          stop_lon: round6(e.lngLat.lng),
         });
       }
       return;
@@ -820,8 +824,8 @@ export function MapView() {
       currentState.addStop({
         stop_id: stopId,
         stop_name: `Stop ${currentState.stops.length + 1}`,
-        stop_lat: stopLat,
-        stop_lon: stopLon,
+        stop_lat: round6(stopLat),
+        stop_lon: round6(stopLon),
         location_type: 0,
         wheelchair_boarding: 0,
       });
