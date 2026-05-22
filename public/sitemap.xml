@@ -146,6 +146,36 @@
     <changefreq>monthly</changefreq>
   </url>
   <url>
+    <loc>https://www.gtfsx.com/learn/publish-gtfs-feed/</loc>
+    <priority>0.8</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.gtfsx.com/compare/gtfs-builder-rtap/</loc>
+    <priority>0.8</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.gtfsx.com/compare/spare-flex-builder/</loc>
+    <priority>0.8</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.gtfsx.com/compare/trillium/</loc>
+    <priority>0.8</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.gtfsx.com/compare/remix/</loc>
+    <priority>0.8</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.gtfsx.com/use-cases/state-dot/</loc>
+    <priority>0.9</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
     <loc>https://www.gtfsx.com/privacy-policy/</loc>
     <priority>0.4</priority>
     <changefreq>yearly</changefreq>

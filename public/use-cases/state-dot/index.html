@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Source: Cornerstone Content Drafts/use-cases-state-dot.md (v1, 2026-05-22) -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>GTFS·X for State DOTs — Statewide GTFS Programs for 5311 Sub-Recipients</title>
+    <meta name="description" content="A statewide GTFS program for 5311 sub-recipients: free editor for every operator, hosted publishing, professional remediation, and centralized feed health monitoring." />
+    <link rel="canonical" href="https://www.gtfsx.com/use-cases/state-dot/" />
+    <meta property="og:title" content="GTFS·X for State DOTs — Statewide GTFS Programs for 5311 Sub-Recipients" />
+    <meta property="og:description" content="A statewide GTFS program for 5311 sub-recipients: free editor for every operator, hosted publishing, professional remediation, and centralized feed health monitoring." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.gtfsx.com/use-cases/state-dot/" />
+    <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@gtfsxapp" />
+    <meta name="twitter:image" content="https://www.gtfsx.com/og-default.png" />
+    <style>
+      :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Inter", sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+      footer, main { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+      /* ─── site header (matches the editor) ─── */
+      .site-header { position: sticky; top: 0; z-index: 10; background:#fff; border-bottom:1px solid var(--rule); height:56px; display:flex; align-items:center; padding: 0 20px; gap:16px; }
+      .site-header .brand { display:inline-flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+      .site-header .brand img { height:36px; width:auto; }
+      .site-header .brand-name { font-weight:800; font-size:1.5rem; color:var(--accent); letter-spacing:-0.01em; }
+      .site-header nav { display:flex; gap:4px; margin-left:12px; }
+      .site-header nav a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; padding:8px 12px; border-radius:6px; transition:color 0.15s, background 0.15s; }
+      .site-header nav a:hover { color:var(--ink); background:var(--bg); }
+      .site-header nav a.active { color:var(--ink); background:var(--bg); }
+      .site-header .actions { margin-left:auto; display:flex; align-items:center; gap:12px; }
+      .site-header .cta { background:var(--accent); color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .cta:hover { filter:brightness(0.95); }
+      .site-header .user-slot a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .user-slot a:hover { color:var(--ink); }
+      .site-header .user-slot .user-avatar { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; font-weight:800; font-size:13px; text-decoration:none; }
+      .site-header .user-slot .user-avatar:hover { filter:brightness(0.95); }
+      @media (max-width: 720px) {
+        .site-header nav, .site-header .cta { display:none; }
+        .site-header .brand-name { font-size:1.25rem; }
+        .site-header .brand img { height:30px; width:auto; }
+      }
+      main { padding-top: 40px; padding-bottom: 60px; }
+      h1 { font-size: 2.2rem; line-height:1.2; margin: 0 0 12px; }
+      h2 { font-size: 1.4rem; margin-top: 2.2rem; }
+      h3 { font-size: 1.1rem; margin-top: 1.6rem; }
+      .lede { font-size: 1.15rem; color:var(--muted); }
+      a { color: var(--accent); }
+      ul { padding-left: 1.2rem; }
+      li { margin: 0.3rem 0; }
+      code { background:#fff; border:1px solid var(--rule); padding:1px 6px; border-radius:4px; font-size:0.9em; }
+      pre { background:#fff; border:1px solid var(--rule); padding:12px 16px; border-radius:6px; overflow-x:auto; font-size:0.9em; line-height:1.45; }
+      pre code { background:none; border:none; padding:0; }
+      table { border-collapse: collapse; width: 100%; margin: 1.5rem 0; }
+      th, td { border: 1px solid var(--rule); padding: 8px 12px; text-align: left; vertical-align: top; }
+      th { background: rgba(0,0,0,0.03); font-weight: 600; }
+      footer { border-top: 1px solid var(--rule); padding-top:20px; padding-bottom:40px; color:var(--muted); font-size:0.95rem; display:flex; flex-wrap:wrap; gap:18px; }
+      footer a { color: var(--muted); }
+    </style>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "headline": "GTFS·X for State DOTs — Statewide GTFS Programs for 5311 Sub-Recipients",
+        "url": "https://www.gtfsx.com/use-cases/state-dot/",
+        "description": "A statewide GTFS program for 5311 sub-recipients: free editor for every operator, hosted publishing, professional remediation, and centralized feed health monitoring."
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="brand">
+        <img src="/gtfsx-lockup.svg" alt="GTFS·X" />
+      </a>
+      <nav>
+        <a href="/about/">About</a>
+        <a href="/docs/">Docs</a>
+        <a href="/learn/gtfs/">Learn</a>
+        <a href="/docs/deep-links/">Integrations</a>
+        <a href="/community">Community</a>
+        <a href="/help">Help</a>
+      </nav>
+      <div class="actions">
+        <a href="/" class="cta">Open editor</a>
+        <div id="user-slot" class="user-slot">
+          <a href="/login">Sign in</a>
+        </div>
+      </div>
+    </header>
+    <main>
+      <h1>GTFS·X for State DOTs</h1>
+      <p>State DOTs that administer 5311 funds face a recurring problem: dozens of small rural transit operators, each producing (or failing to produce) their own GTFS feed, with no consistent quality bar and no central visibility into whether the feeds are current, valid, or even reachable.</p>
+      <p>GTFS·X offers a statewide path: free authoring for every operator in your state, hosted publishing at a stable URL pattern, professional remediation for the feeds that need it, and a state-level dashboard showing feed health across your portfolio.</p>
+      <p>This page is for state transit section staff and statewide 5311 program coordinators. If that&#39;s you, the <a href="mailto:hello@gtfsx.com?subject=State%20DOT%20discovery%20call">State DOT discovery call</a> is the right next step.</p>
+      <h2>The 5311 GTFS problem</h2>
+      <p>Most state DOTs that have looked at this find some version of the following pattern across their 5311 sub-recipient portfolio:</p>
+      <ul>
+      <li>A handful of operators have current, validated, published GTFS feeds visible on Google Maps and the Mobility Database</li>
+      <li>Many operators have feeds that exist somewhere but are expired, broken at the URL level, or invalid against the canonical validator</li>
+      <li>A meaningful portion have no GTFS feed at all</li>
+      <li>Tracking which operator is in which state requires manual auditing because nothing centralizes the answer</li>
+      </ul>
+      <p>The federal pressure on this is increasing. NTD reporting (and, separately, FTA&#39;s <a href="https://data.transportation.gov/Public-Transit/General-Transit-Feed-Specification-Weblinks/2u7n-ub22/about_data">GTFS Weblinks dataset</a>) makes feed status more visible at the federal level than it used to be. Discretionary grant competitions increasingly evaluate transit data quality. And the trip planner ecosystem keeps expanding — Transit App, OpenTripPlanner, and (when they enable it) Google Maps Flex.</p>
+      <p>Most state DOTs handle this with one of three approaches:</p>
+      <ol>
+      <li><strong>Hands-off</strong>: each operator does (or doesn&#39;t) their own GTFS. The DOT has no visibility and no leverage. Most common in states without a transit data coordinator.</li>
+      <li><strong>Managed-service contract</strong>: the state contracts with a vendor (commonly Trillium-now-Optibus) to produce and maintain feeds for some or all sub-recipients. Effective but expensive at scale; commonly $40,000–$120,000/year for a multi-operator engagement.</li>
+      <li><strong>DIY toolkit</strong>: the state distributes a free tool (commonly RTAP GTFS Builder) and lets operators handle it themselves. Cheap but produces uneven results.</li>
+      </ol>
+      <p>GTFS·X offers a fourth path: a state-licensed self-serve tool with a managed remediation tier and a centralized dashboard.</p>
+      <h2>What a GTFS·X statewide engagement looks like</h2>
+      <p>The pieces:</p>
+      <h3>Free editor for every operator in the state</h3>
+      <p>Every 5311 sub-recipient in your state gets access to the GTFS·X editor for free. They can author fixed-route and Flex, validate continuously, and export a standards-compliant GTFS zip with no signup required. The free tier is the same whether the operator uses it or not.</p>
+      <h3>Statewide hosted publishing</h3>
+      <p>Operators who want it get hosted publishing at a stable URL pattern — <code>feeds.gtfsx.com/&lt;operator-slug&gt;/gtfs.zip</code> or, with custom DNS, <code>gtfs.&lt;state&gt;.gov/&lt;operator-slug&gt;/gtfs.zip</code>. Each feed gets validation monitoring, expiry alerts, and a draft-preview link workflow so the operator can confirm changes before they go public.</p>
+      <p>Cost depends on scale and whether the state wants the consumer-facing publishing under state branding (custom DNS, state-themed mini-site) or under GTFS·X branding (standard).</p>
+      <h3>Professional remediation for the feeds that need it</h3>
+      <p>Many 5311 operators have a feed that exists but is broken — invalid against the canonical validator, missing required files, expired, or stuck on an unreachable URL. For these cases, GTFS·X&#39;s parent firm Vector &amp; Vertex offers a remediation tier: scoped per-agency engagements that produce a clean, validated, published feed.</p>
+      <p>Pricing scales with source-data quality and route count, not with whether the feed includes Flex:</p>
+      <ul>
+      <li><strong>Small</strong> ($750–$1,000): clean source data, fixed-route only, &lt;10 routes</li>
+      <li><strong>Medium</strong> ($1,500–$2,500): some source-data cleanup required, 10–25 routes, may include Flex</li>
+      <li><strong>Large</strong> (custom): substantial source-data cleanup, 25+ routes, multi-agency consolidation, or substantial Flex zone authoring</li>
+      </ul>
+      <p>For a state with 25 operators in mixed remediation states, a typical engagement is in the $25,000–$50,000 range — substantially below the equivalent managed-service contract for the same coverage.</p>
+      <h3>State-level feed health dashboard</h3>
+      <p>The state DOT gets a dashboard showing every 5311 sub-recipient&#39;s feed status:</p>
+      <ul>
+      <li>Validation status (clean / warnings / errors / no feed)</li>
+      <li>Last successful publish date</li>
+      <li>Service expiry date (warns at 14/30/60 days before expiry)</li>
+      <li>Mobility Database registration status</li>
+      <li>Google Maps / Apple Maps registration status</li>
+      </ul>
+      <p>This is the part most state DOTs find structurally new — the visibility itself. Even before any remediation work, having a single page that shows &quot;21 of 28 operators have a current valid feed; here are the 7 that need attention&quot; changes how the program is run.</p>
+      <h3>Training and onboarding</h3>
+      <p>For agencies that want to do their own feed authoring, GTFS·X includes documentation, video walkthroughs, and (in a state engagement) optional cohort-style onboarding sessions. The goal is to get 5311 staff who&#39;ve never produced a GTFS feed to a clean exported zip within a single working session.</p>
+      <h2>Pricing and procurement</h2>
+      <p>State-level engagements are quote-based, but the components and pricing are publicly known:</p>
+      <ul>
+      <li><strong>Free editor</strong>: $0 for every operator in the state (no per-seat licensing)</li>
+      <li><strong>Hosted publishing</strong>: $500/yr per operator if procured individually; state-bulk pricing available</li>
+      <li><strong>State dashboard</strong>: scoped per state, depends on integrations (custom DNS, branding, exports)</li>
+      <li><strong>Professional remediation</strong>: per-agency, $750–$2,500+ per feed</li>
+      <li><strong>Training cohort</strong>: $5,000–$10,000 per state, one-time</li>
+      </ul>
+      <p>Typical first-year statewide engagement for a 20–30 operator state: $40,000–$80,000 (including remediation for the operators that need it). Subsequent years drop to $15,000–$30,000 (hosted publishing + dashboard + occasional remediation only).</p>
+      <p>Compare to a comparable managed-service engagement: $80,000–$150,000+/year, ongoing, because the service model doesn&#39;t have a &quot;scale down once the feeds are clean&quot; mode.</p>
+      <p>The procurement model fits cleanly into state IT and transit-section budgets:</p>
+      <ul>
+      <li>SaaS line items for hosted publishing and dashboard</li>
+      <li>Professional services line items for remediation</li>
+      <li>No FTE displacement; existing state and sub-recipient staff continue to own their feeds</li>
+      </ul>
+      <h2>What this isn&#39;t</h2>
+      <p>To be honest about what GTFS·X does and doesn&#39;t replace:</p>
+      <ul>
+      <li><strong>Not a managed-service contract.</strong> Operators still need to maintain their own feeds (or contract remediation work). GTFS·X is the tool plus optional remediation, not a continuous outsource.</li>
+      <li><strong>Not a transit planning suite.</strong> If your state needs network redesign, scenario modeling, or service planning support, GTFS·X isn&#39;t that tool. Remix-by-Via and similar planning suites are the answer for that need.</li>
+      <li><strong>Not a passenger information system.</strong> GTFS·X produces and publishes feeds; rider-facing apps consume them. We don&#39;t operate rider apps.</li>
+      </ul>
+      <h2>Reference points</h2>
+      <p>GTFS·X is built and run by <a href="https://vectorvertex.com">Vector &amp; Vertex</a>, a transit data consulting practice led by Mark Egge, AICP. Mark has worked with state DOTs on transit data infrastructure for over a decade. Past relevant work includes <a href="https://transitpeers.net">transitpeers.net</a>, the NTD-benchmarking site for transit professionals, and ongoing professional engagements with state and local transit agencies across the West and Midwest.</p>
+      <p>States the marketing plan is engaging with first (Phase 3, week 11+): Montana (home turf), then Illinois or Kansas. States with established managed-service incumbents (Oregon, Virginia, Colorado, Massachusetts, Minnesota, Vermont, Washington) are not part of the initial outreach.</p>
+      <h2>Next step</h2>
+      <p>If you&#39;re a state DOT transit section staffer reading this and any of the above resonates, the right next step is a 30-minute discovery call. The agenda:</p>
+      <ol>
+      <li>Where your statewide 5311 GTFS portfolio is today (10 min)</li>
+      <li>Which of the four approaches above best describes your current setup (5 min)</li>
+      <li>What a GTFS·X engagement would look like for your state specifically (10 min)</li>
+      <li>Procurement path and scoping work (5 min)</li>
+      </ol>
+      <p><a href="https://fantastical.app/markegge/gtfsx-feed-consult">Book a 30-minute consult call</a> or email <a href="mailto:hello@gtfsx.com?subject=State%20DOT%20discovery%20call">hello@gtfsx.com</a>.</p>
+      <p><a href="mailto:hello@gtfsx.com?subject=State%20DOT%20discovery%20call">Email hello@gtfsx.com</a> to schedule. Or use the <a href="https://fantastical.app/markegge/gtfsx-feed-consult">scheduling link</a> directly.</p>
+      <hr>
+      <p><em>Production note: state-specific Feed Health Reports for Montana, Illinois, and Kansas are produced quarterly. If you&#39;d like to receive your state&#39;s report, <a href="mailto:hello@gtfsx.com?subject=State%20Feed%20Health%20Report%20request">request it here</a> — no obligation, sent as a PDF.</em></p>
+    </main>
+    <footer>
+      <a href="/">Editor</a>
+      <a href="/about/">About</a>
+      <a href="/docs/">Docs</a>
+      <a href="/learn/gtfs/">What is GTFS?</a>
+      <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a>
+      <a href="/docs/deep-links/">Deep-link integration</a>
+    </footer>
+    <script>
+      (function () {
+        fetch('/api/me', { credentials: 'include', headers: { 'X-GB-Client': 'web' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.user) return;
+            var slot = document.getElementById('user-slot');
+            if (!slot) return;
+            var label = data.user.displayName || data.user.email || '';
+            var initial = (label.charAt(0) || '?').toUpperCase();
+            var escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            slot.innerHTML = '<a href="/account" class="user-avatar" title="' + escaped + '">' + initial + '</a>';
+          })
+          .catch(function () { /* keep "Sign in" */ });
+      })();
+    </script>
+  </body>
+</html>

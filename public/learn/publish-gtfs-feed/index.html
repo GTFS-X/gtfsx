@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Source: Cornerstone Content Drafts/learn-publish-gtfs-feed.md (v1, 2026-05-22) -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>How to Publish a GTFS Feed (And What Could Break)</title>
+    <meta name="description" content="A practical guide to publishing a GTFS feed for trip planners: validator pass, stable URL, agency registration, and the five things that break in production." />
+    <link rel="canonical" href="https://www.gtfsx.com/learn/publish-gtfs-feed/" />
+    <meta property="og:title" content="How to Publish a GTFS Feed (And What Could Break)" />
+    <meta property="og:description" content="A practical guide to publishing a GTFS feed for trip planners: validator pass, stable URL, agency registration, and the five things that break in production." />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://www.gtfsx.com/learn/publish-gtfs-feed/" />
+    <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@gtfsxapp" />
+    <meta name="twitter:image" content="https://www.gtfsx.com/og-default.png" />
+    <style>
+      :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Inter", sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+      footer, main { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+      /* ─── site header (matches the editor) ─── */
+      .site-header { position: sticky; top: 0; z-index: 10; background:#fff; border-bottom:1px solid var(--rule); height:56px; display:flex; align-items:center; padding: 0 20px; gap:16px; }
+      .site-header .brand { display:inline-flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+      .site-header .brand img { height:36px; width:auto; }
+      .site-header .brand-name { font-weight:800; font-size:1.5rem; color:var(--accent); letter-spacing:-0.01em; }
+      .site-header nav { display:flex; gap:4px; margin-left:12px; }
+      .site-header nav a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; padding:8px 12px; border-radius:6px; transition:color 0.15s, background 0.15s; }
+      .site-header nav a:hover { color:var(--ink); background:var(--bg); }
+      .site-header nav a.active { color:var(--ink); background:var(--bg); }
+      .site-header .actions { margin-left:auto; display:flex; align-items:center; gap:12px; }
+      .site-header .cta { background:var(--accent); color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .cta:hover { filter:brightness(0.95); }
+      .site-header .user-slot a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .user-slot a:hover { color:var(--ink); }
+      .site-header .user-slot .user-avatar { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; font-weight:800; font-size:13px; text-decoration:none; }
+      .site-header .user-slot .user-avatar:hover { filter:brightness(0.95); }
+      @media (max-width: 720px) {
+        .site-header nav, .site-header .cta { display:none; }
+        .site-header .brand-name { font-size:1.25rem; }
+        .site-header .brand img { height:30px; width:auto; }
+      }
+      main { padding-top: 40px; padding-bottom: 60px; }
+      h1 { font-size: 2.2rem; line-height:1.2; margin: 0 0 12px; }
+      h2 { font-size: 1.4rem; margin-top: 2.2rem; }
+      h3 { font-size: 1.1rem; margin-top: 1.6rem; }
+      .lede { font-size: 1.15rem; color:var(--muted); }
+      a { color: var(--accent); }
+      ul { padding-left: 1.2rem; }
+      li { margin: 0.3rem 0; }
+      code { background:#fff; border:1px solid var(--rule); padding:1px 6px; border-radius:4px; font-size:0.9em; }
+      pre { background:#fff; border:1px solid var(--rule); padding:12px 16px; border-radius:6px; overflow-x:auto; font-size:0.9em; line-height:1.45; }
+      pre code { background:none; border:none; padding:0; }
+      table { border-collapse: collapse; width: 100%; margin: 1.5rem 0; }
+      th, td { border: 1px solid var(--rule); padding: 8px 12px; text-align: left; vertical-align: top; }
+      th { background: rgba(0,0,0,0.03); font-weight: 600; }
+      footer { border-top: 1px solid var(--rule); padding-top:20px; padding-bottom:40px; color:var(--muted); font-size:0.95rem; display:flex; flex-wrap:wrap; gap:18px; }
+      footer a { color: var(--muted); }
+    </style>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "How to Publish a GTFS Feed (And What Could Break)",
+        "url": "https://www.gtfsx.com/learn/publish-gtfs-feed/",
+        "description": "A practical guide to publishing a GTFS feed for trip planners: validator pass, stable URL, agency registration, and the five things that break in production."
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="brand">
+        <img src="/gtfsx-lockup.svg" alt="GTFS·X" />
+      </a>
+      <nav>
+        <a href="/about/">About</a>
+        <a href="/docs/">Docs</a>
+        <a href="/learn/gtfs/" class="active">Learn</a>
+        <a href="/docs/deep-links/">Integrations</a>
+        <a href="/community">Community</a>
+        <a href="/help">Help</a>
+      </nav>
+      <div class="actions">
+        <a href="/" class="cta">Open editor</a>
+        <div id="user-slot" class="user-slot">
+          <a href="/login">Sign in</a>
+        </div>
+      </div>
+    </header>
+    <main>
+      <h1>How to Publish a GTFS Feed (And What Could Break)</h1>
+      <p>Publishing a GTFS feed is not the same as creating one. You can build a perfectly valid feed and still have it not appear in Google Maps a month later. The gap is &quot;publishing&quot; — the operational steps between &quot;the zip exists on my laptop&quot; and &quot;Apple Maps shows my bus running on time.&quot;</p>
+      <p>This guide walks the five things that have to happen, in order, and the four ways each one breaks in production. It&#39;s written for a small-agency staffer or consultant publishing for the first time, or troubleshooting a feed that stopped working.</p>
+      <h2>What &quot;publishing a GTFS feed&quot; actually means</h2>
+      <p>There&#39;s no central GTFS registry that you submit to and get a checkmark. Publishing a GTFS feed means making the zip file available at a permanent public URL, then telling each downstream consumer where to find it. Each consumer fetches the file on its own schedule — daily, weekly, or whenever they feel like it.</p>
+      <p>The downstream consumers that matter:</p>
+      <ul>
+      <li><strong>Mobility Database</strong> — the canonical open registry, maintained by MobilityData. Trip planners, researchers, and AI tools poll it. If your feed isn&#39;t in the Mobility Database, you&#39;re invisible to most of the ecosystem.</li>
+      <li><strong>Google Maps Transit</strong> — separate registration through Google&#39;s Transit Partners program. Approval can take weeks; once approved, Google fetches your feed on a schedule they set.</li>
+      <li><strong>Apple Maps Transit</strong> — separate registration with Apple, similar process.</li>
+      <li><strong>Transit App</strong> — picks up most feeds from the Mobility Database automatically; some agencies are added through direct outreach.</li>
+      <li><strong>OpenTripPlanner / regional trip planners</strong> — most operators of OTP-based regional planners watch the Mobility Database, but the larger ones have direct lists.</li>
+      </ul>
+      <p>So &quot;publishing&quot; is really &quot;host the file + register it in the Mobility Database + (optionally) directly register with Google and Apple.&quot;</p>
+      <h2>The five things that have to happen</h2>
+      <h3>1. Your feed validates</h3>
+      <p>A valid GTFS feed is one that passes the <a href="https://github.com/MobilityData/gtfs-validator">Canonical GTFS Validator</a> maintained by MobilityData. The validator emits errors (blocking) and warnings (informational). For publishing, errors must be zero. Most warnings are fine.</p>
+      <p>This is where most first-time publishers get stuck. The validator output is a 200-page HTML report and the errors are not always obvious. The most common errors:</p>
+      <ul>
+      <li><code>stop_times</code> referencing a <code>trip_id</code> that doesn&#39;t exist in <code>trips.txt</code></li>
+      <li><code>trip_id</code> referencing a <code>service_id</code> that doesn&#39;t exist in <code>calendar.txt</code> or <code>calendar_dates.txt</code></li>
+      <li>Timezone mismatch between <code>agency.txt</code> and <code>stop_times.txt</code> (arrival times in local time but agency declared a different timezone)</li>
+      <li>Missing <code>feed_info.txt</code> with publisher name and version (Mobility Database requires this)</li>
+      </ul>
+      <p>If you&#39;re using GTFS·X, validation is continuous — errors block export and surface inline, so you can&#39;t export a feed that won&#39;t pass the canonical validator. If you&#39;re building with Excel or a Python script, run the validator against your zip before doing anything else.</p>
+      <h3>2. The zip lives at a permanent URL</h3>
+      <p>Trip planners poll feeds at a URL on their own schedule. The URL has to:</p>
+      <ul>
+      <li>Resolve over HTTPS (HTTP-only is rejected by Google and increasingly by the Mobility Database)</li>
+      <li>Return the same zip file (or a newer version) every time it&#39;s fetched</li>
+      <li>Not require a login or a session cookie</li>
+      <li>Not have a query string the consumer is expected to fill in (so <code>?token=abc</code> schemes don&#39;t work)</li>
+      <li>Not 404 when the agency&#39;s website CMS gets reorganized</li>
+      </ul>
+      <p>That last one is the slow killer. The most common reason a feed disappears from Google Maps is that the agency rebuilt its website, the URL pattern changed, and the old feed URL now 404s. The downstream consumer fetches, gets a 404, eventually marks the feed dead. The agency doesn&#39;t notice until a rider complains.</p>
+      <p>The right answer is to publish to a URL pattern that&#39;s outside the marketing site&#39;s CMS. Options:</p>
+      <ul>
+      <li>A dedicated subdomain you control (<code>gtfs.youragency.org</code>)</li>
+      <li>A managed publishing service that gives you a stable URL (GTFS·X hosted publishing, Trillium, etc.)</li>
+      <li>An S3 / Cloudflare R2 bucket with a public read policy</li>
+      </ul>
+      <p>What doesn&#39;t work long-term: a URL under your main website&#39;s WordPress instance. The CMS will be reorganized in three years and the URL will break.</p>
+      <h3>3. The feed is registered in the Mobility Database</h3>
+      <p>The Mobility Database is at <a href="https://mobilitydatabase.org">mobilitydatabase.org</a>. Registration is free, takes about ten minutes, and is reviewed by the MobilityData team. You provide:</p>
+      <ul>
+      <li>The feed URL</li>
+      <li>Agency name and contact</li>
+      <li>Service area (state, country)</li>
+      <li>License (most use CC0, some use CC-BY)</li>
+      </ul>
+      <p>Once registered, your feed is fetched on a daily-to-weekly cadence and made available to anyone querying the database. This is the single most important step after validation. Skip it and you&#39;re invisible.</p>
+      <h3>4. Direct registration with Google and Apple (if you want to be on their maps)</h3>
+      <p>Google Maps Transit and Apple Maps Transit don&#39;t pull from the Mobility Database. Each requires direct application:</p>
+      <ul>
+      <li><strong>Google</strong>: apply through <a href="https://maps.google.com/help/maps/transit/partners/">Transit Partners</a>. Review can take 4–12 weeks. Google will fetch the feed on its own schedule once approved.</li>
+      <li><strong>Apple</strong>: apply through <a href="https://mapsconnect.apple.com">Apple Maps Connect</a>. Similar process and timeline.</li>
+      </ul>
+      <p>Both are paperwork-heavy and one-time. Once you&#39;re in, you stay in until your feed breaks.</p>
+      <h3>5. You set up a monitor that pings you when the feed dies</h3>
+      <p>This is the step everyone skips and everyone regrets. Once your feed is live, you need an alert when:</p>
+      <ul>
+      <li>The URL returns anything other than HTTP 200 with a valid zip</li>
+      <li>The validator starts emitting errors against the file</li>
+      <li>The <code>feed_end_date</code> in <code>feed_info.txt</code> falls within 14 days (so you remember to extend service before the feed expires)</li>
+      </ul>
+      <p>A free monitoring option is <a href="https://gtfsmonitor.com">GTFS Monitor</a> or the built-in monitoring in your publishing platform. GTFS·X hosted publishing includes feed-expiry and validation-failure alerts as part of the $500/yr managed publishing tier.</p>
+      <h2>The four ways this breaks in production</h2>
+      <p>After the feed is live, these are the four things that take it down. In rough order of frequency:</p>
+      <ol>
+      <li><p><strong>The feed expires.</strong> Every GTFS feed has a <code>feed_end_date</code>. If your service runs continuously, you need to extend the calendar before the end date passes. When the feed expires, trip planners stop showing your service. The fix is calendar maintenance: build a 12-month-out service plan, set a recurring reminder 30 days before the end date.</p>
+      </li>
+      <li><p><strong>The URL breaks.</strong> Web team rebuilds the agency site, the feed URL moves, downstream consumers 404. Fix: get the URL onto a dedicated subdomain or managed publisher that the web team doesn&#39;t touch.</p>
+      </li>
+      <li><p><strong>The HTTPS cert expires.</strong> If you&#39;re hosting the zip on your own infrastructure, your cert can expire. Most modern hosting auto-renews; legacy setups don&#39;t. Fix: move to a host with auto-renewing certs (every major cloud, most CMSs).</p>
+      </li>
+      <li><p><strong>A schedule change breaks validation.</strong> Someone in scheduling adds a new route, a typo in a <code>route_id</code> creates a dangling reference, the next export fails validation but gets pushed anyway. Fix: validation gate in your publishing workflow. The export step should reject any feed that doesn&#39;t pass the canonical validator.</p>
+      </li>
+      </ol>
+      <h2>What to use to build and publish</h2>
+      <p>This guide is tool-agnostic, but the publishing path it describes is what GTFS·X is designed to handle end-to-end. You can build a feed in GTFS·X with no signup, validate continuously as you author, and then either export the zip and host it yourself or use <a href="/docs/hosted-publishing/">hosted publishing</a> for a stable URL with monitoring built in.</p>
+      <p>If you&#39;d rather build in Excel and self-host, <a href="/compare/gtfs-builder-rtap/">RTAP&#39;s GTFS Builder</a> is the standard free tool. If you want a managed service that handles all of the above for you, <a href="/compare/trillium/">Trillium</a> is the established option.</p>
+      <p>The choice depends on whether you want to own the tool or own the service.</p>
+      <h2>FAQ</h2>
+      <p><strong>How long does it take to get a feed live on Google Maps?</strong>
+      About 6–14 weeks from first submission to first rider seeing your bus, including 4–12 weeks of Google&#39;s review. Once approved, future updates show up within a few days.</p>
+      <p><strong>Do I need a separate feed for each route or each mode?</strong>
+      No. One feed per agency is the standard. Multiple agencies can also share one feed using <code>agency_id</code>.</p>
+      <p><strong>What&#39;s the difference between &quot;publishing&quot; and &quot;hosting&quot;?</strong>
+      Hosting is making the zip file available at a URL. Publishing includes hosting plus registration in the Mobility Database and downstream trip planners.</p>
+      <p><strong>Does my feed have to be updated daily?</strong>
+      No. Update when your schedule changes. Most small agencies update 2–4 times per year (signal-driven, not calendar-driven). The feed file at the URL should always reflect current service.</p>
+      <p><strong>Can I publish a feed without a website?</strong>
+      Yes. The feed needs a public URL, but it doesn&#39;t need to live on your agency&#39;s marketing site. A bucket-and-CDN setup works, as does any of the managed publishing services.</p>
+      <hr>
+      <p><em>Build and publish your GTFS feed at <a href="/">gtfsx.com</a> — no signup required to start.</em></p>
+    </main>
+    <footer>
+      <a href="/">Editor</a>
+      <a href="/about/">About</a>
+      <a href="/docs/">Docs</a>
+      <a href="/learn/gtfs/">What is GTFS?</a>
+      <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a>
+      <a href="/docs/deep-links/">Deep-link integration</a>
+    </footer>
+    <script>
+      (function () {
+        fetch('/api/me', { credentials: 'include', headers: { 'X-GB-Client': 'web' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.user) return;
+            var slot = document.getElementById('user-slot');
+            if (!slot) return;
+            var label = data.user.displayName || data.user.email || '';
+            var initial = (label.charAt(0) || '?').toUpperCase();
+            var escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            slot.innerHTML = '<a href="/account" class="user-avatar" title="' + escaped + '">' + initial + '</a>';
+          })
+          .catch(function () { /* keep "Sign in" */ });
+      })();
+    </script>
+  </body>
+</html>

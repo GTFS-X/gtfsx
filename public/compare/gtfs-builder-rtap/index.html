@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Source: Cornerstone Content Drafts/compare-gtfs-builder-rtap.md (v1, 2026-05-22) -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>GTFS·X vs. National RTAP GTFS Builder — Honest Comparison</title>
+    <meta name="description" content="GTFS·X and National RTAP's free Excel GTFS Builder solve overlapping problems differently. An honest comparison of which fits which agency." />
+    <link rel="canonical" href="https://www.gtfsx.com/compare/gtfs-builder-rtap/" />
+    <meta property="og:title" content="GTFS·X vs. National RTAP GTFS Builder — Honest Comparison" />
+    <meta property="og:description" content="GTFS·X and National RTAP's free Excel GTFS Builder solve overlapping problems differently. An honest comparison of which fits which agency." />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://www.gtfsx.com/compare/gtfs-builder-rtap/" />
+    <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@gtfsxapp" />
+    <meta name="twitter:image" content="https://www.gtfsx.com/og-default.png" />
+    <style>
+      :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Inter", sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+      footer, main { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+      /* ─── site header (matches the editor) ─── */
+      .site-header { position: sticky; top: 0; z-index: 10; background:#fff; border-bottom:1px solid var(--rule); height:56px; display:flex; align-items:center; padding: 0 20px; gap:16px; }
+      .site-header .brand { display:inline-flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+      .site-header .brand img { height:36px; width:auto; }
+      .site-header .brand-name { font-weight:800; font-size:1.5rem; color:var(--accent); letter-spacing:-0.01em; }
+      .site-header nav { display:flex; gap:4px; margin-left:12px; }
+      .site-header nav a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; padding:8px 12px; border-radius:6px; transition:color 0.15s, background 0.15s; }
+      .site-header nav a:hover { color:var(--ink); background:var(--bg); }
+      .site-header nav a.active { color:var(--ink); background:var(--bg); }
+      .site-header .actions { margin-left:auto; display:flex; align-items:center; gap:12px; }
+      .site-header .cta { background:var(--accent); color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .cta:hover { filter:brightness(0.95); }
+      .site-header .user-slot a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .user-slot a:hover { color:var(--ink); }
+      .site-header .user-slot .user-avatar { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; font-weight:800; font-size:13px; text-decoration:none; }
+      .site-header .user-slot .user-avatar:hover { filter:brightness(0.95); }
+      @media (max-width: 720px) {
+        .site-header nav, .site-header .cta { display:none; }
+        .site-header .brand-name { font-size:1.25rem; }
+        .site-header .brand img { height:30px; width:auto; }
+      }
+      main { padding-top: 40px; padding-bottom: 60px; }
+      h1 { font-size: 2.2rem; line-height:1.2; margin: 0 0 12px; }
+      h2 { font-size: 1.4rem; margin-top: 2.2rem; }
+      h3 { font-size: 1.1rem; margin-top: 1.6rem; }
+      .lede { font-size: 1.15rem; color:var(--muted); }
+      a { color: var(--accent); }
+      ul { padding-left: 1.2rem; }
+      li { margin: 0.3rem 0; }
+      code { background:#fff; border:1px solid var(--rule); padding:1px 6px; border-radius:4px; font-size:0.9em; }
+      pre { background:#fff; border:1px solid var(--rule); padding:12px 16px; border-radius:6px; overflow-x:auto; font-size:0.9em; line-height:1.45; }
+      pre code { background:none; border:none; padding:0; }
+      table { border-collapse: collapse; width: 100%; margin: 1.5rem 0; }
+      th, td { border: 1px solid var(--rule); padding: 8px 12px; text-align: left; vertical-align: top; }
+      th { background: rgba(0,0,0,0.03); font-weight: 600; }
+      footer { border-top: 1px solid var(--rule); padding-top:20px; padding-bottom:40px; color:var(--muted); font-size:0.95rem; display:flex; flex-wrap:wrap; gap:18px; }
+      footer a { color: var(--muted); }
+    </style>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "GTFS·X vs. National RTAP GTFS Builder — Honest Comparison",
+        "url": "https://www.gtfsx.com/compare/gtfs-builder-rtap/",
+        "description": "GTFS·X and National RTAP's free Excel GTFS Builder solve overlapping problems differently. An honest comparison of which fits which agency."
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="brand">
+        <img src="/gtfsx-lockup.svg" alt="GTFS·X" />
+      </a>
+      <nav>
+        <a href="/about/">About</a>
+        <a href="/docs/">Docs</a>
+        <a href="/learn/gtfs/">Learn</a>
+        <a href="/docs/deep-links/">Integrations</a>
+        <a href="/community">Community</a>
+        <a href="/help">Help</a>
+      </nav>
+      <div class="actions">
+        <a href="/" class="cta">Open editor</a>
+        <div id="user-slot" class="user-slot">
+          <a href="/login">Sign in</a>
+        </div>
+      </div>
+    </header>
+    <main>
+      <h1>GTFS·X vs. National RTAP GTFS Builder</h1>
+      <p>National RTAP&#39;s GTFS Builder is the most widely used free GTFS authoring tool for small US transit agencies, and it&#39;s been the right answer for hundreds of rural and tribal operators. Calling it a competitor misses the point — it&#39;s the tool that proved small agencies could do this themselves at all. GTFS·X exists because the next generation of small-agency staff would rather work in a browser than in Excel, and because some of the analyses that small agencies need (cost, demographic coverage, Title VI) are easier in a hosted tool than in a spreadsheet.</p>
+      <p>This page is the honest comparison. If you&#39;re a 10-vehicle rural operator producing a feed once a year for FTA reporting, RTAP GTFS Builder is probably still the right answer. If you&#39;re a 30-vehicle small-urban or a rural agency adding Flex, the calculus shifts.</p>
+      <h2>Quick comparison</h2>
+      <table>
+      <thead>
+      <tr>
+      <th></th>
+      <th>National RTAP GTFS Builder</th>
+      <th>GTFS·X</th>
+      </tr>
+      </thead>
+      <tbody><tr>
+      <td><strong>Cost</strong></td>
+      <td>Free</td>
+      <td>Free editor; $49/mo Pro, $500/yr hosted publishing, $199/mo Team</td>
+      </tr>
+      <tr>
+      <td><strong>Format</strong></td>
+      <td>Microsoft Excel (.xlsx)</td>
+      <td>Browser-based, no installation</td>
+      </tr>
+      <tr>
+      <td><strong>Signup required</strong></td>
+      <td>RTAP Cloud account required to download</td>
+      <td>None — anonymous use of editor and export</td>
+      </tr>
+      <tr>
+      <td><strong>Map editing</strong></td>
+      <td>No — coordinates entered manually</td>
+      <td>Yes, with snap-to-road via Mapbox Map Matching</td>
+      </tr>
+      <tr>
+      <td><strong>GTFS-Flex support</strong></td>
+      <td>No</td>
+      <td>Yes — polygon zones, booking rules, stop groups</td>
+      </tr>
+      <tr>
+      <td><strong>Continuous validation</strong></td>
+      <td>No — runs at export</td>
+      <td>Yes — inline errors block export</td>
+      </tr>
+      <tr>
+      <td><strong>Hosted publishing</strong></td>
+      <td>No — agency self-hosts the zip</td>
+      <td>Optional — $500/yr managed stable URL with monitoring</td>
+      </tr>
+      <tr>
+      <td><strong>Cost / Title VI / coverage analyses</strong></td>
+      <td>No</td>
+      <td>Yes (paid tiers)</td>
+      </tr>
+      <tr>
+      <td><strong>Multi-user collaboration</strong></td>
+      <td>No — Excel file sharing</td>
+      <td>Yes (Team tier)</td>
+      </tr>
+      <tr>
+      <td><strong>Support model</strong></td>
+      <td>RTAP office hours, phone, email, chat</td>
+      <td>Docs, community forum, paid support</td>
+      </tr>
+      <tr>
+      <td><strong>Best fit</strong></td>
+      <td>Smallest agencies, infrequent updates, no Flex, Excel-native team</td>
+      <td>Browser-native teams, agencies adding Flex, agencies wanting analyses or hosted publishing</td>
+      </tr>
+      </tbody></table>
+      <h2>Where RTAP GTFS Builder is genuinely better</h2>
+      <p>A few categories where RTAP has the cleaner answer:</p>
+      <ul>
+      <li><strong>Excel-native teams</strong>. If your staff already lives in Excel and the existing workflow is &quot;open the spreadsheet, update three cells, save, generate the zip,&quot; there is no upside to switching. Excel is the right tool for a workflow that&#39;s already in Excel.</li>
+      <li><strong>No internet dependency</strong>. RTAP GTFS Builder is a local Excel file. You can work on it offline at a desk that doesn&#39;t have reliable broadband. GTFS·X requires a working browser connection (though it does support offline editing once the page is loaded).</li>
+      <li><strong>Federally vetted, no-procurement option</strong>. National RTAP is a USDOT-funded program; the tool comes with FTA imprimatur. Some agencies that have to clear procurement for any cloud tool can use RTAP without that paperwork; GTFS·X is a private product and may need a software approval step at agencies with strict IT policies.</li>
+      <li><strong>Phone-and-chat human support</strong>. RTAP staffs a help line. GTFS·X doesn&#39;t, at the free tier; we offer docs and a community forum, plus included support on paid tiers.</li>
+      </ul>
+      <p>If any of those four points describe your situation, you&#39;re better off with RTAP.</p>
+      <h2>Where GTFS·X is genuinely better</h2>
+      <p>Four categories:</p>
+      <ul>
+      <li><strong>Map-based editing</strong>. Drawing a route by snapping to roads on a map is faster than typing latitude/longitude into a spreadsheet. For an agency with 20+ routes or with curvy alignments, the time savings is hours per feed update.</li>
+      <li><strong>GTFS-Flex</strong>. RTAP GTFS Builder doesn&#39;t support GTFS-Flex. If you operate demand-response, microtransit, or deviated fixed-route and want it discoverable in the trip planner ecosystem, you need a tool that can author Flex zones, stop groups, and booking rules. GTFS·X does this; RTAP doesn&#39;t.</li>
+      <li><strong>Continuous validation</strong>. The validator runs against your edits as you make them in GTFS·X. Errors surface inline with jump-to-entity links, and you can&#39;t export a feed that won&#39;t pass the canonical validator. RTAP validates at export — if you&#39;ve made an error somewhere, you find out after you&#39;ve built ten unrelated changes.</li>
+      <li><strong>Analyses for grant reporting and Title VI</strong>. Cost estimation, demographic coverage by route, and Title VI service-equity analysis are built into the editor at the Pro and Team tiers. These are the deliverables that justify &quot;we should have a real tool&quot; for many agencies — once you&#39;ve spent two weeks pulling ACS data and writing a Title VI memo by hand, paying $199/mo for a tool that does it automatically is an obvious trade.</li>
+      </ul>
+      <h2>Which one fits your agency?</h2>
+      <p>Choose <strong>RTAP GTFS Builder</strong> if you:</p>
+      <ul>
+      <li>Operate fewer than 15 vehicles on fixed-route only, no Flex</li>
+      <li>Update your feed 1–2 times per year</li>
+      <li>Have an Excel-native team</li>
+      <li>Need a no-procurement, federally-vetted free tool</li>
+      <li>Want the option of calling a help line</li>
+      </ul>
+      <p>Choose <strong>GTFS·X</strong> if you:</p>
+      <ul>
+      <li>Operate fixed-route + Flex (or want to add Flex)</li>
+      <li>Want to draw routes on a map instead of typing coordinates</li>
+      <li>Update your feed 4+ times per year and want a stable hosted URL</li>
+      <li>Need Title VI, demographic coverage, or cost analysis for grant work</li>
+      <li>Have multiple staff working on the feed and want collaboration</li>
+      </ul>
+      <h2>A few specific points of confusion worth clearing up</h2>
+      <p><strong>&quot;RTAP added GTFS·X to their Resources list.&quot;</strong> Yes. National RTAP listed GTFS·X on their <a href="https://www.nationalrtap.org/Technology-Tools/Overview">Technology Tools page</a> as one of the GTFS authoring options. That&#39;s not an endorsement, just an acknowledgment that both tools exist and serve overlapping needs. Pick the one that fits your workflow.</p>
+      <p><strong>&quot;Is RTAP GTFS Builder being deprecated?&quot;</strong> No. National RTAP continues to support and update the tool. It is not going away. If you&#39;re using it and it&#39;s working for you, you don&#39;t need to switch.</p>
+      <p><strong>&quot;Can I migrate from RTAP GTFS Builder to GTFS·X?&quot;</strong> Yes. Export a GTFS zip from RTAP GTFS Builder and import it into GTFS·X. The import handles all standard GTFS files. You&#39;ll need to redo Flex zones (RTAP doesn&#39;t have any) but everything else round-trips.</p>
+      <p><strong>&quot;Will my feed look different in trip planners if I switch?&quot;</strong> No. Both tools produce standards-compliant GTFS that the canonical validator accepts. Trip planners can&#39;t tell which tool produced the feed; they just consume the data.</p>
+      <h2>FAQ</h2>
+      <p><strong>Is GTFS·X really free?</strong>
+      Yes — the editor and export are free for anyone, no signup. Paid tiers ($49/mo, $199/mo, $500/yr hosted) add feed management, analyses, and hosted publishing.</p>
+      <p><strong>Can I use both tools?</strong>
+      Yes. Some agencies use RTAP for fixed-route and GTFS·X for Flex. The two tools produce compatible output if you&#39;re careful about agency_id and feed merging.</p>
+      <p><strong>What if my IT department won&#39;t approve a third-party cloud tool?</strong>
+      GTFS·X runs entirely in your browser — no data leaves your computer until you choose to export or save. If &quot;the data lives on our IT-approved laptop only&quot; is the requirement, GTFS·X meets it. If &quot;no cloud SaaS&quot; is the requirement, RTAP&#39;s local Excel file is the cleaner answer.</p>
+      <p><strong>Does GTFS·X support the same fare structures as GTFS Builder?</strong>
+      Yes, plus fares v2. Both tools handle flat fares, zone-based fares, and multiple fare categories. GTFS·X also supports the v2 fare model (fare_products / fare_leg_rules) for agencies that need transfer rules or distance-based pricing.</p>
+      <hr>
+      <p><em>Try GTFS·X at <a href="/">gtfsx.com</a> — no signup, browser-based, free editor and export.</em></p>
+    </main>
+    <footer>
+      <a href="/">Editor</a>
+      <a href="/about/">About</a>
+      <a href="/docs/">Docs</a>
+      <a href="/learn/gtfs/">What is GTFS?</a>
+      <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a>
+      <a href="/docs/deep-links/">Deep-link integration</a>
+    </footer>
+    <script>
+      (function () {
+        fetch('/api/me', { credentials: 'include', headers: { 'X-GB-Client': 'web' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.user) return;
+            var slot = document.getElementById('user-slot');
+            if (!slot) return;
+            var label = data.user.displayName || data.user.email || '';
+            var initial = (label.charAt(0) || '?').toUpperCase();
+            var escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            slot.innerHTML = '<a href="/account" class="user-avatar" title="' + escaped + '">' + initial + '</a>';
+          })
+          .catch(function () { /* keep "Sign in" */ });
+      })();
+    </script>
+  </body>
+</html>

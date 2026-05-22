@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Source: Cornerstone Content Drafts/compare-spare-flex-builder.md (v1, 2026-05-22) -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>GTFS·X vs. Spare GTFS-Flex Builder — Honest Comparison</title>
+    <meta name="description" content="Spare's free Flex Builder and GTFS·X overlap on GTFS-Flex authoring. The honest take on which one fits your agency — pricing, signup, fixed-route, and hosting compared." />
+    <link rel="canonical" href="https://www.gtfsx.com/compare/spare-flex-builder/" />
+    <meta property="og:title" content="GTFS·X vs. Spare GTFS-Flex Builder — Honest Comparison" />
+    <meta property="og:description" content="Spare's free Flex Builder and GTFS·X overlap on GTFS-Flex authoring. The honest take on which one fits your agency — pricing, signup, fixed-route, and hosting compared." />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://www.gtfsx.com/compare/spare-flex-builder/" />
+    <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@gtfsxapp" />
+    <meta name="twitter:image" content="https://www.gtfsx.com/og-default.png" />
+    <style>
+      :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Inter", sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+      footer, main { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+      /* ─── site header (matches the editor) ─── */
+      .site-header { position: sticky; top: 0; z-index: 10; background:#fff; border-bottom:1px solid var(--rule); height:56px; display:flex; align-items:center; padding: 0 20px; gap:16px; }
+      .site-header .brand { display:inline-flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+      .site-header .brand img { height:36px; width:auto; }
+      .site-header .brand-name { font-weight:800; font-size:1.5rem; color:var(--accent); letter-spacing:-0.01em; }
+      .site-header nav { display:flex; gap:4px; margin-left:12px; }
+      .site-header nav a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; padding:8px 12px; border-radius:6px; transition:color 0.15s, background 0.15s; }
+      .site-header nav a:hover { color:var(--ink); background:var(--bg); }
+      .site-header nav a.active { color:var(--ink); background:var(--bg); }
+      .site-header .actions { margin-left:auto; display:flex; align-items:center; gap:12px; }
+      .site-header .cta { background:var(--accent); color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .cta:hover { filter:brightness(0.95); }
+      .site-header .user-slot a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .user-slot a:hover { color:var(--ink); }
+      .site-header .user-slot .user-avatar { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; font-weight:800; font-size:13px; text-decoration:none; }
+      .site-header .user-slot .user-avatar:hover { filter:brightness(0.95); }
+      @media (max-width: 720px) {
+        .site-header nav, .site-header .cta { display:none; }
+        .site-header .brand-name { font-size:1.25rem; }
+        .site-header .brand img { height:30px; width:auto; }
+      }
+      main { padding-top: 40px; padding-bottom: 60px; }
+      h1 { font-size: 2.2rem; line-height:1.2; margin: 0 0 12px; }
+      h2 { font-size: 1.4rem; margin-top: 2.2rem; }
+      h3 { font-size: 1.1rem; margin-top: 1.6rem; }
+      .lede { font-size: 1.15rem; color:var(--muted); }
+      a { color: var(--accent); }
+      ul { padding-left: 1.2rem; }
+      li { margin: 0.3rem 0; }
+      code { background:#fff; border:1px solid var(--rule); padding:1px 6px; border-radius:4px; font-size:0.9em; }
+      pre { background:#fff; border:1px solid var(--rule); padding:12px 16px; border-radius:6px; overflow-x:auto; font-size:0.9em; line-height:1.45; }
+      pre code { background:none; border:none; padding:0; }
+      table { border-collapse: collapse; width: 100%; margin: 1.5rem 0; }
+      th, td { border: 1px solid var(--rule); padding: 8px 12px; text-align: left; vertical-align: top; }
+      th { background: rgba(0,0,0,0.03); font-weight: 600; }
+      footer { border-top: 1px solid var(--rule); padding-top:20px; padding-bottom:40px; color:var(--muted); font-size:0.95rem; display:flex; flex-wrap:wrap; gap:18px; }
+      footer a { color: var(--muted); }
+    </style>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "GTFS·X vs. Spare GTFS-Flex Builder — Honest Comparison",
+        "url": "https://www.gtfsx.com/compare/spare-flex-builder/",
+        "description": "Spare's free Flex Builder and GTFS·X overlap on GTFS-Flex authoring. The honest take on which one fits your agency — pricing, signup, fixed-route, and hosting compared."
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="brand">
+        <img src="/gtfsx-lockup.svg" alt="GTFS·X" />
+      </a>
+      <nav>
+        <a href="/about/">About</a>
+        <a href="/docs/">Docs</a>
+        <a href="/learn/gtfs/">Learn</a>
+        <a href="/docs/deep-links/">Integrations</a>
+        <a href="/community">Community</a>
+        <a href="/help">Help</a>
+      </nav>
+      <div class="actions">
+        <a href="/" class="cta">Open editor</a>
+        <div id="user-slot" class="user-slot">
+          <a href="/login">Sign in</a>
+        </div>
+      </div>
+    </header>
+    <main>
+      <h1>GTFS·X vs. Spare GTFS-Flex Builder</h1>
+      <p>Spare offers a free GTFS-Flex Builder as a wedge into their broader microtransit operations platform. It&#39;s a real tool that does real work — if you&#39;re already running Spare for dispatch and operations, their Flex Builder is the obvious choice. The question is whether the same logic applies if you&#39;re not.</p>
+      <p>This page is the comparison. Three concrete differences matter; everything else is detail.</p>
+      <h2>The three differences that matter</h2>
+      <h3>1. GTFS·X requires no signup. Spare&#39;s Flex Builder requires sign-up before you can see the editor.</h3>
+      <p>This is the headline difference. With GTFS·X you land on the page, edit, validate, and export a valid GTFS feed without creating an account. Accounts only become necessary if you want feed management — saving across sessions, hosted publishing, multi-user collaboration. Spare requires you to submit a form, wait for access, then start.</p>
+      <p>For a transit director evaluating tools on a Tuesday afternoon, &quot;click and start&quot; beats &quot;submit a form and wait&quot; every time. The first version of a Flex zone takes about 90 seconds in GTFS·X starting from a cold browser. In Spare, you can&#39;t time it because you can&#39;t start until you&#39;ve cleared the signup gate.</p>
+      <h3>2. GTFS·X has flat, transparent pricing. Spare&#39;s Flex Builder is bundled into enterprise pricing.</h3>
+      <p>GTFS·X pricing is on the <a href="/pricing/">pricing page</a>. Editor: free, anonymous, no signup. Pro tier (cost estimation, demographic coverage): $49/month. Hosted publishing (stable feed URL with monitoring): $500/year. Team tier (Title VI, propensity, multi-user): $199/month.</p>
+      <p>Spare&#39;s Flex Builder is technically free, but it&#39;s part of the Spare platform, which is enterprise-quoted. There&#39;s no public price for the broader platform that the Flex Builder is a wedge for. For a small agency that has to clear procurement, &quot;transparent flat price under $5k/year&quot; beats &quot;schedule a call with sales&quot; both for the speed of the procurement decision and for the political ease of the decision.</p>
+      <h3>3. GTFS·X does fixed-route + Flex + hosted publishing in one tool. Spare&#39;s Flex Builder is Flex-only.</h3>
+      <p>Most rural and small-urban agencies that need to author Flex also need to author fixed-route. The realistic workflow is: take an existing fixed-route feed, add Flex zones, export the combined feed, publish at a stable URL.</p>
+      <p>GTFS·X does this end-to-end in one tool. Import a fixed-route feed, draw Flex zones, configure booking rules, export the combined feed, optionally publish at <code>feeds.gtfsx.com/&lt;your-agency&gt;/gtfs.zip</code>.</p>
+      <p>Spare&#39;s Flex Builder does only the Flex authoring. You have to bring fixed-route from somewhere else (Excel, another tool, your existing feed), merge it manually, and host it somewhere else. That&#39;s three tools and a merge step instead of one tool and an export.</p>
+      <h2>Where Spare is the better choice</h2>
+      <p>To match the honest-comparison framing: there are real cases where Spare is the right answer.</p>
+      <ul>
+      <li><strong>You already run Spare for microtransit dispatch.</strong> If Spare is your operations platform — drivers using the Spare driver app, dispatchers using Spare&#39;s console — then Spare&#39;s Flex Builder is the natural fit. Authoring Flex zones in the same system you use to operate them is a meaningful workflow win. You shouldn&#39;t switch GTFS authoring tools to a different vendor just because.</li>
+      <li><strong>You&#39;re Flex-only at scale.</strong> Some operators have dozens of Flex zones across multiple sub-regional services and no fixed-route component. Spare&#39;s enterprise positioning is built for that scale. GTFS·X is built for the small-and-medium operator, not for the multi-region microtransit deployment.</li>
+      <li><strong>You want operations + GTFS in one vendor relationship.</strong> Some agencies prefer one vendor relationship over two. If you want dispatching, driver app, rider app, and GTFS authoring all under one contract, Spare is the consolidated option. GTFS·X doesn&#39;t do dispatch or driver apps and won&#39;t try to.</li>
+      </ul>
+      <h2>Where GTFS·X is the better choice</h2>
+      <p>Four categories:</p>
+      <ul>
+      <li><strong>You want to try the tool before signing anything.</strong> GTFS·X removes every step between &quot;I&#39;m curious&quot; and &quot;I have a valid feed exported.&quot; If your decision process includes &quot;let me see if this works for our service&quot; before procurement, GTFS·X works for that. Spare doesn&#39;t — you have to register first.</li>
+      <li><strong>Your service is fixed-route + Flex, not Flex-only.</strong> This is the majority of small US rural and small-urban operators. One tool for both is a meaningful workflow win.</li>
+      <li><strong>You need transparent pricing that fits a small-agency procurement.</strong> $49/month or $500/year are inside the small-purchase signature authority of most general managers. Spare&#39;s enterprise quote is not.</li>
+      <li><strong>You want hosted publishing without signing on for a broader platform.</strong> GTFS·X hosted publishing is $500/yr standalone — feed URL, monitoring, draft preview links, embeddable rider mini-site. Spare&#39;s hosted publishing comes with the rest of the Spare platform.</li>
+      </ul>
+      <h2>What about validator quality?</h2>
+      <p>Both tools produce GTFS-Flex output that passes the canonical MobilityData validator. Spare contributed materially to early Flex tooling and validator alignment; their output is high-quality. GTFS·X validates continuously as you author and blocks export on errors. From the consumer side (trip planners), the output is indistinguishable.</p>
+      <h2>What about trip planner support for Flex?</h2>
+      <p>Worth knowing if you&#39;re new to Flex: Google Maps and Apple Maps do <strong>not</strong> currently consume GTFS-Flex (confirmed April 2025). Transit App and OpenTripPlanner do. Anyone selling you Flex tooling on the premise that &quot;publish Flex and ride Google Maps this week&quot; is overselling. The honest framing is &quot;publish Flex now, get ready for the broader trip-planner ecosystem when Google and Apple enable it.&quot; Both Spare and GTFS·X position this correctly; some other vendors don&#39;t.</p>
+      <h2>FAQ</h2>
+      <p><strong>Is GTFS·X going to compete with Spare on microtransit operations?</strong>
+      No. GTFS·X is a GTFS authoring tool. We don&#39;t do dispatch, driver apps, or rider booking apps. If you need operations, Spare or one of the other operations vendors is the right answer; we won&#39;t try to be that.</p>
+      <p><strong>Can I move my existing Spare Flex feed into GTFS·X?</strong>
+      Yes. Export a GTFS-Flex zip from Spare and import it into GTFS·X. All Flex entities round-trip — polygon zones, stop groups, booking rules, and pickup/drop-off windows.</p>
+      <p><strong>Does Spare&#39;s Flex Builder support fixed-route?</strong>
+      Limited. It exists primarily for authoring Flex zones; fixed-route handling is rudimentary. Most Spare Flex Builder users bring fixed-route from a different tool.</p>
+      <p><strong>What&#39;s the lock-in story?</strong>
+      GTFS·X has no proprietary file format. Everything you build is standard GTFS that any other tool can import. If you leave, you leave with a valid GTFS zip that works in any consumer. Spare&#39;s Flex Builder is similar in this regard; Spare&#39;s broader platform has more lock-in around operations.</p>
+      <hr>
+      <p><em>Build your Flex feed at <a href="/">gtfsx.com</a> — anonymous, browser-based, no signup required.</em></p>
+    </main>
+    <footer>
+      <a href="/">Editor</a>
+      <a href="/about/">About</a>
+      <a href="/docs/">Docs</a>
+      <a href="/learn/gtfs/">What is GTFS?</a>
+      <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a>
+      <a href="/docs/deep-links/">Deep-link integration</a>
+    </footer>
+    <script>
+      (function () {
+        fetch('/api/me', { credentials: 'include', headers: { 'X-GB-Client': 'web' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.user) return;
+            var slot = document.getElementById('user-slot');
+            if (!slot) return;
+            var label = data.user.displayName || data.user.email || '';
+            var initial = (label.charAt(0) || '?').toUpperCase();
+            var escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            slot.innerHTML = '<a href="/account" class="user-avatar" title="' + escaped + '">' + initial + '</a>';
+          })
+          .catch(function () { /* keep "Sign in" */ });
+      })();
+    </script>
+  </body>
+</html>

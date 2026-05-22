@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Source: Cornerstone Content Drafts/compare-remix.md (v1, 2026-05-22) -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>GTFS·X vs. Remix by Via — Honest Comparison</title>
+    <meta name="description" content="Remix is a planning suite; GTFS·X is a GTFS editor with planning analyses. They serve adjacent needs. Honest comparison of which one fits your agency." />
+    <link rel="canonical" href="https://www.gtfsx.com/compare/remix/" />
+    <meta property="og:title" content="GTFS·X vs. Remix by Via — Honest Comparison" />
+    <meta property="og:description" content="Remix is a planning suite; GTFS·X is a GTFS editor with planning analyses. They serve adjacent needs. Honest comparison of which one fits your agency." />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://www.gtfsx.com/compare/remix/" />
+    <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@gtfsxapp" />
+    <meta name="twitter:image" content="https://www.gtfsx.com/og-default.png" />
+    <style>
+      :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Inter", sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+      footer, main { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+      /* ─── site header (matches the editor) ─── */
+      .site-header { position: sticky; top: 0; z-index: 10; background:#fff; border-bottom:1px solid var(--rule); height:56px; display:flex; align-items:center; padding: 0 20px; gap:16px; }
+      .site-header .brand { display:inline-flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+      .site-header .brand img { height:36px; width:auto; }
+      .site-header .brand-name { font-weight:800; font-size:1.5rem; color:var(--accent); letter-spacing:-0.01em; }
+      .site-header nav { display:flex; gap:4px; margin-left:12px; }
+      .site-header nav a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; padding:8px 12px; border-radius:6px; transition:color 0.15s, background 0.15s; }
+      .site-header nav a:hover { color:var(--ink); background:var(--bg); }
+      .site-header nav a.active { color:var(--ink); background:var(--bg); }
+      .site-header .actions { margin-left:auto; display:flex; align-items:center; gap:12px; }
+      .site-header .cta { background:var(--accent); color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .cta:hover { filter:brightness(0.95); }
+      .site-header .user-slot a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .user-slot a:hover { color:var(--ink); }
+      .site-header .user-slot .user-avatar { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; font-weight:800; font-size:13px; text-decoration:none; }
+      .site-header .user-slot .user-avatar:hover { filter:brightness(0.95); }
+      @media (max-width: 720px) {
+        .site-header nav, .site-header .cta { display:none; }
+        .site-header .brand-name { font-size:1.25rem; }
+        .site-header .brand img { height:30px; width:auto; }
+      }
+      main { padding-top: 40px; padding-bottom: 60px; }
+      h1 { font-size: 2.2rem; line-height:1.2; margin: 0 0 12px; }
+      h2 { font-size: 1.4rem; margin-top: 2.2rem; }
+      h3 { font-size: 1.1rem; margin-top: 1.6rem; }
+      .lede { font-size: 1.15rem; color:var(--muted); }
+      a { color: var(--accent); }
+      ul { padding-left: 1.2rem; }
+      li { margin: 0.3rem 0; }
+      code { background:#fff; border:1px solid var(--rule); padding:1px 6px; border-radius:4px; font-size:0.9em; }
+      pre { background:#fff; border:1px solid var(--rule); padding:12px 16px; border-radius:6px; overflow-x:auto; font-size:0.9em; line-height:1.45; }
+      pre code { background:none; border:none; padding:0; }
+      table { border-collapse: collapse; width: 100%; margin: 1.5rem 0; }
+      th, td { border: 1px solid var(--rule); padding: 8px 12px; text-align: left; vertical-align: top; }
+      th { background: rgba(0,0,0,0.03); font-weight: 600; }
+      footer { border-top: 1px solid var(--rule); padding-top:20px; padding-bottom:40px; color:var(--muted); font-size:0.95rem; display:flex; flex-wrap:wrap; gap:18px; }
+      footer a { color: var(--muted); }
+    </style>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "GTFS·X vs. Remix by Via — Honest Comparison",
+        "url": "https://www.gtfsx.com/compare/remix/",
+        "description": "Remix is a planning suite; GTFS·X is a GTFS editor with planning analyses. They serve adjacent needs. Honest comparison of which one fits your agency."
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="brand">
+        <img src="/gtfsx-lockup.svg" alt="GTFS·X" />
+      </a>
+      <nav>
+        <a href="/about/">About</a>
+        <a href="/docs/">Docs</a>
+        <a href="/learn/gtfs/">Learn</a>
+        <a href="/docs/deep-links/">Integrations</a>
+        <a href="/community">Community</a>
+        <a href="/help">Help</a>
+      </nav>
+      <div class="actions">
+        <a href="/" class="cta">Open editor</a>
+        <div id="user-slot" class="user-slot">
+          <a href="/login">Sign in</a>
+        </div>
+      </div>
+    </header>
+    <main>
+      <h1>GTFS·X vs. Remix by Via</h1>
+      <p>Remix is a transit planning suite — scenario modeling, network design, service equity analysis, GIS-integrated route drawing. It was acquired by Via in 2021 and is now branded &quot;Remix by Via.&quot; It serves 340+ cities across 22 countries and is the go-to tool for transit planning departments at mid-to-large agencies and MPOs.</p>
+      <p>GTFS·X is a GTFS editor with built-in planning analyses (cost, demographic coverage, Title VI, propensity). It&#39;s the right tool for producing and maintaining a clean GTFS feed, not for running multi-scenario service planning workshops.</p>
+      <p>These are adjacent products. The honest comparison is which primary need you&#39;re solving for.</p>
+      <p>This page is split. If you&#39;re evaluating planning tools for the first time, start with the comparison table. If you&#39;re an existing Remix customer wondering if you still need it, skip to the section further down.</p>
+      <h2>Quick comparison (first-time buyers)</h2>
+      <table>
+      <thead>
+      <tr>
+      <th></th>
+      <th>Remix by Via</th>
+      <th>GTFS·X</th>
+      </tr>
+      </thead>
+      <tbody><tr>
+      <td><strong>Primary purpose</strong></td>
+      <td>Transit planning + scenario modeling</td>
+      <td>GTFS feed authoring + maintenance</td>
+      </tr>
+      <tr>
+      <td><strong>GTFS authoring</strong></td>
+      <td>Yes, via export from planned scenarios</td>
+      <td>Yes, as the core feature</td>
+      </tr>
+      <tr>
+      <td><strong>GTFS-Flex authoring</strong></td>
+      <td>Limited</td>
+      <td>Full support — polygon zones, booking rules, stop groups</td>
+      </tr>
+      <tr>
+      <td><strong>Scenario modeling (what-if service changes)</strong></td>
+      <td>Yes — this is the core</td>
+      <td>No</td>
+      </tr>
+      <tr>
+      <td><strong>Service planning (drag service hours, model frequency changes)</strong></td>
+      <td>Yes — this is the core</td>
+      <td>No</td>
+      </tr>
+      <tr>
+      <td><strong>Title VI / equity analysis</strong></td>
+      <td>Yes</td>
+      <td>Yes (Team tier)</td>
+      </tr>
+      <tr>
+      <td><strong>Demographic coverage</strong></td>
+      <td>Yes (integrated GIS)</td>
+      <td>Yes (Pro tier)</td>
+      </tr>
+      <tr>
+      <td><strong>Cost estimation</strong></td>
+      <td>Yes</td>
+      <td>Yes (Pro tier)</td>
+      </tr>
+      <tr>
+      <td><strong>Hosted GTFS publishing at stable URL</strong></td>
+      <td>Some support; not the primary product</td>
+      <td>Yes — $500/yr standalone</td>
+      </tr>
+      <tr>
+      <td><strong>Cost</strong></td>
+      <td>Enterprise, quote-based; commonly $20,000–$150,000+/yr depending on agency size and scope</td>
+      <td>Free editor; $49/mo Pro, $199/mo Team, $500/yr hosted publishing</td>
+      </tr>
+      <tr>
+      <td><strong>Procurement complexity</strong></td>
+      <td>Enterprise contract; RFP common</td>
+      <td>Sub-$5k SaaS that fits small-purchase signature authority</td>
+      </tr>
+      <tr>
+      <td><strong>Best fit</strong></td>
+      <td>Mid-to-large agencies, MPOs, planning departments doing active service redesign</td>
+      <td>Agencies focused on producing+publishing a clean GTFS feed, with analyses on the side</td>
+      </tr>
+      </tbody></table>
+      <h2>Where Remix is genuinely better</h2>
+      <p>Real categories where Remix is the right answer:</p>
+      <ul>
+      <li><strong>Active service planning and scenario modeling.</strong> If your team is doing what-if analysis on service changes — moving frequency around, comparing alternative network designs, evaluating coverage trade-offs — Remix is built for that. GTFS·X has analyses but it&#39;s not a planning suite. You wouldn&#39;t use GTFS·X to design a network redesign; you would use Remix.</li>
+      <li><strong>GIS-integrated workflows.</strong> Remix integrates demographics, parcels, employment, and other GIS layers into the planning environment. For planners who think in spatial overlays, this is a real workflow advantage. GTFS·X has demographic coverage analysis but doesn&#39;t aim to be a GIS platform.</li>
+      <li><strong>Multi-jurisdiction planning.</strong> MPOs and regional agencies coordinating service across multiple operators have a structurally different workflow than a single-agency GTFS editor. Remix is built for that scale; GTFS·X isn&#39;t.</li>
+      <li><strong>Existing Via operations stack.</strong> If your agency is using Via for microtransit operations or rider-facing tech, having Remix in the same vendor relationship is a real consolidation benefit. The integration story has substance.</li>
+      </ul>
+      <h2>Where GTFS·X is genuinely better</h2>
+      <p>Four categories:</p>
+      <ul>
+      <li><strong>You primarily need to produce and maintain a GTFS feed, not redesign your network.</strong> Most small and small-urban agencies are in this category. The service plan is mostly stable; the work is keeping the GTFS feed clean, validated, and published. Remix is overkill — and over-priced — for that primary need.</li>
+      <li><strong>You operate fixed-route + Flex and need both in one tool.</strong> Remix&#39;s Flex authoring is limited; GTFS·X has full Flex support including polygon zones, booking rules, and stop groups.</li>
+      <li><strong>Transparent pricing under $5k/year.</strong> GTFS·X pricing is on the pricing page: $49/mo Pro, $199/mo Team, $500/yr hosted publishing. Remix is enterprise-quoted. For a small-agency procurement, the price difference and the transparency difference both matter.</li>
+      <li><strong>No signup to evaluate.</strong> GTFS·X editor and export are anonymous. You can build a complete feed before deciding whether to pay for anything. Remix evaluation requires sales engagement.</li>
+      </ul>
+      <h2>Thinking about switching?</h2>
+      <p>If you&#39;re an existing Remix customer reading this, the answer probably depends on what you&#39;re using Remix for. A few cases:</p>
+      <h3>Case 1: You&#39;re paying for Remix but only using it for GTFS authoring</h3>
+      <p>This is the case where switching may pencil. Remix-by-Via enterprise pricing for an agency that only uses the GTFS authoring features is overpaying by roughly an order of magnitude versus the comparable GTFS·X tiers. If you&#39;re not actively using scenario modeling, network design, or the broader planning workflow, you&#39;re paying for capabilities you don&#39;t use.</p>
+      <p>Practically:</p>
+      <ol>
+      <li>Audit your Remix usage over the last 12 months. If 80%+ of seat-hours are on GTFS authoring tasks vs. planning tasks, you&#39;re a switching candidate.</li>
+      <li>Export your current GTFS feed from Remix.</li>
+      <li>Import into GTFS·X (anonymous editor, no signup).</li>
+      <li>Verify the feed validates and matches what Remix produced.</li>
+      <li>Decide between Pro ($49/mo) and Team ($199/mo) based on whether you need Title VI / propensity analyses.</li>
+      <li>Optional: hosted publishing at $500/yr if you want a stable URL with monitoring.</li>
+      </ol>
+      <p>Total: $1,088/yr to $2,888/yr depending on tier, versus likely $20,000–$60,000/yr for Remix. The savings is real if the usage audit supports it.</p>
+      <h3>Case 2: You&#39;re using Remix for active planning work</h3>
+      <p>Don&#39;t switch. Remix is built for what you&#39;re doing; GTFS·X isn&#39;t. The GTFS authoring side is a small portion of your Remix value.</p>
+      <h3>Case 3: You&#39;re an MPO coordinating across multiple operators</h3>
+      <p>Probably don&#39;t switch — Remix&#39;s multi-jurisdiction model is built for that workflow. GTFS·X is single-agency-oriented and you&#39;d be giving up coordination tooling that Remix handles well.</p>
+      <h3>What the math looks like</h3>
+      <p>For an agency paying $30,000/yr for Remix and using it primarily for GTFS authoring with occasional Title VI analyses, the GTFS·X equivalent (Team tier + Hosted) is $2,888/yr. Annual savings: ~$27,000, against the staff time to learn a new tool and migrate the feed. For most agencies that&#39;s a 1–2 week migration window for a roughly 10x annual cost reduction. Worth doing if the usage audit supports it.</p>
+      <p>For an agency paying $80,000+/yr because Remix is bundled with other Via services, the math depends on what else you&#39;re buying — savings on the GTFS side may not justify unbundling.</p>
+      <h2>The Remix-by-Via rebrand</h2>
+      <p>A note on brand confusion: Remix is being progressively integrated into Via&#39;s product naming. Some Via marketing now refers to &quot;Via&#39;s transit planning platform&quot; without explicitly calling out the Remix brand. The underlying tool is still Remix; the product page still exists at <a href="https://ridewithvia.com/solutions/remix">ridewithvia.com/solutions/remix</a>. Customers report some uncertainty about whether Remix will remain a standalone product or get fully absorbed into Via&#39;s broader platform. As of mid-2026, it&#39;s still distinguishable.</p>
+      <p>If you&#39;re procuring &quot;Remix&quot; today, you&#39;re procuring Via&#39;s transit planning platform with the Remix branding on the planning suite. The contracting entity is Via.</p>
+      <h2>FAQ</h2>
+      <p><strong>Is GTFS·X a planning tool?</strong>
+      No. GTFS·X is a GTFS editor with planning analyses built in. We don&#39;t do scenario modeling or network design. If you need those, you need a planning tool.</p>
+      <p><strong>Can I export from Remix and import into GTFS·X?</strong>
+      Yes. Remix produces standard GTFS that GTFS·X imports cleanly. Round-trip preserves all standard GTFS files.</p>
+      <p><strong>Will my Remix integrations (downstream consumers, agency website embed, etc.) still work after switching?</strong>
+      The GTFS feed itself is standard, so trip planners and other consumers see no change. Any custom Remix integrations (data layer in your agency website, embed widgets from Remix) would need to be replaced with equivalents.</p>
+      <p><strong>What if my staff is trained on Remix?</strong>
+      GTFS·X has a different UI and a different scope (editor, not planning suite). There&#39;s a learning curve. The quickstart docs cover the editor end-to-end and most agency staff can produce a feed within a working day.</p>
+      <p><strong>What about Remix&#39;s Title VI tooling specifically?</strong>
+      GTFS·X has Title VI equity analysis built into the Team tier ($199/mo), using ACS data with the four-fifths threshold convention from FTA Circular 4702.1B. It&#39;s not a one-to-one replacement for Remix&#39;s full equity workflow, but for most small-urban Title VI analyses it produces the same output.</p>
+      <hr>
+      <p><em>Try the GTFS·X editor at <a href="/">gtfsx.com</a> — anonymous, no signup. Or <a href="https://fantastical.app/markegge/gtfsx-feed-consult">book a 30-minute consult call</a> to talk through whether self-serve fits your agency.</em></p>
+    </main>
+    <footer>
+      <a href="/">Editor</a>
+      <a href="/about/">About</a>
+      <a href="/docs/">Docs</a>
+      <a href="/learn/gtfs/">What is GTFS?</a>
+      <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a>
+      <a href="/docs/deep-links/">Deep-link integration</a>
+    </footer>
+    <script>
+      (function () {
+        fetch('/api/me', { credentials: 'include', headers: { 'X-GB-Client': 'web' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.user) return;
+            var slot = document.getElementById('user-slot');
+            if (!slot) return;
+            var label = data.user.displayName || data.user.email || '';
+            var initial = (label.charAt(0) || '?').toUpperCase();
+            var escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            slot.innerHTML = '<a href="/account" class="user-avatar" title="' + escaped + '">' + initial + '</a>';
+          })
+          .catch(function () { /* keep "Sign in" */ });
+      })();
+    </script>
+  </body>
+</html>

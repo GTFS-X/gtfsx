@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Source: Cornerstone Content Drafts/compare-trillium.md (v1, 2026-05-22) -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>GTFS·X vs. Trillium (Optibus) — Honest Comparison</title>
+    <meta name="description" content="Trillium is a managed GTFS service; GTFS·X is a self-serve GTFS editor with optional hosted publishing. Honest comparison of cost, control, and which fits which agency." />
+    <link rel="canonical" href="https://www.gtfsx.com/compare/trillium/" />
+    <meta property="og:title" content="GTFS·X vs. Trillium (Optibus) — Honest Comparison" />
+    <meta property="og:description" content="Trillium is a managed GTFS service; GTFS·X is a self-serve GTFS editor with optional hosted publishing. Honest comparison of cost, control, and which fits which agency." />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://www.gtfsx.com/compare/trillium/" />
+    <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@gtfsxapp" />
+    <meta name="twitter:image" content="https://www.gtfsx.com/og-default.png" />
+    <style>
+      :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Inter", sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+      footer, main { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+      /* ─── site header (matches the editor) ─── */
+      .site-header { position: sticky; top: 0; z-index: 10; background:#fff; border-bottom:1px solid var(--rule); height:56px; display:flex; align-items:center; padding: 0 20px; gap:16px; }
+      .site-header .brand { display:inline-flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+      .site-header .brand img { height:36px; width:auto; }
+      .site-header .brand-name { font-weight:800; font-size:1.5rem; color:var(--accent); letter-spacing:-0.01em; }
+      .site-header nav { display:flex; gap:4px; margin-left:12px; }
+      .site-header nav a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; padding:8px 12px; border-radius:6px; transition:color 0.15s, background 0.15s; }
+      .site-header nav a:hover { color:var(--ink); background:var(--bg); }
+      .site-header nav a.active { color:var(--ink); background:var(--bg); }
+      .site-header .actions { margin-left:auto; display:flex; align-items:center; gap:12px; }
+      .site-header .cta { background:var(--accent); color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .cta:hover { filter:brightness(0.95); }
+      .site-header .user-slot a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .user-slot a:hover { color:var(--ink); }
+      .site-header .user-slot .user-avatar { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; font-weight:800; font-size:13px; text-decoration:none; }
+      .site-header .user-slot .user-avatar:hover { filter:brightness(0.95); }
+      @media (max-width: 720px) {
+        .site-header nav, .site-header .cta { display:none; }
+        .site-header .brand-name { font-size:1.25rem; }
+        .site-header .brand img { height:30px; width:auto; }
+      }
+      main { padding-top: 40px; padding-bottom: 60px; }
+      h1 { font-size: 2.2rem; line-height:1.2; margin: 0 0 12px; }
+      h2 { font-size: 1.4rem; margin-top: 2.2rem; }
+      h3 { font-size: 1.1rem; margin-top: 1.6rem; }
+      .lede { font-size: 1.15rem; color:var(--muted); }
+      a { color: var(--accent); }
+      ul { padding-left: 1.2rem; }
+      li { margin: 0.3rem 0; }
+      code { background:#fff; border:1px solid var(--rule); padding:1px 6px; border-radius:4px; font-size:0.9em; }
+      pre { background:#fff; border:1px solid var(--rule); padding:12px 16px; border-radius:6px; overflow-x:auto; font-size:0.9em; line-height:1.45; }
+      pre code { background:none; border:none; padding:0; }
+      table { border-collapse: collapse; width: 100%; margin: 1.5rem 0; }
+      th, td { border: 1px solid var(--rule); padding: 8px 12px; text-align: left; vertical-align: top; }
+      th { background: rgba(0,0,0,0.03); font-weight: 600; }
+      footer { border-top: 1px solid var(--rule); padding-top:20px; padding-bottom:40px; color:var(--muted); font-size:0.95rem; display:flex; flex-wrap:wrap; gap:18px; }
+      footer a { color: var(--muted); }
+    </style>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "GTFS·X vs. Trillium (Optibus) — Honest Comparison",
+        "url": "https://www.gtfsx.com/compare/trillium/",
+        "description": "Trillium is a managed GTFS service; GTFS·X is a self-serve GTFS editor with optional hosted publishing. Honest comparison of cost, control, and which fits which agency."
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="brand">
+        <img src="/gtfsx-lockup.svg" alt="GTFS·X" />
+      </a>
+      <nav>
+        <a href="/about/">About</a>
+        <a href="/docs/">Docs</a>
+        <a href="/learn/gtfs/">Learn</a>
+        <a href="/docs/deep-links/">Integrations</a>
+        <a href="/community">Community</a>
+        <a href="/help">Help</a>
+      </nav>
+      <div class="actions">
+        <a href="/" class="cta">Open editor</a>
+        <div id="user-slot" class="user-slot">
+          <a href="/login">Sign in</a>
+        </div>
+      </div>
+    </header>
+    <main>
+      <h1>GTFS·X vs. Trillium (Optibus)</h1>
+      <p>Trillium Solutions is the established North American managed GTFS service. They&#39;ve been doing this since 2011 and serve 350+ US transit agencies, including the DOTs of Massachusetts, Oregon, Colorado, and others. In April 2022 <a href="https://blog.optibus.com/announcements/optibus-expands-in-north-america-with-acquisition-of-trillium">Optibus acquired Trillium</a>; the team now operates as Optibus&#39; &quot;Global Center for Data Excellence&quot; out of Portland, Oregon.</p>
+      <p>Calling Trillium a competitor isn&#39;t quite right. Trillium is a service; GTFS·X is a tool. The honest comparison depends on whether you want to do the work yourself (with a tool) or have someone do it for you (as a service). Both answers are legitimate.</p>
+      <p>This page is split. If you&#39;re a first-time buyer evaluating GTFS options, start with the comparison table. If you&#39;re an existing Trillium customer wondering about the contract, the section further down is for you.</p>
+      <h2>Quick comparison (first-time buyers)</h2>
+      <table>
+      <thead>
+      <tr>
+      <th></th>
+      <th>Trillium (Optibus)</th>
+      <th>GTFS·X</th>
+      </tr>
+      </thead>
+      <tbody><tr>
+      <td><strong>Model</strong></td>
+      <td>Managed service — Trillium staff create and maintain your feed</td>
+      <td>Self-serve tool — you create and maintain your feed</td>
+      </tr>
+      <tr>
+      <td><strong>Cost</strong></td>
+      <td>Quote-based; commonly $3,000–$15,000/yr for managed publishing, more for active service planning support</td>
+      <td>Free editor; $49/mo Pro, $500/yr hosted publishing, $199/mo Team</td>
+      </tr>
+      <tr>
+      <td><strong>Time-to-first-feed</strong></td>
+      <td>4–12 weeks (Trillium gathers data, builds feed, deploys)</td>
+      <td>Minutes (anonymous editor; export valid GTFS in one session)</td>
+      </tr>
+      <tr>
+      <td><strong>Who edits the feed</strong></td>
+      <td>Trillium staff with periodic input from agency</td>
+      <td>Agency staff directly</td>
+      </tr>
+      <tr>
+      <td><strong>Hosted at a stable URL</strong></td>
+      <td>Yes, on Trillium infrastructure</td>
+      <td>Yes, on <code>feeds.gtfsx.com</code> (Hosted tier)</td>
+      </tr>
+      <tr>
+      <td><strong>GTFS-Flex support</strong></td>
+      <td>Yes, professional services</td>
+      <td>Yes, self-serve</td>
+      </tr>
+      <tr>
+      <td><strong>Title VI / equity analysis</strong></td>
+      <td>Yes, as a paid analysis engagement</td>
+      <td>Built into Team tier ($199/mo)</td>
+      </tr>
+      <tr>
+      <td><strong>Service planning / scenario modeling</strong></td>
+      <td>Yes, through Optibus broader platform</td>
+      <td>Not the primary use case</td>
+      </tr>
+      <tr>
+      <td><strong>Procurement complexity</strong></td>
+      <td>Multi-thousand-dollar contract; some agencies need RFP</td>
+      <td>Sub-$5k SaaS that fits small-purchase signature authority</td>
+      </tr>
+      <tr>
+      <td><strong>Best fit</strong></td>
+      <td>Larger agencies, DOT statewide programs, agencies that want to outsource the work</td>
+      <td>Agencies that want to own the tool, do the work in-house, and pay a flat low SaaS price</td>
+      </tr>
+      </tbody></table>
+      <h2>Where Trillium is genuinely better</h2>
+      <p>Real things Trillium does well:</p>
+      <ul>
+      <li><strong>Hands-off white-glove service.</strong> If your agency doesn&#39;t have the staff time or interest to maintain a GTFS feed internally, Trillium does it for you. You hand them your service plan and rider information; they produce, host, and maintain the feed. For agencies where GTFS is one item on a long list of things nobody owns, this is a structurally better answer than asking that nobody to learn a tool.</li>
+      <li><strong>Multi-state statewide programs.</strong> Trillium has experience running statewide GTFS programs for state DOTs (MA, OR, CO, VT, MN, MA, others). They know how to onboard 5311 sub-recipients, coordinate vendor handoffs, and align on reporting calendars. If you&#39;re a state DOT looking for a turnkey vendor to run a statewide program, Trillium has the most precedent.</li>
+      <li><strong>The Optibus broader platform.</strong> If your agency is or might become an Optibus customer for scheduling and operations optimization (workforce management, vehicle scheduling, etc.), having GTFS authoring inside the same vendor relationship has real consolidation value. The integration story is more compelling than a stand-alone GTFS tool.</li>
+      <li><strong>Established relationships and trust.</strong> Trillium has been doing this for 14+ years. The transit data community knows them. References are easy. For an agency where &quot;is this vendor still going to exist in five years&quot; is a real procurement question, Trillium has the longer track record.</li>
+      </ul>
+      <h2>Where GTFS·X is genuinely better</h2>
+      <ul>
+      <li><strong>Cost.</strong> A $500/year hosted publishing tier is roughly 1/10 to 1/30 of the equivalent Trillium managed engagement. If you have a staff member who can spend a few hours on the editor every quarter, the savings is meaningful.</li>
+      <li><strong>Time to first feed.</strong> Anonymous editor: a small fixed-route feed can be built and exported in an afternoon. Trillium&#39;s process is paced for thoroughness and includes their data team&#39;s onboarding work; that&#39;s a feature for some agencies and a constraint for others.</li>
+      <li><strong>Direct control.</strong> Your data lives in your tool. Schedule changes go in immediately rather than waiting on a vendor turnaround. For agencies that update service often or make changes on short notice, the latency of a managed-service workflow is the binding constraint.</li>
+      <li><strong>Transparent pricing.</strong> The pricing page is the pricing. No quote, no scoping call. Some agencies find this politically easier to procure than an enterprise contract.</li>
+      <li><strong>Built-in analyses.</strong> Cost estimation, demographic coverage, Title VI, and rider propensity heatmap are built into the editor at the Pro and Team tiers. With Trillium, each of these is an additional engagement.</li>
+      </ul>
+      <h2>Thinking about switching?</h2>
+      <p>If you&#39;re an existing Trillium customer reading this, the question is whether the savings and control justify the migration effort and the change in operating model. Three things to consider:</p>
+      <h3>What you&#39;re paying for vs. what GTFS·X provides</h3>
+      <p>Trillium&#39;s value is the service component — their team monitors your feed, catches breakages, accommodates schedule changes, handles the relationship with downstream consumers, and produces analytics on request. If you take the GTFS·X path, you&#39;re substituting:</p>
+      <ul>
+      <li><strong>Their feed monitoring</strong> for GTFS·X hosted publishing monitoring (alerts on validation failure, feed expiry, URL outage)</li>
+      <li><strong>Their service planning input</strong> for in-house staff time (if you don&#39;t have an in-house staffer who can spend ~2–4 hours/quarter on the feed, this substitution doesn&#39;t work)</li>
+      <li><strong>Their relationship with Google/Apple/Mobility Database</strong> for your own direct registration (one-time work, ongoing maintenance is minimal once approved)</li>
+      <li><strong>Their analyses on request</strong> for the Pro/Team tier built-in analyses (which run on-demand without a request)</li>
+      </ul>
+      <p>For agencies with an in-house staffer who can own the feed, the substitution works. For agencies with no internal capacity, it doesn&#39;t — you&#39;d be cutting the service line without anything to replace it.</p>
+      <h3>What &quot;switching&quot; actually involves</h3>
+      <p>Practically:</p>
+      <ol>
+      <li>Export your existing GTFS zip from Trillium (they will provide it on request — it&#39;s your data)</li>
+      <li>Import into GTFS·X (round-trip-preserving for all standard GTFS files)</li>
+      <li>Decide whether to keep the existing public feed URL pattern or migrate to <code>feeds.gtfsx.com/&lt;your-agency&gt;/</code>. If you keep the existing URL, you&#39;ll need a 301 redirect or DNS migration.</li>
+      <li>Update the Mobility Database, Google Transit Partners, and Apple Maps Connect with the new feed URL (if changed)</li>
+      <li>Confirm downstream consumers are picking up the new feed correctly before terminating with Trillium</li>
+      </ol>
+      <p>Total elapsed time: 2–6 weeks if your existing feed is clean. Longer if your existing feed has accumulated edge cases.</p>
+      <h3>The case for not switching</h3>
+      <p>A few situations where staying with Trillium is the right call:</p>
+      <ul>
+      <li><strong>You don&#39;t have an in-house staffer who can own the feed.</strong> Don&#39;t switch.</li>
+      <li><strong>You&#39;re under a statewide DOT-funded Trillium program.</strong> Your state is paying the bill; switching costs your agency more (in staff time) than it saves (in dollars you don&#39;t pay).</li>
+      <li><strong>You&#39;re using Optibus more broadly</strong> (scheduling, workforce, optimization). Consolidating in one vendor has real value; the GTFS-only savings probably don&#39;t justify the integration loss.</li>
+      <li><strong>Your current Trillium engagement is renewing in 30+ months.</strong> Wait until the renewal window — switching mid-contract usually doesn&#39;t pencil.</li>
+      </ul>
+      <h3>What the math looks like</h3>
+      <p>For a typical small-urban agency paying Trillium ~$8,000/yr for managed publishing plus periodic analyses, the GTFS·X equivalent is $500/yr (hosted) + $199/mo (Team tier, if you want Title VI and propensity) = $2,888/yr. Annual savings: ~$5,100, against ~10–30 hours of in-house staff time to own the workflow. If your staff time is loaded at $50/hr, the breakeven is ~100 hours of effort. If you&#39;re spending less than 100 hours/year on GTFS work, the math favors switching.</p>
+      <p>The math gets worse (for switching) at smaller scales, because Trillium&#39;s smallest engagements are commonly $3,000–$5,000, and the GTFS·X self-serve work doesn&#39;t shrink proportionally.</p>
+      <h2>FAQ</h2>
+      <p><strong>Is Trillium going away now that Optibus owns it?</strong>
+      No. Trillium continues to operate as Optibus&#39; US data services arm. The Trillium brand and the Portland team remain in place.</p>
+      <p><strong>Can I use GTFS·X alongside Trillium?</strong>
+      Yes. Some agencies use GTFS·X for in-house drafting and review, then hand the final feed to Trillium for publishing and monitoring. The two tools are interoperable.</p>
+      <p><strong>Does Optibus offer a self-serve GTFS authoring tool?</strong>
+      Not currently. Optibus&#39; platform is enterprise-focused; their GTFS authoring capability is delivered through the Trillium service line.</p>
+      <p><strong>Is there a free trial or pilot for GTFS·X?</strong>
+      The editor and export are free without signup. You can produce a complete valid GTFS feed at zero cost before deciding whether to pay for hosted publishing or analyses.</p>
+      <p><strong>What&#39;s the data ownership story?</strong>
+      Your feed is your data in both cases. Trillium and GTFS·X both treat the agency as the data owner. With Trillium, your data lives on their infrastructure under their contractual terms; with GTFS·X, it lives in your browser (anonymous mode) or in our backend (account mode). In either case, you can export your data and leave.</p>
+      <hr>
+      <p><em>Try the GTFS·X editor at <a href="/">gtfsx.com</a> — anonymous, no signup. Or <a href="https://fantastical.app/markegge/gtfsx-feed-consult">book a 30-minute consult call</a> to talk through whether self-serve fits your agency.</em></p>
+    </main>
+    <footer>
+      <a href="/">Editor</a>
+      <a href="/about/">About</a>
+      <a href="/docs/">Docs</a>
+      <a href="/learn/gtfs/">What is GTFS?</a>
+      <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a>
+      <a href="/docs/deep-links/">Deep-link integration</a>
+    </footer>
+    <script>
+      (function () {
+        fetch('/api/me', { credentials: 'include', headers: { 'X-GB-Client': 'web' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.user) return;
+            var slot = document.getElementById('user-slot');
+            if (!slot) return;
+            var label = data.user.displayName || data.user.email || '';
+            var initial = (label.charAt(0) || '?').toUpperCase();
+            var escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            slot.innerHTML = '<a href="/account" class="user-avatar" title="' + escaped + '">' + initial + '</a>';
+          })
+          .catch(function () { /* keep "Sign in" */ });
+      })();
+    </script>
+  </body>
+</html>

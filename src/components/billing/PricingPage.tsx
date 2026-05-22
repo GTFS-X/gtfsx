@@ -7,6 +7,7 @@ import { billingEnabled } from '../../utils/featureFlags';
 import { fetchPlanCatalog, type PlanCatalogEntry, type Plan } from '../../services/billingApi';
 import { trackCtaClick } from '../../services/trackBeacon';
 import { TestModeBanner } from './TestModeBanner';
+import { TalkToSalesModal } from './TalkToSalesModal';
 
 // Fallback catalog used when the worker is unreachable (e.g. /pricing rendered
 // before backend is enabled). Kept in sync with worker/billing/plans.ts.
@@ -100,6 +101,7 @@ export function PricingPage() {
   const [interval, setInterval] = useState<'month' | 'year'>('month');
   const [plans, setPlans] = useState<PlanCatalogEntry[]>(FALLBACK_PLANS);
   const [serverBillingEnabled, setServerBillingEnabled] = useState<boolean>(billingEnabled);
+  const [talkToSalesOpen, setTalkToSalesOpen] = useState(false);
 
   useEffect(() => {
     fetchPlanCatalog()
@@ -205,12 +207,16 @@ export function PricingPage() {
                       </Link>
                     )
                   ) : isEnterprise ? (
-                    <a
-                      href={ENTERPRISE_MAIL}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        trackCtaClick('pricing_talk_to_sales_open');
+                        setTalkToSalesOpen(true);
+                      }}
                       className="block w-full rounded-lg border border-sand bg-cream py-2.5 text-center font-heading text-sm font-bold text-brown hover:border-coral hover:text-coral"
                     >
                       Talk to sales
-                    </a>
+                    </button>
                   ) : (
                     <AuthButton
                       fullWidth
@@ -344,6 +350,43 @@ export function PricingPage() {
           </p>
         </section>
 
+        <section>
+          <h2 className="font-heading text-lg font-bold text-dark-brown">How GTFS·X compares</h2>
+          <p className="mt-1 text-sm text-warm-gray">
+            Honest comparisons with the other GTFS authoring tools agencies evaluate.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <Link
+              to="/compare/trillium/"
+              className="block rounded-2xl border border-sand bg-cream p-4 hover:border-coral"
+            >
+              <div className="font-heading text-sm font-bold text-dark-brown">vs. Trillium (Optibus)</div>
+              <p className="mt-1 text-xs text-warm-gray">Managed GTFS service vs. self-serve editor — cost, control, fit.</p>
+            </Link>
+            <Link
+              to="/compare/remix/"
+              className="block rounded-2xl border border-sand bg-cream p-4 hover:border-coral"
+            >
+              <div className="font-heading text-sm font-bold text-dark-brown">vs. Remix by Via</div>
+              <p className="mt-1 text-xs text-warm-gray">Network planning suite vs. GTFS-first tool — where each one fits.</p>
+            </Link>
+            <Link
+              to="/compare/gtfs-builder-rtap/"
+              className="block rounded-2xl border border-sand bg-cream p-4 hover:border-coral"
+            >
+              <div className="font-heading text-sm font-bold text-dark-brown">vs. National RTAP GTFS Builder</div>
+              <p className="mt-1 text-xs text-warm-gray">Free spreadsheet builder vs. map-based editor — when to use which.</p>
+            </Link>
+            <Link
+              to="/compare/spare-flex-builder/"
+              className="block rounded-2xl border border-sand bg-cream p-4 hover:border-coral"
+            >
+              <div className="font-heading text-sm font-bold text-dark-brown">vs. Spare GTFS-Flex Builder</div>
+              <p className="mt-1 text-xs text-warm-gray">Microtransit-only builder vs. full GTFS + Flex authoring.</p>
+            </Link>
+          </div>
+        </section>
+
         <section className="rounded-2xl border border-sand bg-cream p-6">
           <h2 className="font-heading text-lg font-bold text-dark-brown">FAQ</h2>
           <div className="mt-3 space-y-3 text-sm text-brown">
@@ -379,6 +422,12 @@ export function PricingPage() {
           </div>
         </section>
       </div>
+      <TalkToSalesModal
+        open={talkToSalesOpen}
+        onClose={() => setTalkToSalesOpen(false)}
+        scheduleUrl={SCHEDULE_CALL_URL}
+        mailto={ENTERPRISE_MAIL}
+      />
     </AuthLayout>
   );
 }
