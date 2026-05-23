@@ -42,7 +42,7 @@ describe('/pricing and /demo SSR', () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toMatch(/<title>[^<]*Pricing[^<]*<\/title>/);
-    expect(html).not.toContain('<title>GTFS·X – GTFS Builder and Editor</title>');
+    expect(html).not.toContain('<title>GTFS·X – GTFS Editor • Route Planner</title>');
     expect(html).toContain('href="http://127.0.0.1/pricing/"');
   });
 

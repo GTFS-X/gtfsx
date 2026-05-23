@@ -68,7 +68,7 @@ export function AppBrand({
         <span
           className={`${taglineClassName} text-sm font-medium text-warm-gray border-l border-sand pl-3 whitespace-nowrap`}
         >
-          GTFS Builder and Editor
+          GTFS Editor • Route Planner
         </span>
       )}
     </div>
