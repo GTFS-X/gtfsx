@@ -6,10 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <title>GTFS·X vs. Remix by Via — Honest Comparison</title>
-    <meta name="description" content="Remix is a planning suite; GTFS·X is a GTFS editor with planning analyses. They serve adjacent needs. Honest comparison of which one fits your agency." />
+    <meta name="description" content="Remix is a drag-to-edit planning suite; GTFS·X is a GTFS editor with planning analyses and snapshot-based scenario comparison. Honest comparison." />
     <link rel="canonical" href="https://www.gtfsx.com/compare/remix/" />
     <meta property="og:title" content="GTFS·X vs. Remix by Via — Honest Comparison" />
-    <meta property="og:description" content="Remix is a planning suite; GTFS·X is a GTFS editor with planning analyses. They serve adjacent needs. Honest comparison of which one fits your agency." />
+    <meta property="og:description" content="Remix is a drag-to-edit planning suite; GTFS·X is a GTFS editor with planning analyses and snapshot-based scenario comparison. Honest comparison." />
     <meta property="og:type" content="article" />
     <meta property="og:url" content="https://www.gtfsx.com/compare/remix/" />
     <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
@@ -67,7 +67,7 @@
         "@type": "Article",
         "headline": "GTFS·X vs. Remix by Via — Honest Comparison",
         "url": "https://www.gtfsx.com/compare/remix/",
-        "description": "Remix is a planning suite; GTFS·X is a GTFS editor with planning analyses. They serve adjacent needs. Honest comparison of which one fits your agency."
+        "description": "Remix is a drag-to-edit planning suite; GTFS·X is a GTFS editor with planning analyses and snapshot-based scenario comparison. Honest comparison."
       }
     </script>
   </head>
@@ -93,9 +93,9 @@
     </header>
     <main>
       <h1>GTFS·X vs. Remix by Via</h1>
-      <p>Remix is a transit planning suite — scenario modeling, network design, service equity analysis, GIS-integrated route drawing. It was acquired by Via in 2021 and is now branded &quot;Remix by Via.&quot; It serves 340+ cities across 22 countries and is the go-to tool for transit planning departments at mid-to-large agencies and MPOs.</p>
-      <p>GTFS·X is a GTFS editor with built-in planning analyses (cost, demographic coverage, Title VI, propensity). It&#39;s the right tool for producing and maintaining a clean GTFS feed, not for running multi-scenario service planning workshops.</p>
-      <p>These are adjacent products. The honest comparison is which primary need you&#39;re solving for.</p>
+      <p>Remix is a transit planning suite — drag-to-edit network design, multi-scenario workshop tools, service equity analysis, GIS-integrated route drawing. It was acquired by Via in 2021 and is now branded &quot;Remix by Via.&quot; It serves 340+ cities across 22 countries and is the go-to tool for transit planning departments at mid-to-large agencies and MPOs doing active service redesign.</p>
+      <p>GTFS·X is a GTFS editor with planning analyses and scenario comparison workflows built in: cost estimation, demographic coverage, Title VI equity analysis, a nationwide demand-propensity layer, and snapshots that let you save and compare multiple feed versions side-by-side. The primary purpose is producing and maintaining a clean GTFS feed; the planning capabilities serve agencies who want to evaluate their own service alternatives without leaving the editing tool.</p>
+      <p>These are adjacent products with overlap in the analysis layer. The honest comparison is whether you need drag-to-edit network design at scale (Remix) or a GTFS editor that includes the planning analyses and scenario comparison most small-and-medium agencies actually need (GTFS·X).</p>
       <p>This page is split. If you&#39;re evaluating planning tools for the first time, start with the comparison table. If you&#39;re an existing Remix customer wondering if you still need it, skip to the section further down.</p>
       <h2>Quick comparison (first-time buyers)</h2>
       <table>
@@ -109,7 +109,7 @@
       <tbody><tr>
       <td><strong>Primary purpose</strong></td>
       <td>Transit planning + scenario modeling</td>
-      <td>GTFS feed authoring + maintenance</td>
+      <td>GTFS feed authoring + planning analyses + scenario comparison</td>
       </tr>
       <tr>
       <td><strong>GTFS authoring</strong></td>
@@ -122,14 +122,19 @@
       <td>Full support — polygon zones, booking rules, stop groups</td>
       </tr>
       <tr>
-      <td><strong>Scenario modeling (what-if service changes)</strong></td>
+      <td><strong>Drag-to-edit network design at scale</strong></td>
       <td>Yes — this is the core</td>
       <td>No</td>
       </tr>
       <tr>
-      <td><strong>Service planning (drag service hours, model frequency changes)</strong></td>
+      <td><strong>Multi-scenario workshop tools (side-by-side, stakeholder voting)</strong></td>
       <td>Yes — this is the core</td>
       <td>No</td>
+      </tr>
+      <tr>
+      <td><strong>Scenario comparison via saved snapshots</strong></td>
+      <td>Yes</td>
+      <td>Yes — snapshot any feed state, restore or compare later</td>
       </tr>
       <tr>
       <td><strong>Title VI / equity analysis</strong></td>
@@ -145,6 +150,11 @@
       <td><strong>Cost estimation</strong></td>
       <td>Yes</td>
       <td>Yes (Pro tier)</td>
+      </tr>
+      <tr>
+      <td><strong>Demand-propensity layer</strong></td>
+      <td>Yes (integrated demographics)</td>
+      <td>Yes — nationwide transit-propensity map layer, free for all tiers</td>
       </tr>
       <tr>
       <td><strong>Hosted GTFS publishing at stable URL</strong></td>
@@ -163,42 +173,44 @@
       </tr>
       <tr>
       <td><strong>Best fit</strong></td>
-      <td>Mid-to-large agencies, MPOs, planning departments doing active service redesign</td>
-      <td>Agencies focused on producing+publishing a clean GTFS feed, with analyses on the side</td>
+      <td>Mid-to-large agencies, MPOs, planning departments doing active service redesign with multi-scenario workshops</td>
+      <td>Single agencies producing + publishing a feed and using built-in analyses to evaluate alternatives</td>
       </tr>
       </tbody></table>
       <h2>Where Remix is genuinely better</h2>
       <p>Real categories where Remix is the right answer:</p>
       <ul>
-      <li><strong>Active service planning and scenario modeling.</strong> If your team is doing what-if analysis on service changes — moving frequency around, comparing alternative network designs, evaluating coverage trade-offs — Remix is built for that. GTFS·X has analyses but it&#39;s not a planning suite. You wouldn&#39;t use GTFS·X to design a network redesign; you would use Remix.</li>
-      <li><strong>GIS-integrated workflows.</strong> Remix integrates demographics, parcels, employment, and other GIS layers into the planning environment. For planners who think in spatial overlays, this is a real workflow advantage. GTFS·X has demographic coverage analysis but doesn&#39;t aim to be a GIS platform.</li>
+      <li><strong>Drag-to-edit network design at scale.</strong> Remix&#39;s core UX is moving service around on a map — drag a route, see the cost and ridership impact, save the scenario, repeat. If you&#39;re actively redesigning a network with frequent edits and multiple working scenarios, Remix&#39;s editing flow is purpose-built for that. GTFS·X can compare scenarios via snapshots, but it doesn&#39;t have the drag-to-redesign-and-see-impact-live workflow.</li>
+      <li><strong>Multi-scenario workshop tools.</strong> Remix is built for planning departments running redesign workshops with stakeholders — side-by-side scenario comparison, voting, shared review. If that&#39;s your workflow, Remix is the right tool. GTFS·X&#39;s snapshot workflow handles &quot;what did the feed look like last month&quot; cleanly but isn&#39;t a workshop-facilitation tool.</li>
+      <li><strong>GIS-integrated workflows.</strong> Remix integrates demographics, parcels, employment, and other GIS layers into the planning environment. For planners who think in spatial overlays, this is a real workflow advantage. GTFS·X has demographic coverage analysis and a nationwide demand-propensity layer but doesn&#39;t aim to be a GIS platform.</li>
       <li><strong>Multi-jurisdiction planning.</strong> MPOs and regional agencies coordinating service across multiple operators have a structurally different workflow than a single-agency GTFS editor. Remix is built for that scale; GTFS·X isn&#39;t.</li>
       <li><strong>Existing Via operations stack.</strong> If your agency is using Via for microtransit operations or rider-facing tech, having Remix in the same vendor relationship is a real consolidation benefit. The integration story has substance.</li>
       </ul>
       <h2>Where GTFS·X is genuinely better</h2>
-      <p>Four categories:</p>
+      <p>Five categories:</p>
       <ul>
-      <li><strong>You primarily need to produce and maintain a GTFS feed, not redesign your network.</strong> Most small and small-urban agencies are in this category. The service plan is mostly stable; the work is keeping the GTFS feed clean, validated, and published. Remix is overkill — and over-priced — for that primary need.</li>
+      <li><strong>You primarily need to produce and maintain a GTFS feed with planning analyses on the side, not redesign your network from scratch.</strong> Most small and small-urban agencies are in this category. The service plan is mostly stable; the work is keeping the GTFS feed clean, validated, and published — and running cost / coverage / Title VI analyses on the existing or proposed service. Remix is overkill — and over-priced — for that primary need.</li>
+      <li><strong>Scenario comparison via snapshots, not workshop tooling.</strong> GTFS·X lets you snapshot any feed state and restore or compare later. For evaluating &quot;what would happen if we added Saturday service&quot; or &quot;how does this restructure compare to the current network,&quot; snapshots + the cost / coverage / Title VI analyses cover the substantive workflow without the workshop overhead. If you don&#39;t need stakeholder workshops, you don&#39;t need Remix&#39;s workshop tooling.</li>
       <li><strong>You operate fixed-route + Flex and need both in one tool.</strong> Remix&#39;s Flex authoring is limited; GTFS·X has full Flex support including polygon zones, booking rules, and stop groups.</li>
       <li><strong>Transparent pricing under $5k/year.</strong> GTFS·X pricing is on the pricing page: $49/mo Pro, $199/mo Team, $500/yr hosted publishing. Remix is enterprise-quoted. For a small-agency procurement, the price difference and the transparency difference both matter.</li>
-      <li><strong>No signup to evaluate.</strong> GTFS·X editor and export are anonymous. You can build a complete feed before deciding whether to pay for anything. Remix evaluation requires sales engagement.</li>
+      <li><strong>No signup to evaluate.</strong> GTFS·X editor and export are anonymous. You can build a complete feed and run the analyses before deciding whether to pay for anything. Remix evaluation requires sales engagement.</li>
       </ul>
       <h2>Thinking about switching?</h2>
       <p>If you&#39;re an existing Remix customer reading this, the answer probably depends on what you&#39;re using Remix for. A few cases:</p>
       <h3>Case 1: You&#39;re paying for Remix but only using it for GTFS authoring</h3>
-      <p>This is the case where switching may pencil. Remix-by-Via enterprise pricing for an agency that only uses the GTFS authoring features is overpaying by roughly an order of magnitude versus the comparable GTFS·X tiers. If you&#39;re not actively using scenario modeling, network design, or the broader planning workflow, you&#39;re paying for capabilities you don&#39;t use.</p>
+      <p>This is the case where switching may pencil. Remix-by-Via enterprise pricing for an agency that only uses the GTFS authoring features (plus the analyses GTFS·X also has) is overpaying by roughly an order of magnitude versus the comparable GTFS·X tiers. If you&#39;re not actively using the drag-to-edit network design, multi-scenario workshop tooling, or multi-jurisdiction coordination, you&#39;re paying for capabilities you don&#39;t use — and GTFS·X covers cost, coverage, Title VI, and snapshot-based scenario comparison at a fraction of the price.</p>
       <p>Practically:</p>
       <ol>
       <li>Audit your Remix usage over the last 12 months. If 80%+ of seat-hours are on GTFS authoring tasks vs. planning tasks, you&#39;re a switching candidate.</li>
       <li>Export your current GTFS feed from Remix.</li>
       <li>Import into GTFS·X (anonymous editor, no signup).</li>
       <li>Verify the feed validates and matches what Remix produced.</li>
-      <li>Decide between Pro ($49/mo) and Team ($199/mo) based on whether you need Title VI / propensity analyses.</li>
+      <li>Decide between Pro ($49/mo, cost + coverage) and Team ($199/mo, adds Title VI + propensity) based on which analyses you need.</li>
       <li>Optional: hosted publishing at $500/yr if you want a stable URL with monitoring.</li>
       </ol>
       <p>Total: $1,088/yr to $2,888/yr depending on tier, versus likely $20,000–$60,000/yr for Remix. The savings is real if the usage audit supports it.</p>
-      <h3>Case 2: You&#39;re using Remix for active planning work</h3>
-      <p>Don&#39;t switch. Remix is built for what you&#39;re doing; GTFS·X isn&#39;t. The GTFS authoring side is a small portion of your Remix value.</p>
+      <h3>Case 2: You&#39;re using Remix for active network redesign with stakeholder workshops</h3>
+      <p>Don&#39;t switch. Remix&#39;s drag-to-edit and multi-scenario workshop tooling is built for what you&#39;re doing; GTFS·X&#39;s snapshot-based scenario comparison won&#39;t replace it. The GTFS authoring side is a small portion of your Remix value.</p>
       <h3>Case 3: You&#39;re an MPO coordinating across multiple operators</h3>
       <p>Probably don&#39;t switch — Remix&#39;s multi-jurisdiction model is built for that workflow. GTFS·X is single-agency-oriented and you&#39;d be giving up coordination tooling that Remix handles well.</p>
       <h3>What the math looks like</h3>
@@ -209,7 +221,7 @@
       <p>If you&#39;re procuring &quot;Remix&quot; today, you&#39;re procuring Via&#39;s transit planning platform with the Remix branding on the planning suite. The contracting entity is Via.</p>
       <h2>FAQ</h2>
       <p><strong>Is GTFS·X a planning tool?</strong>
-      No. GTFS·X is a GTFS editor with planning analyses built in. We don&#39;t do scenario modeling or network design. If you need those, you need a planning tool.</p>
+      Partially. GTFS·X is a GTFS editor with planning analyses (cost, coverage, Title VI, demand propensity) and snapshot-based scenario comparison built in. What we don&#39;t do is drag-to-edit network redesign at scale or multi-stakeholder workshop tooling — those are Remix&#39;s strengths. If your workflow is &quot;evaluate alternatives to my existing service and pick one,&quot; GTFS·X handles it. If your workflow is &quot;actively redesign a network from scratch with stakeholders,&quot; you need Remix.</p>
       <p><strong>Can I export from Remix and import into GTFS·X?</strong>
       Yes. Remix produces standard GTFS that GTFS·X imports cleanly. Round-trip preserves all standard GTFS files.</p>
       <p><strong>Will my Remix integrations (downstream consumers, agency website embed, etc.) still work after switching?</strong>

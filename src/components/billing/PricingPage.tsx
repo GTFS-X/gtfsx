@@ -39,7 +39,6 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
       'Rider-facing embeds + mini-site',
       'Demographic coverage analysis',
       'Cost estimation analysis',
-      'Ridership propensity heatmap',
       'Custom brand color',
       'Email support (best-effort)',
     ],
@@ -55,6 +54,7 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
       'Unlimited saved feeds',
       'Publish up to 5 feeds',
       'Title VI equity analysis',
+      'Ridership propensity heatmap',
       'Unlimited team members in your organization',
       'Cross-org membership (work in unlimited client orgs)',
       'Custom brand color + org logo',
@@ -70,9 +70,9 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
     tagline: 'For state DOTs, RTAP networks, and large consortiums.',
     features: [
       'Custom feed and seat limits',
-      'Unlimited managed publishing',
+      'Unlimited Premium Feed Management',
       'Branded mini-sites',
-      'Full analysis tools',
+      'Full Route Planning Features',
       'Phone + email support with SLA',
       'Contract terms via PO or invoice',
     ],
@@ -130,12 +130,12 @@ export function PricingPage() {
   }
 
   return (
-    <AuthLayout title="Pricing" subtitle="Build feeds free. Publish to a stable URL when you’re ready." wide>
+    <AuthLayout title="Pricing" subtitle="The fast, free GTFS editor. Paid plans add Premium Feed Management and Route Planning Features." wide>
       <div className="space-y-8">
         <TestModeBanner />
         <div className="flex items-center justify-between gap-4">
           <div className="text-sm text-warm-gray">
-            All paid plans include managed feed publishing, GTFS-Flex authoring, and the editor.
+            All paid plans include Premium Feed Management and Route Planning Features. The editor and GTFS-Flex authoring are always free.
           </div>
           <div className="inline-flex rounded-full border border-sand bg-cream p-1 text-xs">
             {(['month', 'year'] as const).map((i) => (
@@ -398,11 +398,21 @@ export function PricingPage() {
               </p>
             </div>
             <div>
-              <p className="font-semibold">What does “managed publishing” mean?</p>
+              <p className="font-semibold">What&rsquo;s included in Premium Feed Management?</p>
               <p className="text-warm-gray">
                 We host your feed at <code>feeds.gtfsx.com/&lt;slug&gt;/gtfs.zip</code> — a stable
                 URL you can hand to the Mobility Database, riders, or regulators. We also generate a
-                rider-facing mini-site and embed widgets you can drop on your own website.
+                rider-facing mini-site, embed widgets you can drop on your own website, draft preview
+                links for stakeholder review, and validation + expiry monitoring.
+              </p>
+            </div>
+            <div>
+              <p className="font-semibold">What&rsquo;s included in Route Planning Features?</p>
+              <p className="text-warm-gray">
+                Cost estimation (revenue hours, peak vehicles, weekly + annual operating cost),
+                demographic coverage from US Census ACS, a nationwide demand-propensity map layer,
+                Title VI equity analysis using the FTA four-fifths threshold, and snapshot-based
+                scenario comparison so you can save and compare multiple feed versions.
               </p>
             </div>
             <div>

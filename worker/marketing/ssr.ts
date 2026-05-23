@@ -64,8 +64,8 @@ function pricingSeo(env: Env): MarketingSeo {
     <p class="lede">Build, validate, and export GTFS feeds free, forever. Paid plans add managed feed publishing at a stable URL plus analytical tools (demographic coverage, Title VI, ridership propensity, cost estimation).</p>
     <ul class="tiers">
       <li><strong>Free — $0.</strong> Up to 3 saved feeds in the cloud, GTFS ZIP export, GTFS-Flex authoring, community support.</li>
-      <li><strong>Pro — $49/mo.</strong> For individual operators and consultants. Up to 10 saved feeds, publish 1 feed to a stable URL, rider-facing embeds + mini-site, demographic coverage, cost estimation, ridership propensity.</li>
-      <li><strong>Team — $199/mo.</strong> For agencies and firms. Unlimited saved feeds, publish up to 5 feeds, Title VI equity analysis, unlimited team members, cross-org membership.</li>
+      <li><strong>Pro — $49/mo.</strong> For individual operators and consultants. Up to 10 saved feeds, publish 1 feed to a stable URL, rider-facing embeds + mini-site, demographic coverage, cost estimation.</li>
+      <li><strong>Team — $199/mo.</strong> For agencies and firms. Unlimited saved feeds, publish up to 5 feeds, Title VI equity analysis, ridership propensity heatmap, unlimited team members, cross-org membership.</li>
       <li><strong>Enterprise — custom.</strong> For state DOTs, RTAP networks, and large consortiums. Custom feed/seat limits, unlimited managed publishing, phone + email support with SLA.</li>
     </ul>
     <p><a href="mailto:hello@gtfsx.com?subject=GTFS%C2%B7X%20%E2%80%94%20Fix%20my%20feed">Fix my feed for me</a> — prefer a done-for-you service? We can build or repair your GTFS feed.</p>
