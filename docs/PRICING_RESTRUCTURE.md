@@ -1,6 +1,6 @@
 # Pricing Restructure — Planning Doc
 
-**Status:** ✅ Code shipped May 2026. Stripe + grandfathering follow-ups pending (see §9).
+**Status:** ✅ Fully shipped May 2026 — code + live-mode Stripe + prod deploy. Grandfathering skipped (no existing Pro subscribers at switchover).
 **Source-of-truth doc:** `docs/FREEMIUM_PLAN.md` (updated with the v2 matrix).
 
 ## 0. What was actually decided (May 2026)
@@ -213,39 +213,31 @@ not the code.
 5. **Stripe product display names** — rename to match new tier labels in receipts, or keep "Pro"/"Team" for billing continuity?
 6. **Timeline / launch window** — coordinated with any blog post / Mobility Database announcement?
 
-## 9. Follow-up work still pending
+## 9. Follow-up work
 
-The May-2026 code change updated only the catalog, taglines, prices, and the
-feature matrix. These still need attention before / right after the prod
-rollout:
+All items below were either shipped on 2026-05-26 or explicitly skipped.
 
-1. **Stripe dashboard updates.** Create new prices for the Agency tier at
-   $299/mo and $2,499/yr in both live and test mode. Update
-   `STRIPE_PRICE_TEAM_MONTHLY` / `STRIPE_PRICE_TEAM_ANNUAL` in
-   `wrangler.jsonc` (both default + staging env). Existing Team subscribers
-   on the $199 price stay grandfathered at their original price because
-   Stripe charges off the price ID stored on the subscription, not the
-   product. Without these env-var updates, checkout on prod will still
-   send users to the $199 price.
+1. ✅ **Stripe price updates.** `setup-stripe.ts` ran in both modes;
+   created new Agency v2 prices under fresh lookup keys
+   (`gtfsb_team_monthly_v2` / `gtfsb_team_annual_v2`) at $299/$2,499.
+   v1 $199/$1,999 prices stay active in Stripe so any subscription
+   pointing at them continues to bill at the original amount. Live IDs
+   wired into wrangler.jsonc default env, test IDs into env.staging.
 
-2. **Stripe product display names.** Rename "Team" → "Agency" in the
-   Stripe dashboard so receipts and the customer portal read consistently
-   with the marketing site.
+2. ✅ **Stripe product rename.** Product `gtfsb_team` renamed to
+   "GTFS·X Agency" in both modes (live + test) via setup-stripe.ts.
+   Receipts and customer-portal copy reflect the new name. Internal
+   product id stays `gtfsb_team`.
 
-3. **Grandfathering for existing Pro subscribers.** Anyone on Pro today
-   had cost + coverage; the v2 rules silently revoke them. Add a
-   `legacy_features` JSON column (or a single `pro_legacy_analysis` flag)
-   on `user`, populate it for every paid Pro signup before today's date,
-   and have `planHasFeature()` short-circuit on that flag. Worker side
-   the same plumbing applies to org rows if any existed on Pro (none
-   today; orgs are Team/Agency-only).
+3. ⏭️ **Grandfathering for existing Pro subscribers.** Skipped — no
+   existing Pro subscribers at switchover, so nobody lost cost+coverage
+   when v2 went live. If/when the first paid Pro subscriber arrives
+   under v2 rules, no override is needed; they never had the analyses
+   to begin with.
 
-4. **Email to existing Pro subscribers.** Short note explaining the tier
-   refocus, what they keep (publishing, embeds, branding, snapshots),
-   what they lose (cost + coverage — covered by grandfather if we ship
-   it), and the upgrade path to Agency if they want the planning suite.
+4. ⏭️ **Email to existing Pro subscribers.** Not needed (see #3).
 
-5. **Tagline on the static marketing pages.** "GTFS Editor • Route
-   Planner" in `index.html` and the compare pages can stay, or move to
-   "GTFS Editor • Publisher • Planner" if we want the three-tier
-   narrative to surface above the fold.
+5. 🔲 **Tagline on the static marketing pages.** "GTFS Editor • Route
+   Planner" in `index.html` and the compare pages still reads the old
+   way. Open question — move to "GTFS Editor • Publisher • Planner" or
+   leave as-is. Cosmetic, not blocking.
