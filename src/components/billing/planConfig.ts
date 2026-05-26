@@ -18,13 +18,16 @@ export type FeatureKey =
   | 'brand_color'
   | 'phone_support';
 
+// Pricing v2 (May 2026): analysis_basic moved up from Pro to Agency (DB id
+// 'team') as part of the publish-vs-plan tier split. See worker/billing/plans.ts
+// for the rationale.
 export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   managed_publishing:  ['pro', 'team', 'enterprise'],
   draft_links:         ['pro', 'team', 'enterprise'],
   mobility_db_submit:  ['pro', 'team', 'enterprise'],
   embeds:              ['pro', 'team', 'enterprise'],
   snapshot_history:     ['pro', 'team', 'enterprise'],
-  analysis_basic:      ['pro', 'team', 'enterprise'],
+  analysis_basic:      ['team', 'enterprise'],
   analysis_title_vi:   ['team', 'enterprise'],
   analysis_propensity: ['team', 'enterprise'],
   org_workspace:       ['team', 'enterprise'],
@@ -52,7 +55,9 @@ export function planDisplayName(plan: Plan): string {
   switch (plan) {
     case 'free': return 'Free';
     case 'pro': return 'Pro';
-    case 'team': return 'Team';
+    // Internal id stays 'team' (DB column, Stripe metadata, code paths) —
+    // 'Agency' is the May-2026 display rename. See docs/PRICING_RESTRUCTURE.md.
+    case 'team': return 'Agency';
     case 'enterprise': return 'Enterprise';
   }
 }
@@ -81,8 +86,8 @@ export const FEATURE_COPY: Record<FeatureKey, { title: string; description: stri
     description: 'Keep a history of named snapshots and restore any prior state with one click.',
   },
   analysis_basic: {
-    title: 'Demographic coverage and cost estimation',
-    description: 'Visualize who your service reaches and estimate the operating cost of a proposed schedule.',
+    title: 'Coverage and cost analysis',
+    description: 'Visualize who your service reaches and estimate the operating cost of a proposed schedule — part of the Agency planning suite.',
   },
   analysis_title_vi: {
     title: 'Title VI equity analysis',
@@ -98,7 +103,7 @@ export const FEATURE_COPY: Record<FeatureKey, { title: string; description: stri
   },
   cross_org_member: {
     title: 'Cross-org membership',
-    description: 'Built for consultants — work in multiple client orgs from one Team subscription, without the client orgs paying for your seat.',
+    description: 'Built for consultants — work in multiple client orgs from one Agency subscription, without the client orgs paying for your seat.',
   },
   org_logo: {
     title: 'Custom organization logo',

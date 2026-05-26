@@ -19,13 +19,19 @@ export type FeatureKey =
   | 'phone_support';       // SLA-backed phone support
 
 // Per-feature: which plans grant access. Free is excluded by absence.
+//
+// Pricing v2 (May 2026): Pro is positioned as the "host and publish feeds"
+// tier — all publishing-adjacent features live here. The Agency tier (DB id:
+// 'team') consolidates the planning/analysis suite so it competes head-to-head
+// with Remix at ~1/6 of Remix's price. The single feature that moved was
+// analysis_basic (cost + coverage), reassigned from Pro to Agency-and-up.
 export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   managed_publishing:  ['pro', 'team', 'enterprise'],
   draft_links:         ['pro', 'team', 'enterprise'],
   mobility_db_submit:  ['pro', 'team', 'enterprise'],
   embeds:              ['pro', 'team', 'enterprise'],
   snapshot_history:    ['pro', 'team', 'enterprise'],
-  analysis_basic:      ['pro', 'team', 'enterprise'],
+  analysis_basic:      ['team', 'enterprise'],
   analysis_title_vi:   ['team', 'enterprise'],
   analysis_propensity: ['team', 'enterprise'],
   org_workspace:       ['team', 'enterprise'],
@@ -74,7 +80,7 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
     monthlyPriceUsd: 0,
     annualPriceUsd: 0,
     perSeat: false,
-    tagline: 'Build and self-host GTFS feeds at no cost.',
+    tagline: 'Edit and export feeds.',
     features: [
       'Up to 3 saved feeds in the cloud',
       'GTFS ZIP export (host anywhere)',
@@ -88,32 +94,34 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
     monthlyPriceUsd: 49,
     annualPriceUsd: 499,
     perSeat: false,
-    tagline: 'For individual operators and consultants.',
+    tagline: 'Host and publish feeds.',
     features: [
       'Up to 10 saved feeds',
       'Publish 1 feed to a stable URL',
       'Rider-facing embeds + mini-site',
-      'Demographic coverage analysis',
-      'Cost estimation analysis',
+      'Submit to the Mobility Database',
+      'Named snapshot history',
       'Custom brand color',
       'Email support (best-effort)',
     ],
   },
   {
     plan: 'team',
-    displayName: 'Team',
-    monthlyPriceUsd: 199,
-    annualPriceUsd: 1999,
+    displayName: 'Agency',
+    monthlyPriceUsd: 299,
+    annualPriceUsd: 2499,
     perSeat: false,
-    tagline: 'For transit agencies and consultants serving multiple clients.',
+    tagline: 'Plan routes and service as a team.',
     features: [
-      'Unlimited saved feeds',
-      'Publish up to 5 feeds',
+      'Everything in Pro',
+      'Unlimited saved feeds, publish up to 5',
+      'Demographic coverage analysis',
+      'Cost estimation analysis',
       'Title VI equity analysis',
       'Ridership propensity heatmap',
       'Unlimited team members in your organization',
       'Cross-org membership (work in unlimited client orgs)',
-      'Custom brand color + org logo',
+      'Custom org logo',
       'Email support (1-2 business day target)',
     ],
   },

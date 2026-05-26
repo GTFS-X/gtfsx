@@ -145,11 +145,11 @@ export function UserMenuItems({ onClose }: { onClose?: () => void } = {}) {
         <button
           onClick={() => go('/upgrade?feature=org_workspace')}
           className="w-full text-left px-3 py-1.5 rounded-md text-sm text-coral hover:bg-cream transition-colors flex items-center justify-between gap-2"
-          title="Organizations are a Team plan feature"
+          title="Organizations are an Agency plan feature"
         >
           <span>+ Create organization…</span>
           <span className="text-[10px] font-bold uppercase tracking-wide bg-cream text-warm-gray px-1.5 py-0.5 rounded border border-sand">
-            Team
+            Agency
           </span>
         </button>
       )}

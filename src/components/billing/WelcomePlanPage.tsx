@@ -32,18 +32,18 @@ import { TestModeBanner } from './TestModeBanner';
 const FALLBACK_PLANS: PlanCatalogEntry[] = [
   {
     plan: 'free', displayName: 'Free', monthlyPriceUsd: 0, annualPriceUsd: 0, perSeat: false,
-    tagline: 'Build and self-host GTFS feeds at no cost.',
+    tagline: 'Edit and export feeds.',
     features: ['Up to 3 saved feeds in the cloud', 'GTFS ZIP export (host anywhere)', 'Free forever', 'Community support'],
   },
   {
     plan: 'pro', displayName: 'Pro', monthlyPriceUsd: 49, annualPriceUsd: 499, perSeat: false,
-    tagline: 'For individual operators and consultants.',
-    features: ['Up to 10 saved feeds', 'Publish 1 feed to a stable URL', 'Rider-facing embeds + mini-site', 'Demographic coverage analysis', 'Cost estimation analysis', 'Custom brand color', 'Email support'],
+    tagline: 'Host and publish feeds.',
+    features: ['Up to 10 saved feeds', 'Publish 1 feed to a stable URL', 'Rider-facing embeds + mini-site', 'Submit to the Mobility Database', 'Named snapshot history', 'Custom brand color', 'Email support'],
   },
   {
-    plan: 'team', displayName: 'Team', monthlyPriceUsd: 199, annualPriceUsd: 1999, perSeat: false,
-    tagline: 'For transit agencies and consultants serving multiple clients.',
-    features: ['Unlimited saved feeds', 'Publish up to 5 feeds', 'Title VI equity analysis', 'Ridership propensity heatmap', 'Unlimited team members in your organization', 'Cross-org membership (work in unlimited client orgs)', 'Custom brand color + org logo', 'Email support'],
+    plan: 'team', displayName: 'Agency', monthlyPriceUsd: 299, annualPriceUsd: 2499, perSeat: false,
+    tagline: 'Plan routes and service as a team.',
+    features: ['Everything in Pro', 'Unlimited saved feeds, publish up to 5', 'Demographic coverage analysis', 'Cost estimation analysis', 'Title VI equity analysis', 'Ridership propensity heatmap', 'Unlimited team members in your organization', 'Cross-org membership (work in unlimited client orgs)', 'Custom org logo', 'Email support'],
   },
   {
     plan: 'enterprise', displayName: 'Enterprise', monthlyPriceUsd: null, annualPriceUsd: null, perSeat: false,
@@ -148,7 +148,7 @@ export function WelcomePlanPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoTriggered, authChecked, currentUser, orgsLoaded, directPlanParam, currentPlan]);
 
-  // Orgs the user can administer — eligible to host a Team subscription.
+  // Orgs the user can administer — eligible to host an Agency subscription.
   const adminOrgs: OrgSummary[] = useMemo(
     () => userOrgs.filter((o) => roleAtLeast(o.role, 'admin')),
     [userOrgs],
@@ -336,7 +336,7 @@ export function WelcomePlanPage() {
     return (
       <AuthLayout
         title="Name your organization"
-        subtitle="Team subscriptions are billed to an organization. We’ll create it now and route the subscription to it."
+        subtitle="Agency subscriptions are billed to an organization. We’ll create it now and route the subscription to it."
         wide={false}
       >
         <div className="space-y-4">

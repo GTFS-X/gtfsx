@@ -15,10 +15,10 @@ export function HelpPage() {
   const currentUser = useStore((s) => s.currentUser);
   const userOrgs = useStore((s) => s.userOrgs);
 
-  // Plan resolution. The user's personal plan covers Pro support; Team and
-  // Enterprise live on the org subscription, so we surface phone support if
-  // they belong to any team/enterprise org (or to be explicit, we also check
-  // the user's plan in case enterprise was granted personally).
+  // Plan resolution. The user's personal plan covers Pro support; Agency
+  // (internal id 'team') and Enterprise live on the org subscription, so we
+  // surface phone support if they belong to any agency/enterprise org (we
+  // also check the user's plan in case enterprise was granted personally).
   const tier = useMemo<'team' | 'pro' | 'free'>(() => {
     const userPlan = currentUser?.plan ?? 'free';
     if (userPlan === 'enterprise') return 'team';
@@ -92,7 +92,7 @@ export function HelpPage() {
           {tier === 'team' ? (
             <>
               <p className="text-sm text-warm-gray mb-4">
-                Team subscriptions include direct email and phone support.
+                Agency and Enterprise subscriptions include direct email and phone support.
               </p>
               <SupportRow
                 label="Email"
@@ -117,13 +117,13 @@ export function HelpPage() {
                 value={SUPPORT_EMAIL}
               />
               <p className="mt-4 text-sm text-warm-gray">
-                Need a same-day response or a phone line? <Link to="/pricing" className="text-coral font-semibold underline hover:text-[#d4603a]">Team plan</Link> adds phone support.
+                Need a same-day response or a phone line? <Link to="/pricing" className="text-coral font-semibold underline hover:text-[#d4603a]">Agency plan</Link> adds phone support.
               </p>
             </>
           ) : (
             <>
               <p className="text-sm text-warm-gray mb-4">
-                Direct support is included with the Pro and Team plans. On the free tier the community forum is the right place to ask.
+                Direct support is included with the Pro and Agency plans. On the free tier the community forum is the right place to ask.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Link

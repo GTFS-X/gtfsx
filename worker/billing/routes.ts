@@ -114,7 +114,7 @@ billingRouter.get('/orgs/:id', async (c) => {
     .bind(orgId)
     .first<{ n: number }>();
 
-  // Team and Enterprise are flat-priced with unlimited members; plan_seat_count
+  // Agency (internal id 'team') and Enterprise are flat-priced with unlimited members; plan_seat_count
   // is left at 1 for legacy Stripe accounting but should not gate membership.
   // Surface a large sentinel so the UI's `unbounded` quota meter renders it
   // as "Unlimited".
@@ -141,7 +141,7 @@ billingRouter.get('/orgs/:id', async (c) => {
 });
 
 // Self-serve checkout supports the two flat-priced plans (Pro on the user,
-// Team on the org). Enterprise is sales-led.
+// Agency on the org — DB id 'team'). Enterprise is sales-led.
 const checkoutSchema = z.object({
   ownerType: z.enum(['user', 'org']),
   ownerId: z.string().min(1),
@@ -178,9 +178,9 @@ billingRouter.post('/checkout', async (c) => {
   //   - org: must be admin or owner of the org
   if (body.ownerType === 'user') {
     if (body.ownerId !== user.id) throw forbidden('Cannot start checkout for another user.');
-    // Pro is billed to the user; Team needs an org.
+    // Pro is billed to the user; Agency (DB id 'team') needs an org.
     if (body.plan === 'team') {
-      throw validationFailed('Team plans must be billed to an organization.');
+      throw validationFailed('Agency plans must be billed to an organization.');
     }
   } else {
     await requireOrgRole(c.env, user, body.ownerId, 'admin');
@@ -190,8 +190,8 @@ billingRouter.post('/checkout', async (c) => {
   }
 
   const interval: Interval = body.interval;
-  // Team is flat-priced with unlimited seats, so every self-serve checkout is
-  // quantity=1; Stripe quantity does not track seat usage.
+  // Agency (DB id 'team') is flat-priced with unlimited seats, so every
+  // self-serve checkout is quantity=1; Stripe quantity does not track seats.
   const quantity = 1;
 
   const priceId = resolvePriceId(c.env, body.plan, interval);

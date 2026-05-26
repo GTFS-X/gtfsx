@@ -1,7 +1,19 @@
 # Pricing Restructure — Planning Doc
 
-**Status:** Planning only. Not implemented.
-**Source-of-truth doc to update on implementation:** `docs/FREEMIUM_PLAN.md`
+**Status:** ✅ Code shipped May 2026. Stripe + grandfathering follow-ups pending (see §9).
+**Source-of-truth doc:** `docs/FREEMIUM_PLAN.md` (updated with the v2 matrix).
+
+## 0. What was actually decided (May 2026)
+
+| Topic | Decision |
+|---|---|
+| Tier names | **Free / Pro / Agency / Enterprise** (display only — internal id `team` stays put) |
+| Taglines | Free: "Edit and export feeds" · Pro: "Host and publish feeds" · Agency: "Plan routes and service as a team" |
+| Pro price | Unchanged ($49/mo, $499/yr) |
+| Agency price | **$199/mo → $299/mo**, **$1,999/yr → $2,499/yr** |
+| Feature move | `analysis_basic` (cost + coverage) moved from Pro to Agency-and-up. Only feature movement. |
+| Grandfathering | Not implemented yet — flagged as a follow-up; existing Pro subscribers will lose cost+coverage on the next reload unless we add a legacy override. |
+| Stripe products | Display names + price IDs need manual updates in the Stripe dashboard before prod can charge $299. |
 
 ## 1. The proposal
 
@@ -200,3 +212,40 @@ not the code.
 4. **Keep cost estimation in Publish?** Operationally useful to small-agency publishers; splitting it (basic in Publish, advanced/comparative in Planner) is an option.
 5. **Stripe product display names** — rename to match new tier labels in receipts, or keep "Pro"/"Team" for billing continuity?
 6. **Timeline / launch window** — coordinated with any blog post / Mobility Database announcement?
+
+## 9. Follow-up work still pending
+
+The May-2026 code change updated only the catalog, taglines, prices, and the
+feature matrix. These still need attention before / right after the prod
+rollout:
+
+1. **Stripe dashboard updates.** Create new prices for the Agency tier at
+   $299/mo and $2,499/yr in both live and test mode. Update
+   `STRIPE_PRICE_TEAM_MONTHLY` / `STRIPE_PRICE_TEAM_ANNUAL` in
+   `wrangler.jsonc` (both default + staging env). Existing Team subscribers
+   on the $199 price stay grandfathered at their original price because
+   Stripe charges off the price ID stored on the subscription, not the
+   product. Without these env-var updates, checkout on prod will still
+   send users to the $199 price.
+
+2. **Stripe product display names.** Rename "Team" → "Agency" in the
+   Stripe dashboard so receipts and the customer portal read consistently
+   with the marketing site.
+
+3. **Grandfathering for existing Pro subscribers.** Anyone on Pro today
+   had cost + coverage; the v2 rules silently revoke them. Add a
+   `legacy_features` JSON column (or a single `pro_legacy_analysis` flag)
+   on `user`, populate it for every paid Pro signup before today's date,
+   and have `planHasFeature()` short-circuit on that flag. Worker side
+   the same plumbing applies to org rows if any existed on Pro (none
+   today; orgs are Team/Agency-only).
+
+4. **Email to existing Pro subscribers.** Short note explaining the tier
+   refocus, what they keep (publishing, embeds, branding, snapshots),
+   what they lose (cost + coverage — covered by grandfather if we ship
+   it), and the upgrade path to Agency if they want the planning suite.
+
+5. **Tagline on the static marketing pages.** "GTFS Editor • Route
+   Planner" in `index.html` and the compare pages can stay, or move to
+   "GTFS Editor • Publisher • Planner" if we want the three-tier
+   narrative to surface above the fold.
