@@ -878,7 +878,14 @@ export function MapView() {
       // Stay in the user's current sub-panel while creating. The legacy
       // behavior of jumping to the Stops section made sense before the
       // CreateStopPanel existed; now it would yank the user out of their flow.
-      if (!currentState.creatingStop && !currentState.editingRouteId) {
+      // Also skip if the user is already on the Stops section — calling
+      // setSidebarSection re-opens the right rail as a side-effect, which
+      // un-minimizes the panel after each click while in Add Stop mode.
+      if (
+        !currentState.creatingStop &&
+        !currentState.editingRouteId &&
+        currentState.sidebarSection !== 'stops'
+      ) {
         currentState.setSidebarSection('stops');
       }
       lastPlacedStopRef.current = stopId;
