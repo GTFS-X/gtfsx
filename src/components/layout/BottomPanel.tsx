@@ -26,6 +26,18 @@ export function BottomPanel() {
   const [isDraggingState, setIsDraggingState] = useState(false);
   const isDragging = useRef(false);
 
+  // Below 800 px (tablets + video-capture windows) the tab row collapses two
+  // of the longer labels to fit the narrower header — kept in sync with the
+  // LeftRail compact tier in src/components/layout/LeftRail.tsx.
+  const [compactLabels, setCompactLabels] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < 800,
+  );
+  useEffect(() => {
+    const onResize = () => setCompactLabels(window.innerWidth < 800);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // Trigger map resize when panel opens/closes
   useEffect(() => {
     requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
@@ -91,16 +103,30 @@ export function BottomPanel() {
             ? (['timetable', 'service-summary', 'validation', 'snapshots', 'publish', 'embed', 'audit'] as const)
             : (['timetable', 'service-summary', 'validation'] as const)
         ).map((tab) => {
-          const labels: Record<string, string> = {
-            timetable: 'Timetable',
-            stops: 'Stops',
-            'service-summary': 'Service Summary',
-            validation: 'Validation',
-            snapshots: 'Snapshots',
-            publish: 'Share & Publish',
-            embed: 'Embed',
-            audit: 'Activity',
-          };
+          // Tab labels collapse on narrow viewports (<800 px — tablets and
+          // the demo-capture window size). Shortens the two longest tabs so
+          // the row doesn't wrap or overflow at the lower rail width.
+          const labels: Record<string, string> = compactLabels
+            ? {
+                timetable: 'Timetable',
+                stops: 'Stops',
+                'service-summary': 'Summary',
+                validation: 'Validation',
+                snapshots: 'Snapshots',
+                publish: 'Share',
+                embed: 'Embed',
+                audit: 'Activity',
+              }
+            : {
+                timetable: 'Timetable',
+                stops: 'Stops',
+                'service-summary': 'Service Summary',
+                validation: 'Validation',
+                snapshots: 'Snapshots',
+                publish: 'Share & Publish',
+                embed: 'Embed',
+                audit: 'Activity',
+              };
           return (
             <button
               key={tab}

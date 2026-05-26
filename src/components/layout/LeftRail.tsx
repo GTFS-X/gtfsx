@@ -139,6 +139,9 @@ const MID_THRESHOLD = 64;   // < this → render min variant (icons only)
 const MAX_THRESHOLD = 180;  // >= this → render max variant (rows)
 // Auto-default thresholds.
 const NARROW_VIEWPORT = 600;     // below this (phones), force min (40 px)
+const COMPACT_VIEWPORT = 800;    // below this (tablets / capture windows),
+                                 // force a slim 66 px rail
+const COMPACT_WIDTH = 66;
 const WIDE_VIEWPORT = 1440;      // above this, default to max (260 px)
                                  // between → default to mid (96 px)
 
@@ -411,6 +414,7 @@ function clamp(n: number, lo: number, hi: number) {
  */
 function defaultWidthFor(viewportWidth: number): number {
   if (viewportWidth < NARROW_VIEWPORT) return MIN_WIDTH;
+  if (viewportWidth < COMPACT_VIEWPORT) return COMPACT_WIDTH;
   if (viewportWidth > WIDE_VIEWPORT) return MAX_WIDTH;
   return 96;
 }
@@ -420,9 +424,16 @@ export function LeftRail() {
   const setLeftRailWidth = useStore((s) => s.setLeftRailWidth);
   const counts = useItemCounts();
   const initializedRef = useRef(false);
-  const [forcedNarrow, setForcedNarrow] = useState(() =>
-    typeof window !== 'undefined' && window.innerWidth < NARROW_VIEWPORT,
-  );
+  // Forced width tier for narrow viewports. 'narrow' (<600 px) clamps the
+  // rail to MIN_WIDTH; 'compact' (600-800 px, used for tablets and video
+  // capture windows) clamps it to COMPACT_WIDTH. Anything wider respects the
+  // user's stored width so they can keep dragging it around.
+  const [forcedTier, setForcedTier] = useState<'narrow' | 'compact' | null>(() => {
+    if (typeof window === 'undefined') return null;
+    if (window.innerWidth < NARROW_VIEWPORT) return 'narrow';
+    if (window.innerWidth < COMPACT_VIEWPORT) return 'compact';
+    return null;
+  });
 
   // On first mount, set the responsive default. We don't override after the
   // user has resized — they're in control once they touch the rail.
@@ -432,15 +443,20 @@ export function LeftRail() {
     setLeftRailWidth(defaultWidthFor(window.innerWidth));
   }, [setLeftRailWidth]);
 
-  // Auto-collapse to min when the viewport drops below the narrow threshold.
+  // Auto-collapse to the appropriate tier when the viewport crosses a threshold.
   useEffect(() => {
-    const onResize = () => setForcedNarrow(window.innerWidth < NARROW_VIEWPORT);
+    const onResize = () => {
+      if (window.innerWidth < NARROW_VIEWPORT) setForcedTier('narrow');
+      else if (window.innerWidth < COMPACT_VIEWPORT) setForcedTier('compact');
+      else setForcedTier(null);
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const widthPx = forcedNarrow
-    ? MIN_WIDTH
+  const widthPx =
+    forcedTier === 'narrow' ? MIN_WIDTH
+    : forcedTier === 'compact' ? COMPACT_WIDTH
     : clamp(storedWidth, MIN_WIDTH, MAX_WIDTH);
 
   let body: ReactNode;
@@ -452,7 +468,7 @@ export function LeftRail() {
   const [isDragging, setIsDragging] = useState(false);
 
   const startDrag = (e: React.MouseEvent) => {
-    if (forcedNarrow) return; // Locked in narrow viewports.
+    if (forcedTier !== null) return; // Locked in narrow / compact viewports.
     e.preventDefault();
     setIsDragging(true);
 
@@ -478,8 +494,8 @@ export function LeftRail() {
     >
       <div className="flex-1 overflow-y-auto">{body}</div>
 
-      {/* Drag handle — right edge. Hidden when forced narrow. */}
-      {!forcedNarrow && (
+      {/* Drag handle — right edge. Hidden when the rail width is forced. */}
+      {forcedTier === null && (
         <div
           onMouseDown={startDrag}
           onDoubleClick={() => setLeftRailWidth(defaultWidthFor(window.innerWidth))}
