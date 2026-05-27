@@ -34,3 +34,21 @@ export function createFlexZoneWithRoute(
   }
   state.addFlexZone({ ...zone, routeId });
 }
+
+/**
+ * Inverse of createFlexZoneWithRoute. Removes the flex zone AND the route
+ * that was materialized for it (along with the route's trips, stop_times,
+ * and any stops that become orphaned — handled by removeRoute's existing
+ * cascade). Without this, deleting a zone from the FlexEditor leaves the
+ * "Service Area N" entry behind in the Routes subpanel.
+ */
+export function deleteFlexZoneWithRoute(zoneId: string) {
+  const state = useStore.getState();
+  const zone = state.flexZones.find((z) => z.id === zoneId);
+  // Belt-and-braces: drop the zone first so cross-store snapshots can't
+  // observe a route-less zone. Then cascade the route delete.
+  state.removeFlexZone(zoneId);
+  if (zone?.routeId) {
+    state.removeRoute(zone.routeId);
+  }
+}

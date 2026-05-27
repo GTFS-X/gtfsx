@@ -5,7 +5,7 @@ import { useStore } from '../../store';
 import { EmptyState } from '../ui/EmptyState';
 import type { FlexZone } from '../../store/flexSlice';
 import { FlexZoneDetails } from './FlexZoneDetails';
-import { createFlexZoneWithRoute } from './flexHelpers';
+import { createFlexZoneWithRoute, deleteFlexZoneWithRoute } from './flexHelpers';
 
 const DEFAULT_FLEX_BUFFER_MILES = 0.75;
 
@@ -50,7 +50,7 @@ function generateServiceArea(
 export function FlexEditor() {
   const {
     shapes, routes, trips, hiddenRouteIds,
-    flexZones, removeFlexZone, updateFlexZone, updateRoute,
+    flexZones, updateFlexZone, updateRoute,
     mapMode, setMapMode, editingFlexZoneId, setEditingFlexZoneId,
   } = useStore();
   const [generating, setGenerating] = useState(false);
@@ -365,7 +365,7 @@ export function FlexEditor() {
                       <button
                         onClick={() => {
                           if (skipDeleteConfirmRef.current) {
-                            removeFlexZone(zone.id);
+                            deleteFlexZoneWithRoute(zone.id);
                           } else {
                             setConfirmDeleteZoneId(zone.id);
                           }
@@ -406,7 +406,7 @@ export function FlexEditor() {
       {confirmDeleteZoneId && (() => {
         const zone = flexZones.find((z) => z.id === confirmDeleteZoneId);
         if (!zone) { setConfirmDeleteZoneId(null); return null; }
-        const doDelete = () => { removeFlexZone(confirmDeleteZoneId); setConfirmDeleteZoneId(null); };
+        const doDelete = () => { deleteFlexZoneWithRoute(confirmDeleteZoneId); setConfirmDeleteZoneId(null); };
         return (
           <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
                onClick={() => setConfirmDeleteZoneId(null)}>
