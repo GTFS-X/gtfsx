@@ -170,7 +170,7 @@ export function PricingPage() {
               >
                 {popular && (
                   <span className="absolute -top-3 left-4 rounded-full bg-coral px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
-                    Most popular
+                    Best value
                   </span>
                 )}
                 <div>
