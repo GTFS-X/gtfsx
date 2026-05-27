@@ -43,19 +43,30 @@ export async function maybeRenderMarketingPage(
 
 function pricingSeo(env: Env): MarketingSeo {
   const canonicalUrl = `${appOrigin(env)}/pricing/`;
+  // Use SoftwareApplication (not Product) — Product schema triggers Google's
+  // Merchant Listings validator, which then flags us for missing physical-
+  // merchandise fields (shippingDetails, hasMerchantReturnPolicy, an image
+  // on the Product itself). GTFS·X is a SaaS, not a physical product, so the
+  // correct rich-result type is SoftwareApplication. The /demo/ page below
+  // already uses this type — this brings the pricing page in line.
   const jsonLd = JSON.stringify({
     '@context': 'https://schema.org',
-    '@type': 'Product',
+    '@type': 'SoftwareApplication',
     name: 'GTFS·X',
     description:
       'Browser-based GTFS feed editor. Editing is free forever; paid plans add managed publishing and analytical tools.',
     brand: { '@type': 'Brand', name: 'GTFS·X' },
     url: canonicalUrl,
+    applicationCategory: 'BusinessApplication',
+    operatingSystem: 'Web',
+    image: `${appOrigin(env)}/gtfsx-mark.svg`,
+    // Enterprise is intentionally omitted — it's invoice-only, has no fixed
+    // price, and including it as a price-less Offer would re-trigger the
+    // "missing price" warning for no marketing value.
     offers: [
       offer('Free', 0, 'Edit and export GTFS feeds at no cost.'),
       offer('Pro', 49, 'Host and publish feeds — stable URLs, rider-facing embeds, Mobility Database submission.'),
       offer('Agency', 299, 'Plan routes and service as a team — coverage, cost, Title VI, and ridership propensity analyses.'),
-      offer('Enterprise', null, 'For state DOTs and large consortiums — custom limits and SLA support.'),
     ],
   });
   const body = `
