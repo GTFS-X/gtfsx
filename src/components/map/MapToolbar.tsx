@@ -84,12 +84,12 @@ export function MapToolbar() {
 
     state.setSidebarSection('stops');
     state.setMapMode('place_stop');
-    // Keep the map roomy on tablets / small laptops: the new place-stop
-    // dialog under the banner has everything the user needs to add a stop,
-    // so collapse the right-rail Stops panel by default below 960 px.
-    if (typeof window !== 'undefined' && window.innerWidth < 960) {
-      state.setRightRailOpen(false);
-    }
+    // Add Stop has its own on-screen mini-dialog under the banner that
+    // handles route assignment, snap toggle, and naming — the side panel
+    // would just cover the map. Keep the section "stops" (so when the user
+    // does expand the rail later it lands on Stops), but minimize the rail
+    // by default at every viewport.
+    state.setRightRailOpen(false);
   };
 
   const handleSelect = () => {
