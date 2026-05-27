@@ -54,10 +54,19 @@ describe('/pricing and /demo SSR', () => {
     expect(html).toContain('href="http://127.0.0.1/demo/"');
   });
 
-  it('includes Product structured data on /pricing', async () => {
+  it('includes SoftwareApplication structured data on /pricing', async () => {
+    // We use SoftwareApplication (not Product) so Google's Merchant Listings
+    // validator doesn't ask for physical-merchandise fields (shippingDetails,
+    // hasMerchantReturnPolicy, image-on-Product). See worker/marketing/ssr.ts.
     const res = await client.get('/pricing');
     const html = await res.text();
-    expect(html).toContain('"@type":"Product"');
+    expect(html).toContain('"@type":"SoftwareApplication"');
+    expect(html).toContain('"applicationCategory":"BusinessApplication"');
+    // Each priced tier should still emit an Offer so the rich result shows
+    // pricing — Enterprise is intentionally omitted (no fixed price).
+    expect(html).toContain('"@type":"Offer"');
+    expect(html).toContain('"name":"Pro"');
+    expect(html).toContain('"name":"Agency"');
   });
 
   it('strips the homepage-only SEO H1 so /pricing has a single page-topic H1', async () => {
