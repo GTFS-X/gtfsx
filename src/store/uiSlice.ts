@@ -19,6 +19,12 @@ export interface UISlice {
    *  the timetable to the calendar the user just clicked from. null = fall
    *  back to the first calendar in the feed. */
   timetableServiceId: string | null;
+  /** Trip-pattern (shape_id) currently selected in the timetable. When set,
+   *  the timetable filters trips to those with this shape — used for routes
+   *  with 3+ patterns where the legacy direction-only toggle can't tell
+   *  same-direction patterns apart. null = filter by direction only (the
+   *  ≤2-pattern path). */
+  timetableShapeId: string | null;
   /** Advanced toggle on the timetable: when true, each stop cell exposes
    *  separate arrival and departure inputs so users can author dwell time at
    *  intermediate stops (ferry layovers, rail station holds, etc.). When
@@ -77,6 +83,7 @@ export interface UISlice {
   setNextStopName: (name: string | null) => void;
   setTimetableDirectionId: (dir: 0 | 1) => void;
   setTimetableServiceId: (id: string | null) => void;
+  setTimetableShapeId: (id: string | null) => void;
   setTimetableSplitArrDep: (v: boolean) => void;
   selectRoute: (id: string | null) => void;
   selectStop: (id: string | null) => void;
@@ -110,6 +117,7 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   nextStopName: null,
   timetableDirectionId: 0,
   timetableServiceId: null,
+  timetableShapeId: null,
   timetableSplitArrDep: false,
   selectedRouteId: null,
   selectedStopId: null,
@@ -193,6 +201,7 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   setNextStopName: (name) => set((state) => { state.nextStopName = name; }),
   setTimetableDirectionId: (dir) => set((state) => { state.timetableDirectionId = dir; }),
   setTimetableServiceId: (id) => set((state) => { state.timetableServiceId = id; }),
+  setTimetableShapeId: (id) => set((state) => { state.timetableShapeId = id; }),
   setTimetableSplitArrDep: (v) => set((state) => { state.timetableSplitArrDep = v; }),
   selectRoute: (id) => set((state) => { state.selectedRouteId = id; }),
   selectStop: (id) => set((state) => { state.selectedStopId = id; }),

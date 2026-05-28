@@ -55,6 +55,11 @@ export function TimetableGrid() {
   // calendar the user just clicked. null falls back to the first calendar.
   const selectedServiceId = useStore((s) => s.timetableServiceId);
   const setSelectedServiceId = useStore((s) => s.setTimetableServiceId);
+  // Trip-pattern (shape) selector — only meaningful when the route has 3+
+  // distinct shape_ids. The legacy direction toggle still drives ≤2-shape
+  // routes via timetableDirectionId.
+  const selectedShapeId = useStore((s) => s.timetableShapeId);
+  const setSelectedShapeId = useStore((s) => s.setTimetableShapeId);
 
   // Safety net: a user who somehow lands on the timetable with no calendars
   // gets one auto-created. The primary path (draw_route's finishDrawing)
@@ -72,6 +77,55 @@ export function TimetableGrid() {
     if (selectedServiceId && calendars.some((c) => c.service_id === selectedServiceId)) return selectedServiceId;
     return calendars[0]?.service_id || null;
   }, [selectedServiceId, calendars]);
+
+  // Trip-pattern selector contents. Each pattern is a unique non-empty
+  // shape_id used by this route's trips, tagged with its trips' direction_id
+  // (read from the first trip — trips on the same shape generally share a
+  // direction). Sorted by direction (0/outbound first) then shape_id.
+  //
+  // The selector UI adapts to the count, per Mark's spec:
+  //   1 pattern  → render the pattern name as a static label (no toggle)
+  //   2 patterns → render the legacy two-button toggle (current behaviour)
+  //   3+ patterns → render a dropdown
+  //
+  // A route with 0 shapes (e.g. trips with empty shape_id) falls back to the
+  // legacy direction-only toggle so we keep authoring useful for in-progress
+  // feeds before a shape exists.
+  const patterns = useMemo(() => {
+    if (!selectedRouteId) return [] as Array<{ shapeId: string; directionId: 0 | 1 }>;
+    const seen = new Map<string, 0 | 1>();
+    for (const t of trips) {
+      if (t.route_id !== selectedRouteId) continue;
+      if (!t.shape_id) continue;
+      if (!seen.has(t.shape_id)) seen.set(t.shape_id, t.direction_id);
+    }
+    return [...seen.entries()]
+      .map(([shapeId, directionId]) => ({ shapeId, directionId }))
+      .sort((a, b) => a.directionId - b.directionId || a.shapeId.localeCompare(b.shapeId));
+  }, [selectedRouteId, trips]);
+
+  // When the route changes or the pattern list updates, sync the store's
+  // selected shape to a valid entry. Three behaviours:
+  //   - patterns.length <= 2: clear the shape filter (legacy toggle handles
+  //     filtering via direction_id alone — same-direction-only-2-shape edge
+  //     case is rare; if it bites, bump to 3+ logic later).
+  //   - patterns.length >= 3 AND no current selection / stale selection:
+  //     auto-pick the first pattern, AND set directionId so the existing
+  //     stop-ordering / route_stops filtering keeps working.
+  useEffect(() => {
+    if (patterns.length <= 2) {
+      if (selectedShapeId !== null) setSelectedShapeId(null);
+      return;
+    }
+    const current = patterns.find((p) => p.shapeId === selectedShapeId);
+    if (!current) {
+      const first = patterns[0];
+      setSelectedShapeId(first.shapeId);
+      if (first.directionId !== directionId) setDirectionId(first.directionId);
+    }
+    // Only re-run when the route or patterns list actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRouteId, patterns]);
 
   // Service patterns that have trips for this route+direction (for "copy from" feature)
   const serviceIdsWithTrips = useMemo(() => {
@@ -137,12 +191,16 @@ export function TimetableGrid() {
     return ids;
   }, [stopTimesByTrip, orderedStops, selectedRouteId, trips]);
 
-  // Get trips for this route filtered by direction and service pattern
+  // Get trips for this route filtered by direction and service pattern.
+  // When a specific shape is selected (3+ pattern case), also filter by
+  // shape_id so the same-direction-multiple-shapes scenario picks the
+  // right subset.
   const routeTrips = useMemo(() => {
     if (!selectedRouteId) return [];
     return trips
       .filter((t) => t.route_id === selectedRouteId && t.direction_id === directionId
-        && (!activeServiceId || t.service_id === activeServiceId))
+        && (!activeServiceId || t.service_id === activeServiceId)
+        && (!selectedShapeId || t.shape_id === selectedShapeId))
       .sort((a, b) => {
         const aSTs = stopTimesByTrip.get(a.trip_id);
         const bSTs = stopTimesByTrip.get(b.trip_id);
@@ -150,7 +208,7 @@ export function TimetableGrid() {
         const bFirst = bSTs?.[0];
         return (aFirst?.arrival_time || '').localeCompare(bFirst?.arrival_time || '');
       });
-  }, [selectedRouteId, trips, stopTimesByTrip, directionId, activeServiceId]);
+  }, [selectedRouteId, trips, stopTimesByTrip, directionId, activeServiceId, selectedShapeId]);
 
   // Tab key navigation
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>, tripIdx: number, stopIdx: number) => {
@@ -320,8 +378,26 @@ export function TimetableGrid() {
             ))}
           </select>
         )}
-        {/* Direction toggle */}
-        <DirectionToggle directionId={directionId} onChange={setDirectionId} route={route} />
+        {/* Adaptive trip-pattern selector. Falls back to the legacy direction
+            toggle when the route has 0-2 shape patterns; for 3+ patterns it
+            renders a dropdown so same-direction variants are reachable. */}
+        {patterns.length >= 3 ? (
+          <PatternSelector
+            patterns={patterns}
+            selectedShapeId={selectedShapeId}
+            route={route}
+            onChange={(p) => {
+              setSelectedShapeId(p.shapeId);
+              if (p.directionId !== directionId) setDirectionId(p.directionId);
+            }}
+          />
+        ) : patterns.length === 1 ? (
+          <span className="px-2 py-1 text-xs font-semibold text-dark-brown bg-cream border border-sand rounded-md whitespace-nowrap">
+            {directionName(route, patterns[0].directionId)}
+          </span>
+        ) : (
+          <DirectionToggle directionId={directionId} onChange={setDirectionId} route={route} />
+        )}
         <span className="text-xs text-warm-gray whitespace-nowrap">
           {routeTrips.length} trips
         </span>
@@ -808,6 +884,48 @@ function TripIdCell({ tripId, allTripIds, onRename }: {
 }
 
 /** Direction toggle component */
+/** Dropdown variant of the direction selector, used when a route has 3+
+ *  distinct shape patterns and the two-button toggle can't represent them.
+ *  Each option carries (shape_id, direction_id); the label is the route's
+ *  direction name, with a shape_id suffix when multiple patterns share a
+ *  direction (otherwise the entries collide visually). */
+function PatternSelector({
+  patterns,
+  selectedShapeId,
+  onChange,
+  route,
+}: {
+  patterns: Array<{ shapeId: string; directionId: 0 | 1 }>;
+  selectedShapeId: string | null;
+  onChange: (p: { shapeId: string; directionId: 0 | 1 }) => void;
+  route?: Route | null;
+}) {
+  // For each direction, count how many patterns we have. If >1, the label
+  // appends the shape_id so the user can disambiguate.
+  const dirCounts = patterns.reduce<Record<number, number>>((acc, p) => {
+    acc[p.directionId] = (acc[p.directionId] ?? 0) + 1;
+    return acc;
+  }, {});
+  const label = (p: { shapeId: string; directionId: 0 | 1 }) => {
+    const base = directionName(route, p.directionId);
+    return dirCounts[p.directionId] > 1 ? `${base} · ${p.shapeId}` : base;
+  };
+  return (
+    <select
+      value={selectedShapeId ?? patterns[0]?.shapeId ?? ''}
+      onChange={(e) => {
+        const next = patterns.find((p) => p.shapeId === e.target.value);
+        if (next) onChange(next);
+      }}
+      className="px-2 py-1 border border-sand rounded-md text-xs font-semibold bg-cream focus:outline-none focus:border-coral max-w-[200px]"
+    >
+      {patterns.map((p) => (
+        <option key={p.shapeId} value={p.shapeId}>{label(p)}</option>
+      ))}
+    </select>
+  );
+}
+
 function DirectionToggle({
   directionId,
   onChange,
