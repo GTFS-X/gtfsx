@@ -4,6 +4,9 @@ import { useStore } from '../../store';
 import { FormField } from '../ui/FormField';
 import { WHEELCHAIR_BOARDING, LOCATION_TYPES, COMMON_STOP_TIMEZONES } from '../../utils/constants';
 import { StopDeparturesSection } from './StopDeparturesSection';
+import { StopCoveragePanel } from './StopCoveragePanel';
+import { PaywallOverlay } from '../billing/PaywallOverlay';
+import { useEditorPlan } from '../billing/useEditorPlan';
 
 /**
  * Stop edit sub-panel. Rendered by RightRail when `editingStopId` is set;
@@ -22,12 +25,24 @@ export function StopEditPanel() {
   const setMapMode = useStore((s) => s.setMapMode);
   const shapes = useStore((s) => s.shapes);
   const tab = useStore((s) => s.stopDetailTab);
+  const plan = useEditorPlan();
 
   if (!stop) return null;
 
   // Trips tab: just the per-stop schedule (header tabs switch between this and
   // the editable details below).
   if (tab === 'trips') return <StopDeparturesSection />;
+
+  // Coverage tab: per-stop adjacency + demographic metrics. Gated by the same
+  // analysis_basic feature as the system Coverage panel — same data source,
+  // same paid-plan check.
+  if (tab === 'coverage') {
+    return (
+      <PaywallOverlay feature="analysis_basic" currentPlan={plan}>
+        <StopCoveragePanel />
+      </PaywallOverlay>
+    );
+  }
 
   // Snap the stop onto the nearest point of any route shape — the stop-editing
   // analogue of "snap to road" when drawing a shape.

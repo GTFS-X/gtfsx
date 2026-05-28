@@ -329,9 +329,9 @@ function StopEditHeader() {
           </button>
         </div>
       </div>
-      {/* Details / Trips tabs (mirrors the route editor's tab strip). */}
+      {/* Details / Trips / Coverage tabs (mirrors the route editor's tab strip). */}
       <div className="flex gap-1 mt-3 -mb-3.5">
-        {(['details', 'trips'] as const).map((t) => (
+        {(['details', 'trips', 'coverage'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setStopDetailTab(t)}
@@ -341,7 +341,7 @@ function StopEditHeader() {
                 : 'text-warm-gray border-transparent hover:text-dark-brown'
             }`}
           >
-            {t === 'details' ? 'Details' : 'Trips'}
+            {t === 'details' ? 'Details' : t === 'trips' ? 'Trips' : 'Coverage'}
           </button>
         ))}
       </div>
