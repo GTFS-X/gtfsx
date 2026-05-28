@@ -128,18 +128,17 @@ export function StopCoveragePanel() {
   const blockGroups = coverageData?.blockGroups ?? localBlockGroups;
 
   // Fire a per-stop Census fetch when we need block groups and don't have
-  // them yet. Cheap to short-circuit when the system Coverage panel has
-  // already populated coverageData.
+  // them yet. The ref-based dedup prevents the effect from re-firing on
+  // setFetching(true) — which would otherwise cancel its own request via
+  // the cleanup, leaving the spinner stuck.
   useEffect(() => {
     if (!stop) return;
     if (coverageData?.blockGroups) return;
     if (localBlockGroups) return;
-    if (fetching) return;
-    const key = `${stop.stop_id}`; // re-fetch when stop changes
+    const key = stop.stop_id;
     if (lastFetchKey.current === key) return;
     lastFetchKey.current = key;
 
-    let cancelled = false;
     (async () => {
       setFetchError(null);
       setFetching(true);
@@ -151,17 +150,20 @@ export function StopCoveragePanel() {
           bgs = await fetchCensusData(stateFips, countyFips);
           blockGroupCache.set(cacheKey, bgs);
         }
-        if (!cancelled) setLocalBlockGroups(bgs);
+        // Re-read the latest stop from the store to defend against the
+        // common case where the user navigated to a different stop while
+        // the fetch was in flight — we want to keep the data only if it's
+        // for the stop we started fetching for.
+        if (lastFetchKey.current === key) setLocalBlockGroups(bgs);
       } catch (err) {
-        if (!cancelled) {
+        if (lastFetchKey.current === key) {
           setFetchError(err instanceof Error ? err.message : 'Failed to fetch Census data');
         }
       } finally {
-        if (!cancelled) setFetching(false);
+        if (lastFetchKey.current === key) setFetching(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, [stop, coverageData, localBlockGroups, fetching]);
+  }, [stop, coverageData, localBlockGroups]);
 
   const coverageResult = useMemo(() => {
     if (!stop || !blockGroups) return null;
