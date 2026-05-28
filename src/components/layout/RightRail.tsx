@@ -89,9 +89,9 @@ function PanelBody({ section }: { section: SidebarSection }) {
 
 const ROUTE_TABS: { id: RouteDetailTab; label: string }[] = [
   { id: 'details', label: 'Details' },
+  { id: 'shapes', label: 'Shapes' },
   { id: 'stops', label: 'Stops' },
   { id: 'trips', label: 'Trips' },
-  { id: 'shapes', label: 'Shapes' },
   { id: 'costs', label: 'Costs' },
 ];
 

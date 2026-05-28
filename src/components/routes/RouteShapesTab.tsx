@@ -25,7 +25,6 @@ export function RouteShapesTab() {
     selectedRouteId,
     setMapMode, setDrawingRouteId,
     setEditingShapeId,
-    snapToRoad: snapToRoadEnabled, setSnapToRoad,
     addShape, addTrip,
     removeShape,
     updateShapePoints, recalcShapeDistances,
@@ -33,7 +32,6 @@ export function RouteShapesTab() {
   } = useStore();
 
   const [snappingShapeId, setSnappingShapeId] = useState<string | null>(null);
-  const [drawDirection, setDrawDirection] = useState<0 | 1>(0);
   const [confirmDeleteShapeId, setConfirmDeleteShapeId] = useState<string | null>(null);
   const [simplifyShapeId, setSimplifyShapeId] = useState<string | null>(null);
   const [warnEditShapeId, setWarnEditShapeId] = useState<string | null>(null);
@@ -58,12 +56,13 @@ export function RouteShapesTab() {
   if (!route) return null;
 
   const handleDrawShape = () => {
-    // Mirrors MapToolbar's place-stop pattern — window sentinel that
-    // MapView reads in draw_route mode. (Sentinel pattern is documented in
-    // src/types/window.d.ts; the lint rule treats window writes as mutable
-    // state but for these one-shot handoffs it's the established idiom.)
+    // Default direction 0 for all new shapes — the per-draw direction
+    // picker was retired since routes can carry unlimited shape variants.
+    // The user re-assigns direction per trip from the Trips tab.
+    // Mirrors MapToolbar's place-stop pattern (sentinel pattern is
+    // documented in src/types/window.d.ts).
     // eslint-disable-next-line react-hooks/immutability
-    window.__drawingDirection = drawDirection;
+    window.__drawingDirection = 0;
     setDrawingRouteId(route.route_id);
     setMapMode('draw_route');
   };
@@ -375,52 +374,20 @@ export function RouteShapesTab() {
         </p>
       )}
 
-      {/* Direction selector + add-new-shape button. Used to disappear behind a
-          "both directions have shapes" notice once two existed — that gate is
-          gone now per Mark's spec, so the user can always add another shape
-          for variants (express / weekend / detour). */}
-      <div className="mb-2">
-        <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
-          Direction for new shape
-        </label>
-        <div className="flex rounded-md border border-sand overflow-hidden">
-          <button
-            onClick={() => setDrawDirection(0)}
-            className={`flex-1 px-3 py-1.5 text-xs font-semibold transition-colors
-              ${drawDirection === 0 ? 'bg-coral text-white' : 'bg-white text-warm-gray hover:text-dark-brown'}`}
-          >
-            {directionName(route, 0)}
-          </button>
-          <button
-            onClick={() => setDrawDirection(1)}
-            className={`flex-1 px-3 py-1.5 text-xs font-semibold transition-colors border-l border-sand
-              ${drawDirection === 1 ? 'bg-coral text-white' : 'bg-white text-warm-gray hover:text-dark-brown'}`}
-          >
-            {directionName(route, 1)}
-          </button>
-        </div>
-      </div>
-
+      {/* Add-new-shape button. The per-draw direction picker was dropped
+          along with the "both directions full" gate — routes can now carry
+          an unlimited number of shapes (express / weekend / detour
+          variants), and pinning every new shape to a direction at draw
+          time stops making sense. New shapes default to direction 0; the
+          user re-assigns each variant's direction from the Trips tab.
+          Snap-to-road is also gone from this panel — the global setting
+          (default on) still governs draw behaviour. */}
       <button
         onClick={handleDrawShape}
         className="w-full px-4 py-2.5 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors"
       >
         {routeShapes.length > 0 ? 'Add new shape' : 'Draw route shape'}
       </button>
-
-      <div className="flex items-center gap-2 mt-2">
-        <input
-          type="checkbox"
-          id="snap-to-road"
-          checked={snapToRoadEnabled}
-          onChange={(e) => setSnapToRoad(e.target.checked)}
-          className="rounded"
-        />
-        <label htmlFor="snap-to-road" className="text-xs text-dark-brown">
-          Snap to road
-        </label>
-      </div>
-
     </div>
   );
 }
