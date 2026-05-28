@@ -1,19 +1,15 @@
 /**
- * Lifecycle tests for the Routes > Shapes editing flow. These focus on the
- * store-level state transitions that gate the Save / Cancel UI in
- * RouteShapesTab and the map-mode controls in MapView. The bug Mark hit —
- * "I sometimes end up stuck in edit mode" — was that switching off the
- * Shapes tab (or the Routes section) didn't reset mapMode, so the user
- * was left in 'edit_shape' with no controls visible.
+ * Lifecycle tests for the Routes > Shapes editing flow.
  *
- * These tests directly drive `useStore` rather than rendering React, so
- * they're fast and don't need RTL / a virtual DOM. They run under the
- * frontend vitest config (vitest.frontend.config.ts).
+ * The current model (post-2026-05-28 revision): edit_shape mode survives
+ * tab + section changes. Save / Cancel buttons are anchored on the map
+ * (next to the Editing Shape banner) so the user can navigate freely
+ * without losing their work. trim_shape — a single-click action with no
+ * in-progress state — still resets immediately when navigation fires.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useStore } from '../store';
 
-// Reset the slices these tests touch back to a known clean state.
 function resetStore() {
   const s = useStore.getState();
   s.setRoutes([]);
@@ -29,11 +25,8 @@ function resetStore() {
 beforeEach(resetStore);
 afterEach(resetStore);
 
-// Helpers — build minimal Route / Trip / Shape rows for these tests so each
-// case is self-contained.
 function seedRoute(routeId = 'rA'): void {
-  const s = useStore.getState();
-  s.addRoute({
+  useStore.getState().addRoute({
     route_id: routeId,
     agency_id: '',
     route_short_name: 'A',
@@ -64,39 +57,25 @@ function seedShape(shapeId: string, routeId: string, directionId: 0 | 1 = 0): vo
   });
 }
 
-// ─── Entering / exiting edit mode ───────────────────────────────────────────
-
 describe('Enter and leave edit_shape mode', () => {
-  it('setting editingShapeId + mapMode is the canonical "enter edit" transition', () => {
+  it('canonical enter / save transitions', () => {
     seedRoute();
     seedShape('s1', 'rA');
     const s = useStore.getState();
     s.setEditingShapeId('s1');
     s.setMapMode('edit_shape');
-    const after = useStore.getState();
-    expect(after.mapMode).toBe('edit_shape');
-    expect(after.editingShapeId).toBe('s1');
-  });
+    expect(useStore.getState().mapMode).toBe('edit_shape');
+    expect(useStore.getState().editingShapeId).toBe('s1');
 
-  it('save flow: clearing editingShapeId + mapMode=select leaves the store clean', () => {
-    seedRoute();
-    seedShape('s1', 'rA');
-    const s = useStore.getState();
-    s.setEditingShapeId('s1');
-    s.setMapMode('edit_shape');
-    // Equivalent to MapView.saveShapeEdit running:
     s.setEditingShapeId(null);
     s.setMapMode('select');
-    const after = useStore.getState();
-    expect(after.mapMode).toBe('select');
-    expect(after.editingShapeId).toBeNull();
+    expect(useStore.getState().mapMode).toBe('select');
+    expect(useStore.getState().editingShapeId).toBeNull();
   });
 });
 
-// ─── The "stuck in edit mode" bug ───────────────────────────────────────────
-
-describe('Switching tabs / sections while editing queues a confirm', () => {
-  it('routeDetailTab change off "shapes" queues a pendingNav and does NOT change the tab', () => {
+describe('Edit mode survives navigation (Save / Cancel live on the map)', () => {
+  it('switching routeDetailTab off Shapes keeps edit_shape mode alive', () => {
     seedRoute();
     seedShape('s1', 'rA');
     const s = useStore.getState();
@@ -105,63 +84,14 @@ describe('Switching tabs / sections while editing queues a confirm', () => {
     s.setMapMode('edit_shape');
 
     s.setRouteDetailTab('details');
-
-    const after = useStore.getState();
-    // Still on the shapes tab — confirm dialog renders, change is queued.
-    expect(after.routeDetailTab).toBe('shapes');
-    expect(after.mapMode).toBe('edit_shape');
-    expect(after.editingShapeId).toBe('s1');
-    expect(after.pendingNav).toEqual({ kind: 'tab', tab: 'details' });
-  });
-
-  it('confirmPendingNav applies the queued tab and resets the edit', () => {
-    seedRoute();
-    seedShape('s1', 'rA');
-    const s = useStore.getState();
-    s.setRouteDetailTab('shapes');
-    s.setEditingShapeId('s1');
-    s.setMapMode('edit_shape');
-    s.setRouteDetailTab('details'); // queued
-    s.confirmPendingNav();
 
     const after = useStore.getState();
     expect(after.routeDetailTab).toBe('details');
-    expect(after.mapMode).toBe('select');
-    expect(after.editingShapeId).toBeNull();
-    expect(after.pendingNav).toBeNull();
-  });
-
-  it('cancelPendingNav drops the queue and leaves the user in edit mode', () => {
-    seedRoute();
-    seedShape('s1', 'rA');
-    const s = useStore.getState();
-    s.setRouteDetailTab('shapes');
-    s.setEditingShapeId('s1');
-    s.setMapMode('edit_shape');
-    s.setRouteDetailTab('details');
-    s.cancelPendingNav();
-
-    const after = useStore.getState();
-    expect(after.routeDetailTab).toBe('shapes');
     expect(after.mapMode).toBe('edit_shape');
     expect(after.editingShapeId).toBe('s1');
-    expect(after.pendingNav).toBeNull();
   });
 
-  it('routeDetailTab change between non-shapes tabs (no edit in progress) applies immediately', () => {
-    const s = useStore.getState();
-    s.setRouteDetailTab('details');
-    s.setMapMode('select');
-    s.setEditingShapeId(null);
-
-    s.setRouteDetailTab('trips');
-
-    const after = useStore.getState();
-    expect(after.routeDetailTab).toBe('trips');
-    expect(after.pendingNav).toBeNull();
-  });
-
-  it('sidebarSection change off "routes" while editing queues a pendingNav', () => {
+  it('switching sidebarSection off "routes" keeps edit_shape mode alive', () => {
     seedRoute();
     seedShape('s1', 'rA');
     const s = useStore.getState();
@@ -172,37 +102,31 @@ describe('Switching tabs / sections while editing queues a confirm', () => {
     s.setSidebarSection('stops');
 
     const after = useStore.getState();
-    expect(after.sidebarSection).toBe('routes');
+    expect(after.sidebarSection).toBe('stops');
     expect(after.mapMode).toBe('edit_shape');
-    expect(after.pendingNav).toEqual({ kind: 'section', section: 'stops' });
+    expect(after.editingShapeId).toBe('s1');
   });
 
-  it('confirmPendingNav (section variant) restores the full setSidebarSection side-effects', () => {
+  it('closing the rail (section=null) keeps edit_shape mode alive', () => {
     seedRoute();
     seedShape('s1', 'rA');
     const s = useStore.getState();
     s.setSidebarSection('routes');
     s.setEditingShapeId('s1');
     s.setMapMode('edit_shape');
-    s.setSidebarSection('stops'); // queued
-    s.confirmPendingNav();
+
+    s.setSidebarSection(null);
 
     const after = useStore.getState();
-    expect(after.sidebarSection).toBe('stops');
-    expect(after.rightRailOpen).toBe(true);
-    expect(after.mapMode).toBe('select');
-    expect(after.editingShapeId).toBeNull();
+    expect(after.sidebarSection).toBeNull();
+    expect(after.rightRailOpen).toBe(false);
+    expect(after.mapMode).toBe('edit_shape');
+    expect(after.editingShapeId).toBe('s1');
   });
 });
 
-// ─── Trim mode lifecycle ────────────────────────────────────────────────────
-//
-// Trim mode is a single-click action with no in-progress state to lose, so
-// tab / section changes pass through without the confirm-discard dialog —
-// unlike edit_shape, which queues a pendingNav.
-
-describe('Trim mode passes through without a confirm', () => {
-  it('routeDetailTab change off "shapes" immediately resets trim_shape mode', () => {
+describe('Trim mode still resets immediately on navigation', () => {
+  it('routeDetailTab change off "shapes" clears trim_shape', () => {
     seedRoute();
     seedShape('s1', 'rA');
     const s = useStore.getState();
@@ -216,10 +140,9 @@ describe('Trim mode passes through without a confirm', () => {
     expect(after.routeDetailTab).toBe('details');
     expect(after.mapMode).toBe('select');
     expect(after.editingShapeId).toBeNull();
-    expect(after.pendingNav).toBeNull();
   });
 
-  it('sidebarSection change off "routes" immediately resets trim_shape mode', () => {
+  it('sidebarSection change off "routes" clears trim_shape', () => {
     seedRoute();
     seedShape('s1', 'rA');
     const s = useStore.getState();
@@ -233,13 +156,10 @@ describe('Trim mode passes through without a confirm', () => {
     expect(after.sidebarSection).toBe('agency');
     expect(after.mapMode).toBe('select');
     expect(after.editingShapeId).toBeNull();
-    expect(after.pendingNav).toBeNull();
   });
 });
 
-// ─── Duplicate flow at the store level ──────────────────────────────────────
-
-describe('Duplicate adds shape + trip', () => {
+describe('Duplicate flow at the store level', () => {
   it('after addShape + addTrip the new shape appears alongside the original', () => {
     seedRoute();
     seedShape('s1', 'rA');
@@ -262,8 +182,6 @@ describe('Duplicate adds shape + trip', () => {
   });
 });
 
-// ─── Re-entering edit mode on a different shape ─────────────────────────────
-
 describe('Switching between shapes mid-edit', () => {
   it('changing editingShapeId without leaving edit_shape stays in edit mode', () => {
     seedRoute();
@@ -278,5 +196,17 @@ describe('Switching between shapes mid-edit', () => {
     const after = useStore.getState();
     expect(after.mapMode).toBe('edit_shape');
     expect(after.editingShapeId).toBe('s2');
+  });
+});
+
+describe('RoutePopup → pendingShapeEditId handoff', () => {
+  it('setting pendingShapeEditId hands off the edit target to RouteShapesTab', () => {
+    seedRoute();
+    seedShape('s1', 'rA');
+    const s = useStore.getState();
+    s.setPendingShapeEditId('s1');
+    expect(useStore.getState().pendingShapeEditId).toBe('s1');
+    s.setPendingShapeEditId(null);
+    expect(useStore.getState().pendingShapeEditId).toBeNull();
   });
 });

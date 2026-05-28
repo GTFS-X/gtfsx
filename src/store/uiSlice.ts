@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { SidebarSection, BottomPanelTab, MapMode, StopPlacementMode, RouteDetailTab, StopDetailTab, CalendarDetailTab, PendingNav } from '../types/ui';
+import type { SidebarSection, BottomPanelTab, MapMode, StopPlacementMode, RouteDetailTab, StopDetailTab, CalendarDetailTab } from '../types/ui';
 
 export interface UISlice {
   sidebarSection: SidebarSection | null;
@@ -63,10 +63,6 @@ export interface UISlice {
   routeDetailTab: RouteDetailTab;
   stopDetailTab: StopDetailTab;
   calendarDetailTab: CalendarDetailTab;
-  /** When non-null, the user attempted to navigate (tab/section change)
-   *  while a shape edit was in progress. The confirm-discard dialog reads
-   *  this and either applies it (confirmPendingNav) or drops it (cancel). */
-  pendingNav: PendingNav | null;
   /** Shape id the user wants to enter edit mode on, set by a component
    *  outside RouteShapesTab (e.g. the RoutePopup "Edit Shape" button).
    *  RouteShapesTab watches this on mount / change, dispatches its
@@ -113,8 +109,6 @@ export interface UISlice {
   setRouteDetailTab: (tab: RouteDetailTab) => void;
   setStopDetailTab: (tab: StopDetailTab) => void;
   setCalendarDetailTab: (tab: CalendarDetailTab) => void;
-  confirmPendingNav: () => void;
-  cancelPendingNav: () => void;
   setPendingShapeEditId: (id: string | null) => void;
   setSelectedHolidayNames: (names: string[]) => void;
   setRouteDeleteConfirmId: (id: string | null) => void;
@@ -156,7 +150,6 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   routeDetailTab: 'details',
   stopDetailTab: 'details',
   calendarDetailTab: 'details',
-  pendingNav: null,
   pendingShapeEditId: null,
   // Six federal holidays transit typically suspends service on — kept in sync
   // with the US_HOLIDAYS catalog names in CalendarEditor.tsx.
@@ -185,15 +178,6 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
     else state.hiddenShapeIds.splice(idx, 1);
   }),
   setSidebarSection: (section) => set((state) => {
-    // Mid-edit guard: navigating away from Routes during a shape edit would
-    // discard in-progress vertex moves. Queue the request and let the
-    // confirm-discard dialog (driven by pendingNav) decide. trim_shape is
-    // a single-click action with no in-progress state, so we still let it
-    // pass through without confirmation.
-    if (section !== 'routes' && state.mapMode === 'edit_shape') {
-      state.pendingNav = { kind: 'section', section };
-      return;
-    }
     state.sidebarSection = section;
     // Selecting a section is the user's intent to edit it — open the right rail.
     // Clearing the section closes it.
@@ -209,6 +193,11 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
       state.mapMode = 'select';
       state.editingShapeId = null;
     }
+    // edit_shape DELIBERATELY survives rail/section changes — Save / Cancel
+    // are anchored on the map (MapView, next to the Editing banner) so the
+    // user can close the rail, switch tabs, then come back. The earlier
+    // "auto-discard on leave" + "queue confirm dialog" pendingNav scheme
+    // was punishing the user for normal navigation.
     // The stop edit / create sub-panels are contextual to the user's current
     // flow — switching nav sections discards them so the new section's body
     // renders.
@@ -261,41 +250,15 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   setRightRailOpen: (open) => set((state) => { state.rightRailOpen = open; }),
   setRightRailWidth: (w) => set((state) => { state.rightRailWidth = w; }),
   setRouteDetailTab: (tab) => set((state) => {
-    // Mid-edit guard, same shape as setSidebarSection: queue the tab change
-    // and let the confirm-discard dialog (pendingNav) resolve it.
-    if (tab !== 'shapes' && state.mapMode === 'edit_shape') {
-      state.pendingNav = { kind: 'tab', tab };
-      return;
-    }
     state.routeDetailTab = tab;
+    // trim_shape can be cleared immediately on tab change — no in-progress
+    // state. edit_shape stays alive across tab changes because Save / Cancel
+    // are anchored on the map; the user can switch tabs freely.
     if (tab !== 'shapes' && state.mapMode === 'trim_shape') {
       state.mapMode = 'select';
       state.editingShapeId = null;
     }
   }),
-  confirmPendingNav: () => set((state) => {
-    const nav = state.pendingNav;
-    if (!nav) return;
-    // Discard the in-progress edit before applying the queued nav. The
-    // mapbox-gl-draw geometry stays stale for one frame but the
-    // MapView mode-transition effect deletes it as soon as mapMode lands
-    // on 'select'.
-    state.mapMode = 'select';
-    state.editingShapeId = null;
-    if (nav.kind === 'tab') {
-      state.routeDetailTab = nav.tab;
-    } else {
-      // Mirror the side-effects of setSidebarSection for the section path.
-      state.sidebarSection = nav.section;
-      state.rightRailOpen = nav.section !== null;
-      state.editingStopId = null;
-      if (nav.section !== 'calendar') state.editingCalendarServiceId = null;
-      state.creatingStop = false;
-      if (nav.section !== 'stops') state.mapStopFilter = null;
-    }
-    state.pendingNav = null;
-  }),
-  cancelPendingNav: () => set((state) => { state.pendingNav = null; }),
   setPendingShapeEditId: (id) => set((state) => { state.pendingShapeEditId = id; }),
   setStopDetailTab: (tab) => set((state) => { state.stopDetailTab = tab; }),
   setCalendarDetailTab: (tab) => set((state) => { state.calendarDetailTab = tab; }),

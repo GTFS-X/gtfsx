@@ -43,9 +43,6 @@ export function MapView() {
   // Only destructure values used for rendering; handlers read from useStore.getState() directly
   const mapMode = useStore((s) => s.mapMode);
   const editingShapeId = useStore((s) => s.editingShapeId);
-  // Queued tab/section change while in edit_shape — the dialog below renders
-  // when this is set and either confirms or cancels the queued nav.
-  const pendingNav = useStore((s) => s.pendingNav);
   const editingFlexZoneId = useStore((s) => s.editingFlexZoneId);
   const editingStopId = useStore((s) => s.editingStopId);
   const stops = useStore((s) => s.stops);
@@ -58,6 +55,10 @@ export function MapView() {
   // button. Captured at click time so a per-shape variant on the same route
   // is reachable without having to disambiguate after the fact.
   const [popupShapeId, setPopupShapeId] = useState<string | null>(null);
+  // Whether mapbox-gl-draw currently has at least one vertex (mid-point or
+  // existing) selected. Gates the on-map "Delete Selected Vertex" button so
+  // it doesn't sit there unreachable when nothing is selected.
+  const [editVertexSelected, setEditVertexSelected] = useState(false);
   const [popupLngLat, setPopupLngLat] = useState<{ lng: number; lat: number } | null>(null);
   const [popupDirectionId, setPopupDirectionId] = useState<0 | 1>(0);
   const [popupFlexZoneId, setPopupFlexZoneId] = useState<string | null>(null);
@@ -492,16 +493,40 @@ export function MapView() {
     } else if (currentMode === 'draw_route') {
       drawRef.current.changeMode('draw_line_string');
     } else if (currentMode === 'select') {
-      // Clean up any leftover draw features so an interrupted edit
-      // (e.g. user switched tabs without hitting Save/Cancel — see the
-      // setRouteDetailTab / setSidebarSection guards in uiSlice) doesn't
-      // leave the editing polyline visible on the map.
+      // Clean up any leftover draw features when leaving an editing mode
+      // without an explicit Save/Cancel (e.g. the shape was deleted while
+      // edited).
       try { drawRef.current.deleteAll(); } catch { /* ignore */ }
       try { drawRef.current.changeMode('simple_select'); } catch { /* ignore */ }
       editDrawFeatureIdRef.current = null;
       originalShapePointsRef.current = null;
+      setEditVertexSelected(false);
     }
   }, [mapMode, editingShapeId, editingFlexZoneId]);
+
+  // Track vertex-selection state from mapbox-gl-draw so the on-map
+  // "Delete Selected Vertex" button can hide when nothing is selected.
+  // Only relevant while we're in edit_shape — listener detaches otherwise.
+  useEffect(() => {
+    if (mapMode !== 'edit_shape') {
+      setEditVertexSelected(false);
+      return;
+    }
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const onChange = (e: { points?: unknown[] }) => {
+      setEditVertexSelected(Array.isArray(e.points) && e.points.length > 0);
+    };
+    // mapbox-gl-draw's draw.* events aren't in the mapbox-gl event-name type,
+    // but the runtime accepts arbitrary strings — cast through unknown to
+    // satisfy the type checker without an @ts-expect-error.
+    const m = map as unknown as {
+      on: (ev: string, h: (e: { points?: unknown[] }) => void) => void;
+      off: (ev: string, h: (e: { points?: unknown[] }) => void) => void;
+    };
+    m.on('draw.selectionchange', onChange);
+    return () => { m.off('draw.selectionchange', onChange); };
+  }, [mapMode]);
 
   // Drag-to-move stop in move_stop mode
   const draggingStopRef = useRef(false);
@@ -1015,14 +1040,31 @@ export function MapView() {
       />
       <DrawingIndicator />
 
-      {/* Delete vertex / save buttons — shape editing */}
+      {/* Shape-edit map controls. Live on the map (not the rail) so they're
+          always reachable while editing — closing the rail or switching tabs
+          no longer strands the user. Delete-vertex hides when no vertex is
+          selected; Save / Cancel are always visible. */}
       {mapMode === 'edit_shape' && (
         <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-10 flex gap-2">
+          {editVertexSelected && (
+            <button
+              onClick={() => { if (drawRef.current) drawRef.current.trash(); }}
+              className="px-4 py-2 bg-white text-red-600 rounded-full text-xs font-heading font-bold shadow-md hover:bg-red-50 transition-colors border border-red-200"
+            >
+              Delete Selected Vertex
+            </button>
+          )}
           <button
-            onClick={() => { if (drawRef.current) drawRef.current.trash(); }}
-            className="px-4 py-2 bg-white text-red-600 rounded-full text-xs font-heading font-bold shadow-md hover:bg-red-50 transition-colors border border-red-200"
+            onClick={discardShapeEdit}
+            className="px-4 py-2 bg-white text-warm-gray rounded-full text-xs font-heading font-bold shadow-md hover:bg-sand transition-colors border border-sand"
           >
-            Delete Selected Vertex
+            Cancel
+          </button>
+          <button
+            onClick={saveShapeEdit}
+            className="px-4 py-2 bg-coral text-white rounded-full text-xs font-heading font-bold shadow-md hover:bg-[#d4603a] transition-colors"
+          >
+            Save Shape
           </button>
         </div>
       )}
@@ -1060,51 +1102,6 @@ export function MapView() {
 
       {/* (Shape-split confirm modal removed — replaced by Duplicate + Trim
           in the Routes Shapes subpanel.) */}
-
-      {/* Discard shape changes confirmation triggered by a queued navigation
-          (pendingNav) — user tried to switch tabs / sidebar sections while
-          editing a shape. saveShapeEdit / discardShapeEdit do the cleanup
-          before applying the queued nav so the new tab renders with a clean
-          map. */}
-      {pendingNav && (
-        <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div
-            className="absolute inset-0 bg-black/20"
-            onClick={() => useStore.getState().cancelPendingNav()}
-          />
-          <div className="relative bg-white rounded-xl shadow-lg p-5 max-w-xs mx-4">
-            <h3 className="font-heading font-bold text-base text-dark-brown mb-2">
-              Discard shape changes?
-            </h3>
-            <p className="text-sm text-warm-gray mb-4">
-              Your edits to this shape will be lost.
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  // Persist the pending edit, then apply the queued nav.
-                  saveShapeEdit();
-                  useStore.getState().confirmPendingNav();
-                }}
-                className="flex-1 px-3 py-2 bg-sand text-brown rounded-lg font-heading font-bold text-sm hover:bg-coral-light hover:text-coral transition-colors"
-              >
-                Keep Changes
-              </button>
-              <button
-                onClick={() => {
-                  // Drop the edit-draw state, then apply the queued nav.
-                  // confirmPendingNav resets mapMode/editingShapeId so the
-                  // MapView mode-transition effect clears drawRef.
-                  useStore.getState().confirmPendingNav();
-                }}
-                className="flex-1 px-3 py-2 bg-red-500 text-white rounded-lg font-heading font-bold text-sm hover:bg-red-600 transition-colors"
-              >
-                Discard
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Discard shape changes confirmation */}
       {showDiscardConfirm && (
