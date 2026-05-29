@@ -51,6 +51,21 @@ function isSpaShellRoute(pathname: string): boolean {
   return SPA_SHELL_PREFIXES.some((pre) => p === pre || p.startsWith(`${pre}/`));
 }
 
+// The handful of shell-served routes that ARE real, indexable content pages.
+// Everything else served as the SPA shell (login, account, feeds, admin, the
+// /import deep-link handler, etc.) is a private or functional page, not
+// content — we send `X-Robots-Tag: noindex` so Googlebot drops it instead of
+// treating its near-empty crawled state as a soft-404. (/pricing and /demo are
+// listed for completeness but are normally served indexable by the marketing
+// SSR above, not this shell path. Public /community/* pages are SSR'd by the
+// forum dispatcher and never reach here.)
+const SHELL_INDEXABLE = new Set(['/', '/help', '/pricing', '/demo']);
+
+function isNoindexShellRoute(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, '') || '/';
+  return !SHELL_INDEXABLE.has(p);
+}
+
 const app = new Hono<AppContext>();
 
 // Request ID + basic headers on every response
@@ -228,10 +243,14 @@ export default {
       return assetRes;
     }
     const shell = await env.ASSETS.fetch(new URL('/index.html', url.origin).toString());
-    return new Response(shell.body, {
-      status: 200,
-      headers: shell.headers,
-    });
+    const headers = new Headers(shell.headers);
+    // Private/functional app routes (everything but the content pages) are
+    // noindex — see isNoindexShellRoute. Stops Googlebot from indexing (and
+    // soft-404-flagging) the likes of /import, /login, /account, /feeds.
+    if (isNoindexShellRoute(url.pathname)) {
+      headers.set('X-Robots-Tag', 'noindex');
+    }
+    return new Response(shell.body, { status: 200, headers });
   },
 
   // Scheduled worker invocations (Cron Triggers). See worker/cron/index.ts.

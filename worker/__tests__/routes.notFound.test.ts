@@ -58,3 +58,27 @@ describe('real pages are unaffected', () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe('private/functional shell routes are noindex; content pages are not', () => {
+  // /import was the URL flagged as a Soft 404 in Search Console.
+  const noindexRoutes = ['/import', '/login', '/signup', '/account', '/feeds', '/upgrade'];
+  for (const route of noindexRoutes) {
+    it(`sends X-Robots-Tag: noindex for ${route}`, async () => {
+      const res = await client.get(route, { redirect: 'manual' });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-Robots-Tag')).toContain('noindex');
+    });
+  }
+
+  // Content pages served via the shell must stay indexable.
+  it('does NOT noindex /help (a real content page in the sitemap)', async () => {
+    const res = await client.get('/help', { redirect: 'manual' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Robots-Tag') ?? '').not.toContain('noindex');
+  });
+
+  it('does NOT noindex the homepage /', async () => {
+    const res = await client.get('/', { redirect: 'manual' });
+    expect(res.headers.get('X-Robots-Tag') ?? '').not.toContain('noindex');
+  });
+});
