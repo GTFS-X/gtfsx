@@ -8,14 +8,12 @@ import {
   forbidden,
   notFound,
   validationFailed,
-  rtBreakage,
   ApiError,
 } from '../util/errors';
 import { logAudit } from '../util/audit';
 import { clientIp } from '../util/rateLimit';
 import { generateToken, sha256Hex } from '../util/crypto';
-import { diffRemovedIds, isEmpty as rtReportEmpty } from '../publication/idStability';
-import { submitToCatalogs } from '../publication/submit';
+import { performPublish } from '../publication/performPublish';
 import { getOrgMembership, roleAtLeast, type OrgRole } from '../orgs/routes';
 import { isValidSlug, slugify, uniqueSlug } from './slug';
 import {
@@ -42,7 +40,6 @@ import {
   workingStateKey,
 } from './r2';
 import {
-  loadFeedStateFromKey,
   maybeRegenerateThumbnail,
   parseFeedStateFromGzip,
 } from '../embeds/thumbnail';
@@ -1106,6 +1103,12 @@ const publishJsonSchema = z.object({
   ignoreRtBreakage: z.boolean().optional(),
 });
 
+const schedulePublishSchema = z.object({
+  snapshotId: z.string().min(1),
+  scheduledFor: z.number().int().positive(), // unix ms, must be in the future
+  ignoreWarnings: z.boolean().optional(),
+});
+
 const draftLinkCreateSchema = z.object({
   snapshotId: z.string().min(1),
   ttlDays: z.number().int().positive().max(365).optional(),
@@ -1139,6 +1142,38 @@ async function loadPublication(env: Env, projectId: string): Promise<Publication
   )
     .bind(projectId)
     .first<PublicationRow>();
+}
+
+interface ScheduledPublishRow {
+  id: string;
+  snapshot_id: string;
+  scheduled_for: number;
+  ignore_warnings: number;
+  status: string;
+  failure_reason: string | null;
+  created_at: number;
+}
+
+// Most-recent scheduled-publish row for a project (any status). The client
+// shows it only when 'pending' (with a Cancel) or 'failed' (with the reason).
+async function loadLatestSchedule(env: Env, projectId: string): Promise<ScheduledPublishRow | null> {
+  return env.DB.prepare(
+    `SELECT id, snapshot_id, scheduled_for, ignore_warnings, status, failure_reason, created_at
+       FROM scheduled_publish WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`,
+  )
+    .bind(projectId)
+    .first<ScheduledPublishRow>();
+}
+
+function serializeSchedule(s: ScheduledPublishRow) {
+  return {
+    id: s.id,
+    snapshotId: s.snapshot_id,
+    scheduledFor: s.scheduled_for,
+    ignoreWarnings: s.ignore_warnings === 1,
+    status: s.status,
+    failureReason: s.failure_reason,
+  };
 }
 
 // ─── POST /api/projects/:id/publish ────────────────────────────────────────────
@@ -1207,118 +1242,24 @@ projectsRouter.post('/:id/publish', async (c) => {
 
   const snapshot = await requireOwnedSnapshot(c.env, project.id, snapshotId);
 
-  // Validation gate: errors block publish unless ignoreWarnings=true.
-  // (The flag is slightly misnamed — in practice it's "publish anyway" — but
-  // matches the requirement spec's vocabulary and the frontend field name.)
-  if (snapshot.validation_errors > 0 && !ignoreWarnings) {
-    throw validationFailed('Feed has validation errors. Fix them or pass ignoreWarnings=true to publish anyway.', {
-      validationErrors: snapshot.validation_errors,
-      validationWarnings: snapshot.validation_warnings,
-    });
-  }
-
-  // ID-stability check (BE-88). Only runs when the project has RT feed URLs
-  // registered AND there's an existing publication to diff against.
-  const existing = existingPublication;
-  // managed=1 is our auto-wired Service Alerts feed — it self-renders from D1
-  // and can't "break" on republish, so it must not trigger the warning.
-  const rtCount = await c.env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM project_rt_feed WHERE project_id = ? AND managed = 0`,
-  )
-    .bind(project.id)
-    .first<{ n: number }>();
-  if (existing && (rtCount?.n ?? 0) > 0 && existing.snapshot_id !== snapshot.id && !ignoreRtBreakage) {
-    const prior = await requireOwnedSnapshot(c.env, project.id, existing.snapshot_id);
-    const removed = await diffRemovedIds(c.env, prior.state_r2_key, snapshot.state_r2_key);
-    if (!rtReportEmpty(removed)) {
-      throw rtBreakage({
-        removed: {
-          agencies: removed.agencies,
-          routes: removed.routes,
-          stops: removed.stops,
-          trips: removed.trips,
-        },
-      });
-    }
-  }
-
-  // Copy the rendered ZIP into the publication slot in R2.
-  const pubKey = publicationZipKey(project.id, snapshot.id);
-  let publishedBytes = 0;
-  if (incomingZip) {
-    await putFeedBlob(c.env, pubKey, incomingZip, { contentType: 'application/zip' });
-    publishedBytes = incomingZip.byteLength;
-  } else {
-    // JSON path — require an existing rendered ZIP on the snapshot row.
-    if (!snapshot.zip_r2_key) {
-      throw validationFailed('This snapshot has no rendered ZIP. Publish with multipart form instead.');
-    }
-    const source = await getFeedBlob(c.env, snapshot.zip_r2_key);
-    if (!source) throw notFound('Rendered ZIP missing from storage');
-    const buf = await source.arrayBuffer();
-    publishedBytes = buf.byteLength;
-    await putFeedBlob(c.env, pubKey, buf, { contentType: 'application/zip' });
-  }
-
-  // Upsert publication + append history.
-  const wasRollback = existing && existing.snapshot_id !== snapshot.id;
-  await c.env.DB.prepare(
-    `INSERT INTO publication (project_id, snapshot_id, published_by_user_id, published_at, canonical_slug, zip_r2_key)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(project_id) DO UPDATE SET
-       snapshot_id = excluded.snapshot_id,
-       published_by_user_id = excluded.published_by_user_id,
-       published_at = excluded.published_at,
-       canonical_slug = excluded.canonical_slug,
-       zip_r2_key = excluded.zip_r2_key`,
-  )
-    .bind(project.id, snapshot.id, user.id, now, project.slug, pubKey)
-    .run();
-
-  await c.env.DB.prepare(
-    `INSERT INTO publication_history (id, project_id, snapshot_id, action, actor_user_id, created_at)
-     VALUES (?, ?, ?, 'publish', ?, ?)`,
-  )
-    .bind(ulid(), project.id, snapshot.id, user.id, now)
-    .run();
-
-  await logAudit(c.env, {
+  // Shared publish core (also used by the scheduled-publish cron). The route
+  // owns gating + body parsing above; performPublish runs the validation gate,
+  // ID-stability check, ZIP copy, pointer flip, history, audit, and background
+  // catalog + thumbnail work.
+  const { canonicalUrl } = await performPublish(c.env, {
+    project: { id: project.id, slug: project.slug, name: project.name },
+    snapshot,
+    existingPublication,
+    ignoreWarnings,
+    ignoreRtBreakage,
     actorUserId: user.id,
-    subjectType: 'publication',
-    subjectId: project.id,
-    action: 'project.publish',
-    metadata: { snapshotId: snapshot.id, size: publishedBytes, rollback: !!wasRollback },
+    incomingZip,
+    feedsOrigin: c.env.FEEDS_ORIGIN,
+    runBackground: (p) => c.executionCtx.waitUntil(p),
     ip: clientIp(c.req.raw),
+    now,
   });
 
-  // Auto-submit to any opted-in catalogs (BE-80/83). Background, so the
-  // response returns immediately. Submission routines never throw — they
-  // record errors in project_catalog_submission.status for the UI to surface.
-  const feedsOrigin = c.env.FEEDS_ORIGIN;
-  const slug = project.slug;
-  const name = project.name;
-  c.executionCtx.waitUntil(
-    submitToCatalogs(c.env, {
-      projectId: project.id,
-      slug,
-      feedsOrigin,
-      feedTitle: name,
-    }).catch((err) => {
-      console.error('[publish] catalog submission error', err);
-    }),
-  );
-
-  // Ensure the thumbnail reflects the published snapshot's geometry (covers
-  // first-ever publish and publishing an older snapshot). Off the response
-  // path; gated on the geometry hash; never breaks publish.
-  c.executionCtx.waitUntil(
-    (async () => {
-      const state = await loadFeedStateFromKey(c.env, snapshot.state_r2_key);
-      if (state) await maybeRegenerateThumbnail(c.env, project.id, state);
-    })().catch((err) => console.error('[thumbnail] publish-trigger error', err)),
-  );
-
-  const canonicalUrl = `${feedsOrigin.replace(/\/$/, '')}/${project.slug}/gtfs.zip`;
   return c.json({
     publication: {
       projectId: project.id,
@@ -1452,6 +1393,7 @@ projectsRouter.get('/:id/publish/history', async (c) => {
     .all<{ id: string; snapshot_id: string | null; action: string; actor_user_id: string | null; created_at: number }>();
 
   const current = await loadPublication(c.env, project.id);
+  const latestSchedule = await loadLatestSchedule(c.env, project.id);
   return c.json({
     history: (history.results ?? []).map((r) => ({
       id: r.id,
@@ -1463,7 +1405,139 @@ projectsRouter.get('/:id/publish/history', async (c) => {
     current: current
       ? { snapshotId: current.snapshot_id, publishedAt: current.published_at }
       : null,
+    scheduled: latestSchedule ? serializeSchedule(latestSchedule) : null,
   });
+});
+
+// ─── POST /api/projects/:id/publish/schedule ───────────────────────────────────
+// Schedule a snapshot to publish at a future time. The */15 cron
+// (worker/cron/tasks.ts → publishDueSchedules) fires it via performPublish.
+// At most one pending schedule per project — re-scheduling replaces the prior.
+projectsRouter.post('/:id/publish/schedule', async (c) => {
+  const user = c.var.user!;
+  const id = c.req.param('id');
+  const { row: project } = await requireOwnedProject(c.env, user, id, 'editor');
+  const now = Date.now();
+
+  // Same gating as an immediate publish — managed publishing is paid-tier, and
+  // a new scheduled publish consumes a published-feed slot if not already live.
+  const existingPublication = await loadPublication(c.env, project.id);
+  await requirePublishAccess(
+    c.env,
+    project.owner_type as OwnerType,
+    project.owner_id,
+    { isNewPublication: !existingPublication, actor: user },
+  );
+  const projectQuotas = await getOwnerQuotas(c.env, project.owner_type as OwnerType, project.owner_id);
+
+  // Two request shapes, mirroring the publish route: multipart (meta + a freshly
+  // rendered zip) or JSON. The cron has no client to render the GTFS ZIP at fire
+  // time and the worker can't render one, so we MUST capture the rendered ZIP now
+  // and persist it on the snapshot row (snapshots are created with zip_r2_key='').
+  const contentType = c.req.header('Content-Type') ?? '';
+  let snapshotId: string;
+  let scheduledFor: number;
+  let ignoreWarnings = false;
+  let incomingZip: ArrayBuffer | null = null;
+  if (contentType.includes('multipart/form-data')) {
+    const parsed = (await c.req.parseBody({ all: false })) as Record<string, string | File>;
+    const metaPart = parsed['meta'];
+    const zipPart = parsed['zip'];
+    if (typeof metaPart !== 'string') throw validationFailed('Missing meta JSON');
+    const metaResult = schedulePublishSchema.safeParse(JSON.parse(metaPart));
+    if (!metaResult.success) throw validationFailed('Invalid meta', { issues: metaResult.error.issues });
+    snapshotId = metaResult.data.snapshotId;
+    scheduledFor = metaResult.data.scheduledFor;
+    ignoreWarnings = metaResult.data.ignoreWarnings ?? false;
+    if (zipPart && typeof zipPart !== 'string') {
+      incomingZip = await (zipPart as Blob).arrayBuffer();
+      if (incomingZip.byteLength === 0) throw validationFailed('Empty zip');
+      enforceBlobSize(incomingZip.byteLength, projectQuotas.blobBytes);
+    }
+  } else {
+    const body = await parseJson(c, schedulePublishSchema);
+    snapshotId = body.snapshotId;
+    scheduledFor = body.scheduledFor;
+    ignoreWarnings = body.ignoreWarnings ?? false;
+  }
+
+  if (scheduledFor <= now + 60_000) {
+    throw validationFailed('scheduledFor must be at least a minute in the future.');
+  }
+
+  // Snapshot must exist and pass the validation gate now (it's immutable, so the
+  // gate result is stable until the cron fires).
+  const snapshot = await requireOwnedSnapshot(c.env, project.id, snapshotId);
+  if (snapshot.validation_errors > 0 && !ignoreWarnings) {
+    throw validationFailed('Feed has validation errors. Fix them or pass ignoreWarnings=true to schedule anyway.', {
+      validationErrors: snapshot.validation_errors,
+      validationWarnings: snapshot.validation_warnings,
+    });
+  }
+
+  // Persist the rendered ZIP on the snapshot so the cron can publish it. If no
+  // zip was supplied, the snapshot must already carry one (e.g. re-scheduling).
+  if (incomingZip) {
+    const zipKey = snapshotZipKey(project.id, snapshot.id);
+    await putFeedBlob(c.env, zipKey, incomingZip, { contentType: 'application/zip' });
+    await c.env.DB.prepare(
+      `UPDATE feed_snapshot SET zip_r2_key = ?, zip_size = ? WHERE id = ?`,
+    ).bind(zipKey, incomingZip.byteLength, snapshot.id).run();
+  } else if (!snapshot.zip_r2_key) {
+    throw validationFailed('Open the feed in the editor when scheduling so we can render the GTFS ZIP to publish later.');
+  }
+
+  // Replace any existing pending schedule (one pending per project).
+  await c.env.DB.prepare(
+    `UPDATE scheduled_publish SET status = 'cancelled', executed_at = ? WHERE project_id = ? AND status = 'pending'`,
+  ).bind(now, project.id).run();
+
+  const schedId = ulid();
+  await c.env.DB.prepare(
+    `INSERT INTO scheduled_publish (id, project_id, snapshot_id, scheduled_for, ignore_warnings, status, scheduled_by_user_id, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+  ).bind(schedId, project.id, snapshot.id, scheduledFor, ignoreWarnings ? 1 : 0, user.id, now).run();
+
+  await logAudit(c.env, {
+    actorUserId: user.id,
+    subjectType: 'publication',
+    subjectId: project.id,
+    action: 'project.schedule_publish',
+    metadata: { snapshotId: snapshot.id, scheduledFor },
+    ip: clientIp(c.req.raw),
+  });
+
+  return c.json({
+    scheduled: {
+      id: schedId,
+      snapshotId: snapshot.id,
+      scheduledFor,
+      ignoreWarnings,
+      status: 'pending',
+      failureReason: null,
+    },
+  });
+});
+
+// ─── DELETE /api/projects/:id/publish/schedule ─────────────────────────────────
+// Cancel the project's pending scheduled publish (idempotent).
+projectsRouter.delete('/:id/publish/schedule', async (c) => {
+  const user = c.var.user!;
+  const id = c.req.param('id');
+  const { row: project } = await requireOwnedProject(c.env, user, id, 'editor');
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `UPDATE scheduled_publish SET status = 'cancelled', executed_at = ? WHERE project_id = ? AND status = 'pending'`,
+  ).bind(now, project.id).run();
+  await logAudit(c.env, {
+    actorUserId: user.id,
+    subjectType: 'publication',
+    subjectId: project.id,
+    action: 'project.cancel_scheduled_publish',
+    metadata: {},
+    ip: clientIp(c.req.raw),
+  });
+  return c.json({ cancelled: true });
 });
 
 // ─── Draft links ───────────────────────────────────────────────────────────────

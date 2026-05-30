@@ -10,6 +10,9 @@
 
 import type { Env } from '../env';
 import { deleteProjectBlobs } from '../projects/r2';
+import { performPublish } from '../publication/performPublish';
+import { requirePublishAccess } from '../billing/middleware';
+import type { OwnerType } from '../projects/quotas';
 
 export const DELETE_GRACE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -280,4 +283,93 @@ async function scalarCount(env: Env, sql: string, ...binds: unknown[]): Promise<
     console.warn(`[metrics] scalar count failed for ${sql.slice(0, 60)}:`, err);
     return 0;
   }
+}
+
+// ─── Scheduled publish (BE-77) ──────────────────────────────────────────────
+//
+// Fired by the */15 cron. Publishes any pending scheduled_publish rows whose
+// time has arrived, via the same performPublish() core the interactive route
+// uses. Each row is isolated — a failure marks just that row 'failed' (with a
+// reason) and never blocks the others. Access is re-checked at execution time
+// because the owner's plan/quota can change after scheduling.
+export async function publishDueSchedules(env: Env): Promise<{ published: number; failed: number }> {
+  const now = Date.now();
+  const due = await env.DB.prepare(
+    `SELECT id, project_id, snapshot_id, ignore_warnings
+       FROM scheduled_publish
+      WHERE status = 'pending' AND scheduled_for <= ?
+      ORDER BY scheduled_for ASC
+      LIMIT 100`,
+  )
+    .bind(now)
+    .all<{ id: string; project_id: string; snapshot_id: string; ignore_warnings: number }>();
+
+  let published = 0;
+  let failed = 0;
+  for (const row of due.results ?? []) {
+    try {
+      await runOneScheduledPublish(env, row);
+      await env.DB.prepare(
+        `UPDATE scheduled_publish SET status = 'executed', executed_at = ? WHERE id = ?`,
+      ).bind(Date.now(), row.id).run();
+      published += 1;
+    } catch (err) {
+      failed += 1;
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error(`[scheduled-publish] ${row.id} failed:`, reason);
+      await env.DB.prepare(
+        `UPDATE scheduled_publish SET status = 'failed', failure_reason = ?, executed_at = ? WHERE id = ?`,
+      ).bind(reason.slice(0, 500), Date.now(), row.id).run();
+    }
+  }
+  return { published, failed };
+}
+
+async function runOneScheduledPublish(
+  env: Env,
+  row: { id: string; project_id: string; snapshot_id: string; ignore_warnings: number },
+): Promise<void> {
+  const project = await env.DB.prepare(
+    `SELECT id, slug, name, owner_type, owner_id FROM feed_project WHERE id = ? AND deleted_at IS NULL`,
+  )
+    .bind(row.project_id)
+    .first<{ id: string; slug: string; name: string; owner_type: string; owner_id: string }>();
+  if (!project) throw new Error('project not found or deleted');
+
+  const snapshot = await env.DB.prepare(
+    `SELECT id, state_r2_key, zip_r2_key, validation_errors, validation_warnings
+       FROM feed_snapshot WHERE id = ? AND project_id = ?`,
+  )
+    .bind(row.snapshot_id, row.project_id)
+    .first<{
+      id: string; state_r2_key: string; zip_r2_key: string | null;
+      validation_errors: number; validation_warnings: number;
+    }>();
+  if (!snapshot) throw new Error('snapshot not found');
+
+  const existingPublication = await env.DB.prepare(
+    `SELECT snapshot_id FROM publication WHERE project_id = ?`,
+  )
+    .bind(row.project_id)
+    .first<{ snapshot_id: string }>();
+
+  // Re-check publish access — plan/quota may have changed since scheduling.
+  // A throw here bubbles up and marks the schedule 'failed'.
+  await requirePublishAccess(env, project.owner_type as OwnerType, project.owner_id, {
+    isNewPublication: !existingPublication,
+  });
+
+  // Run catalog + thumbnail work inline (await it) — a cron isn't latency-
+  // sensitive and the worker may be torn down right after we return.
+  const background: Promise<unknown>[] = [];
+  await performPublish(env, {
+    project: { id: project.id, slug: project.slug, name: project.name },
+    snapshot,
+    existingPublication,
+    ignoreWarnings: row.ignore_warnings === 1,
+    actorUserId: null, // system-initiated
+    feedsOrigin: env.FEEDS_ORIGIN,
+    runBackground: (p) => background.push(p),
+  });
+  await Promise.allSettled(background);
 }

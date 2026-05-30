@@ -131,12 +131,13 @@
   ],
   // Scheduled Worker invocations. See worker/cron/index.ts (dispatches on
   // event.cron).
+  //   "*/15 * * * *" — every 15 min: fire due scheduled publishes (BE-77).
   //   "0 3 * * *" — 03:00 UTC daily: account-deletion reaper + weekly
   //                 metrics rollup + enterprise-grant expiry.
   //   "0 9 * * *" — 09:00 UTC daily (03:00 MT during MDT, 02:00 MT during
   //                 MST): Google Ads Offline Conversion Import.
   "triggers": {
-    "crons": ["0 3 * * *", "0 9 * * *"]
+    "crons": ["*/15 * * * *", "0 3 * * *", "0 9 * * *"]
   },
   // ─── Staging environment ───────────────────────────────────────────────────
   // `wrangler deploy --env staging` deploys a separate Worker

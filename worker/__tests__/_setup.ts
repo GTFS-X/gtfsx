@@ -52,6 +52,7 @@ export async function resetDb(): Promise<void> {
     'project_catalog_submission',
     'project_rt_feed',
     'draft_link',
+    'scheduled_publish',
     'feed_snapshot',
     'feed_project',
     'organization_membership',

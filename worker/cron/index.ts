@@ -1,5 +1,5 @@
 import type { Env } from '../env';
-import { reapDeletedUsers, summarizeWeeklyMetrics, expireEnterpriseGrants } from './tasks';
+import { reapDeletedUsers, summarizeWeeklyMetrics, expireEnterpriseGrants, publishDueSchedules } from './tasks';
 import { uploadPendingConversions } from '../marketing/ads/oci';
 
 // Scheduled worker entry point. Invoked from worker/index.ts#scheduled().
@@ -13,6 +13,18 @@ export async function runScheduled(
   env: Env,
   _ctx: ExecutionContext,
 ): Promise<void> {
+  // Every 15 min — fire any scheduled publishes whose time has arrived
+  // (worker/projects/routes.ts → POST /:id/publish/schedule).
+  if (event.cron === '*/15 * * * *') {
+    try {
+      const result = await publishDueSchedules(env);
+      if (result.published || result.failed) console.log('[cron:scheduled-publish]', JSON.stringify(result));
+    } catch (err) {
+      console.error('[cron:scheduled-publish] failed', err);
+    }
+    return;
+  }
+
   // 09:00 UTC — Google Ads Offline Conversion Import only. See
   // worker/marketing/ads/oci.ts and docs/GOOGLE_ADS_PLAN.md §3.2.
   if (event.cron === '0 9 * * *') {
