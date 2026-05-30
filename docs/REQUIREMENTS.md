@@ -8,31 +8,33 @@ GTFS·X is a web application for creating, editing, analysing, and publishing GT
 
 | | |
 |---|---|
-| **Editor (anonymous, IndexedDB-only)** | Live in production at https://www.gtfsx.com. Two-rail layout (responsive left nav + configuration right rail) shipped 2026-05-11. |
-| **Backend (auth, projects, orgs, publication, embeds)** | Live on staging at https://staging.gtfsx.com (and feeds at https://staging-feeds.gtfsx.com). **Disabled in production** since 2026-05-08 (kill switch) — backend code is deployed but `BACKEND_ENABLED=false` and the SPA bundle ships with `VITE_BACKEND_ENABLED=false`. |
-| **Active development branch** | `main` (rail refactor merged via `exploration/right-rail-and-responsive-left` on 2026-05-11). Earlier `staging-features` work — Turnstile signup gate; embeds with mini-site landing, per-route, per-stop, system map; org logo upload + brand colour; cross-workspace feed transfer; orphan-stop deletion choice on route delete; export-all-stops fidelity fix — landed on `main` previously. |
+| **Editor (anonymous, IndexedDB-only)** | Live in production at https://www.gtfsx.com. Two-rail layout (responsive left nav + configuration right rail). |
+| **Backend (auth, projects, orgs, publication, embeds, billing, forum)** | **Live in production since 2026-05-15** with live-mode Stripe billing — `BACKEND_ENABLED=true`, `BILLING_ENABLED=true`. (Originally disabled 2026-05-08 after a premature launch; re-enabled 2026-05-15.) Staging is parked — manual rehearsal only. |
+| **Plans** | Free / Pro / Agency / Enterprise, self-serve via Stripe Checkout. See [§3.7](#37-billing-and-subscription-plans). |
+| **Source of truth** | `main` — every push auto-deploys to production via Cloudflare Workers Builds. |
 
-If you are picking this project up cold: read this overview, then `docs/BACKEND_STATUS.md` for the live operational picture, then the section below that matches the area you're working in.
+If you are picking this project up cold: read this overview, then [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) §5 for the live operational picture, then the section below that matches the area you're working in.
 
 ---
 
 ## How this document is organized
 
-Four sections corresponding to the major capability areas:
+Five sections corresponding to the major capability areas:
 
 1. **GTFS feed editing** — the map + form + timetable workflows that produce a valid GTFS feed.
 2. **Analysis and route development** — the things you do *with* a feed before you publish it: demand dots, demographic coverage, Title VI equity, stop-level diagnostics (spacing, balancing, service intensity, accessibility), cost estimation.
-3. **Account and organization management** — auth, orgs, multi-tenant workspaces, branding, admin console.
-4. **Feed publication and distribution** — versioning, canonical publish, draft links, catalog submissions, and rider-facing embeds + mini-site.
+3. **Account, organization & billing** — auth, orgs, multi-tenant workspaces, branding, subscription plans, admin console.
+4. **Feed publication and distribution** — snapshots, canonical publish, draft links, catalog submissions, and rider-facing embeds + mini-site.
+5. **Community forum** — the public Q&A / discussion forum.
 
 Within each section, capabilities are marked:
 
-- ✅ **Shipped** — built and exercised in production or staging.
+- ✅ **Shipped** — built and exercised in production.
 - 🟡 **Partial** — modelled, with known gaps tracked elsewhere.
-- 🔲 **Planned** — specced but not built.
+- 🔲 **Planned** — specced but not built (tracked in GitHub issues).
 - 🚫 **Deferred** — considered and deliberately skipped.
 
-Detailed plans, schemas, and runbooks live in companion documents (linked at the bottom). This file is intentionally short — it's the orientation map, not the territory.
+Detailed architecture, data model, API surface, and runbooks live in [`ARCHITECTURE.md`](./ARCHITECTURE.md); the backlog of 🔲 planned features lives in GitHub issues. This file is intentionally short — it's the orientation map, not the territory.
 
 ---
 
@@ -59,7 +61,7 @@ Required and core-optional files are first-class entities in the editor:
 | `frequencies.txt` (headway-based service) | 🔲 |
 | `transfers.txt` | ✅ |
 | `pathways.txt` | 🔲 |
-| GTFS-Flex (`locations.geojson`, `booking_rules.txt`, `location_groups.txt`, extended `stop_times`) | 🟡 — see [`FLEX_ROADMAP.md`](./FLEX_ROADMAP.md) |
+| GTFS-Flex (`locations.geojson`, `booking_rules.txt`, `location_groups.txt`, extended `stop_times`) | ✅ — see [§1.7](#17-gtfs-flex-demand-responsive-service) |
 
 ### 1.2 Routes and shapes
 
@@ -156,14 +158,17 @@ Why staged: the editor's target audience is small and mid-size agencies whose im
 
 ### 1.7 GTFS-Flex (demand-responsive service)
 
-Coverage is detailed in [`docs/FLEX_ROADMAP.md`](./FLEX_ROADMAP.md) which is the source of truth for what's shipped vs open. Headlines:
+Full GTFS-Flex authoring is shipped (`src/store/flexSlice.ts`, `gtfsImport.ts` / `gtfsExport.ts`, `src/components/flex/`):
 
 - ✅ `locations.geojson` polygon zones (single + multi-polygon) with edit handles on the map.
 - ✅ `booking_rules.txt` (booking type, prior-notice durations, contact info, messages) per zone or trip.
 - ✅ Extended `stop_times` (location_id, pickup/drop_off booking rule ids, pickup/drop-off windows).
-- ✅ `location_groups.txt` + `location_group_stops.txt`.
-- ✅ Zone ↔ route ↔ service_id linkage preserved on round-trip; map popups for editing.
-- 🟡 / 🔲 — see roadmap for the open items.
+- ✅ `location_groups.txt` + `location_group_stops.txt` (a zone is polygon **or** group; mixed not yet supported).
+- ✅ `continuous_pickup` / `continuous_drop_off` (route-level + per-`stop_time` fields).
+- ✅ Additional service windows per zone (e.g. morning + evening shuttles); travel-time duration factors (mean/safe).
+- ✅ `calendar_dates` exception handling; flex route-type customization (715, 1551, 1564).
+- ✅ Zone ↔ route ↔ service_id linkage preserved on round-trip; validation + pre-export checks for incomplete zones.
+- 🔲 Per-`stop_time` continuous pickup/drop-off overrides surfaced in the timetable UI (route-level covers ~95%); mixed polygon+group zones in a single zone (rare). Tracked in GitHub issues.
 
 ### 1.8 Validation, import, export
 
@@ -172,7 +177,7 @@ Coverage is detailed in [`docs/FLEX_ROADMAP.md`](./FLEX_ROADMAP.md) which is the
 - ✅ Click-to-navigate from a validation message to the offending entity.
 - ✅ Auto-fix path in the export dialog for orphan references (trips → missing routes, stop_times → missing stops, etc.).
 - ✅ Import GTFS ZIP — parses every supported file, preserves unknown columns where possible, populates the editor.
-- ✅ Export GTFS ZIP — emits every populated file. As of the export-fidelity fix on the `staging-features` branch, every stop in editor state is written to `stops.txt` (previously, unreferenced stops were silently dropped; the validator already warns on unused stops, so users still get the nudge).
+- ✅ Export GTFS ZIP — emits every populated file. Every stop in editor state is written to `stops.txt`, including unreferenced ones (the validator already warns on unused stops, so users still get the nudge).
 
 ---
 
@@ -188,7 +193,7 @@ A nationwide vector-tile layer of dot-density transit demand, served from R2 PMT
 - **Other adults**.
 - **Jobs** (LODES WAC, all sectors).
 
-Resolution: TIGER block (TABBLOCK20) geometries, with ACS variables apportioned from block group → block by land area. See [`docs/demand-dots-nationwide-plan.md`](./demand-dots-nationwide-plan.md) for the build pipeline + refresh cadence.
+Resolution: TIGER block (TABBLOCK20) geometries, with ACS variables apportioned from block group → block by land area. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) Appendix A for the build pipeline + yearly regen runbook.
 
 - ✅ Built and live: `us-2026b` archive served at `/_demand-tiles/<archive>/{z}/{x}/{y}.pbf`.
 - ✅ Toggleable map layer (`DemandDotsLayer.tsx`).
@@ -207,7 +212,7 @@ Apportioned **buffer coverage** — for the system, each route, or a single stop
 
 ### 2.3 Title VI equity analysis
 
-Implements the methodology in [`Title VI Transit Service Analysis - Calculation Procedures Memo.md`](./Title%20VI%20Transit%20Service%20Analysis%20-%20Calculation%20Procedures%20Memo.md): apportions daily trips per stop to nearby block groups, classifies block groups against a regional threshold, and reports the ratio of average daily trips received by each group.
+Implements the FTA Title VI service-equity methodology (Circular 4702.1B): apportions daily trips per stop to nearby block groups, classifies block groups against a regional threshold, and reports the ratio of average daily trips received by each group.
 
 - ✅ End-to-end calculation in `titleVI.ts` reusing `coverageAnalysis`'s overlap math.
 - ✅ Minority / non-minority comparison against the regional minority share (FTA Circular 4702.1B).
@@ -237,11 +242,11 @@ A dedicated **Stop Analysis** panel (`StopAnalysisPanel`, gated under the `analy
 
 ---
 
-## 3. Account and organization management
+## 3. Account, organization & billing
 
-Specced in [`docs/BACKEND_REQUIREMENTS.md`](./BACKEND_REQUIREMENTS.md), phased in [`docs/BACKEND_IMPLEMENTATION_PLAN.md`](./BACKEND_IMPLEMENTATION_PLAN.md), runbook in [`docs/DEPLOY_BACKEND.md`](./DEPLOY_BACKEND.md), live state in [`docs/BACKEND_STATUS.md`](./BACKEND_STATUS.md).
+Architecture, data model, full API surface, and live operational state are in [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) (§2 data model, §3 API, §5 live state).
 
-The backend tier is implemented as a single Cloudflare Worker that also serves the SPA's static assets and the public feeds origin. D1 holds metadata; R2 holds working-state JSON, version snapshots, GTFS zips, and org logos; KV holds rate-limit counters.
+The backend tier is implemented as a single Cloudflare Worker that also serves the SPA's static assets and the public feeds origin. D1 holds metadata; R2 holds working-state JSON, snapshots, GTFS zips, org logos, and feed thumbnails; KV holds rate-limit counters.
 
 ### 3.1 Authentication
 
@@ -253,8 +258,8 @@ The backend tier is implemented as a single Cloudflare Worker that also serves t
 - ✅ Cloudflare Turnstile captcha gate on `/auth/signup` (Managed mode; site key public, secret as Worker secret).
 - ✅ Rate limits on all `/auth/*` endpoints (KV-backed, per IP + per email).
 - ✅ Account settings: change name, email (with re-verify), password, soft-delete account.
-- ⚠️ Password hashing is PBKDF2-HMAC-SHA256 @ 100k iterations (workerd cap). Argon2id migration is the **NF-40a** follow-up that should land before broad RTAP distribution; details in `BACKEND_REQUIREMENTS.md` §9.1.
-- 🔲 Google OAuth (deferred to v1.1 per the requirements doc).
+- ⚠️ Password hashing is PBKDF2-HMAC-SHA256 @ 100k iterations (workerd cap). Argon2id migration (**NF-40a**) should land before broad RTAP distribution; details in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §4 / §9. Tracked in GitHub issues.
+- 🔲 Google OAuth (deferred to v1.1). Tracked in GitHub issues.
 
 ### 3.2 Organizations
 
@@ -263,57 +268,84 @@ The backend tier is implemented as a single Cloudflare Worker that also serves t
 - ✅ Invitation flow (email-based; consumer signs up if needed and joins on accept).
 - ✅ Ownership transfer; last-owner protection.
 - ✅ Org settings page at `/orgs/<slug>` — members, roles, invitations, branding.
-- ✅ Per-project membership granularity is **not** built and is a future option (see BACKEND_REQUIREMENTS BE-95).
+- 🔲 Per-project membership granularity (a user scoped to a single project inside an org) is not built. Tracked in GitHub issues (BE-95).
 
 ### 3.3 Workspaces and feed ownership
 
 - ✅ A feed project is owned by either a user (personal) or an org. Slug uniqueness is per `(owner_type, owner_id)`.
-- ✅ Workspace switcher in the top bar; `My Feeds` page is workspace-scoped (the prior behaviour of always returning personal feeds was a bug, fixed on `staging-features`).
+- ✅ Workspace switcher in the top bar; `My Feeds` page is workspace-scoped.
 - ✅ Cross-workspace feed transfer: kebab → "Move to…" with workspace picker (Personal + every org where the user is editor+). Auto-suffixes the slug on collision; updates `publication.canonical_slug` in lockstep so a published feed's URL keeps pointing at the same project after a move.
 - ✅ Anonymous → signed-in import: local IndexedDB projects can be uploaded to the server on first sign-in; collision/quota prompts.
 
 ### 3.4 Quotas and abuse controls
 
-- ✅ Quotas: 20 projects per owner, 50 versions per project, 50 MB per ZIP. Implemented as soft-warn at the 90% threshold (`HARD_LIMITS=true` env flag flips to hard rejection — intended for the eventual RTAP licensing model).
+- ✅ **Plan-based quotas** (`worker/projects/quotas.ts`), enforced as soft-warn at the 90% threshold (`HARD_LIMITS=true` flips to hard rejection — for the eventual RTAP licensing model):
+
+  | Plan | Saved projects | Snapshots / project | Max ZIP | Published feeds |
+  |---|---|---|---|---|
+  | Free | 3 | 5 | 20 MB | 0 |
+  | Pro | 10 | 25 | 50 MB | 1 |
+  | Agency | unlimited | 50 | 100 MB | unlimited |
+  | Enterprise | unlimited | 200 | 200 MB | unlimited |
+
 - ✅ Per-IP + per-email rate limits on auth endpoints.
 - ✅ Turnstile signup gate.
 - ✅ CSRF defense via `X-GB-Client` header on state-changing endpoints.
-- 🔲 Abuse controls in the admin panel (disable user, freeze new signups by IP, take down a user's publications) — see BACKEND_REQUIREMENTS §10.1 / Phase 6.
+- ✅ Admin can disable / re-enable users (§3.5).
+- 🔲 Further abuse controls (freeze new signups by IP, take down a user's publications). Tracked in GitHub issues.
 
 ### 3.5 Admin console
 
 - ✅ Routes under `/admin` gated on `user.staff = 1`; non-staff get 404 (not 403) to avoid surface enumeration.
-- ✅ Dashboard counters (users by status, orgs, projects, versions, publications, signups this week/month, active-user proxy via session activity).
+- ✅ Dashboard counters (users by status, orgs, projects, snapshots, publications, signups this week/month, active-user proxy via session activity, subscription tier breakdown).
 - ✅ Users: paginated table, filter by status + email substring, row actions (disable / re-enable, resend verification, impersonate).
 - ✅ Orgs: paginated table, member-role management.
 - ✅ Audit log: filtered + paginated viewer with CSV export.
-- ✅ Events: cookieless page-view analytics. Inbound `?ref=` tag captured once per session (stripped from the URL), tallied on `/admin/events` with date presets (7d / 30d / all / custom). No IP, no UA, no user id stored. See BACKEND_REQUIREMENTS §8.2 NF-54 and §8.4 NF-73.
-- 🔲 Global full-text search, bulk operations, abuse review queues — deferred per BACKEND_REQUIREMENTS §10.6.
+- ✅ Events: cookieless page-view analytics. Inbound `?ref=` tag captured once per session (stripped from the URL), tallied on `/admin/events` with date presets (7d / 30d / all / custom). No IP, no UA, no user id stored (NF-54 / NF-73; see [`ARCHITECTURE.md`](./ARCHITECTURE.md) §4). The `?gclid=` ad-attribution tag is captured the same way and fed to the Google Ads offline-conversion pipeline.
+- 🔲 Global full-text search, bulk operations, abuse review queues — deferred. Tracked in GitHub issues.
 
 ### 3.6 Org branding
 
 - ✅ Per-project primary color (hex) — drives the active service-day tab + accent links on every embed surface (CSS custom property `--brand`).
 - ✅ Per-org logo upload (PNG / JPEG / WebP / SVG; ≤1 MB) at `/api/orgs/:id/logo`. Public read at `feeds.gtfsx.com/_/orgs/<id>/logo` with edge cache + ETag.
 - ✅ Logo renders next to the agency name on the mini-site landing, per-route, per-stop, and system-map embeds.
-- 🔲 Custom CSS variables / advanced theming (specced in EMBEDS_REQUIREMENTS EM-60, deferred for now).
-- 🔲 Per-route display-name override (specced as EMBEDS_REQUIREMENTS EM-61, deferred).
+- 🔲 Custom CSS variables / advanced theming (EM-60). Tracked in GitHub issues.
+- 🔲 Per-route display-name override (EM-61). Tracked in GitHub issues.
+
+### 3.7 Billing and subscription plans
+
+Self-serve subscriptions via Stripe — live in production since 2026-05-15
+(`worker/billing/*`, `src/components/billing/*`; gated by `BILLING_ENABLED`).
+
+- ✅ Four tiers — **Free / Pro / Agency / Enterprise** (internal plan ids `free` / `pro` / `agency` / `enterprise`; `agency` was `team` before the pricing-v2 rename, migration 0017):
+  - **Free** $0 — editor + up to 3 cloud-saved feeds; no publishing.
+  - **Pro** $49/mo · $499/yr — Premium Feed Management (hosting, publishing, embeds, mini-site).
+  - **Agency** $299/mo · $2,499/yr — adds the full route-planning suite + org workspaces + unlimited feeds; 14-day free trial (card up front).
+  - **Enterprise** — custom (talk to sales).
+- ✅ Stripe Checkout upgrade flow (`/upgrade`; per-card monthly/annual toggle, defaults to annual).
+- ✅ Stripe customer portal for managing / cancelling; 30-day prorated-refund policy.
+- ✅ Webhooks (`/api/billing/webhooks/stripe`) sync subscription state → D1 `subscription` + cached `plan`/status on `user` / `organization`.
+- ✅ Server-side feature gating via `requireOwnerFeature` (e.g. `managed_publishing`, `draft_links`, `analysis_basic`, `analysis_title_vi`, `org_workspace`, `org_logo`, `brand_color`); `PaywallOverlay` is the client surface.
+- ✅ Org workspaces are an Agency+ feature — Free/Pro users are routed to `/upgrade` rather than creating empty orgs.
+- ✅ Plan catalog served from the worker, with an in-SPA fallback for the public `/pricing` page; done-for-you services (fix / build a feed) advertised there via a scoping-call booking + email (not a billed product).
+- Pricing history (the Team→Agency rename + the v2 price change) is preserved in the archived `PRICING_RESTRUCTURE.md`.
 
 ---
 
 ## 4. Feed publication and distribution
 
-Specced in [`BACKEND_REQUIREMENTS.md`](./BACKEND_REQUIREMENTS.md) §5–6 and [`EMBEDS_REQUIREMENTS.md`](./EMBEDS_REQUIREMENTS.md).
+Architecture and API surface are in [`ARCHITECTURE.md`](./ARCHITECTURE.md) (§3 API, §1 module map).
 
 ### 4.1 Canonical publication
 
-- ✅ "Publish" promotes a saved version to the canonical URL `feeds.gtfsx.com/<slug>/gtfs.zip`. Stable across republishes; only the bytes change.
+- ✅ "Publish" promotes a saved snapshot to the canonical URL `feeds.gtfsx.com/<slug>/gtfs.zip`. Stable across republishes; only the bytes change.
 - ✅ Validation gate: errors block publish; warnings allowed (configurable per-publish).
 - ✅ Cache headers tuned for GTFS ingestors: `public, max-age=3600, s-maxage=3600`, version-id ETag, `Last-Modified`, 304 support, atomic R2 → D1 pointer flip.
 - ✅ Sidecar `feeds.*/<slug>/feed_info.json` with title, description, effective dates, version id, contact, distribution targets, registered RT feeds.
 - ✅ Unpublish — pointer cleared, canonical URL returns `410 Gone`. Republish restores.
-- ✅ Publication history view + rollback ("publish this old version again").
-- ✅ Per-version state stored as gzipped JSON (R2) plus a rendered ZIP (also R2); two immutable blobs per version.
-- 🔲 Scheduled publish ("go live on 2026-06-01 at 02:00 UTC") — BACKEND_REQUIREMENTS BE-77, stretch.
+- ✅ Publication history view + rollback ("publish this old snapshot again").
+- ✅ Per-snapshot state stored as gzipped JSON (R2) plus a rendered ZIP (also R2); two immutable blobs per snapshot.
+- 🔲 Scheduled publish ("go live on 2026-06-01 at 02:00 UTC") — BE-77, stretch. Tracked in GitHub issues.
 
 ### 4.2 Draft links
 
@@ -324,7 +356,7 @@ Specced in [`BACKEND_REQUIREMENTS.md`](./BACKEND_REQUIREMENTS.md) §5–6 and [`
 ### 4.3 Catalog submissions and distribution metadata
 
 - ✅ One-time opt-in per project at first publish: register with the Mobility Database (real API call against the existing refresh token).
-- 🟡 transit.land submission — wired through the same `CatalogClient` interface but stubbed (status=`pending`, manual-review marker). Pre-RTAP follow-up, see BACKEND_STATUS §5.
+- 🟡 transit.land submission — wired through the same `CatalogClient` interface but stubbed (status=`pending`, manual-review marker). Pre-RTAP follow-up. Tracked in GitHub issues.
 - ✅ External GTFS-RT feed URLs can be registered per project (vehicle_positions / trip_updates / alerts). They're metadata only — we don't proxy or generate RT.
 - ✅ ID-stability check on publish: warns when a publish would drop or rename a `trip_id` / `stop_id` / `route_id` / `agency_id` referenced by a registered RT feed.
 - ✅ Distribution checklist UI: Mobility DB (auto), transit.land (auto/stub), Google Transit Partners + Apple Maps Transit + Transit app (external links + manual mark-done).
@@ -332,7 +364,7 @@ Specced in [`BACKEND_REQUIREMENTS.md`](./BACKEND_REQUIREMENTS.md) §5–6 and [`
 
 ### 4.4 Embeddable maps and schedules
 
-Full spec: [`EMBEDS_REQUIREMENTS.md`](./EMBEDS_REQUIREMENTS.md). Live on staging.
+Live in production.
 
 Architecture: server-rendered HTML on the FEEDS origin (Hono `html` template), edge-cached, version-id ETag. Same renderer powers the public mini-site landing, the iframe embeds, and shared social-card meta. Mapbox GL JS via CDN; the SPA's existing public publishable token is also bound to the Worker as `MAPBOX_TOKEN`.
 
@@ -351,14 +383,33 @@ Cross-cutting embed features:
 - ✅ Service-day tabs split by both day pattern AND date range — feeds with seasonal services (e.g., summer / fall / spring weekday variants) get separate tabs disambiguated by date.
 - ✅ Per-org brand logo + per-project brand color applied via CSS custom properties.
 - ✅ Open Graph + Twitter card meta on every embed page.
+- ✅ Auto-generated route-map thumbnail (whole-system map, routes in `route_color`) via the Mapbox Static Images API, cached in R2 (migration 0016); used as the `og:image` on the mini-site and as the card image in the feeds list. A styled fallback (gray bus outline + GTFS·X wordmark) renders before the thumbnail exists.
 - ✅ Mobile responsive layout (220px map on phones, sticky stop-name column, narrower tabs).
 - ✅ Editor "Embed" bottom-tab on a published feed: copy-pasteable iframe snippets per route + system map; live brand-color picker.
-- 🔲 `widgets.js` declarative web-component loader (`<gtfs-route-map>`, `<gtfs-schedule>`) — EMBEDS_REQUIREMENTS Phase 7c.
-- 🔲 Headless JSON API at `feeds.*/<slug>/api/*` — Phase 7e.
-- 🔲 Localization — UI strings in English only; Spanish queued (Streamline already publishes Spanish PDFs, so demand exists). Per-route display name overrides + `translations.txt` consumption deferred to the same phase.
+- 🔲 `widgets.js` declarative web-component loader (`<gtfs-route-map>`, `<gtfs-schedule>`).
+- 🔲 Headless JSON API at `feeds.*/<slug>/api/*`.
+- 🔲 Localization — UI strings in English only; Spanish queued (Streamline already publishes Spanish PDFs, so demand exists). Per-route display-name overrides + `translations.txt` consumption deferred to the same phase.
 - 🔲 Per-stop / per-route impression counters (`embed_view_count`) and the agency-facing usage view.
-- 🔲 GTFS-RT integration on stop pages (live arrival times when an RT feed is registered) — Phase 7f stretch.
+- 🔲 GTFS-RT integration on stop pages (live arrival times when an RT feed is registered) — stretch.
+
+(The Phase 7 embed backlog above is tracked in GitHub issues.)
 - 🚫 Custom domains for published feeds. Agencies can `301` from their own domain if needed; we don't issue per-tenant certs.
+
+---
+
+## 5. Community forum
+
+A public Q&A / discussion forum at `/community`, server-rendered for SEO. Shipped
+(`worker/forum/*`, `src/components/community/*`; migrations 0008 / 0010 / 0011).
+
+- ✅ Categories (announcements, getting-started, editor, import-export, embeds-publishing, feature-requests, bugs, general), threads, and markdown posts.
+- ✅ Post upvotes (one per user, toggleable); "mark solved" on a thread's answer.
+- ✅ Thread subscriptions (auto on create/reply, manual toggle) with Resend email notifications; admin alert on new threads.
+- ✅ Per-user forum profile — forum display name independent of the account name, gravatar opt-out, email preferences, ban support.
+- ✅ Image attachments uploaded to R2 (`gtfs-builder-forum-images`); markdown rendering.
+- ✅ FTS5 full-text search (`forum_search`).
+- ✅ Server-side rendering with Open Graph + canonical URLs + sitemap (indexable).
+- ✅ Moderation (staff): edit / soft-delete / lock / pin / move / ban.
 
 ---
 
@@ -377,7 +428,7 @@ The original platform analysis is preserved here because the choice still drives
 | Pricing | 50K free map loads/mo, then $0.60/1K | $7/1K loads after $200 credit | Free, tile-quality / hosting tradeoffs |
 | Developer experience | Excellent docs, TypeScript, `react-map-gl` | Mature but more boilerplate | Very flexible but more DIY |
 
-We use `react-map-gl` + `@mapbox/mapbox-gl-draw` in the editor and Mapbox GL JS via CDN in the embed renderer. The Map Matching API powers snap-to-road. Cost stays well under the free tier at current usage; scaling assumptions live in `EMBEDS_REQUIREMENTS.md` §14.
+We use `react-map-gl` + `@mapbox/mapbox-gl-draw` in the editor and Mapbox GL JS via CDN in the embed renderer. The Map Matching API powers snap-to-road; the Static Images API renders feed thumbnails. Cost stays well under the free tier at current usage.
 
 ### Infrastructure
 
@@ -396,9 +447,9 @@ staging-feeds.gtfsx.com → staging feeds origin
 | Concern | Service |
 |---|---|
 | Compute | Cloudflare Worker (single `gtfs-builder` deploy + `gtfs-builder-staging`) |
-| Relational metadata (users, orgs, projects, versions, publications, audit) | D1 |
+| Relational metadata (users, orgs, projects, snapshots, publications, subscriptions, forum, audit, events) | D1 |
 | Rate-limit counters, KV cache | KV |
-| Tiles + feed blobs | R2 (`gtfs-builder-tiles` for PMTiles; `gtfs-builder-feeds` / `gtfs-builder-feeds-staging` for working states, version snapshots, ZIPs, org logos) |
+| Tiles + feed blobs | R2 (`gtfs-builder-tiles` for PMTiles; `gtfs-builder-feeds` / `gtfs-builder-feeds-staging` for working states, snapshots, ZIPs, org logos, feed thumbnails; `gtfs-builder-forum-images` for forum attachments) |
 | Transactional email | Resend |
 | Bot mitigation | Cloudflare Turnstile (signup) |
 | Web analytics | Cloudflare Web Analytics (cookieless, zone-level) |
@@ -412,7 +463,7 @@ Frontend stack: React 18 + TypeScript, Vite, Zustand (Immer middleware) for stat
 - **Typography**: rounded sans-serif headings, clean body text.
 - **Map style**: Mapbox `light-v11` baseline, route shapes coloured per `route_color`, stop dots as white-with-dark-border.
 - **Empty states**: illustrated and encouraging.
-- **Editor layout** (since 2026-05): **two-rail shell** — a responsive **left rail** for navigation between sections (continuously resizable 40–260 px via a drag handle; renders 3 variants by width: icon-only / icons + labels / full rows + accordion section caps; responsive default per viewport), centre map, **right rail** at 460 px hosting all configuration panels (opens on section selection, collapses to a thin reopen strip during shape-edit, `Cmd/Ctrl + /` toggle), and a collapsible bottom panel (timetable, validation, versions, publish, embed, activity). Route detail is master-detail with a breadcrumb, swatch + title row, Duplicate / Delete header actions, and Details / Stops / Trips / Frequencies tabs that focus the map appropriately. Three-tier text hierarchy across all panels — section H2 (rail header) / sub-section H3 (`<RailSubHeading>`) / uppercase form-field eyebrow.
+- **Editor layout** (since 2026-05): **two-rail shell** — a responsive **left rail** for navigation between sections (continuously resizable 40–260 px via a drag handle; renders 3 variants by width: icon-only / icons + labels / full rows + accordion section caps; responsive default per viewport), centre map, **right rail** at 460 px hosting all configuration panels (opens on section selection, collapses to a thin reopen strip during shape-edit, `Cmd/Ctrl + /` toggle), and a collapsible bottom panel (timetable, validation, snapshots, publish, embed, activity). Route detail is master-detail with a breadcrumb, swatch + title row, Duplicate / Delete header actions, and Details / Stops / Trips / Shapes / Costs tabs that focus the map appropriately. Three-tier text hierarchy across all panels — section H2 (rail header) / sub-section H3 (`<RailSubHeading>`) / uppercase form-field eyebrow.
 - **Topbar**: shared `<AppBrand>` + `<UserMenu>` across every page (editor, feeds, account, orgs, admin). The right-edge avatar slot is consistent across signed-out (outlined person icon) and signed-in (coral initials avatar) states, divided from the editor actions. Tagline hides below 1100 px viewport, save-status text below 900 px. Help moved to a floating "? HELP" pill at the bottom-left of the map area.
 
 ### Non-functional requirements
@@ -447,17 +498,15 @@ On first load: nothing is selected, the right rail is closed, and the map fills 
 
 ## Companion documents
 
-Read these when you need the deep version of a particular surface:
+This file is the product-feature map. Engineering depth lives in one place:
 
 | Doc | Scope |
 |---|---|
-| [`WORKFLOW.md`](./WORKFLOW.md) | Day-to-day git + deployment cadence — branching, staging deploys, prod deploys, kill-switch flags, hotfixes. |
-| [`BACKEND_REQUIREMENTS.md`](./BACKEND_REQUIREMENTS.md) | Reference spec — data model, API surface, security/privacy NFRs, decisions appendix. Anchors `BE-*` and `NF-*` numbers. |
-| [`BACKEND_STATUS.md`](./BACKEND_STATUS.md) | "Where we are now" snapshot — env state, deploy gotchas, outstanding work. **Update this when you change deployed state.** |
-| [`DEPLOY_BACKEND.md`](./DEPLOY_BACKEND.md) | First-time provisioning runbook (D1 / KV / R2 / Resend / Turnstile / smoke-test). |
-| [`EMBEDS_REQUIREMENTS.md`](./EMBEDS_REQUIREMENTS.md) | Embeds reference — research findings, architecture, what's shipped, what's queued, open questions. Anchors `EM-*` numbers. |
-| [`FLEX_ROADMAP.md`](./FLEX_ROADMAP.md) | GTFS-Flex coverage tracker — shipped / partial / open / deferred per spec field. |
-| [`demand-dots-nationwide-plan.md`](./demand-dots-nationwide-plan.md) | Build pipeline + decisions for the demand-dot tile archive. |
-| [`Title VI Transit Service Analysis - Calculation Procedures Memo.md`](./Title%20VI%20Transit%20Service%20Analysis%20-%20Calculation%20Procedures%20Memo.md) | Methodology for the Title VI equity analysis. |
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md) | The single engineering reference — system architecture, data model, full API surface, security / privacy NFRs (preserves the `BE-*` / `NF-*` anchors), live environment state, git + deploy workflow, provisioning + operator runbooks, and the demand-dot regen + Google Ads OCI appendices. |
+| [`brand-kit/`](./brand-kit/) | Brand assets — logos, palette, fonts, guidelines. |
+| GitHub issues | The backlog of 🔲 planned features (Fares-v2 authoring UI, ferry support, `frequencies`/`pathways`, scheduled publish, embed Phase 7, argon2id, large-feed perf, etc.). |
 
-The previous `BACKEND_IMPLEMENTATION_PLAN.md` was retired in 2026-05 — Phases 1–5 are fully shipped, the live operational picture moved into `BACKEND_STATUS.md`, and the remaining outstanding items (NF-40a argon2id, transit.land submission, hard-mode quotas, Phase 7 embed sub-phases, etc.) are tracked in `BACKEND_STATUS.md` §"Outstanding work" or `EMBEDS_REQUIREMENTS.md` §3.
+Superseded specs and historical records — the original backend / embeds / forum /
+freemium specs, the pricing-restructure and domain-migration logs, the demand-dot
+build plan, and the marketing plans — are preserved under `docs/archive/`
+(gitignored; local reference only).
