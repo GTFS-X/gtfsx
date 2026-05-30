@@ -238,7 +238,10 @@ Design rationale is preserved in the decisions appendix of the archived
   live-mode Stripe in a coordinated deploy.)
 - D1 `gtfs-builder` (`cfb27d4e-…`), KV (`da2476e5…`), R2 `gtfs-builder-feeds`
   + `gtfs-builder-forum-images`, tiles in `gtfs-builder-tiles`. Migrations
-  0001–0017 applied.
+  0001–0018 applied.
+- **GTFS-Realtime Service Alerts (BE-90..93)** live since 2026-05-30 — Agency+
+  authoring under `/api/projects/:id/alerts`, public serving at
+  `feeds.*/<slug>/alerts.pb` + `/alerts.json`.
 - Secrets: `RESEND_API_KEY`, `MOBILITY_DATABASE_REFRESH_TOKEN`,
   `TURNSTILE_SECRET_KEY`, `STRIPE_SECRET_KEY` (live), `STRIPE_WEBHOOK_SIGNING_SECRET` (live).
 - Stripe: live-mode Price IDs (`STRIPE_PRICE_PRO_*`, `STRIPE_PRICE_AGENCY/TEAM_*`),
@@ -257,9 +260,6 @@ Infra still exists (`gtfs-builder-staging`, `staging[-feeds].gtfsx.com`, separat
 D1/KV/R2) but is **not auto-deployed**. Use as a manual rehearsal env for risky
 changes: `npm run build && unset CLOUDFLARE_API_TOKEN && npx wrangler deploy --env staging`.
 Staging runs test-mode Stripe and both `*_ENABLED` flags true.
-- **GTFS-Realtime Service Alerts (migration `0018`, BE-90..93)** is deployed here
-  for review (2026-05-30); **not yet on prod** — prod migrations stop at `0017`.
-  Promotion applies `0018` to the prod D1 before/with the merge to `main`.
 
 ### Deploy gotchas (these tripped past deploys)
 
