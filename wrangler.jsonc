@@ -18,6 +18,16 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-04-12",
   "compatibility_flags": ["nodejs_compat"],
+  // Native Workers Observability (NF-72): logs, per-invocation traces, and an
+  // error/query view in the Cloudflare dashboard. Captures the worker's
+  // console.* output, including the redacted error logs from app.onError.
+  // head_sampling_rate=1 keeps every invocation while volume is low; dial it
+  // down if log spend grows. A richer error-aggregation sink (Sentry via the
+  // native CF→Sentry OTel export) is a deferred follow-up — see issue #27.
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

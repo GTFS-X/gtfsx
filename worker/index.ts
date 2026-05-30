@@ -9,6 +9,7 @@ import { feedsHandler } from './publication/feeds';
 import { maybeRenderForumPage } from './forum/dispatcher';
 import { maybeRenderMarketingPage } from './marketing/ssr';
 import { serveSitemap } from './forum/sitemap';
+import { errorDetail } from './util/redact';
 
 // Legacy aliases that were advertised from the old /about nav and may still
 // have inbound links. Their real content lives elsewhere, so 301 (permanent)
@@ -106,7 +107,9 @@ app.onError((err, c) => {
   if (err instanceof Error && 'getResponse' in err && typeof err.getResponse === 'function') {
     return (err as unknown as { getResponse: () => Response }).getResponse();
   }
-  console.error(`[${c.var.requestId}] unhandled error on ${path}:`, err);
+  // Redact PII/secrets before logging — Workers Observability captures this
+  // console output verbatim (NF-72). See worker/util/redact.ts.
+  console.error(`[${c.var.requestId}] unhandled error on ${path}: ${errorDetail(err)}`);
   if (isApi) {
     return c.json({ error: 'internal', message: 'Something went wrong — please try again' }, 500);
   }
@@ -162,7 +165,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       try {
         return await feedsHandler(request, env, ctx);
       } catch (err) {
-        console.error('[feeds] unhandled error', err);
+        console.error(`[feeds] unhandled error: ${errorDetail(err)}`);
         return new Response('Internal error', { status: 500 });
       }
     }
@@ -205,7 +208,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       const marketing = await maybeRenderMarketingPage(request, env);
       if (marketing) return marketing;
     } catch (err) {
-      console.error('[marketing-ssr] render error, falling back to SPA shell:', err);
+      console.error(`[marketing-ssr] render error, falling back to SPA shell: ${errorDetail(err)}`);
     }
 
     // Forum pages get server-rendered SEO content injected into the SPA shell
@@ -218,7 +221,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
         if (ssr) return ssr;
       } catch (err) {
         // Never let SSR break the SPA shell — log and fall back.
-        console.error('[forum-ssr] render error, falling back to SPA shell:', err);
+        console.error(`[forum-ssr] render error, falling back to SPA shell: ${errorDetail(err)}`);
       }
     }
 
@@ -228,7 +231,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       try {
         return await serveSitemap(request, env);
       } catch (err) {
-        console.error('[forum-sitemap] error, falling back to static sitemap:', err);
+        console.error(`[forum-sitemap] error, falling back to static sitemap: ${errorDetail(err)}`);
       }
     }
 
