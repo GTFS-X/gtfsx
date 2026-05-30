@@ -14,6 +14,9 @@ import { CoveragePanel } from '../coverage/CoveragePanel';
 import { TitleVIPanel } from '../titlevi/TitleVIPanel';
 import { StopAnalysisPanel } from '../analysis/StopAnalysisPanel';
 import { FlexEditor } from '../flex/FlexEditor';
+import { StationsPanel } from '../stations/StationsPanel';
+import { FrequenciesEditor } from '../frequencies/FrequenciesEditor';
+import { BlocksPanel } from '../blocks/BlocksPanel';
 import { AlertsEditor } from '../alerts/AlertsEditor';
 import { PaywallOverlay } from '../billing/PaywallOverlay';
 import { useEditorPlan } from '../billing/useEditorPlan';
@@ -32,6 +35,9 @@ const SECTION_TITLES: Record<SidebarSection, string> = {
   calendar: 'Calendars',
   routes: 'Routes',
   stops: 'Stops',
+  stations: 'Stations',
+  frequencies: 'Frequencies',
+  blocks: 'Blocks',
   fares: 'Fares & Transfers',
   flex: 'Flex Zones & Rules',
   costs: 'Costs',
@@ -47,6 +53,9 @@ const SECTION_GROUP: Record<SidebarSection, string | null> = {
   calendar: null,
   routes: 'Fixed Route Service',
   stops: 'Fixed Route Service',
+  stations: 'Fixed Route Service',
+  frequencies: 'Fixed Route Service',
+  blocks: 'Fixed Route Service',
   flex: 'GTFS-Flex',
   costs: 'Analysis',
   coverage: 'Analysis',
@@ -70,6 +79,12 @@ function PanelBody({ section }: { section: SidebarSection }) {
       return <FaresPanel />;
     case 'flex':
       return <FlexEditor />;
+    case 'stations':
+      return <StationsPanel />;
+    case 'frequencies':
+      return <FrequenciesEditor />;
+    case 'blocks':
+      return <BlocksPanel />;
     case 'costs':
       return (
         <PaywallOverlay feature="analysis_basic" currentPlan={plan}>

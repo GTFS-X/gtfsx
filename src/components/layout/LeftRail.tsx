@@ -16,6 +16,9 @@ const SETUP: NavItem[] = [
 const FIXED_ROUTE: NavItem[] = [
   { key: 'routes', label: 'Routes', tile: 'tile-coral' },
   { key: 'stops', label: 'Stops', tile: 'tile-coral' },
+  { key: 'stations', label: 'Stations', tile: 'tile-teal' },
+  { key: 'frequencies', label: 'Frequencies', tile: 'tile-gold' },
+  { key: 'blocks', label: 'Blocks', tile: 'tile-purple' },
 ];
 const FLEX: NavItem[] = [
   { key: 'flex', label: 'Flex Zones', tile: 'tile-purple' },
@@ -93,6 +96,28 @@ const ICON_PATHS: Record<SidebarSection, ReactNode> = {
     <>
       <path d="M12 22s7-7.5 7-13a7 7 0 0 0-14 0c0 5.5 7 13 7 13z" />
       <circle cx="12" cy="9" r="2.5" />
+    </>
+  ),
+  // Stations — building with levels (pathways/levels)
+  stations: (
+    <>
+      <rect x="5" y="3" width="14" height="18" rx="1.5" />
+      <path d="M5 9h14M5 15h14" />
+      <path d="M12 3v18" />
+    </>
+  ),
+  // Frequencies — repeating clock ticks (headway service)
+  frequencies: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 8v4l2.5 2.5" />
+    </>
+  ),
+  // Blocks — stacked bars (vehicle runs)
+  blocks: (
+    <>
+      <rect x="3" y="6" width="10" height="3.5" rx="1" />
+      <rect x="8" y="14" width="13" height="3.5" rx="1" />
     </>
   ),
   // Flex zones — dashed shaded zone

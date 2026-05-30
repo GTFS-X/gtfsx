@@ -20,6 +20,7 @@ export function StopEditPanel() {
     editingStopId ? s.stops.find((x) => x.stop_id === editingStopId) : null,
   );
   const allStops = useStore((s) => s.stops);
+  const levels = useStore((s) => s.levels);
   const updateStop = useStore((s) => s.updateStop);
   const mapMode = useStore((s) => s.mapMode);
   const setMapMode = useStore((s) => s.setMapMode);
@@ -215,6 +216,30 @@ export function StopEditPanel() {
           )}
         </div>
       )}
+
+      <div className="mb-3">
+        <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
+          Level
+        </label>
+        <select
+          value={stop.level_id || ''}
+          onChange={(e) => updateStop(stop.stop_id, { level_id: e.target.value || undefined })}
+          disabled={levels.length === 0}
+          className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral disabled:opacity-50"
+        >
+          <option value="">— None —</option>
+          {levels.map((l) => (
+            <option key={l.level_id} value={l.level_id}>
+              {l.level_name ? `${l.level_name} (${l.level_index})` : `${l.level_id} (${l.level_index})`}
+            </option>
+          ))}
+        </select>
+        {levels.length === 0 && (
+          <p className="text-[11px] text-warm-gray mt-1">
+            Define levels in the Stations panel to place this stop on a floor (for multi-level stations with pathways).
+          </p>
+        )}
+      </div>
 
       <div className="mb-3">
         <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
