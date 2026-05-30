@@ -102,7 +102,7 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
       'Submit to the Mobility Database',
       'Named snapshot history',
       'Custom brand color',
-      'Email support (best-effort)',
+      'Email support',
     ],
   },
   {
@@ -122,7 +122,7 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
       'Unlimited team members in your organization',
       'Cross-org membership (work in unlimited client orgs)',
       'Custom org logo',
-      'Email support (1-2 business day target)',
+      'Phone support',
     ],
   },
   {

@@ -40,7 +40,7 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
       'Submit to the Mobility Database',
       'Named snapshot history',
       'Custom brand color',
-      'Email support (best-effort)',
+      'Email support',
     ],
   },
   {
@@ -60,7 +60,7 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
       'Unlimited team members in your organization',
       'Cross-org membership (work in unlimited client orgs)',
       'Custom org logo',
-      'Email support (1-2 business day target)',
+      'Phone support',
     ],
   },
   {
@@ -102,9 +102,9 @@ export function PricingPage() {
   const currentUser = useStore((s) => s.currentUser);
   // Each paid card has its own monthly/annual toggle so users can compare
   // (e.g. Pro monthly vs Agency annual) side-by-side without forcing both
-  // into the same billing cadence. Keyed by plan id; defaults to monthly.
+  // into the same billing cadence. Keyed by plan id; defaults to annual.
   const [intervals, setIntervals] = useState<Record<string, 'month' | 'year'>>({});
-  const intervalFor = (plan: string): 'month' | 'year' => intervals[plan] ?? 'month';
+  const intervalFor = (plan: string): 'month' | 'year' => intervals[plan] ?? 'year';
   const setIntervalFor = (plan: string, i: 'month' | 'year') =>
     setIntervals((prev) => ({ ...prev, [plan]: i }));
   const [plans, setPlans] = useState<PlanCatalogEntry[]>(FALLBACK_PLANS);
