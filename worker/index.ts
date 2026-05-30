@@ -111,8 +111,7 @@ app.onError((err, c) => {
 
 // ─── Entry ─────────────────────────────────────────────────────────────────
 
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Legacy-domain 301 redirect (post-rebrand 2026-05-18 — GTFS·X). Three
@@ -251,6 +250,25 @@ export default {
       headers.set('X-Robots-Tag', 'noindex');
     }
     return new Response(shell.body, { status: 200, headers });
+}
+
+// Staging hosts (APP_ORIGIN contains "staging") must stay out of search
+// indexes: serve a Disallow-all robots.txt and stamp X-Robots-Tag: noindex on
+// every response. Prod (APP_ORIGIN = www.gtfsx.com) is unaffected.
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const isStaging = (env.APP_ORIGIN || '').includes('staging');
+    if (isStaging && new URL(request.url).pathname === '/robots.txt') {
+      return new Response('User-agent: *\nDisallow: /\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'X-Robots-Tag': 'noindex' },
+      });
+    }
+    const res = await handleRequest(request, env, ctx);
+    if (!isStaging) return res;
+    const headers = new Headers(res.headers);
+    headers.set('X-Robots-Tag', 'noindex');
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
   },
 
   // Scheduled worker invocations (Cron Triggers). See worker/cron/index.ts.
