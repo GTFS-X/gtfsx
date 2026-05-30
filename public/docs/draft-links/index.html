@@ -94,8 +94,8 @@
       <p class="lede">Hand a stakeholder a working copy of your feed before it goes live. A draft link is an unguessable, time-limited URL to a specific snapshot's GTFS ZIP — perfect for review by a colleague, a consultant, or a downstream consumer who wants to test the feed before you publish it to the world.</p>
 
       <figure>
-        <img src="/assets/docs/draft-links-share-tab.png" alt="The Share &amp; Publish panel in GTFS·X with the Get review link control: a generated draft URL, its expiry date, and copy / renew / revoke actions." loading="lazy" />
-        <figcaption>The Share &amp; Publish panel. "Get review link" mints a private draft URL pinned to the current snapshot, with copy, renew, and revoke controls.</figcaption>
+        <img src="/assets/docs/draft-links-share-tab.png" alt="The Share &amp; Publish panel's Share-for-review section in GTFS·X: a created draft link showing a direct ZIP URL and an open-in-editor URL, each with a Copy button, plus a Create draft link control." loading="lazy" />
+        <figcaption>The Share &amp; Publish panel's "Share for review" section. "+ Create draft link" mints a private link pinned to the current snapshot — a direct ZIP download and an open-in-editor link — shown once, and revocable at any time.</figcaption>
       </figure>
 
       <h2 id="what-it-is">What it is</h2>
@@ -110,16 +110,21 @@
 
       <h2 id="how-to-use-it">How to use it in GTFS·X</h2>
       <ol>
-        <li>Open the feed and go to the <strong>Share &amp; Publish</strong> tab in the bottom panel.</li>
-        <li>Choose <strong>Get review link</strong>. GTFS·X mints a URL of the form <code>feeds.gtfsx.com/&lt;slug&gt;/draft/&lt;token&gt;.zip</code> tied to the current snapshot.</li>
-        <li>Copy it and send it to your reviewer. They can download the ZIP directly — no GTFS·X account required.</li>
-        <li>When the review is done, <strong>revoke</strong> the link (or let it expire). Need longer? <strong>Renew</strong> it.</li>
+        <li>Open the feed and go to the <strong>Share &amp; Publish</strong> tab in the bottom panel, then the <strong>Share for review</strong> section.</li>
+        <li>Choose <strong>+ Create draft link</strong>. GTFS·X mints a private link pinned to the current snapshot and shows two URLs — this is the only time the full URLs are displayed, so copy them now:
+          <ul>
+            <li>a direct <strong>ZIP download</strong> (<code>feeds.gtfsx.com/&lt;slug&gt;/draft/&lt;token&gt;.zip</code>) for a reviewer or a downstream consumer;</li>
+            <li>an <strong>open-in-editor</strong> link (<code>gtfsx.com/import?url=…</code>) that loads the snapshot straight into the editor for a colleague.</li>
+          </ul>
+        </li>
+        <li>Copy whichever fits and send it. No GTFS·X account is required to download the ZIP.</li>
+        <li>When the review is done, <strong>revoke</strong> the link (or let it expire). Both URLs share one revocation — killing the draft link kills the open-in-editor preview too.</li>
       </ol>
 
       <h2 id="how-it-works">How it stays private</h2>
       <ul>
         <li><strong>Unguessable token.</strong> The link carries a 192-bit random token (stored hashed), so it can't be enumerated or guessed.</li>
-        <li><strong>Expiring &amp; revocable.</strong> Draft links default to a 30-day expiry; you can renew or revoke at any time.</li>
+        <li><strong>Expiring &amp; revocable.</strong> Draft links expire after 30 days and can be revoked at any time; generate a fresh one whenever you need it.</li>
         <li><strong>Not indexed.</strong> Draft responses carry <code>X-Robots-Tag: noindex</code> and the feeds origin's <code>robots.txt</code> disallows <code>/draft/</code>, so search engines won't surface them.</li>
         <li><strong>Pinned to a snapshot.</strong> Each link points at a specific saved snapshot, so the bytes are stable once shared — continuing to edit the feed doesn't change what the reviewer sees until you mint a new link.</li>
       </ul>
