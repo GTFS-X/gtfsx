@@ -197,7 +197,9 @@ export function AlertsEditor() {
     // route/stop as needed. Falls back to an (unselected) route row otherwise.
     const newAlertInput: AlertInput = {
       ...EMPTY_INPUT,
-      informed_entities: [agencies[0] ? { agency_id: agencies[0].agency_id } : { route_id: '' }],
+      // Default to "Whole feed" — immediately valid (expands to all routes when
+      // the agency has no agency_id), so a new alert only needs a header.
+      informed_entities: [{ agency_id: agencies[0]?.agency_id ?? '' }],
     };
     return (
       <AlertForm
