@@ -12,7 +12,8 @@ export type SidebarSection =
   | 'coverage'
   | 'titlevi'
   | 'stop-analysis'
-  | 'alerts';
+  | 'alerts'
+  | 'settings';
 
 /**
  * Contextual map highlight driven by the Stop Analysis panel. `balancing` and

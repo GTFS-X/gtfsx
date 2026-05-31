@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../../store';
+import { featureEnabled } from '../../store/featuresSlice';
 import type { SidebarSection } from '../../types/ui';
 
 interface NavItem {
@@ -32,6 +33,27 @@ const ANALYSIS: NavItem[] = [
 const OPERATIONS: NavItem[] = [
   { key: 'alerts', label: 'Service Alerts', tile: 'tile-coral' },
 ];
+const SETTINGS: NavItem[] = [
+  { key: 'settings', label: 'Settings', tile: 'tile-teal' },
+];
+
+// Returns the FIXED_ROUTE and FLEX items visible for the current feed, honoring
+// the per-feed feature settings. Subscribes to primitive booleans so the
+// selector stays referentially stable. Other groups are never gated here.
+function useGatedSections(): { fixed: NavItem[]; flex: NavItem[] } {
+  const showStations = useStore((s) => featureEnabled(s, 'stations'));
+  const showFrequencies = useStore((s) => featureEnabled(s, 'frequencies'));
+  const showBlocks = useStore((s) => featureEnabled(s, 'blocks'));
+  const showFlex = useStore((s) => featureEnabled(s, 'demandResponse'));
+  const vis: Record<string, boolean> = {
+    stations: showStations,
+    frequencies: showFrequencies,
+    blocks: showBlocks,
+  };
+  const fixed = FIXED_ROUTE.filter((i) => vis[i.key] ?? true);
+  const flex = showFlex ? FLEX : [];
+  return { fixed, flex };
+}
 
 /**
  * Section icons. Single-source-of-truth: every nav surface (max/mid/min)
@@ -164,6 +186,13 @@ const ICON_PATHS: Record<SidebarSection, ReactNode> = {
     <>
       <path d="M3 11v2a1 1 0 0 0 1 1h2l9 5V5L6 10H4a1 1 0 0 0-1 1z" />
       <path d="M18 9a3 3 0 0 1 0 6" />
+    </>
+  ),
+  // Settings — gear
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </>
   ),
 };
@@ -308,6 +337,7 @@ function MaxRail({ counts }: { counts: ItemCounts }) {
   const setFlexOpen = (v: boolean) => setFlexManual(v);
   const setAnalysisOpen = (v: boolean) => setAnalysisManual(v);
   const setOperationsOpen = (v: boolean) => setOperationsManual(v);
+  const { fixed, flex } = useGatedSections();
 
   const renderRow = (item: NavItem) => {
     const active = sidebarSection === item.key;
@@ -347,13 +377,19 @@ function MaxRail({ counts }: { counts: ItemCounts }) {
     <div className="flex flex-col gap-0.5 p-2.5">
       {SETUP.map(renderRow)}
       {renderCap('Fixed Route Service', fixedOpen, setFixedOpen)}
-      {fixedOpen && FIXED_ROUTE.map(renderRow)}
-      {renderCap('GTFS-Flex', flexOpen, setFlexOpen)}
-      {flexOpen && FLEX.map(renderRow)}
+      {fixedOpen && fixed.map(renderRow)}
+      {flex.length > 0 && (
+        <>
+          {renderCap('GTFS-Flex', flexOpen, setFlexOpen)}
+          {flexOpen && flex.map(renderRow)}
+        </>
+      )}
       {renderCap('Analysis', analysisOpen, setAnalysisOpen)}
       {analysisOpen && ANALYSIS.map(renderRow)}
       {renderCap('Operations', operationsOpen, setOperationsOpen)}
       {operationsOpen && OPERATIONS.map(renderRow)}
+      <div className="my-1 border-t border-sand" aria-hidden />
+      {SETTINGS.map(renderRow)}
     </div>
   );
 }
@@ -393,17 +429,20 @@ function MidRail({ counts }: { counts: ItemCounts }) {
   const groupDivider = (
     <div className="my-1.5 mx-auto w-6 h-px bg-sand" aria-hidden />
   );
+  const { fixed, flex } = useGatedSections();
 
   return (
     <div className="flex flex-col py-2 gap-0.5">
       {SETUP.map(renderTile)}
       {groupDivider}
-      {FIXED_ROUTE.map(renderTile)}
-      {FLEX.map(renderTile)}
+      {fixed.map(renderTile)}
+      {flex.map(renderTile)}
       {groupDivider}
       {ANALYSIS.map(renderTile)}
       {groupDivider}
       {OPERATIONS.map(renderTile)}
+      {groupDivider}
+      {SETTINGS.map(renderTile)}
     </div>
   );
 }
@@ -413,11 +452,13 @@ function MidRail({ counts }: { counts: ItemCounts }) {
 function MinRail({ counts }: { counts: ItemCounts }) {
   const sidebarSection = useStore((s) => s.sidebarSection);
   const handleClick = useNavClick();
-  const all = [...SETUP, ...FIXED_ROUTE, ...FLEX, ...ANALYSIS, ...OPERATIONS];
+  const { fixed, flex } = useGatedSections();
+  const all = [...SETUP, ...fixed, ...flex, ...ANALYSIS, ...OPERATIONS, ...SETTINGS];
   const dividerAfter = new Set<number>([
     SETUP.length - 1,
-    SETUP.length + FIXED_ROUTE.length + FLEX.length - 1,
-    SETUP.length + FIXED_ROUTE.length + FLEX.length + ANALYSIS.length - 1,
+    SETUP.length + fixed.length + flex.length - 1,
+    SETUP.length + fixed.length + flex.length + ANALYSIS.length - 1,
+    SETUP.length + fixed.length + flex.length + ANALYSIS.length + OPERATIONS.length - 1,
   ]);
 
   return (

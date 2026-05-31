@@ -21,6 +21,7 @@ import { createFrequenciesSlice, type FrequenciesSlice } from './frequenciesSlic
 import { createLevelsSlice, type LevelsSlice } from './levelsSlice';
 import { createPathwaysSlice, type PathwaysSlice } from './pathwaysSlice';
 import { createFareV2Slice, type FareV2Slice } from './fareV2Slice';
+import { createFeaturesSlice, type FeaturesSlice } from './featuresSlice';
 
 export type AppStore = AgencySlice &
   CalendarSlice &
@@ -42,7 +43,8 @@ export type AppStore = AgencySlice &
   FrequenciesSlice &
   LevelsSlice &
   PathwaysSlice &
-  FareV2Slice;
+  FareV2Slice &
+  FeaturesSlice;
 
 // Zustand-immer slice composition: each create*Slice is typed against its
 // own slice (e.g. `StateCreator<AgencySlice, ..., [], AgencySlice>`), but
@@ -74,6 +76,7 @@ export const useStore = create<AppStore>()(
     ...(createLevelsSlice as any)(...a),
     ...(createPathwaysSlice as any)(...a),
     ...(createFareV2Slice as any)(...a),
+    ...(createFeaturesSlice as any)(...a),
   }))
 );
 /* eslint-enable @typescript-eslint/no-explicit-any */

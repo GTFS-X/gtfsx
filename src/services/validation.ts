@@ -1,5 +1,6 @@
 import type { ValidationMessage } from '../types/ui';
 import type { AppStore } from '../store';
+import { featureEnabled } from '../store/featuresSlice';
 import { gtfsTimeToSeconds } from '../utils/time';
 import { getUSHolidaysInRange } from '../utils/holidays';
 
@@ -457,6 +458,16 @@ export function runValidation(state: AppStore): ValidationMessage[] {
         'calendar', c.service_id,
       ));
     }
+  }
+
+  // Demand-response / paratransit is on (the default) but the feed defines no
+  // GTFS-Flex zones — nudge toward adding flex, or turning the setting off in
+  // Settings. GTFS-Flex is widely under-used; this gentle prompt is deliberate.
+  if (featureEnabled(state, 'demandResponse') && state.flexZones.length === 0) {
+    messages.push(msg(
+      'warning',
+      'Demand-response service is on but no GTFS-Flex zones are defined. Add flex zones, or turn off Demand response in Settings.',
+    ));
   }
 
   return messages;

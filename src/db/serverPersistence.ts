@@ -38,6 +38,7 @@ const DATA_KEYS = [
   'levels',
   'pathways',
   'flexZones',
+  'featureSettings',
 ] as const;
 
 type DataKey = (typeof DATA_KEYS)[number];
@@ -99,6 +100,7 @@ export function resetStoreEntities() {
   state.setLevels([] as never);
   state.setPathways([] as never);
   state.setFlexZones([] as never);
+  state.setFeatureSettings({});
 }
 
 export function applySnapshotToStore(snapshot: Record<string, unknown>) {
@@ -153,6 +155,9 @@ export function applySnapshotToStore(snapshot: Record<string, unknown>) {
   if (Array.isArray(g('levels'))) state.setLevels(g('levels') as never);
   if (Array.isArray(g('pathways'))) state.setPathways(g('pathways') as never);
   if (Array.isArray(g('flexZones'))) state.setFlexZones(g('flexZones') as never);
+  if (g('featureSettings') && typeof g('featureSettings') === 'object') {
+    state.setFeatureSettings(g('featureSettings') as never);
+  }
 
   state.markSaved();
 }

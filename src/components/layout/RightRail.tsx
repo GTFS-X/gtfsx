@@ -18,6 +18,7 @@ import { StationsPanel } from '../stations/StationsPanel';
 import { FrequenciesEditor } from '../frequencies/FrequenciesEditor';
 import { BlocksPanel } from '../blocks/BlocksPanel';
 import { AlertsEditor } from '../alerts/AlertsEditor';
+import { FeatureSettingsPanel } from '../settings/FeatureSettingsPanel';
 import { PaywallOverlay } from '../billing/PaywallOverlay';
 import { useEditorPlan } from '../billing/useEditorPlan';
 import { EditActions } from '../ui/EditActions';
@@ -45,6 +46,7 @@ const SECTION_TITLES: Record<SidebarSection, string> = {
   titlevi: 'Title VI',
   'stop-analysis': 'Stop Analysis',
   alerts: 'Service Alerts',
+  settings: 'Feature settings',
 };
 
 const SECTION_GROUP: Record<SidebarSection, string | null> = {
@@ -62,6 +64,7 @@ const SECTION_GROUP: Record<SidebarSection, string | null> = {
   titlevi: 'Analysis',
   'stop-analysis': 'Analysis',
   alerts: 'Operations',
+  settings: null,
 };
 
 function PanelBody({ section }: { section: SidebarSection }) {
@@ -115,6 +118,8 @@ function PanelBody({ section }: { section: SidebarSection }) {
           <AlertsEditor />
         </PaywallOverlay>
       );
+    case 'settings':
+      return <FeatureSettingsPanel />;
     default:
       return null;
   }

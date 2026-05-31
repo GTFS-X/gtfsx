@@ -2,6 +2,7 @@
 // inspectGtfsZip) lives in gtfsParse.ts so it can run in a Web Worker; we
 // re-export it here so existing import sites keep importing from one place.
 import { useStore } from '../store';
+import type { AdvancedFeature } from '../store/featuresSlice';
 import {
   importGtfsZip,
   inspectGtfsZip,
@@ -94,6 +95,25 @@ export function loadImportIntoStore(data: Awaited<ReturnType<typeof importGtfsZi
   store.setFareLegRules(data.fareLegRules);
   store.setFareTransferRules(data.fareTransferRules);
   store.setFlexZones(data.flexZones);
+
+  // Seed per-feed feature settings from what the imported feed contains, so its
+  // advanced sections (frequencies, stations, blocks, transfers, fares v2) show
+  // up — "the feed contains the file" enables the feature. demandResponse is
+  // left unset, so it stays on by default (any flex data keeps it on too).
+  const fs: Partial<Record<AdvancedFeature, boolean>> = {};
+  if (data.transfers.length) fs.transfers = true;
+  if (data.frequencies.length) fs.frequencies = true;
+  if (data.levels.length || data.pathways.length) fs.stations = true;
+  if (data.trips.some((t) => !!t.block_id)) fs.blocks = true;
+  if (
+    data.fareAreas.length || data.stopAreas.length || data.fareNetworks.length ||
+    data.routeNetworks.length || data.timeframes.length || data.riderCategories.length ||
+    data.fareMedia.length || data.fareProducts.length || data.fareLegRules.length ||
+    data.fareTransferRules.length
+  ) {
+    fs.faresV2 = true;
+  }
+  store.setFeatureSettings(fs);
 }
 
 /**

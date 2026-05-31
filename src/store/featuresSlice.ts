@@ -1,0 +1,172 @@
+import type { StateCreator } from 'zustand';
+import type { AppStore } from './index';
+import type { SidebarSection } from '../types/ui';
+
+// Advanced/optional GTFS features that clutter the editor for simple agencies.
+// Each is gated by a per-feed setting so the default UI stays lean. A feature
+// is "enabled" when the feed already contains its data/file OR the user turns
+// it on; `demandResponse` is the exception — on by default to push GTFS-Flex
+// adoption. See featureEnabled() below.
+export type AdvancedFeature =
+  | 'transfers'
+  | 'frequencies'
+  | 'stations'
+  | 'faresV2'
+  | 'blocks'
+  | 'demandResponse';
+
+export interface FeaturesSlice {
+  // The user's explicit per-feature choice. Absent → use the default rule.
+  // Persisted with the feed's working snapshot (IndexedDB + server R2), NOT
+  // exported to the GTFS zip. For file-backed features this mirrors "the file
+  // is present in the feed".
+  featureSettings: Partial<Record<AdvancedFeature, boolean>>;
+  setFeatureSetting: (feature: AdvancedFeature, enabled: boolean) => void;
+  setFeatureSettings: (settings: Partial<Record<AdvancedFeature, boolean>>) => void;
+}
+
+export const createFeaturesSlice: StateCreator<
+  FeaturesSlice,
+  [['zustand/immer', never]],
+  [],
+  FeaturesSlice
+> = (set) => ({
+  featureSettings: {},
+  setFeatureSetting: (feature, enabled) =>
+    set((state) => {
+      state.featureSettings[feature] = enabled;
+    }),
+  setFeatureSettings: (settings) =>
+    set((state) => {
+      state.featureSettings = settings ?? {};
+    }),
+});
+
+// The ten GTFS-Fares v2 slices that together make up "Fares v2".
+const FARE_V2_KEYS = [
+  'fareAreas', 'stopAreas', 'fareNetworks', 'routeNetworks', 'timeframes',
+  'riderCategories', 'fareMedia', 'fareProducts', 'fareLegRules', 'fareTransferRules',
+] as const;
+
+export interface FeatureMeta {
+  key: AdvancedFeature;
+  label: string;
+  /** Short, agency-facing explanation shown in the Settings panel. */
+  description: string;
+  /** On by default? Only demandResponse is. */
+  defaultOn: boolean;
+  /** Left-rail section this feature reveals, if any. (`transfers` is a tab
+   *  inside the Fares panel, so it has no standalone section.) */
+  section?: SidebarSection;
+  /** GTFS files this feature maps to — used to auto-detect on import and to
+   *  emit a header-only file on export when enabled-but-empty. Empty for
+   *  `blocks` (a trips.txt column) and `demandResponse` (a flag). */
+  files: string[];
+}
+
+export const ADVANCED_FEATURES: FeatureMeta[] = [
+  {
+    key: 'demandResponse',
+    label: 'Demand response / paratransit',
+    description:
+      'GTFS-Flex zones and booking rules for dial-a-ride, microtransit, and deviated service. On by default — turn it off if you only run fixed-route service.',
+    defaultOn: true,
+    section: 'flex',
+    files: ['locations.geojson', 'booking_rules.txt', 'location_groups.txt', 'location_group_stops.txt'],
+  },
+  {
+    key: 'transfers',
+    label: 'Transfers',
+    description:
+      'transfers.txt — transfer rules between routes/stops (timed connections, minimum transfer times). Edited from the Fares panel.',
+    defaultOn: false,
+    files: ['transfers.txt'],
+  },
+  {
+    key: 'frequencies',
+    label: 'Frequency-based service',
+    description:
+      'frequencies.txt — headway-based service ("a bus every 15 min") instead of explicit per-trip times.',
+    defaultOn: false,
+    section: 'frequencies',
+    files: ['frequencies.txt'],
+  },
+  {
+    key: 'blocks',
+    label: 'Blocks',
+    description:
+      'block_id on trips — groups trips a single vehicle runs in sequence (interlining). Useful for vehicle/operator scheduling.',
+    defaultOn: false,
+    section: 'blocks',
+    files: [],
+  },
+  {
+    key: 'stations',
+    label: 'Stations & pathways',
+    description:
+      'levels.txt and pathways.txt — multi-level stations with walkways, stairs, and elevators between platforms.',
+    defaultOn: false,
+    section: 'stations',
+    files: ['levels.txt', 'pathways.txt'],
+  },
+  {
+    key: 'faresV2',
+    label: 'Fares v2',
+    description:
+      'The GTFS-Fares v2 model (areas, networks, products, leg/transfer rules). Most agencies only need basic (v1) fares.',
+    defaultOn: false,
+    files: [
+      'areas.txt', 'stop_areas.txt', 'networks.txt', 'route_networks.txt', 'timeframes.txt',
+      'rider_categories.txt', 'fare_media.txt', 'fare_products.txt', 'fare_leg_rules.txt', 'fare_transfer_rules.txt',
+    ],
+  },
+];
+
+export const FEATURE_BY_KEY: Record<AdvancedFeature, FeatureMeta> = Object.fromEntries(
+  ADVANCED_FEATURES.map((f) => [f.key, f]),
+) as Record<AdvancedFeature, FeatureMeta>;
+
+// True when the feed already contains data for this feature — the signal that
+// it's in use (so it auto-enables and can't be silently turned off).
+export function featureHasData(s: AppStore, f: AdvancedFeature): boolean {
+  switch (f) {
+    case 'transfers': return s.transfers.length > 0;
+    case 'frequencies': return s.frequencies.length > 0;
+    case 'stations': return s.levels.length > 0 || s.pathways.length > 0;
+    case 'blocks': return s.trips.some((t) => !!t.block_id);
+    case 'demandResponse': return s.flexZones.length > 0;
+    case 'faresV2': {
+      const rec = s as unknown as Record<string, unknown[]>;
+      return FARE_V2_KEYS.some((k) => (rec[k]?.length ?? 0) > 0);
+    }
+  }
+}
+
+// Whether a feature's UI (nav section / Fares sub-tab) is shown. Enabled when
+// the user explicitly turned it on, when the feed has data, or — for
+// demandResponse only — by default.
+export function featureEnabled(s: AppStore, f: AdvancedFeature): boolean {
+  const explicit = s.featureSettings[f];
+  const base = explicit !== undefined ? explicit : FEATURE_BY_KEY[f].defaultOn;
+  return base || featureHasData(s, f);
+}
+
+// Clear every row a feature owns — used when the user turns a feature off and
+// confirms discarding its data ("destroy the file").
+export function clearFeatureData(s: AppStore, f: AdvancedFeature): void {
+  switch (f) {
+    case 'transfers': s.setTransfers([]); break;
+    case 'frequencies': s.setFrequencies([]); break;
+    case 'stations': s.setLevels([]); s.setPathways([]); break;
+    case 'demandResponse': s.setFlexZones([]); break;
+    case 'blocks':
+      // No file; strip block_id from every trip.
+      s.setTrips(s.trips.map((t) => ({ ...t, block_id: undefined })));
+      break;
+    case 'faresV2':
+      s.setFareAreas([]); s.setStopAreas([]); s.setFareNetworks([]); s.setRouteNetworks([]);
+      s.setTimeframes([]); s.setRiderCategories([]); s.setFareMedia([]); s.setFareProducts([]);
+      s.setFareLegRules([]); s.setFareTransferRules([]);
+      break;
+  }
+}
