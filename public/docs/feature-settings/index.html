@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>Feature settings — GTFS·X</title>
+    <meta name="description" content="Turn advanced GTFS features on or off per feed in GTFS·X: transfers, frequency-based service, blocks, stations & pathways, and demand-response. Keep the editor lean for simple agencies." />
+    <link rel="canonical" href="https://www.gtfsx.com/docs/feature-settings/" />
+    <meta property="og:title" content="Feature settings — GTFS·X" />
+    <meta property="og:description" content="Per-feed toggles that show or hide advanced GTFS features so the editor stays lean for small agencies." />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://www.gtfsx.com/docs/feature-settings/" />
+    <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@gtfsxapp" />
+    <meta name="twitter:image" content="https://www.gtfsx.com/og-default.png" />
+    <link rel="stylesheet" href="/assets/docs/docs.css" />
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Feature settings — GTFS·X",
+  "description": "Turn advanced GTFS features on or off per feed in GTFS·X: transfers, frequency-based service, blocks, stations & pathways, and demand-response. Keep the editor lean for simple agencies.",
+  "image": "https://www.gtfsx.com/og-default.png",
+  "author": {
+    "@type": "Organization",
+    "name": "GTFS·X",
+    "url": "https://www.gtfsx.com/"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "GTFS·X",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://www.gtfsx.com/gtfsx-lockup.svg"
+    }
+  },
+  "datePublished": "2026-05-31",
+  "dateModified": "2026-05-31",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://www.gtfsx.com/docs/feature-settings/"
+  }
+}
+  </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/"><img src="/gtfsx-lockup.svg" alt="GTFS·X" /></a>
+      <nav>
+        <a href="/about/">About</a>
+        <a href="/docs/" class="active">Docs</a>
+        <a href="/learn/gtfs/">Learn</a>
+        <a href="/docs/deep-links/">Integrations</a>
+        <a href="/community">Community</a>
+        <a href="/help">Help</a>
+      </nav>
+      <div class="actions">
+        <a href="/" class="cta">Open editor</a>
+        <div id="user-slot" class="user-slot"><a href="/login">Sign in</a></div>
+      </div>
+    </header>
+    <main>
+      <div class="crumbs"><a href="/docs/">Docs</a> · Foundations</div>
+      <h1>Feature settings</h1>
+      <p class="lede">GTFS is a big spec, and most of it is optional. A small agency running a handful of fixed routes never touches transfers, frequency-based service, multi-level stations, or vehicle blocks — so by default GTFS·X keeps those out of the way. <strong>Feature settings</strong> is a per-feed panel that lets you turn each advanced feature on when you need it and off when you don't, keeping the editor as simple as the feed deserves.</p>
+
+      <figure>
+        <img src="/assets/docs/feature-settings-hero.png" alt="The Feature settings panel in GTFS·X, showing toggles for Demand response / paratransit (on), Transfers, Frequency-based service, Blocks, and Stations & pathways." loading="lazy" style="width:auto; max-width:100%; max-height:680px; margin:0 auto;" />
+        <figcaption>The Feature settings panel. Demand response is on by default; the rest are off until you need them.</figcaption>
+      </figure>
+
+      <h2 id="where">Where to find it</h2>
+      <p>Open the <strong>Settings</strong> item (the gear) in the left rail of the editor. The panel lists each advanced feature with a short description and a toggle. Your choices are saved with the feed — anonymous feeds remember them locally, and signed-in projects sync them to the cloud alongside your data.</p>
+
+      <h2 id="how-it-works">How it works</h2>
+      <p>Each feature can be in one of three states:</p>
+      <ul>
+        <li><strong>Off (hidden).</strong> The feature's panel or controls are removed from the editor. The default for everything except demand-response.</li>
+        <li><strong>On (you turned it on).</strong> Flip the toggle and the feature's editor surface appears — ready for you to add data even though the feed doesn't use it yet.</li>
+        <li><strong>On automatically (the feed already uses it).</strong> If you import or build a feed that already contains the feature's data — a <code>frequencies.txt</code>, a <code>block_id</code> on some trips, transfer rules — GTFS·X turns the feature on for you. A feature that's actually in use is never silently hidden.</li>
+      </ul>
+      <p>These choices are editor preferences that live with the feed. They <strong>don't change the GTFS you export</strong>: turning a feature on does not add an empty file to your zip, and turning it off doesn't strip files that still hold data without asking. A file appears in your export only once it has rows.</p>
+
+      <h2 id="features">The features you can toggle</h2>
+      <ul>
+        <li><strong>Demand response / paratransit</strong> — GTFS-Flex zones and booking rules for dial-a-ride, microtransit, and deviated fixed-route service. <em>On by default</em> (see below). Reveals the <a href="/docs/flex-zones-and-booking-rules/">Flex Zones</a> panel. Maps to <code>locations.geojson</code>, <code>booking_rules.txt</code>, <code>location_groups.txt</code>, <code>location_group_stops.txt</code>.</li>
+        <li><strong>Transfers</strong> — routing rules between stops: timed connections where a vehicle waits, minimum transfer times, connections that aren't possible. Surfaces the <a href="/docs/transfers/">Transfers</a> tab inside the Fares panel. Maps to <code>transfers.txt</code>.</li>
+        <li><strong>Frequency-based service</strong> — headway-based schedules ("a bus every 15 minutes") instead of explicit per-trip departure times. Maps to <code>frequencies.txt</code>. See <a href="/docs/timetables-and-trips/">Timetables &amp; trips</a>.</li>
+        <li><strong>Blocks</strong> — <code>block_id</code> on trips, grouping the trips a single vehicle runs in sequence (interlining). Useful for vehicle and operator scheduling. This is a column on <code>trips.txt</code>, not a separate file.</li>
+        <li><strong>Stations &amp; pathways</strong> — multi-level stations with walkways, stairs, and elevators between platforms. Maps to <code>levels.txt</code> and <code>pathways.txt</code>. See <a href="/docs/stations/">Stations, levels &amp; pathways</a>.</li>
+      </ul>
+
+      <h2 id="demand-response">Why demand-response is on by default</h2>
+      <p>GTFS-Flex is one of the most underused parts of the spec, and a lot of agencies run dial-a-ride or microtransit service they never publish. So unlike the others, <strong>Demand response / paratransit is on by default</strong> — the Flex Zones panel is right there, inviting you to model that service. If a feed has demand-response on but no flex zones defined, validation adds a gentle nudge suggesting you either add zones or turn the feature off. If you only run fixed-route service, flip it off and the Flex Zones panel disappears along with the nudge.</p>
+
+      <h2 id="turning-off">Turning a feature off</h2>
+      <p>If you turn off a feature that has no data, it just hides — flip it back on any time and nothing is lost. If you turn off a feature that <em>does</em> hold data (you have transfer rules, or flex zones, or a few <code>block_id</code>s), GTFS·X warns you first and tells you exactly what will be deleted, because hiding the editor surface and keeping orphaned data would be worse. Confirm and the data is removed from the feed; cancel and nothing changes.</p>
+
+      <h2 id="gotchas">Notes</h2>
+      <ul>
+        <li><strong>Per feed, not per account.</strong> Each feed remembers its own settings. A simple bus feed and a complex multi-modal one can sit side by side with different features showing.</li>
+        <li><strong>Import always wins.</strong> Importing a feed that uses a feature turns it on regardless of the previous setting — you'll never open a feed and find its real data hidden.</li>
+        <li><strong>The export is the source of truth.</strong> These toggles shape the editor, not the spec. Whatever data you've entered is what gets exported; whatever you haven't, isn't.</li>
+      </ul>
+
+      <div class="see-also">
+        <h2>See also</h2>
+        <ul>
+          <li><a href="/docs/flex-zones-and-booking-rules/">Flex zones &amp; booking rules</a> — the demand-response feature in depth.</li>
+          <li><a href="/docs/transfers/">Transfers</a>, <a href="/docs/stations/">Stations, levels &amp; pathways</a>, <a href="/docs/timetables-and-trips/">Timetables &amp; trips</a> — the panels these toggles reveal.</li>
+          <li><a href="/docs/validation/">Validation</a> — including the demand-response flex nudge.</li>
+        </ul>
+      </div>
+    </main>
+    <footer>
+      <a href="/">Editor</a>
+      <a href="/about/">About</a>
+      <a href="/docs/">Docs</a>
+      <a href="/pricing/">Pricing</a>
+      <a href="/learn/gtfs/">What is GTFS?</a>
+      <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a>
+    </footer>
+    <script>
+      (function () {
+        fetch('/api/me', { credentials: 'include', headers: { 'X-GB-Client': 'web' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.user) return;
+            var slot = document.getElementById('user-slot');
+            if (!slot) return;
+            var label = data.user.displayName || data.user.email || '';
+            var initial = (label.charAt(0) || '?').toUpperCase();
+            var escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            slot.innerHTML = '<a href="/account" class="user-avatar" title="' + escaped + '">' + initial + '</a>';
+          })
+          .catch(function () { /* keep "Sign in" */ });
+      })();
+    </script>
+  </body>
+</html>

@@ -51,9 +51,10 @@ export interface FeatureMeta {
   /** Left-rail section this feature reveals, if any. (`transfers` is a tab
    *  inside the Fares panel, so it has no standalone section.) */
   section?: SidebarSection;
-  /** GTFS files this feature maps to — used to auto-detect on import and to
-   *  emit a header-only file on export when enabled-but-empty. Empty for
-   *  `blocks` (a trips.txt column) and `demandResponse` (a flag). */
+  /** GTFS files this feature maps to, for reference. Empty for `blocks`
+   *  (a trips.txt column) and `demandResponse` (a flag). The exporter is
+   *  data-driven: enabling a feature never emits an empty file — a file
+   *  appears in the export only once it has rows. */
   files: string[];
 }
 
