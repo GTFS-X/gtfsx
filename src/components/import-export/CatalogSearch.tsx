@@ -109,10 +109,16 @@ export function CatalogSearch({ onSelect }: Props) {
     }
   };
 
-  // Copy a shareable deep link that opens this feed straight into GTFS·X, so
-  // there's no need to dig the feed id out of the Mobility Database + docs.
+  // Copy a shareable deep link that opens this feed straight into GTFS·X. Uses
+  // the feed's direct hosted dataset URL (not the Mobility Database id) so the
+  // link imports the zip directly, no MD lookup.
   const copyLink = async (feed: CatalogFeed) => {
-    const link = `${window.location.origin}/import?source=mobilitydb&feed_id=${encodeURIComponent(feed.id)}`;
+    const src = feed.latest_dataset?.hosted_url;
+    if (!src) {
+      setImportError('That feed has no hosted dataset URL to link to.');
+      return;
+    }
+    const link = `${window.location.origin}/import?url=${encodeURIComponent(src)}`;
     try {
       await navigator.clipboard.writeText(link);
       setCopiedId(feed.id);
@@ -213,37 +219,42 @@ export function CatalogSearch({ onSelect }: Props) {
                 const disabled = !url || importingId !== null;
                 const copied = copiedId === feed.id;
                 return (
-                  <div key={feed.id} className="flex items-stretch hover:bg-cream transition-colors">
+                  <div key={feed.id} className="px-3 py-2.5 hover:bg-cream transition-colors flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <button
+                        onClick={() => handleImport(feed)}
+                        disabled={disabled}
+                        className="block w-full text-left disabled:opacity-60"
+                      >
+                        <span className="block text-sm font-semibold text-dark-brown truncate">{summarizeProvider(feed.provider)}</span>
+                        {feed.feed_name && (
+                          <span className="block text-xs text-warm-gray truncate">{feed.feed_name}</span>
+                        )}
+                      </button>
+                      <div className="text-[11px] text-warm-gray flex items-center flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
+                        {summarizeLocations(feed.locations)}
+                        {feed.latest_dataset?.downloaded_at && (
+                          <span className="text-warm-gray/80">· updated {fmtDate(feed.latest_dataset.downloaded_at)}</span>
+                        )}
+                        {!url && <span className="text-amber-600">· no dataset available</span>}
+                        {url && (
+                          <button
+                            type="button"
+                            onClick={() => copyLink(feed)}
+                            title="Copy a shareable link that opens this feed in GTFS·X"
+                            className="text-coral hover:underline font-medium"
+                          >
+                            · {copied ? 'Copied ✓' : 'Copy import link'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     <button
                       onClick={() => handleImport(feed)}
                       disabled={disabled}
-                      className="flex-1 min-w-0 text-left px-3 py-2.5 disabled:opacity-60 flex items-start gap-3"
+                      className="text-xs text-coral font-semibold whitespace-nowrap pt-0.5 disabled:opacity-60"
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-dark-brown truncate">{summarizeProvider(feed.provider)}</div>
-                        {feed.feed_name && (
-                          <div className="text-xs text-warm-gray truncate">{feed.feed_name}</div>
-                        )}
-                        <div className="text-[11px] text-warm-gray flex items-center gap-2 mt-0.5">
-                          {summarizeLocations(feed.locations)}
-                          {feed.latest_dataset?.downloaded_at && (
-                            <span className="text-warm-gray/80">· updated {fmtDate(feed.latest_dataset.downloaded_at)}</span>
-                          )}
-                          {!url && <span className="text-amber-600">· no dataset available</span>}
-                        </div>
-                      </div>
-                      <div className="text-xs text-coral font-semibold whitespace-nowrap pt-0.5">
-                        {isImporting ? 'Loading…' : 'Import →'}
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => copyLink(feed)}
-                      disabled={!url}
-                      title="Copy a shareable link that opens this feed in GTFS·X"
-                      className="shrink-0 px-3 border-l border-sand text-xs font-semibold text-warm-gray hover:text-coral disabled:opacity-40 disabled:hover:text-warm-gray transition-colors"
-                    >
-                      {copied ? 'Copied ✓' : 'Copy link'}
+                      {isImporting ? 'Loading…' : 'Import →'}
                     </button>
                   </div>
                 );
