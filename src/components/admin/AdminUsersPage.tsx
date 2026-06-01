@@ -39,7 +39,7 @@ export function AdminUsersPage() {
 
   const [q, setQ] = useState('');
   const [qInput, setQInput] = useState('');
-  const [status, setStatus] = useState<'' | UserStatus>('');
+  const [status, setStatus] = useState<'' | UserStatus>('active');
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<AdminUserRow[]>([]);
   const [hasNext, setHasNext] = useState(false);
