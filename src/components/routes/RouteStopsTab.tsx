@@ -125,6 +125,7 @@ export function RouteStopsTab() {
   const routeStops = useStore((s) => s.routeStops);
   const stopTimes = useStore((s) => s.stopTimes);
   const trips = useStore((s) => s.trips);
+  const shapes = useStore((s) => s.shapes);
   const selectedStopId = useStore((s) => s.selectedStopId);
   const selectStop = useStore((s) => s.selectStop);
   const addRouteStop = useStore((s) => s.addRouteStop);
@@ -261,13 +262,16 @@ export function RouteStopsTab() {
 
   return (
     <div>
-      {/* Direction selector — a 2-way toggle for 0–2 shape patterns, a
-          dropdown for 3+ (which the toggle can't represent). */}
+      {/* Direction selector — a shape dropdown (by name) when the route has
+          shapes, matching the Timetable tab; a direction dropdown otherwise.
+          Route stops are stored per direction, so same-direction shape
+          variants share a stop list. */}
       <div className="mb-3">
-        {patterns.length >= 3 ? (
+        {patterns.length >= 1 ? (
           <PatternSelector
             patterns={patterns}
             route={route}
+            shapes={shapes}
             selectedShapeId={effectiveShapeId}
             onChange={(p) => {
               setSelectedPatternShapeId(p.shapeId);
@@ -276,22 +280,14 @@ export function RouteStopsTab() {
             className="w-full px-2 py-1.5 border border-sand rounded-md text-xs font-semibold bg-cream focus:outline-none focus:border-coral"
           />
         ) : (
-          <div className="flex rounded-md border border-sand overflow-hidden">
-            <button
-              onClick={() => setDirectionId(0)}
-              className={`flex-1 px-3 py-1.5 text-xs font-semibold transition-colors
-                ${directionId === 0 ? 'bg-coral text-white' : 'bg-white text-warm-gray hover:text-dark-brown'}`}
-            >
-              {directionName(route, 0)}
-            </button>
-            <button
-              onClick={() => setDirectionId(1)}
-              className={`flex-1 px-3 py-1.5 text-xs font-semibold transition-colors border-l border-sand
-                ${directionId === 1 ? 'bg-coral text-white' : 'bg-white text-warm-gray hover:text-dark-brown'}`}
-            >
-              {directionName(route, 1)}
-            </button>
-          </div>
+          <select
+            value={directionId}
+            onChange={(e) => setDirectionId(Number(e.target.value) as 0 | 1)}
+            className="w-full px-2 py-1.5 border border-sand rounded-md text-xs font-semibold bg-cream focus:outline-none focus:border-coral"
+          >
+            <option value={0}>{directionName(route, 0)}</option>
+            <option value={1}>{directionName(route, 1)}</option>
+          </select>
         )}
       </div>
 
