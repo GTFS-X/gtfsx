@@ -23,7 +23,7 @@ import type { MapStyleId } from './MapLayerControls';
 import type { MapMouseEvent, MapboxGeoJSONFeature } from 'mapbox-gl';
 import type { ShapePoint } from '../../types/gtfs';
 import { generateId } from '../../services/idGenerator';
-import { snapToRoad } from '../../services/snapToRoad';
+import { snapToRoadDetailed, type SnapStatus } from '../../services/snapToRoad';
 import { simplifyShapePoints } from '../../services/simplifyShape';
 import { suggestStopName } from '../../services/suggestStopName';
 import { ensureDefaultCalendar } from '../../services/defaultCalendar';
@@ -37,6 +37,57 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 // Round map-derived coordinates to 6 decimals (~0.1 m) so dragging/placing a
 // stop doesn't litter the lat/lon fields and stops.txt with float noise.
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/** Create a shape from drawn coords + a stub trip pointing at it, for the given
+ *  route and direction. Shared by the draw-finish handler and the snap-warning
+ *  "keep unsnapped" path. */
+function createShapeAndTrip(coords: [number, number][], routeId: string, direction: 0 | 1) {
+  const shapeId = generateId('shape');
+  let points = coords.map((c, i) => ({
+    shape_pt_lat: c[1],
+    shape_pt_lon: c[0],
+    shape_pt_sequence: i,
+    shape_dist_traveled: 0,
+  }));
+  // Auto-simplify if the drawn line has too many points (freehand creates ~1 per pixel)
+  if (points.length > 20) {
+    points = simplifyShapePoints(points, 0.00005); // Light simplify ~5m
+  }
+
+  const st = useStore.getState();
+  st.addShape({ shape_id: shapeId, points });
+  st.recalcShapeDistances(shapeId);
+
+  const route = st.routes.find((r) => r.route_id === routeId);
+  const routeName = route?.route_short_name || route?.route_long_name || '';
+  // Materialize a Default Calendar on the fly if the project has no calendars
+  // yet — otherwise the trip would point at the hardcoded "service-1"
+  // placeholder and the timetable would show two unrelated services later.
+  const serviceId = ensureDefaultCalendar();
+  const svcIdx = st.calendars.findIndex((c) => c.service_id === serviceId) + 1 || 1;
+  const prefix = (routeName || 'trip').replace(/\s+/g, '').slice(0, 4).toLowerCase();
+  const existingIds = new Set(st.trips.map((t) => t.trip_id));
+  let tripId = `${svcIdx}${prefix}_new`;
+  if (existingIds.has(tripId)) { let s = 2; while (existingIds.has(`${tripId}${s}`)) s++; tripId = `${tripId}${s}`; }
+  st.addTrip({
+    trip_id: tripId,
+    route_id: routeId,
+    service_id: serviceId,
+    direction_id: direction,
+    shape_id: shapeId,
+    trip_headsign: '',
+  });
+}
+
+/** Leave draw mode and open the Route Shapes editor for the route just drawn. */
+function finishDrawingTo(routeId: string) {
+  const st = useStore.getState();
+  st.setMapMode('select');
+  st.setDrawingRouteId(null);
+  st.setSidebarSection('routes');
+  st.selectRoute(routeId);
+  st.setEditingRouteId(routeId);
+}
 
 export function MapView() {
   const mapRef = useRef<MapRef | null>(null);
@@ -79,6 +130,14 @@ export function MapView() {
   // Shapes subpanel, which compose the same outcome without a special mode.)
   // Snapping indicator
   const [isSnapping, setIsSnapping] = useState(false);
+  // Set when a just-drawn route shape couldn't be fully snapped to roads, so the
+  // user can keep their unsnapped drawing or discard it and redraw.
+  const [snapWarning, setSnapWarning] = useState<{
+    rawCoords: [number, number][];
+    routeId: string;
+    direction: 0 | 1;
+    status: Exclude<SnapStatus, 'ok'>;
+  } | null>(null);
   // Map layer controls
   const [mapStyleId, setMapStyleId] = useState<MapStyleId>('light');
   const [showDemandDots, setShowDemandDots] = useState(false);
@@ -639,78 +698,65 @@ export function MapView() {
       // Read the drawing direction from window (set by RouteEditor)
       const drawingDirection: 0 | 1 = window.__drawingDirection ?? 0;
 
-      const createShapeFromCoords = (coords: [number, number][]) => {
-        const shapeId = generateId('shape');
-        let points = coords.map((c, i) => ({
-          shape_pt_lat: c[1],
-          shape_pt_lon: c[0],
-          shape_pt_sequence: i,
-          shape_dist_traveled: 0,
-        }));
-
-        // Auto-simplify if the drawn line has too many points (freehand creates ~1 per pixel)
-        if (points.length > 20) {
-          points = simplifyShapePoints(points, 0.00005); // Light simplify ~5m
-        }
-
-        const st = useStore.getState();
-        st.addShape({ shape_id: shapeId, points });
-        st.recalcShapeDistances(shapeId);
-
-        const route = st.routes.find((r) => r.route_id === currentDrawingRouteId);
-        const routeName = route?.route_short_name || route?.route_long_name || '';
-        // Materialize a Default Calendar on the fly if the project has no
-        // calendars yet — otherwise the trip we're about to add would point
-        // at the hardcoded "service-1" placeholder and the timetable would
-        // show two unrelated services later.
-        const serviceId = ensureDefaultCalendar();
-        const svcIdx = st.calendars.findIndex((c) => c.service_id === serviceId) + 1 || 1;
-        const prefix = (routeName || 'trip').replace(/\s+/g, '').slice(0, 4).toLowerCase();
-        const existingIds = new Set(st.trips.map((t) => t.trip_id));
-        let tripId = `${svcIdx}${prefix}_new`;
-        if (existingIds.has(tripId)) { let s = 2; while (existingIds.has(`${tripId}${s}`)) s++; tripId = `${tripId}${s}`; }
-        st.addTrip({
-          trip_id: tripId,
-          route_id: currentDrawingRouteId,
-          service_id: serviceId,
-          direction_id: drawingDirection,
-          shape_id: shapeId,
-          trip_headsign: '',
-        });
-      };
-
       if (drawRef.current) drawRef.current.deleteAll();
-
-      const finishDrawing = () => {
-        const st = useStore.getState();
-        st.setMapMode('select');
-        st.setDrawingRouteId(null);
-        // Open the Route Shapes editor for the route we just drew on, so the
-        // user can rename, tweak color, edit the shape, etc. right away.
-        st.setSidebarSection('routes');
-        st.selectRoute(currentDrawingRouteId);
-        st.setEditingRouteId(currentDrawingRouteId);
-      };
 
       if (currentSnapToRoad) {
         setIsSnapping(true);
-        snapToRoad(rawCoords)
-          .then((snappedCoords) => {
-            createShapeFromCoords(snappedCoords);
+        snapToRoadDetailed(rawCoords)
+          .then((result) => {
+            if (result.status === 'ok') {
+              createShapeAndTrip(result.snapped, currentDrawingRouteId, drawingDirection);
+              finishDrawingTo(currentDrawingRouteId);
+            } else {
+              // Couldn't fully snap (roadless diversion / no match). Ask whether
+              // to keep the unsnapped drawing or discard it and redraw, rather
+              // than silently saving a cut-off shape.
+              setSnapWarning({
+                rawCoords,
+                routeId: currentDrawingRouteId,
+                direction: drawingDirection,
+                status: result.status,
+              });
+            }
           })
           .catch(() => {
-            createShapeFromCoords(rawCoords);
+            setSnapWarning({
+              rawCoords,
+              routeId: currentDrawingRouteId,
+              direction: drawingDirection,
+              status: 'failed',
+            });
           })
-          .finally(() => {
-            setIsSnapping(false);
-            finishDrawing();
-          });
+          .finally(() => setIsSnapping(false));
       } else {
-        createShapeFromCoords(rawCoords);
-        finishDrawing();
+        createShapeAndTrip(rawCoords, currentDrawingRouteId, drawingDirection);
+        finishDrawingTo(currentDrawingRouteId);
       }
     }
   }, []);
+
+  // Snap-warning resolutions: keep the raw drawn shape, or throw it away and
+  // re-arm the draw tool for another attempt on the same route + direction.
+  const handleKeepUnsnapped = () => {
+    if (!snapWarning) return;
+    createShapeAndTrip(snapWarning.rawCoords, snapWarning.routeId, snapWarning.direction);
+    finishDrawingTo(snapWarning.routeId);
+    setSnapWarning(null);
+  };
+
+  const handleDiscardAndRedraw = () => {
+    if (!snapWarning) return;
+    const { routeId, direction } = snapWarning;
+    setSnapWarning(null);
+    window.__drawingDirection = direction;
+    const st = useStore.getState();
+    st.setDrawingRouteId(routeId);
+    st.setMapMode('draw_route');
+    if (drawRef.current) {
+      try { drawRef.current.deleteAll(); } catch { /* ignore */ }
+      try { drawRef.current.changeMode('draw_line_string'); } catch { /* ignore */ }
+    }
+  };
 
   const handleDrawUpdate = useCallback((e: DrawEvent) => {
     // Read current state directly to avoid stale closures
@@ -1137,6 +1183,39 @@ export function MapView() {
       {isSnapping && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-teal text-white px-5 py-2 rounded-full text-[13px] font-heading font-semibold shadow-md z-10 animate-pulse">
           Snapping to road...
+        </div>
+      )}
+
+      {/* Snap-to-road couldn't fully match the drawn shape — keep it unsnapped
+          or discard and redraw (an explicit choice; no backdrop dismiss). */}
+      {snapWarning && (
+        <div className="absolute inset-0 flex items-center justify-center z-20">
+          <div className="absolute inset-0 bg-black/20" />
+          <div className="relative bg-white rounded-xl shadow-lg p-5 max-w-sm mx-4">
+            <h3 className="font-heading font-bold text-base text-dark-brown mb-2">
+              Couldn&rsquo;t snap to roads
+            </h3>
+            <p className="text-sm text-warm-gray mb-4">
+              {snapWarning.status === 'partial'
+                ? 'Part of this shape couldn’t be matched to a roadway — it looks like the route passes through an area with no road, so the snapped version would be cut off there.'
+                : 'This shape couldn’t be matched to any roadway.'}
+              {' '}You can keep your drawn shape exactly as-is (unsnapped), or discard it and draw again.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleDiscardAndRedraw}
+                className="flex-1 px-3 py-2 bg-sand text-brown rounded-lg font-heading font-bold text-sm hover:bg-coral-light hover:text-coral transition-colors"
+              >
+                Discard &amp; redraw
+              </button>
+              <button
+                onClick={handleKeepUnsnapped}
+                className="flex-1 px-3 py-2 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors"
+              >
+                Keep unsnapped
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

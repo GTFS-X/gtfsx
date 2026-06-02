@@ -132,3 +132,71 @@ describe('snapToRoad', () => {
     expect(result[result.length - 1]).toEqual([149, 149]);
   });
 });
+
+describe('snapToRoadDetailed', () => {
+  beforeEach(() => {
+    vi.stubEnv('VITE_MAPBOX_TOKEN', 'pk.test-token');
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('reports ok when the snapped ends line up with the drawn ends', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 'Ok',
+        tracepoints: [{}, {}],
+        matchings: [{ geometry: { type: 'LineString', coordinates: [[0, 0], [0.001, 0]] } }],
+      }),
+    }));
+    const { snapToRoadDetailed } = await import('../snapToRoad');
+    const res = await snapToRoadDetailed([[0, 0], [0.001, 0]]);
+    expect(res.status).toBe('ok');
+    expect(res.snapped).toEqual([[0, 0], [0.001, 0]]);
+  });
+
+  it('reports partial when the trace is split into multiple matchings', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 'Ok',
+        tracepoints: [{}, null, {}],
+        matchings: [
+          { geometry: { type: 'LineString', coordinates: [[0, 0], [0.001, 0]] } },
+          { geometry: { type: 'LineString', coordinates: [[0.002, 0], [0.003, 0]] } },
+        ],
+      }),
+    }));
+    const { snapToRoadDetailed } = await import('../snapToRoad');
+    const res = await snapToRoadDetailed([[0, 0], [0.001, 0], [0.003, 0]]);
+    expect(res.status).toBe('partial');
+  });
+
+  it('reports partial when the snapped geometry stops short of the drawn end', async () => {
+    // Drawn path runs ~5.5 km east but only the first ~100 m matched.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        code: 'Ok',
+        tracepoints: [{}, {}],
+        matchings: [{ geometry: { type: 'LineString', coordinates: [[0, 0], [0.001, 0]] } }],
+      }),
+    }));
+    const { snapToRoadDetailed } = await import('../snapToRoad');
+    const res = await snapToRoadDetailed([[0, 0], [0.05, 0]]);
+    expect(res.status).toBe('partial');
+    expect(res.raw).toEqual([[0, 0], [0.05, 0]]);
+  });
+
+  it('reports failed (with raw coords preserved) when the API errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) }));
+    const { snapToRoadDetailed } = await import('../snapToRoad');
+    const input: [number, number][] = [[0, 0], [0.001, 0]];
+    const res = await snapToRoadDetailed(input);
+    expect(res.status).toBe('failed');
+    expect(res.snapped).toEqual(input);
+  });
+});
