@@ -117,7 +117,10 @@ export function layoutStopTimes(
       out.push({ arrivalSec: opts.startSec, departureSec: opts.startSec });
       continue;
     }
-    const seg = Math.max(0, cumTravelSec[i] - cumTravelSec[i - 1]) * opts.speedFactor;
+    // Absolute difference so stops sequenced opposite the shape's drawn
+    // direction (cumulative running high→low) still yield real travel times
+    // rather than collapsing to zero.
+    const seg = Math.abs(cumTravelSec[i] - cumTravelSec[i - 1]) * opts.speedFactor;
     const arrival = Math.round(out[i - 1].departureSec + seg);
     const isLast = i === cumTravelSec.length - 1;
     out.push({ arrivalSec: arrival, departureSec: isLast ? arrival : arrival + opts.dwellSec });

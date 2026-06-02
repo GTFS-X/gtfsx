@@ -47,4 +47,12 @@ describe('layoutStopTimes', () => {
     expect(out[1].departureSec).toBe(start + 180 + 18);   // + dwell
     expect(out[2].arrivalSec).toBe(start + 180 + 18 + 90); // 60 * 1.5 from departure
   });
+
+  it('handles stops running opposite the shape (decreasing cumulative)', () => {
+    // Stops sequenced against the shape's drawn direction → cumulative runs
+    // high→low. Travel must still be real, not collapse to zero.
+    const out = layoutStopTimes([180, 120, 0], { startSec: start, dwellSec: 18, speedFactor: 1 });
+    expect(out[1]).toEqual({ arrivalSec: start + 60, departureSec: start + 78 });
+    expect(out[2]).toEqual({ arrivalSec: start + 78 + 120, departureSec: start + 78 + 120 });
+  });
 });
