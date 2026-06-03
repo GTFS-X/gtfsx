@@ -134,6 +134,31 @@ export function RouteList() {
             </div>
           )}
 
+          {/* Column header: the eye marks the swatch column as the map-visibility toggle.
+              px-2.5 matches each row's left padding; the w-5 box centers the eye over the swatch. */}
+          {filteredRoutes.length > 0 && (
+            <div className="flex items-center px-2.5 mb-1 text-warm-gray">
+              <div className="flex w-5 items-center justify-center shrink-0">
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <title>Click a swatch to show / hide that route on the map</title>
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </div>
+              <span className="ml-2 text-[10px] uppercase tracking-wide">Map</span>
+            </div>
+          )}
+
           <div className="flex flex-col gap-1 mb-3">
             {filteredRoutes.length === 0 && (
               <EmptyState
@@ -163,10 +188,10 @@ export function RouteList() {
                       e.stopPropagation();
                       toggleRouteVisibility(route.route_id);
                     }}
-                    className={`w-3.5 h-3.5 rounded shrink-0 transition-all border-2
+                    className={`w-5 h-5 rounded-md shrink-0 transition-all border-2
                       ${isHidden
-                        ? 'opacity-30 border-warm-gray'
-                        : 'opacity-100 border-transparent hover:scale-125'
+                        ? 'opacity-40 border-warm-gray hover:opacity-70'
+                        : 'opacity-100 border-transparent hover:scale-110'
                       }`}
                     style={{ backgroundColor: isHidden ? 'transparent' : `#${route.route_color}`, borderColor: isHidden ? `#${route.route_color}` : 'transparent' }}
                     title={isHidden ? 'Show on map' : 'Hide from map'}
