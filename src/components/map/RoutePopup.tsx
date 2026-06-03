@@ -102,8 +102,9 @@ export function RoutePopup({ routeId, directionId, shapeId, lngLat, onClose }: R
         </p>
 
         {/* Action buttons — shape editing lives in the small pencil icon in the
-            header above, so the bottom row stays Edit Route / Edit Timetable. */}
-        <div className="border-t border-sand pt-2 flex gap-2">
+            header above. Three buttons share one row, so padding is tightened
+            (px-2) to keep them from crowding at the popup's min width. */}
+        <div className="border-t border-sand pt-2 flex gap-1.5">
           <button
             onClick={() => {
               selectRoute(routeId);
@@ -111,9 +112,21 @@ export function RoutePopup({ routeId, directionId, shapeId, lngLat, onClose }: R
               setSidebarSection('routes');
               onClose();
             }}
-            className="flex-1 px-3 py-1.5 bg-coral-light text-coral rounded-lg text-xs font-heading font-bold hover:bg-coral hover:text-white transition-colors"
+            className="flex-1 px-2 py-1.5 bg-coral-light text-coral rounded-lg text-xs font-heading font-bold hover:bg-coral hover:text-white transition-colors"
           >
             Edit Route
+          </button>
+          <button
+            onClick={() => {
+              selectRoute(routeId);
+              setEditingRouteId(routeId);
+              setSidebarSection('routes');
+              setRouteDetailTab('stops');
+              onClose();
+            }}
+            className="flex-1 px-2 py-1.5 bg-teal-light text-teal rounded-lg text-xs font-heading font-bold hover:bg-teal hover:text-white transition-colors"
+          >
+            Edit Stops
           </button>
           <button
             onClick={() => {
@@ -122,7 +135,7 @@ export function RoutePopup({ routeId, directionId, shapeId, lngLat, onClose }: R
               useStore.getState().setBottomPanelTab('timetable');
               onClose();
             }}
-            className="flex-1 px-3 py-1.5 bg-purple-light text-purple rounded-lg text-xs font-heading font-bold hover:bg-purple hover:text-white transition-colors"
+            className="flex-1 px-2 py-1.5 bg-purple-light text-purple rounded-lg text-xs font-heading font-bold hover:bg-purple hover:text-white transition-colors"
           >
             Edit Timetable
           </button>
