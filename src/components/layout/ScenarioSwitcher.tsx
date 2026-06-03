@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../../store';
+import { useEditorPlan } from '../billing/useEditorPlan';
+import { planHasFeature } from '../billing/planConfig';
 
 /** True when two route-id sets contain exactly the same ids (order-independent). */
 function sameIds(a: string[], b: string[]): boolean {
@@ -23,9 +25,13 @@ export function ScenarioSwitcher() {
   const applyVisibilitySet = useStore((s) => s.applyVisibilitySet);
   const deleteVisibilitySet = useStore((s) => s.deleteVisibilitySet);
   const setHiddenRouteIds = useStore((s) => s.setHiddenRouteIds);
+  const plan = useEditorPlan();
   const [open, setOpen] = useState(false);
 
-  if (visibilitySets.length === 0) return null;
+  // Scenarios are an Agency+ feature; the switcher never renders for free/pro
+  // users (the server enforces the real gate). Also self-hides until at least
+  // one scenario exists so the editor's tagline shows by default.
+  if (!planHasFeature(plan, 'scenarios') || visibilitySets.length === 0) return null;
 
   const activeSet = visibilitySets.find((v) => sameIds(v.hiddenRouteIds, hiddenRouteIds));
   const allVisible = hiddenRouteIds.length === 0;
@@ -74,7 +80,7 @@ export function ScenarioSwitcher() {
                   onClick={() => deleteVisibilitySet(v.id)}
                   title="Delete scenario"
                   aria-label={`Delete scenario ${v.name}`}
-                  className="px-2 py-1.5 text-warm-gray opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity shrink-0"
+                  className="px-2 py-1.5 text-warm-gray hover:text-red-600 transition-colors shrink-0"
                 >
                   ×
                 </button>

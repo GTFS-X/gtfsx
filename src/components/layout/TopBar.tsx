@@ -12,6 +12,8 @@ import { backendEnabled } from '../../utils/featureFlags';
 import { AppBrand } from './AppBrand';
 import { ScenarioSwitcher } from './ScenarioSwitcher';
 import { UserMenu, UserMenuItems } from './UserMenu';
+import { useEditorPlan } from '../billing/useEditorPlan';
+import { planHasFeature } from '../billing/planConfig';
 
 // Re-export RoleBadge for callers that imported it from TopBar previously.
 export { RoleBadge } from './UserMenu';
@@ -26,8 +28,12 @@ export function TopBar() {
   const stopsCount = useStore((s) => s.stops.length);
   const agenciesCount = useStore((s) => s.agencies.length);
   // When ≥1 saved scenario exists, the header shows the scenario switcher in
-  // place of the "GTFS Editor • Route Planner" tagline.
-  const hasScenarios = useStore((s) => s.visibilitySets.length > 0);
+  // place of the "GTFS Editor • Route Planner" tagline. Scenarios are Agency+,
+  // so the switcher only appears (and the tagline only yields to it) for plans
+  // that unlock the feature — matching ScenarioSwitcher's own gate.
+  const editorPlan = useEditorPlan();
+  const hasSavedScenarios = useStore((s) => s.visibilitySets.length > 0);
+  const hasScenarios = hasSavedScenarios && planHasFeature(editorPlan, 'scenarios');
   const navigate = useNavigate();
   // /demo is a read-only preview surface — drop the Save button so
   // visitors don't get prompted to upgrade or create an account just
