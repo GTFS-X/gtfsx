@@ -147,10 +147,12 @@ export function TimetableGrid() {
     )];
   }, [selectedRouteId, trips, directionId]);
 
-  // Repeat-every form state
+  // Repeat-every form state. Headway/copies are raw strings so the inputs can be
+  // cleared/intermediate while typing; they're parsed + validated on Generate.
   const [showRepeatForm, setShowRepeatForm] = useState(false);
-  const [repeatHeadway, setRepeatHeadway] = useState(15);
-  const [repeatCopies, setRepeatCopies] = useState(5);
+  const [repeatHeadway, setRepeatHeadway] = useState('15');
+  const [repeatCopies, setRepeatCopies] = useState('5');
+  const [repeatError, setRepeatError] = useState<string | null>(null);
 
   // Duplicate trip prompt state
   const [dupPrompt, setDupPrompt] = useState<{ tripId: string; defaultStartTime: string } | null>(null);
@@ -416,14 +418,28 @@ export function TimetableGrid() {
 
   const handleRepeatSubmit = () => {
     if (routeTrips.length === 0) return;
+
+    // Validate headway + copies. Both must be integers in range.
+    const headway = Number(repeatHeadway);
+    const copies = Number(repeatCopies);
+    if (!Number.isInteger(headway) || headway < 1 || headway > 240) {
+      setRepeatError('Headway must be 1–240 min');
+      return;
+    }
+    if (!Number.isInteger(copies) || copies < 1 || copies > 100) {
+      setRepeatError('Copies must be 1–100');
+      return;
+    }
+    setRepeatError(null);
+
     const lastTrip = routeTrips[routeTrips.length - 1];
     const routeName = route?.route_short_name || route?.route_long_name || '';
     const svcIdx = getServiceIndex(lastTrip.service_id || activeServiceId || '', calendars);
     const firstTime = getFirstDisplayedTime(lastTrip.trip_id);
     const existingIds = new Set(trips.map((t) => t.trip_id));
 
-    for (let i = 0; i < repeatCopies; i++) {
-      const offsetMinutes = repeatHeadway * (i + 1);
+    for (let i = 0; i < copies; i++) {
+      const offsetMinutes = headway * (i + 1);
       let newId: string;
       if (firstTime) {
         const newTimeSeconds = gtfsTimeToSeconds(firstTime) + offsetMinutes * 60;
@@ -435,6 +451,7 @@ export function TimetableGrid() {
       existingIds.add(newId);
       duplicateTrip(lastTrip.trip_id, newId, offsetMinutes);
     }
+    setRepeatError(null);
     setShowRepeatForm(false);
   };
 
@@ -515,7 +532,10 @@ export function TimetableGrid() {
           Arr / Dep
         </label>
         <button
-          onClick={() => setShowRepeatForm((v) => !v)}
+          onClick={() => {
+            setRepeatError(null);
+            setShowRepeatForm((v) => !v);
+          }}
           disabled={!hasStops}
           className="px-3 py-1 border-2 border-dashed border-sand rounded-md text-xs font-semibold text-warm-gray hover:border-coral hover:text-coral transition-colors whitespace-nowrap disabled:opacity-40 disabled:hover:border-sand disabled:hover:text-warm-gray"
         >
@@ -538,8 +558,13 @@ export function TimetableGrid() {
             <input
               type="number"
               min={1}
+              max={240}
+              step={1}
               value={repeatHeadway}
-              onChange={(e) => setRepeatHeadway(Math.max(1, Number(e.target.value)))}
+              onChange={(e) => {
+                setRepeatHeadway(e.target.value);
+                setRepeatError(null);
+              }}
               className="w-16 px-2 py-1 text-xs rounded border border-sand focus:border-coral focus:outline-none bg-white"
             />
             <span className="text-xs text-warm-gray">min</span>
@@ -548,8 +573,12 @@ export function TimetableGrid() {
               type="number"
               min={1}
               max={100}
+              step={1}
               value={repeatCopies}
-              onChange={(e) => setRepeatCopies(Math.max(1, Math.min(100, Number(e.target.value))))}
+              onChange={(e) => {
+                setRepeatCopies(e.target.value);
+                setRepeatError(null);
+              }}
               className="w-16 px-2 py-1 text-xs rounded border border-sand focus:border-coral focus:outline-none bg-white"
             />
             <button
@@ -560,12 +589,18 @@ export function TimetableGrid() {
               Generate
             </button>
             <button
-              onClick={() => setShowRepeatForm(false)}
+              onClick={() => {
+                setRepeatError(null);
+                setShowRepeatForm(false);
+              }}
               className="px-3 py-1 text-xs text-warm-gray hover:text-dark-brown transition-colors"
             >
               Cancel
             </button>
           </div>
+          {repeatError && (
+            <p className="text-[11px] text-red-600 mt-1">{repeatError}</p>
+          )}
           {routeTrips.length === 0 && (
             <p className="text-[11px] text-warm-gray mt-1">Add at least one trip first to duplicate from.</p>
           )}
