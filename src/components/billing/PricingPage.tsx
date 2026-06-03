@@ -172,13 +172,13 @@ export function PricingPage() {
 
   // Each paid card has its own monthly/annual toggle so users can compare
   // (e.g. Pro monthly vs Agency annual) side-by-side. Keyed by plan id;
-  // defaults to annual, or to the deep-linked interval when present.
+  // defaults to monthly, or to the deep-linked interval when present.
   const [intervals, setIntervals] = useState<Record<string, 'month' | 'year'>>(() =>
     directIntervalParam && directPlanParam
       ? { [directPlanParam]: directIntervalParam }
       : {},
   );
-  const intervalFor = (plan: string): 'month' | 'year' => intervals[plan] ?? 'year';
+  const intervalFor = (plan: string): 'month' | 'year' => intervals[plan] ?? 'month';
   const setIntervalFor = (plan: string, i: 'month' | 'year') =>
     setIntervals((prev) => ({ ...prev, [plan]: i }));
 
