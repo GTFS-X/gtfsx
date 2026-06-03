@@ -18,6 +18,7 @@ import { FlexLayer } from '../flex/FlexLayer';
 import { DemandDotsLayer } from './DemandDotsLayer';
 import { MapLayerControls } from './MapLayerControls';
 import { createFlexZoneWithRoute } from '../flex/flexHelpers';
+import { shapeEditLabel } from './shapeEditLabel';
 import { stopsInsidePolygon } from '../fares/fareZoneHelpers';
 import type { MapStyleId } from './MapLayerControls';
 import type { MapMouseEvent, MapboxGeoJSONFeature } from 'mapbox-gl';
@@ -121,6 +122,14 @@ export function MapView() {
   const editingStopId = useStore((s) => s.editingStopId);
   const stops = useStore((s) => s.stops);
   const shapes = useStore((s) => s.shapes);
+  const trips = useStore((s) => s.trips);
+  const routes = useStore((s) => s.routes);
+
+  // "{route} · {shape}" label for the edit banner (null → generic fallback).
+  const editingLabel = useMemo(
+    () => shapeEditLabel(editingShapeId, shapes, trips, routes),
+    [editingShapeId, shapes, trips, routes],
+  );
 
   // Popup state
   const [popupStopId, setPopupStopId] = useState<string | null>(null);
@@ -1196,7 +1205,7 @@ export function MapView() {
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
           <div className="bg-coral text-white px-5 py-2 rounded-full text-[13px] font-heading font-semibold shadow-md flex items-center gap-2">
             <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
-            Editing Shape — Drag vertices, click midpoints to add
+            {editingLabel ? `Editing ${editingLabel}` : 'Editing Shape'} — Drag vertices, click midpoints to add
           </div>
           <button
             onClick={discardShapeEdit}

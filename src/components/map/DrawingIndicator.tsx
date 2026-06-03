@@ -1,10 +1,22 @@
 import { useMemo } from 'react';
 import { useStore } from '../../store';
 import { directionName } from '../../utils/constants';
+import { shapeEditLabel } from './shapeEditLabel';
 
 export function DrawingIndicator() {
   const mapMode = useStore((s) => s.mapMode);
   const setMapMode = useStore((s) => s.setMapMode);
+  const editingShapeId = useStore((s) => s.editingShapeId);
+  const shapes = useStore((s) => s.shapes);
+  const trips = useStore((s) => s.trips);
+  const routes = useStore((s) => s.routes);
+
+  // "{route} · {shape}" label for the shape-edit banners (null → generic).
+  const editingLabel = useMemo(
+    () => shapeEditLabel(editingShapeId, shapes, trips, routes),
+    [editingShapeId, shapes, trips, routes],
+  );
+  const editingPrefix = editingLabel ? `Editing ${editingLabel}` : 'Editing Shape';
 
   if (mapMode === 'select') return null;
   // edit_shape's banner is rendered together with the Save Shape / Cancel
@@ -51,9 +63,9 @@ export function DrawingIndicator() {
   }
 
   const messages: Record<string, string> = {
-    edit_vertices: 'Editing Shape — Drag vertices to adjust',
+    edit_vertices: `${editingPrefix} — Drag vertices to adjust`,
     move_stop: 'Moving Stop — Click the map or drag the stop to reposition. Press Esc to cancel.',
-    edit_shape: 'Editing Shape — Drag vertices, click midpoints to add, Delete key to remove. Click Save when done.',
+    edit_shape: `${editingPrefix} — Drag vertices, click midpoints to add, Delete key to remove. Click Save when done.`,
     trim_shape: 'Trimming Shape — Click a point on the shape to set the cut',
     draw_flex_zone: 'Drawing Flex Zone — Click to add vertices, double-click to close polygon',
     edit_flex_zone: 'Editing Flex Zone — Drag vertices, click midpoints to add, Delete key to remove',
