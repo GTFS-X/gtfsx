@@ -58,7 +58,7 @@ const PAGES = [
     canonical: 'https://www.gtfsx.com/lp/agency-planning/',
     primaryCtaLabel: 'lp_agency_primary_cta',
     primaryCtaHref: 'https://www.gtfsx.com/pricing/#agency',
-    videoSrc: 'https://videos.gtfsx.com/lp-agency-demo.mp4',
+    videoSrc: 'https://videos.gtfsx.com/lp_planning_demo.mp4',
     softwareName: 'GTFS·X Agency',
     faqFirstQuestion: 'How does GTFS·X Agency compare to Remix?',
     breadcrumbLeaf: 'Agency Planning',
