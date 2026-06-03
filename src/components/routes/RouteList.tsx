@@ -14,11 +14,21 @@ export function RouteList() {
     editingRouteId, setEditingRouteId,
     hiddenRouteIds, toggleRouteVisibility,
     hiddenRouteTypes, toggleRouteType,
+    visibilitySets, saveVisibilitySet,
   } = useStore();
   const flexZones = useStore((s) => s.flexZones);
 
   // Quick text filter (short name / long name / description).
   const [text, setText] = useState('');
+  // Inline "save current visibility as a scenario" form.
+  const [savingScenario, setSavingScenario] = useState(false);
+  const [scenarioName, setScenarioName] = useState('');
+
+  const commitScenario = () => {
+    saveVisibilitySet(scenarioName);
+    setSavingScenario(false);
+    setScenarioName('');
+  };
 
   // Flex zones are materialized as routes (route_type 3, "… (Flex)") so they
   // export cleanly and the validator sees them, but they're created/edited/
@@ -191,6 +201,57 @@ export function RouteList() {
           >
             + Add Route
           </button>
+
+          {/* Scenarios — save the routes currently shown (toggle others off with
+              the colour swatches) as a named visibility set you can switch
+              between from the header bar. */}
+          <div className="mt-3 pt-3 border-t border-sand">
+            {savingScenario ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  autoFocus
+                  value={scenarioName}
+                  onChange={(e) => setScenarioName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitScenario();
+                    if (e.key === 'Escape') { setSavingScenario(false); setScenarioName(''); }
+                  }}
+                  placeholder="Scenario name"
+                  className="flex-1 min-w-0 px-2.5 py-1.5 border-2 border-teal rounded-lg text-xs bg-white focus:outline-none"
+                />
+                <button
+                  onClick={commitScenario}
+                  className="px-2.5 py-1.5 bg-teal text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity shrink-0"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => { setSavingScenario(false); setScenarioName(''); }}
+                  className="px-1.5 py-1.5 text-warm-gray text-xs hover:text-coral shrink-0"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setScenarioName(`Scenario ${visibilitySets.length + 1}`); setSavingScenario(true); }}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-warm-gray hover:text-teal hover:bg-teal-light transition-colors"
+                title="Save the routes currently shown as a scenario you can switch to from the header"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                  <polyline points="2 17 12 22 22 17" />
+                  <polyline points="2 12 12 17 22 12" />
+                </svg>
+                Save current view as scenario
+              </button>
+            )}
+            {visibilitySets.length > 0 && (
+              <p className="mt-1.5 px-1 text-[11px] text-warm-gray text-center">
+                {visibilitySets.length} saved · switch from the header bar
+              </p>
+            )}
+          </div>
         </>
       )}
     </div>
