@@ -75,7 +75,7 @@
 
       <h2 id="the-grid">The trip grid</h2>
       <p>Open the Timetable from the footer, pick a route, and the grid loads. Rows are trips; columns are the stops in <code>stop_sequence</code> order; cells are times in <code>HH:MM:SS</code> format. The editor accepts shorthand input — type <code>7:30</code> or <code>730</code> and it auto-formats to <code>07:30:00</code>.</p>
-      <p>The selector at the top of the grid switches which trips you're editing. For a route with a single shape per direction it reads as an outbound (direction 0) / inbound (direction 1) toggle; for routes with several shapes it becomes a <a href="#patterns">pattern dropdown</a>. Either way, each pattern has its own trip list and its own stop order — the columns are that shape's stops.</p>
+      <p>The selector at the top of the grid — a <a href="#patterns">pattern dropdown</a> — switches which trips you're editing. Each pattern has its own trip list and its own stop order — the columns are that shape's stops.</p>
 
       <h2 id="creating-trips">Creating trips</h2>
       <p>Click <strong>+ Add Trip</strong> to insert a new row. Each trip needs:</p>
@@ -124,7 +124,7 @@
 
       <h2 id="patterns">Patterns: picking the shape a trip belongs to</h2>
       <p>A route can have more than one shape per direction — a peak express variant, a weekend deviation, a short-turn that only covers half the line (see <a href="/docs/routes-and-shapes/#multiple-variants">Routes &amp; shapes</a>). In GTFS·X each shape carries its own ordered stop list, so the timetable's columns are the stops of <em>the shape you're working on</em>, not a single direction-wide list.</p>
-      <p>The selector at the top of the timetable controls which pattern you're editing. When a route has shapes, it's a <strong>pattern dropdown</strong> that lists each shape by name ("Outbound — express", "Weekend deviation") and switches the grid — its columns, its trips — to that shape. A route with no shapes yet falls back to a plain Direction 0 / Direction 1 toggle. The dropdown is what makes <em>same-direction</em> variants reachable: two outbound shapes look identical to a two-way direction toggle, so name your shapes and pick from the list.</p>
+      <p>The selector at the top of the timetable is a <strong>pattern dropdown</strong> that lists each shape by name ("Outbound — express", "Weekend deviation") and switches the grid — its columns, its trips — to that shape. The dropdown is what makes <em>same-direction</em> variants reachable: two outbound shapes look identical to a two-way direction toggle, so name your shapes and pick from the list.</p>
       <p>Selecting a pattern filters the trip grid to trips on that shape. New trips you add inherit the selected shape, so their stop columns line up. If you're authoring a short-turn variant, switch to its shape first, then add its trips — they'll reference the subset of stops that shape serves.</p>
 
       <h2 id="rebuild-by-headway">Rebuilding a pattern: trip-less shapes &amp; Remove All Trips</h2>
