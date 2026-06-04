@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { FormField } from '../ui/FormField';
 import { AuthLayout } from './AuthLayout';
 import { AuthButton } from './AuthButton';
+import { GoogleSignInButton, AuthDivider } from './GoogleSignInButton';
 import { TurnstileWidget } from './TurnstileWidget';
 import { signup, resendVerification, ApiError } from '../../services/authApi';
 import { turnstileSiteKey } from '../../utils/featureFlags';
@@ -180,6 +181,9 @@ export function SignupPage() {
         </>
       }
     >
+      <GoogleSignInButton label="Sign up with Google" next={nextPath || null} />
+      <AuthDivider />
+
       <form onSubmit={handleSubmit}>
         <FormField
           label="Email"

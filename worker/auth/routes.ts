@@ -27,6 +27,7 @@ import {
   invalidateAuthTokensForUser,
 } from './tokens';
 import { requireAuth } from './middleware';
+import { googleRouter } from './google';
 import { sendVerifyEmail, sendMagicLink, sendPasswordReset } from '../email';
 import { verifyTurnstile } from '../util/turnstile';
 
@@ -154,6 +155,9 @@ async function parseJson<T extends z.ZodTypeAny>(c: { req: { json: () => Promise
 export const authRouter = new Hono<AppContext>();
 
 authRouter.get('/ping', (c) => c.json({ ok: true }));
+
+// Google OAuth ("Continue with Google"), issue #20. Mounted at /auth/google.
+authRouter.route('/google', googleRouter);
 
 // ─── Signup ────────────────────────────────────────────────────────────────
 //

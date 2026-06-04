@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { FormField } from '../ui/FormField';
 import { AuthLayout } from './AuthLayout';
 import { AuthButton } from './AuthButton';
+import { GoogleSignInButton, AuthDivider } from './GoogleSignInButton';
 import { login, requestMagicLink, resendVerification, ApiError } from '../../services/authApi';
 import { useStore } from '../../store';
 
@@ -120,6 +121,9 @@ export function LoginPage() {
           Password updated — sign in with your new password.
         </div>
       )}
+
+      <GoogleSignInButton next={searchParams.get('next')} />
+      <AuthDivider />
 
       <div className="flex gap-1 p-1 bg-cream rounded-lg mb-5">
         <button

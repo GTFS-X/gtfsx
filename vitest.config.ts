@@ -62,6 +62,11 @@ export default defineConfig(async () => {
             AUTH_EMAIL_FROM: 'test@example.com',
             RESEND_API_KEY: 'test-resend-key',
             MOBILITY_DATABASE_REFRESH_TOKEN: 'test-md-token',
+            // Google OAuth (issue #20). Deterministic test creds so the
+            // /auth/google/* routes run; the outbound token + userinfo HTTP
+            // calls are mocked in auth.googleOauth.test.ts.
+            GOOGLE_CLIENT_ID: 'test-google-client-id',
+            GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
             TEST_MIGRATIONS: migrations,
           },
         },

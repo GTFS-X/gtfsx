@@ -23,6 +23,13 @@ export interface Env {
   // origin. Same value as VITE_MAPBOX_TOKEN; not a secret.
   MAPBOX_TOKEN?: string;
 
+  // Google OAuth ("Continue with Google"), issue #20. The client ID is public
+  // (lives in wrangler.jsonc `vars`); the client secret is a `wrangler secret`.
+  // When either is missing the /auth/google/* routes redirect to the login
+  // error page instead of running, so the rest of the worker stays healthy.
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+
   // Stripe Price IDs (from scripts/setup-stripe.ts). Empty until billing wired in.
   STRIPE_PRICE_PRO_MONTHLY?: string;
   STRIPE_PRICE_PRO_ANNUAL?: string;
