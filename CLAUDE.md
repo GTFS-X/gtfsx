@@ -10,6 +10,11 @@
 - The planned-feature backlog lives in **GitHub issues** (`markegge/gtfs-studio`). Superseded/historical docs are under `docs/archive/` (gitignored, local-only).
 - Example GTFS feed: `streamline_gtfs_march_2026/`. Brand assets: `docs/brand-kit/`.
 
+## Demo feed (svt-demo) — keep it exercising the spec
+- `/demo` loads the **published `svt-demo`** feed from `https://feeds.gtfsx.com/svt-demo/gtfs.zip` (not a bundled zip). Updating the demo means editing the `svt-demo` server project and republishing.
+- **When you add new GTFS spec functionality or an extension (Fares v2, flex/demand-response, continuous pickup/drop-off, etc.), build a representative example into the demo feed** so `/demo`, the marketing site, and the validator-parity test all exercise it. Tracked on the demo-feed GitHub issue.
+- **Validator parity:** `npm run test:validator-parity` (network-dependent, periodic — not in the fast gate) compares our validator's output against the canonical MobilityData validator on our own feeds to confirm we flag the same issues.
+
 ## Backend (auth + feed management + embeds + billing + forum)
 - Backend + Stripe billing are **live in production** (`BACKEND_ENABLED=true`, `BILLING_ENABLED=true`); see `docs/ARCHITECTURE.md` §5 for the live snapshot and the kill-switch pairing.
 - Cloudflare Worker (same `wrangler.jsonc` as the SPA): `worker/` — Hono router composing `auth/`, `me/`, `orgs/`, `projects/`, `publication/`, `distribution/`, `embeds/`, `billing/`, `forum/`, `events/`, `marketing/`, `admin/`, `import/`, `cron/`, `email/`, `util/`, with legacy handlers in `worker/legacy/`.
