@@ -451,20 +451,15 @@ export function PublishPanel() {
                 </div>
               )}
 
-              <div className="mt-4 inline-flex gap-1 text-xs">
-                <button
-                  onClick={() => setScheduleMode(false)}
-                  className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${!scheduleMode ? 'bg-coral text-white' : 'bg-sand text-brown hover:bg-coral-light hover:text-coral'}`}
-                >
-                  Publish now
-                </button>
-                <button
-                  onClick={() => setScheduleMode(true)}
-                  className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${scheduleMode ? 'bg-coral text-white' : 'bg-sand text-brown hover:bg-coral-light hover:text-coral'}`}
-                >
-                  Schedule for later
-                </button>
-              </div>
+              <label className="mt-4 flex items-center gap-2 text-xs text-dark-brown cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={scheduleMode}
+                  onChange={(e) => setScheduleMode(e.target.checked)}
+                  className="accent-coral w-4 h-4"
+                />
+                Schedule for later instead of publishing now
+              </label>
 
               {scheduleMode ? (
                 <div className="mt-3">
@@ -491,7 +486,7 @@ export function PublishPanel() {
               ) : (
                 <div className="mt-3">
                   <AuthButton onClick={handlePublish} disabled={publishDisabled}>
-                    {busy ? 'Publishing…' : 'Publish'}
+                    {busy ? 'Publishing…' : 'Publish now'}
                   </AuthButton>
                 </div>
               )}
