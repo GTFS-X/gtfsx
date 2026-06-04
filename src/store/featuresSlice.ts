@@ -14,7 +14,8 @@ export type AdvancedFeature =
   | 'blocks'
   | 'demandResponse'
   | 'serviceAlerts'
-  | 'faresV2';
+  | 'faresV2'
+  | 'continuousStops';
 
 export interface FeaturesSlice {
   // The user's explicit per-feature choice. Absent → use the default rule.
@@ -144,6 +145,18 @@ export const ADVANCED_FEATURES: FeatureMeta[] = [
       'fare_products.txt', 'fare_leg_rules.txt', 'fare_transfer_rules.txt',
     ],
   },
+  {
+    key: 'continuousStops',
+    label: 'Flag-stop service (continuous pickup/drop-off)',
+    description:
+      "On-route boarding/alighting between stops — hail-and-ride / flag stops. Most fixed-route agencies don't need this. Off by default; turning it on reveals the route-level and per-stop continuous pickup/drop-off controls. Auto-on when the imported feed already uses it.",
+    defaultOn: false,
+    // No standalone nav section — the UI lives as route-level controls in the
+    // Route editor and a per-stop ⚑ override in the timetable header, gated by
+    // this toggle. continuous_pickup/continuous_drop_off are columns on
+    // routes.txt and stop_times.txt, not separate files, so `files` is empty.
+    files: [],
+  },
 ];
 
 export const FEATURE_BY_KEY: Record<AdvancedFeature, FeatureMeta> = Object.fromEntries(
@@ -168,6 +181,15 @@ export function featureHasData(s: AppStore, f: AdvancedFeature): boolean {
         s.timeframes.length > 0 || s.riderCategories.length > 0 ||
         s.fareMedia.length > 0 || s.fareProducts.length > 0 ||
         s.fareLegRules.length > 0 || s.fareTransferRules.length > 0
+      );
+    case 'continuousStops':
+      // Any explicit continuous_pickup/continuous_drop_off on a route OR a
+      // stop_time means the feed uses flag-stop service. The store leaves these
+      // undefined when unset (the GTFS default of 1 "no continuous"), so any
+      // defined value is non-default in-use data.
+      return (
+        s.routes.some((r) => r.continuous_pickup !== undefined || r.continuous_drop_off !== undefined) ||
+        s.stopTimes.some((st) => st.continuous_pickup !== undefined || st.continuous_drop_off !== undefined)
       );
   }
 }
@@ -208,6 +230,16 @@ export function clearFeatureData(s: AppStore, f: AdvancedFeature): void {
       s.setTimeframes([]); s.setRiderCategories([]);
       s.setFareMedia([]); s.setFareProducts([]);
       s.setFareLegRules([]); s.setFareTransferRules([]);
+      break;
+    case 'continuousStops':
+      // No file; strip continuous_pickup/continuous_drop_off from every route
+      // and stop_time.
+      s.setRoutes(s.routes.map((r) => ({
+        ...r, continuous_pickup: undefined, continuous_drop_off: undefined,
+      })));
+      s.setStopTimes(s.stopTimes.map((st) => ({
+        ...st, continuous_pickup: undefined, continuous_drop_off: undefined,
+      })));
       break;
   }
 }

@@ -1,4 +1,5 @@
 import { useStore } from '../../store';
+import { featureEnabled } from '../../store/featuresSlice';
 import { FormField } from '../ui/FormField';
 import { RailSubHeading, RailDivider } from '../ui/RailHeadings';
 import { ROUTE_COLORS, getContrastTextColor } from '../../utils/colors';
@@ -8,6 +9,9 @@ export function RouteEditor() {
     routes, updateRoute,
     selectedRouteId,
   } = useStore();
+  // Flag-stop / continuous pickup-drop-off controls only appear when this
+  // advanced feature is enabled for the feed (niche; off for most fixed-route).
+  const showContinuous = useStore((s) => featureEnabled(s, 'continuousStops'));
 
   const route = routes.find((r) => r.route_id === selectedRouteId);
   if (!route) return null;
@@ -124,50 +128,54 @@ export function RouteEditor() {
         </div>
       </div>
 
-      {/* Flag-Stop (GTFS-Flex continuous pickup/drop-off) */}
-      <RailDivider />
-      <RailSubHeading>Flag-Stop Service</RailSubHeading>
-      <div className="mb-4">
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="block text-[10px] text-warm-gray mb-0.5">Pickup</label>
-            <select
-              value={route.continuous_pickup ?? ''}
-              onChange={(e) => updateRoute(route.route_id, {
-                continuous_pickup: e.target.value === '' ? undefined
-                  : (Number(e.target.value) as 0 | 1 | 2 | 3),
-              })}
-              className="w-full px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
-            >
-              <option value="">Not set (fixed stops only)</option>
-              <option value="0">0 — Continuous boarding allowed</option>
-              <option value="1">1 — No continuous pickup</option>
-              <option value="2">2 — Must phone agency</option>
-              <option value="3">3 — Coordinate with driver</option>
-            </select>
+      {/* Flag-Stop (continuous pickup/drop-off) — gated by the advanced feature toggle */}
+      {showContinuous && (
+        <>
+          <RailDivider />
+          <RailSubHeading>Flag-Stop Service</RailSubHeading>
+          <div className="mb-4">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] text-warm-gray mb-0.5">Pickup</label>
+                <select
+                  value={route.continuous_pickup ?? ''}
+                  onChange={(e) => updateRoute(route.route_id, {
+                    continuous_pickup: e.target.value === '' ? undefined
+                      : (Number(e.target.value) as 0 | 1 | 2 | 3),
+                  })}
+                  className="w-full px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
+                >
+                  <option value="">Not set (fixed stops only)</option>
+                  <option value="0">0 — Continuous boarding allowed</option>
+                  <option value="1">1 — No continuous pickup</option>
+                  <option value="2">2 — Must phone agency</option>
+                  <option value="3">3 — Coordinate with driver</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] text-warm-gray mb-0.5">Drop-off</label>
+                <select
+                  value={route.continuous_drop_off ?? ''}
+                  onChange={(e) => updateRoute(route.route_id, {
+                    continuous_drop_off: e.target.value === '' ? undefined
+                      : (Number(e.target.value) as 0 | 1 | 2 | 3),
+                  })}
+                  className="w-full px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
+                >
+                  <option value="">Not set (fixed stops only)</option>
+                  <option value="0">0 — Continuous alighting allowed</option>
+                  <option value="1">1 — No continuous drop-off</option>
+                  <option value="2">2 — Must phone agency</option>
+                  <option value="3">3 — Coordinate with driver</option>
+                </select>
+              </div>
+            </div>
+            <p className="text-[10px] text-warm-gray/80 mt-1">
+              Allows passengers to board or alight anywhere along the route, not just at fixed stops. Leave unset unless this is flag-stop / deviated fixed-route service.
+            </p>
           </div>
-          <div>
-            <label className="block text-[10px] text-warm-gray mb-0.5">Drop-off</label>
-            <select
-              value={route.continuous_drop_off ?? ''}
-              onChange={(e) => updateRoute(route.route_id, {
-                continuous_drop_off: e.target.value === '' ? undefined
-                  : (Number(e.target.value) as 0 | 1 | 2 | 3),
-              })}
-              className="w-full px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
-            >
-              <option value="">Not set (fixed stops only)</option>
-              <option value="0">0 — Continuous alighting allowed</option>
-              <option value="1">1 — No continuous drop-off</option>
-              <option value="2">2 — Must phone agency</option>
-              <option value="3">3 — Coordinate with driver</option>
-            </select>
-          </div>
-        </div>
-        <p className="text-[10px] text-warm-gray/80 mt-1">
-          Allows passengers to board or alight anywhere along the route, not just at fixed stops. Leave unset unless this is flag-stop / deviated fixed-route service.
-        </p>
-      </div>
+        </>
+      )}
 
 
     </div>

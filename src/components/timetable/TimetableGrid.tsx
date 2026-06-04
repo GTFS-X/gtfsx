@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useEffect, useMemo, useCallback, useState, useRef } from 'react';
 import { useStore } from '../../store';
+import { featureEnabled } from '../../store/featuresSlice';
 import { ensureDefaultCalendar } from '../../services/defaultCalendar';
 import { formatTimeShort, normalizeTimeInput, gtfsTimeToSeconds, secondsToGtfsTime } from '../../utils/time';
 import { directionName } from '../../utils/constants';
@@ -43,6 +44,10 @@ export function TimetableGrid() {
   const { byTrip: stopTimesByTrip } = useStopTimesIndex();
 
   const route = routes.find((r) => r.route_id === selectedRouteId);
+
+  // Flag-stop / continuous pickup-drop-off is an advanced, niche feature; the
+  // per-stop ⚑ override only appears when this feature is enabled for the feed.
+  const showContinuous = useStore((s) => featureEnabled(s, 'continuousStops'));
 
   // Direction toggle state — synced to store so RouteLayer can read it
   const directionId = useStore((s) => s.timetableDirectionId);
@@ -742,25 +747,27 @@ export function TimetableGrid() {
                   >
                     <span className="inline-flex items-center gap-1">
                       <span>{stop.stop_name.length > 20 ? stop.stop_name.slice(0, 18) + '\u2026' : stop.stop_name}</span>
-                      <button
-                        type="button"
-                        onClick={() => setFlexStopId((cur) => (cur === stop.stop_id ? null : stop.stop_id))}
-                        title={hasOverride
-                          ? 'Flag-stop override set for this stop \u2014 click to edit'
-                          : 'Set per-stop flag-stop (continuous pickup/drop-off) override'}
-                        aria-label="Flag-stop override"
-                        aria-expanded={flexStopId === stop.stop_id}
-                        className={`shrink-0 leading-none text-[11px] rounded px-0.5 transition-opacity ${
-                          hasOverride
-                            ? 'text-coral opacity-100'
-                            : 'text-warm-gray/40 opacity-40 hover:opacity-100 hover:text-coral'
-                        }`}
-                      >
-                        {/* flag glyph */}
-                        {'\u2691'}
-                      </button>
+                      {showContinuous && (
+                        <button
+                          type="button"
+                          onClick={() => setFlexStopId((cur) => (cur === stop.stop_id ? null : stop.stop_id))}
+                          title={hasOverride
+                            ? 'Flag-stop override set for this stop \u2014 click to edit'
+                            : 'Set per-stop flag-stop (continuous pickup/drop-off) override'}
+                          aria-label="Flag-stop override"
+                          aria-expanded={flexStopId === stop.stop_id}
+                          className={`shrink-0 leading-none text-[11px] rounded px-0.5 transition-opacity ${
+                            hasOverride
+                              ? 'text-coral opacity-100'
+                              : 'text-warm-gray/40 opacity-40 hover:opacity-100 hover:text-coral'
+                          }`}
+                        >
+                          {/* flag glyph */}
+                          {'\u2691'}
+                        </button>
+                      )}
                     </span>
-                    {flexStopId === stop.stop_id && (
+                    {showContinuous && flexStopId === stop.stop_id && (
                       <ContinuousOverridePopover
                         pickup={ov?.pickup}
                         dropOff={ov?.dropOff}
@@ -1225,12 +1232,15 @@ function ContinuousOverridePopover({
           ✕
         </button>
       </div>
+      <p className="text-[10px] text-warm-gray/70 mb-2 font-normal leading-snug">
+        Applies to the on-route segment after this stop (flag-stop / hail-and-ride between stops).
+      </p>
       <div className="space-y-2">
         {renderSelect('Continuous pickup', 'continuous_pickup', pickup, routePickup)}
         {renderSelect('Continuous drop-off', 'continuous_drop_off', dropOff, routeDropOff)}
       </div>
       <p className="text-[10px] text-warm-gray/80 mt-2 font-normal">
-        Overrides the route default for boarding/alighting along the segment after this stop. Applies to every trip on this route. Leave on “Inherit” for normal fixed stops.
+        Overrides the route default. Applies to every trip on this route. Leave on “Inherit” for normal fixed stops.
       </p>
     </div>
   );

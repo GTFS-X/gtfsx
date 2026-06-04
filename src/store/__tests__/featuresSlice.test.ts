@@ -15,6 +15,8 @@ function reset() {
   s.setPathways([]);
   s.setFlexZones([]);
   s.setTrips([]);
+  s.setRoutes([]);
+  s.setStopTimes([]);
   // Clear every Fares v2 file so the faresV2 auto-on-when-data rule doesn't
   // leak across tests (it enables on any populated v2 file).
   s.setFareAreas([]);
@@ -36,7 +38,7 @@ describe('feature defaults', () => {
   it('demand response is on by default; the rest are off', () => {
     const s = useStore.getState();
     expect(featureEnabled(s, 'demandResponse')).toBe(true);
-    for (const f of ['transfers', 'frequencies', 'stations', 'blocks', 'serviceAlerts', 'faresV2'] as const) {
+    for (const f of ['transfers', 'frequencies', 'stations', 'blocks', 'serviceAlerts', 'faresV2', 'continuousStops'] as const) {
       expect(featureEnabled(s, f)).toBe(false);
     }
   });
@@ -70,6 +72,32 @@ describe('data-driven auto-enable', () => {
     useStore.getState().setTrips([{ trip_id: 't1', route_id: 'r1', service_id: 's1', block_id: 'b1' } as never]);
     useStore.getState().setFeatureSetting('blocks', true);
     expect(featureEnabled(useStore.getState(), 'blocks')).toBe(true);
+  });
+
+  it('continuousStops auto-enables when a route carries continuous_pickup/drop-off', () => {
+    useStore.getState().setRoutes([
+      { route_id: 'r1', route_short_name: '1', route_type: 3, continuous_pickup: 0 } as never,
+    ]);
+    const s = useStore.getState();
+    expect(featureHasData(s, 'continuousStops')).toBe(true);
+    expect(featureEnabled(s, 'continuousStops')).toBe(true);
+  });
+
+  it('continuousStops auto-enables when a stop_time carries continuous_pickup/drop-off', () => {
+    useStore.getState().setStopTimes([
+      { trip_id: 't1', stop_id: 's1', stop_sequence: 1, continuous_drop_off: 3 } as never,
+    ]);
+    const s = useStore.getState();
+    expect(featureHasData(s, 'continuousStops')).toBe(true);
+    expect(featureEnabled(s, 'continuousStops')).toBe(true);
+  });
+
+  it('continuousStops stays off when no route/stop_time uses it', () => {
+    useStore.getState().setRoutes([{ route_id: 'r1', route_short_name: '1', route_type: 3 } as never]);
+    useStore.getState().setStopTimes([{ trip_id: 't1', stop_id: 's1', stop_sequence: 1 } as never]);
+    const s = useStore.getState();
+    expect(featureHasData(s, 'continuousStops')).toBe(false);
+    expect(featureEnabled(s, 'continuousStops')).toBe(false);
   });
 });
 
@@ -107,6 +135,22 @@ describe('clearFeatureData', () => {
     s.setTrips([{ trip_id: 't1', route_id: 'r1', service_id: 's1', block_id: 'b1' } as never]);
     clearFeatureData(useStore.getState(), 'blocks');
     expect(useStore.getState().trips.every((t) => !t.block_id)).toBe(true);
+  });
+
+  it('continuousStops clears continuous_pickup/drop-off on both routes and stop_times', () => {
+    const s = useStore.getState();
+    s.setRoutes([
+      { route_id: 'r1', route_short_name: '1', route_type: 3, continuous_pickup: 0, continuous_drop_off: 2 } as never,
+    ]);
+    s.setStopTimes([
+      { trip_id: 't1', stop_id: 's1', stop_sequence: 1, continuous_pickup: 3 } as never,
+    ]);
+    clearFeatureData(useStore.getState(), 'continuousStops');
+    const after = useStore.getState();
+    expect(after.routes.every((r) => r.continuous_pickup === undefined && r.continuous_drop_off === undefined)).toBe(true);
+    expect(after.stopTimes.every((st) => st.continuous_pickup === undefined && st.continuous_drop_off === undefined)).toBe(true);
+    // featureHasData reflects the cleared state.
+    expect(featureHasData(useStore.getState(), 'continuousStops')).toBe(false);
   });
 });
 

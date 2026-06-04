@@ -28,6 +28,15 @@ function describeData(s: AppStore, f: AdvancedFeature): string {
         s.fareLegRules.length + s.fareTransferRules.length;
       return `${total} Fares v2 record(s) across areas, stop areas, and other v2 files`;
     }
+    case 'continuousStops': {
+      const routeCount = s.routes.filter(
+        (r) => r.continuous_pickup !== undefined || r.continuous_drop_off !== undefined,
+      ).length;
+      const stopTimeCount = s.stopTimes.filter(
+        (st) => st.continuous_pickup !== undefined || st.continuous_drop_off !== undefined,
+      ).length;
+      return `${routeCount} route(s) and ${stopTimeCount} stop time(s) with continuous pickup/drop-off`;
+    }
   }
 }
 
