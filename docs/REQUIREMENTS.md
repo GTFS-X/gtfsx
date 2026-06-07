@@ -86,6 +86,7 @@ Stops are placed in the context of the currently-selected route. Default behavio
 - ✅ Drag to reposition; snapped stops re-snap, freehand stops move freely.
 - ✅ Stop attributes: name, code, description, lat/lon, wheelchair boarding.
 - ✅ Multi-route stops — stops can be assigned to additional routes via an "Add existing" stop picker.
+- ✅ Repeated stops in one pattern — a stop may appear more than once in a single route/pattern (loops / out-and-backs where first = last stop). The "Add existing" picker no longer hides already-added stops; each instance is an independent timetable column and exports as a repeated `stop_id` at a distinct `stop_sequence`.
 - ✅ Reorder stops along a route via drag-and-drop.
 - ✅ Parent station / location_type hierarchy — editable on the stop (location type, parent station, `level_id`); a **Stations** panel adds table editors for `levels.txt` (floors) and `pathways.txt` (in-station walkways/stairs/elevators), with FK + enum validation.
 - ✅ Stop names labelled on the map at appropriate zoom levels.
@@ -102,6 +103,7 @@ Stops are placed in the context of the currently-selected route. Default behavio
 ### 1.5 Trips and timetables
 
 - ✅ Per-route timetable grid (rows = trips, columns = stops, cells = times).
+- ✅ "Edit Stops" shortcut in the timetable toolbar opens the route's Stops editor; clicking a stop on the map opens its properties panel directly.
 - ✅ Trip metadata: headsign, direction, service pattern, block_id, wheelchair_accessible.
 - ✅ Auto-interpolate intermediate stop times from distance + speed.
 - ✅ Estimate stop times from the drawn route's road-network travel time (Mapbox Map Matching, `◷` per trip): per-stop travel along the matched path + a configurable per-stop dwell (default 18 s) and bus-vs-car speed factor (default 1.3). Fill one trip, then ⇶ to all.

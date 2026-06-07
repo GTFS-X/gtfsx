@@ -39,7 +39,7 @@
     }
   },
   "datePublished": "2026-05-01",
-  "dateModified": "2026-05-30",
+  "dateModified": "2026-06-07",
   "mainEntityOfPage": {
     "@type": "WebPage",
     "@id": "https://www.gtfsx.com/docs/timetables-and-trips/"
@@ -76,6 +76,7 @@
       <h2 id="the-grid">The trip grid</h2>
       <p>Open the Timetable from the footer, pick a route, and the grid loads. Rows are trips; columns are the stops in <code>stop_sequence</code> order; cells are times in <code>HH:MM:SS</code> format. The editor accepts shorthand input — type <code>7:30</code> or <code>730</code> and it auto-formats to <code>07:30:00</code>.</p>
       <p>The selector at the top of the grid — a <a href="#patterns">pattern dropdown</a> — switches which trips you're editing. Each pattern has its own trip list and its own stop order — the columns are that shape's stops.</p>
+      <p>The <strong>Edit Stops</strong> button in the grid toolbar jumps straight to the route's <a href="/docs/stops/">Stops</a> editor, where you set which stops the pattern serves and their order. A stop may appear <em>more than once</em> in a pattern — handy for a loop or out-and-back whose first and last stop are the same. Add it again from the "Add existing" picker (set <em>Show stops from → All stops</em>) and it becomes a second, independent column here; on export it's written as a repeated <code>stop_id</code> at a distinct <code>stop_sequence</code>.</p>
 
       <h2 id="creating-trips">Creating trips</h2>
       <p>Click <strong>+ Add Trip</strong> to insert a new row. Each trip needs:</p>
