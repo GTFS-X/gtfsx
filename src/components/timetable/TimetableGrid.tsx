@@ -587,6 +587,21 @@ export function TimetableGrid() {
           {routeTrips.length} trips
         </span>
         <div className="flex-1" />
+        <button
+          onClick={() => {
+            if (!selectedRouteId) return;
+            const st = useStore.getState();
+            st.setEditingRouteId(selectedRouteId);
+            st.setRouteDetailTab('stops');
+            st.setSidebarSection('routes');
+            st.setRightRailOpen(true);
+          }}
+          disabled={!selectedRouteId}
+          title="Edit the stops on this route's pattern"
+          className="px-3 py-1 border-2 border-dashed border-sand rounded-md text-xs font-semibold text-warm-gray hover:border-coral hover:text-coral transition-colors whitespace-nowrap disabled:opacity-40 disabled:hover:border-sand disabled:hover:text-warm-gray"
+        >
+          Edit Stops
+        </button>
         <label
           className="flex items-center gap-1.5 text-[11px] text-warm-gray cursor-pointer select-none whitespace-nowrap"
           title="Show separate arrival and departure inputs for each stop. Use this for services with dwell time at intermediate stops (e.g. ferries, long-distance rail)."

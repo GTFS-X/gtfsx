@@ -1101,6 +1101,9 @@ export function MapView() {
         setPopupRouteId(null);
         setPopupFlexZoneId(null);
         currentState.setSidebarSection('stops');
+        // Clicking a stop opens its properties panel immediately.
+        currentState.setEditingStopId(sid);
+        currentState.setRightRailOpen(true);
         return;
       }
 
