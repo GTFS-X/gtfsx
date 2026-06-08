@@ -94,7 +94,7 @@ Stops are placed in the context of the currently-selected route. Default behavio
 ### 1.4 Calendars and service patterns
 
 - ✅ Day-of-week toggles + start/end date.
-- ✅ `calendar_dates` exception editor (added/removed days).
+- ✅ `calendar_dates` exception editor (added/removed days), with a "Delete all" control (two-step confirm) to clear every exception for a service at once.
 - ✅ Bulk-add common US holidays (MLK Day, Presidents' Day, Memorial Day, July 4, Labor Day, Thanksgiving, Christmas, etc.) within the active service date range.
 - ✅ Visual calendar showing which services run on which dates, with exception days colour-coded.
 - ✅ Human-readable service summary ("Weekdays", "Saturday Only", custom day patterns) — surfaced both inside the editor and on rider-facing embeds.
@@ -103,7 +103,7 @@ Stops are placed in the context of the currently-selected route. Default behavio
 ### 1.5 Trips and timetables
 
 - ✅ Per-route timetable grid (rows = trips, columns = stops, cells = times).
-- ✅ "Edit Stops" shortcut in the timetable toolbar opens the route's Stops editor; clicking a stop on the map opens its properties panel directly.
+- ✅ "Edit Stops" shortcut in the timetable toolbar opens the route's Stops editor; clicking a stop on the map opens its properties panel directly. The route's **Stops tab** has the reverse jump — an "Open timetable editor" button (mirror of the Trips tab's button).
 - ✅ Trip metadata: headsign, direction, service pattern, block_id, wheelchair_accessible.
 - ✅ Auto-interpolate intermediate stop times from distance + speed.
 - ✅ Estimate stop times from the drawn route's road-network travel time (Mapbox Map Matching, `◷` per trip): per-stop travel along the matched path + a configurable per-stop dwell (default 18 s) and bus-vs-car speed factor (default 1.3). Fill one trip, then ⇶ to all.

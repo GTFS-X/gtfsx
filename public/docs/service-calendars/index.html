@@ -39,7 +39,7 @@
     }
   },
   "datePublished": "2026-05-01",
-  "dateModified": "2026-05-30",
+  "dateModified": "2026-06-08",
   "mainEntityOfPage": {
     "@type": "WebPage",
     "@id": "https://www.gtfsx.com/docs/service-calendars/"
@@ -96,7 +96,7 @@
         <li><strong>One date</strong> — pick a date and click <strong>Add</strong>; it's recorded as a No-Service exception.</li>
         <li><strong>US holidays</strong> — the <strong>Add US holidays</strong> picker is a checkbox grid of the eleven US federal holidays (New Year's Day, MLK Day, Presidents' Day, Memorial Day, Juneteenth, Independence Day, Labor Day, Columbus Day, Veterans Day, Thanksgiving, Christmas Day) with <strong>Select all</strong> / <strong>None</strong>. Tick the ones your agency closes for and click <strong>Add selected holidays</strong> — only the dates that fall inside this calendar's date range are added (the button tells you how many), each as a No-Service exception.</li>
       </ul>
-      <p>To remove an exception, click the <strong>×</strong> next to it in the list, or click its highlighted day in the month preview and confirm. If your policy is "run Sunday service on the holiday" instead of closing, add the holiday as a No-Service exception on the Weekday pattern and leave the Sunday pattern running that date.</p>
+      <p>To remove an exception, click the <strong>×</strong> next to it in the list, or click its highlighted day in the month preview and confirm. To clear the whole list at once, use <strong>Delete all</strong> in the Exceptions header — it asks for a second confirmation ("Delete all N? Yes / Cancel") before removing every <code>calendar_dates</code> exception for that service. If your policy is "run Sunday service on the holiday" instead of closing, add the holiday as a No-Service exception on the Weekday pattern and leave the Sunday pattern running that date.</p>
 
       <h2 id="exception-only">Exception-only services</h2>
       <p>For one-off events (a parade route, a holiday shuttle, an emergency replacement schedule) that don't follow a weekly pattern, create a service with all seven day toggles off. Then add explicit "service added" exception dates for the dates the service runs. The pattern is fully driven by <code>calendar_dates.txt</code> — no weekly rule at all. Valid GTFS, supported by most consumers.</p>
