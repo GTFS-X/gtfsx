@@ -18,7 +18,7 @@ import {
 import { ApiError } from '../../services/authApi';
 import { exportGtfsZip } from '../../services/gtfsExport';
 import { applySnapshotToStore, buildSnapshot } from '../../db/serverPersistence';
-import { DraftLinksSection } from './DraftLinksPanel';
+import { DraftLinksSection, toEditorDeepLink } from './DraftLinksPanel';
 
 // Env-aware public feeds origin (mirrors EmbedPanel): staging publishes to
 // staging-feeds.gtfsx.com, prod to feeds.gtfsx.com. Used for the canonical-URL
@@ -651,6 +651,14 @@ function CurrentPublicationView({
           >
             Copy URL
           </button>
+          <a
+            href={toEditorDeepLink(url)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs px-2 py-1 rounded-md bg-sand text-brown hover:bg-coral-light hover:text-coral transition-colors"
+          >
+            Open in editor
+          </a>
         </div>
       )}
       <div className="text-xs text-warm-gray">

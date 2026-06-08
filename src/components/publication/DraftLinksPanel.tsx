@@ -27,11 +27,12 @@ function daysUntil(ms: number): number {
 }
 
 // Construct an editor deep-link that opens /import on the current origin with
-// the draft ZIP URL as the source. Anyone with the URL can preview the feed
-// in an anonymous editor session — no account required, same TTL as the ZIP
-// link itself (revocation flows through automatically since the editor proxy
-// will get a 410 when fetching the underlying draft URL).
-function toEditorDeepLink(zipUrl: string): string {
+// a feed ZIP URL as the source. Anyone with the URL can open the feed in an
+// anonymous editor session — no account required. Used for both draft links
+// (revocation flows through since the proxy gets a 410 on the underlying URL)
+// and the published-feed URL (see PublishPanel's current-publication view).
+// eslint-disable-next-line react-refresh/only-export-components
+export function toEditorDeepLink(zipUrl: string): string {
   return `${window.location.origin}/import?url=${encodeURIComponent(zipUrl)}`;
 }
 
