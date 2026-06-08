@@ -31,7 +31,13 @@ export function ValidationPanel() {
 
   const handleClick = (m: typeof messages[0]) => {
     if (m.entity_type === 'agency') state.setSidebarSection('agency');
-    else if (m.entity_type === 'calendar') state.setSidebarSection('calendar');
+    else if (m.entity_type === 'calendar') {
+      // Calendar/service issues (missing dates, all-days-off, holiday-exception
+      // nudge, …) carry the service_id as entity_id. Open the Calendars panel
+      // AND select that service so its editor opens — mirrors the stop case.
+      state.setSidebarSection('calendar');
+      if (m.entity_id) state.setEditingCalendarServiceId(m.entity_id);
+    }
     else if (
       m.entity_type === 'fare' || m.entity_type === 'fare_rule' ||
       // GTFS-Fares v2 entity types all live in the Fares panel (v2 sub-tabs).
