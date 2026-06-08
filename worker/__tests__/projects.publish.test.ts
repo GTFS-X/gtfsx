@@ -86,6 +86,42 @@ describe('/api/projects/:id/publish', () => {
     expect(recvd).toEqual(zipBytes);
   });
 
+  it('import proxy serves the published ZIP from R2 for a same-zone canonical URL', async () => {
+    // Regression: CF refuses worker→its-own-zone fetches with a 522, so the
+    // published-feed "Open in editor" deep-link (/import?url=feeds.*/<slug>/
+    // gtfs.zip) used to fail with fetch_failed. The import proxy must
+    // short-circuit canonical URLs and read the bytes straight from R2.
+    const client = await loggedInClient('pubimport@example.com');
+    const proj = await createProject(client, 'Importable');
+    const v = await createSnapshot(client, proj.id, { agencies: [], routes: [] });
+    const zipBytes = new TextEncoder().encode('PK\x03\x04published-feed-body');
+    await publishMultipart(client, proj.id, v.snapshot.id, zipBytes);
+
+    // FEEDS_ORIGIN is http://feeds.test.local in tests (see vitest.config.ts),
+    // which is what canonicalUrl / the editor deep-link points at.
+    const canonicalUrl = `http://feeds.test.local/${proj.slug}/gtfs.zip`;
+    const res = await SELF.fetch(
+      `http://127.0.0.1/api/import/fetch?url=${encodeURIComponent(canonicalUrl)}`,
+      { headers: { 'X-GB-Client': 'web' } },
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('application/zip');
+    const recvd = new Uint8Array(await res.arrayBuffer());
+    expect(recvd).toEqual(zipBytes);
+  });
+
+  it('import proxy returns 404 fetch_failed for an unpublished same-zone canonical URL', async () => {
+    const res = await SELF.fetch(
+      `http://127.0.0.1/api/import/fetch?url=${encodeURIComponent(
+        'http://feeds.test.local/never-published/gtfs.zip',
+      )}`,
+      { headers: { 'X-GB-Client': 'web' } },
+    );
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('fetch_failed');
+  });
+
   it('publish with validation errors returns 422; ignoreWarnings allows it', async () => {
     const client = await loggedInClient('pub2@example.com');
     const proj = await createProject(client, 'Broken');

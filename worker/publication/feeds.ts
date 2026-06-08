@@ -138,6 +138,32 @@ export async function loadDraftZipBytes(
 }
 
 export const DRAFT_URL_RE = /^\/([a-z0-9][a-z0-9-]*)\/draft\/([A-Za-z0-9_-]+)\.zip$/;
+// Canonical published-feed URL path (feeds.*/<slug>/gtfs.zip). Used by the
+// import proxy's same-zone short-circuit alongside DRAFT_URL_RE.
+export const CANONICAL_URL_RE = /^\/([a-z0-9][a-z0-9-]*)\/gtfs\.zip$/;
+
+/**
+ * Same logic as serveCanonicalZip but returns either the raw bytes or a
+ * structured error — used by the import proxy to short-circuit same-zone
+ * fetches that CF refuses to route worker → its own domain (522). Without this,
+ * the published-feed "Open editor link" deep-link
+ * (/import?url=feeds.<zone>/<slug>/gtfs.zip) fails with fetch_failed/522.
+ */
+export type PublishedLoadResult =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; reason: 'not_found' | 'missing' };
+
+export async function loadPublishedZipBytes(
+  env: Env,
+  slug: string,
+): Promise<PublishedLoadResult> {
+  const pub = await loadPublication(env, slug);
+  if (!pub) return { ok: false, reason: 'not_found' };
+  const object = await getFeedBlob(env, pub.zip_r2_key);
+  if (!object) return { ok: false, reason: 'missing' };
+  const buf = await object.arrayBuffer();
+  return { ok: true, bytes: new Uint8Array(buf) };
+}
 
 // ─── Route dispatch ────────────────────────────────────────────────────────────
 

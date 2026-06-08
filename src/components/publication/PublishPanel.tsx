@@ -638,28 +638,79 @@ function CurrentPublicationView({
       ? `${FEEDS_ORIGIN}/${project.slug}/gtfs.zip`
       : null);
 
+  // Local "Copied!" affordance for the editor-link button, mirroring the
+  // "Share for review" section's copy UX.
+  const [editorCopied, setEditorCopied] = useState(false);
+  const copyEditorLink = async () => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(toEditorDeepLink(url));
+      setEditorCopied(true);
+      setTimeout(() => setEditorCopied(false), 1500);
+    } catch {
+      // Fall back to the banner-based copy if the Clipboard API is blocked.
+      onCopy(toEditorDeepLink(url));
+    }
+  };
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {url && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <code className="text-xs font-mono text-dark-brown bg-cream px-2 py-1 rounded break-all">
-            {url}
-          </code>
-          <button
-            onClick={() => onCopy(url)}
-            className="text-xs px-2 py-1 rounded-md bg-sand text-brown hover:bg-coral-light hover:text-coral transition-colors"
-          >
-            Copy URL
-          </button>
-          <a
-            href={toEditorDeepLink(url)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs px-2 py-1 rounded-md bg-sand text-brown hover:bg-coral-light hover:text-coral transition-colors"
-          >
-            Open in editor
-          </a>
-        </div>
+        <>
+          {/* Direct feed URL — for GTFS ingestors (Google, Transit, OTP…). */}
+          <div>
+            <div className="text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
+              Feed URL (GTFS .zip)
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <code className="text-xs font-mono text-dark-brown bg-cream px-2 py-1 rounded break-all flex-1">
+                {url}
+              </code>
+              <button
+                onClick={() => onCopy(url)}
+                className="text-xs px-2 py-1 rounded-md bg-sand text-brown hover:bg-coral-light hover:text-coral transition-colors whitespace-nowrap"
+              >
+                Copy URL
+              </button>
+            </div>
+          </div>
+
+          {/* Editor deep-link — opens THIS published feed in the GTFS·X editor. */}
+          <div>
+            <div className="text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
+              Editor link — opens this feed in the GTFS·X editor
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <code className="text-xs font-mono text-dark-brown bg-cream px-2 py-1 rounded break-all flex-1">
+                {toEditorDeepLink(url)}
+              </code>
+              <button
+                onClick={copyEditorLink}
+                title="Copies a link that opens this published feed in the GTFS·X editor"
+                className={`text-xs px-2 py-1 rounded-md transition-colors whitespace-nowrap ${
+                  editorCopied
+                    ? 'bg-teal text-white'
+                    : 'bg-sand text-brown hover:bg-coral-light hover:text-coral'
+                }`}
+              >
+                {editorCopied ? 'Copied!' : 'Copy editor link'}
+              </button>
+              <a
+                href={toEditorDeepLink(url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Opens this published feed in the GTFS·X editor"
+                className="text-xs px-2 py-1 rounded-md bg-sand text-brown hover:bg-coral-light hover:text-coral transition-colors whitespace-nowrap"
+              >
+                Open in editor
+              </a>
+            </div>
+            <p className="text-[11px] text-warm-gray mt-1">
+              Share this link so anyone can open the published feed directly in the GTFS·X editor —
+              no account needed.
+            </p>
+          </div>
+        </>
       )}
       <div className="text-xs text-warm-gray">
         Published {formatDate(pub.publishedAt)} · snapshot{' '}

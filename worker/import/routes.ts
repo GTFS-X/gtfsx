@@ -2,7 +2,12 @@ import { Hono } from 'hono';
 import type { AppContext, Env } from '../env';
 import { clientIp, rateLimit } from '../util/rateLimit';
 import { getMobilityDbAccessToken } from '../distribution/mobility';
-import { DRAFT_URL_RE, loadDraftZipBytes } from '../publication/feeds';
+import {
+  DRAFT_URL_RE,
+  CANONICAL_URL_RE,
+  loadDraftZipBytes,
+  loadPublishedZipBytes,
+} from '../publication/feeds';
 
 // Deep-link feed import endpoint.
 //
@@ -298,20 +303,28 @@ importRouter.get('/fetch', async (c) => {
     }
 
     // Same-zone short-circuit. CF refuses worker→its-own-zone fetches with
-    // a 522, so a /import?url=https://feeds.<our-zone>/<slug>/draft/<tok>.zip
-    // editor deep-link can't go through fetchFeedZip. Read the draft bytes
-    // straight from R2 instead.
+    // a 522, so editor deep-links pointing at our own feeds.<our-zone> host —
+    // either the unlisted draft URL (/<slug>/draft/<tok>.zip) or the canonical
+    // published feed (/<slug>/gtfs.zip) — can't go through fetchFeedZip. Read
+    // the bytes straight from R2 instead.
     let bytes: Uint8Array;
     const feedsHost = new URL(c.env.FEEDS_ORIGIN).hostname;
-    const draftMatch = targetUrl.hostname === feedsHost
-      ? DRAFT_URL_RE.exec(targetUrl.pathname)
-      : null;
+    const sameZone = targetUrl.hostname === feedsHost;
+    const draftMatch = sameZone ? DRAFT_URL_RE.exec(targetUrl.pathname) : null;
+    const canonicalMatch = sameZone ? CANONICAL_URL_RE.exec(targetUrl.pathname) : null;
     if (draftMatch) {
       const [, slug, token] = draftMatch;
       const result = await loadDraftZipBytes(c.env, slug, token);
       if (!result.ok) {
         const status = result.reason === 'revoked' || result.reason === 'expired' ? 410 : 404;
         throw importError(status, 'fetch_failed', `Draft link ${result.reason.replace(/_/g, ' ')}.`);
+      }
+      bytes = result.bytes;
+    } else if (canonicalMatch) {
+      const [, slug] = canonicalMatch;
+      const result = await loadPublishedZipBytes(c.env, slug);
+      if (!result.ok) {
+        throw importError(404, 'fetch_failed', `No feed published at ${targetUrl.pathname}.`);
       }
       bytes = result.bytes;
     } else {
