@@ -583,6 +583,19 @@ export function RouteStopsTab() {
           </div>
         </div>
       )}
+
+      {/* Jump to the timetable for this route (mirror of RouteTripsTab) so you
+          can go straight from ordering stops to setting their times. */}
+      <button
+        onClick={() => {
+          const s = useStore.getState();
+          s.setBottomPanelOpen(true);
+          s.setBottomPanelTab('timetable');
+        }}
+        className="w-full mt-1 px-4 py-2 bg-sand text-brown rounded-lg font-heading font-bold text-sm hover:bg-coral-light hover:text-coral transition-colors"
+      >
+        Open timetable editor →
+      </button>
     </div>
   );
 }
