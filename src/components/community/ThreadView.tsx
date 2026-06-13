@@ -11,6 +11,7 @@ import {
   type ForumPost,
   type ForumThread,
 } from '../../services/forumApi';
+import { markThreadSeen } from '../../services/forumReadState';
 import { ApiError } from '../../services/authApi';
 import { useStore } from '../../store';
 import { Avatar } from './Avatar';
@@ -59,6 +60,9 @@ export function ThreadView() {
         if (cancelled) return;
         setThread(res.thread);
         setPosts(res.posts);
+        // Mark this thread seen so the category dot and thread-list row
+        // styling update when the user navigates back.
+        markThreadSeen(res.thread.id, res.thread.categoryId);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : 'Could not load thread');

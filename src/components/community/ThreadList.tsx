@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { listCategories, listThreads, type ForumCategory, type ForumThread } from '../../services/forumApi';
+import {
+  getSeenMap,
+  isThreadUnseen,
+  markCategorySeen,
+  type SeenMap,
+} from '../../services/forumReadState';
 import { Avatar } from './Avatar';
 import { relativeTime } from './time';
 
@@ -14,6 +20,8 @@ export function ThreadList() {
   const [sort, setSort] = useState<SortMode>('active');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Read localStorage once on mount; remounts after thread navigation pick up fresh state.
+  const [seenMap, setSeenMap] = useState<SeenMap>(() => getSeenMap());
 
   useEffect(() => {
     if (!catId) return;
@@ -29,6 +37,9 @@ export function ThreadList() {
         const found = catsRes.categories.find((c) => c.id === catId) ?? null;
         setCat(found);
         setThreads(threadRes.threads);
+        // Browsing a category clears its home-page green dot.
+        markCategorySeen(catId);
+        setSeenMap(getSeenMap());
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load threads');
       } finally {
@@ -90,25 +101,33 @@ export function ThreadList() {
             {sort === 'unanswered' ? 'No unanswered threads here — great!' : 'No threads yet. Start one above.'}
           </div>
         ) : (
-          threads.map((t) => <ThreadRow key={t.id} t={t} />)
+          threads.map((t) => <ThreadRow key={t.id} t={t} seenMap={seenMap} />)
         )}
       </div>
     </div>
   );
 }
 
-function ThreadRow({ t }: { t: ForumThread }) {
+function ThreadRow({ t, seenMap }: { t: ForumThread; seenMap: SeenMap }) {
+  const unseen = isThreadUnseen(t.id, t.lastPostAt, seenMap);
   return (
     <Link
       to={`/community/${encodeURIComponent(t.categoryId)}/${encodeURIComponent(t.id)}-${t.slug}`}
-      className="flex items-start gap-3 px-4 py-3 hover:bg-cream/40 transition-colors"
+      className={`flex items-start gap-3 px-4 py-3 hover:bg-cream/40 transition-colors ${
+        unseen ? 'bg-teal-light/40 border-l-2 border-teal' : ''
+      }`}
     >
       <Avatar gravatarHash={t.author.gravatarHash} displayName={t.author.displayName} size={32} />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 text-sm font-semibold text-dark-brown truncate">
+        <div className="flex items-center gap-2 text-sm font-semibold text-dark-brown">
           {t.pinned && <span className="text-[10px] uppercase tracking-wide text-coral shrink-0">Pinned</span>}
           {t.locked && <span className="text-[10px] uppercase tracking-wide text-warm-gray shrink-0">Locked</span>}
           {t.solvedPostId && <span className="text-[10px] uppercase tracking-wide text-teal shrink-0">Solved</span>}
+          {unseen && (
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-teal bg-teal-light px-1.5 py-0.5 rounded">
+              New
+            </span>
+          )}
           <span className="truncate">{t.title}</span>
         </div>
         {t.opExcerpt && (
