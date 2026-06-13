@@ -60,6 +60,9 @@
       th { background: rgba(0,0,0,0.03); font-weight: 600; }
       footer { border-top: 1px solid var(--rule); padding-top:20px; padding-bottom:40px; color:var(--muted); font-size:0.95rem; display:flex; flex-wrap:wrap; gap:18px; }
       footer a { color: var(--muted); }
+      .callout { background:#fff; border:1px solid var(--rule); border-left:4px solid var(--accent); border-radius:8px; padding:16px 20px; margin:1.8rem 0; }
+      .callout h3 { margin:0 0 6px; font-size:1.15rem; }
+      .callout p { margin:0; }
     </style>
     <script type="application/ld+json">
     {
@@ -80,7 +83,6 @@
         <a href="/about/">About</a>
         <a href="/docs/">Docs</a>
         <a href="/learn/gtfs/">Learn</a>
-        <a href="/docs/deep-links/">Integrations</a>
         <a href="/community">Community</a>
         <a href="/help">Help</a>
       </nav>
@@ -167,9 +169,9 @@
       <td>Free editor; $49/mo Pro, $199/mo Team, $500/yr hosted publishing</td>
       </tr>
       <tr>
-      <td><strong>Procurement complexity</strong></td>
-      <td>Enterprise contract; RFP common</td>
-      <td>Sub-$5k SaaS that fits small-purchase signature authority</td>
+      <td><strong>How you buy it</strong></td>
+      <td>Enterprise contract; formal procurement / RFP typical</td>
+      <td>$2,988/yr Agency plan, below the $15,000 federal micro-purchase threshold and most small-purchase limits; buy on a P-card, no RFP</td>
       </tr>
       <tr>
       <td><strong>Best fit</strong></td>
@@ -177,6 +179,10 @@
       <td>Single agencies producing + publishing a feed and using built-in analyses to evaluate alternatives</td>
       </tr>
       </tbody></table>
+      <div class="callout">
+        <h3>Buy it on a P-card, not an RFP</h3>
+        <p>A GTFS·X Agency subscription is $2,988/year. That is below the U.S. federal micro-purchase threshold (raised to $15,000 on October 1, 2025, up from $10,000, under 2 CFR 200.320 and the FAR) and below most agencies' competitive-bid and small-purchase limits. In practice an agency can usually subscribe today on a purchasing card, with no RFP and no months-long competitive procurement. Remix by Via is sold as an enterprise contract, which typically requires a formal procurement. Thresholds vary by agency and state, so confirm your own local small-purchase limit before relying on this.</p>
+      </div>
       <h2>Where Remix is genuinely better</h2>
       <p>Real categories where Remix is the right answer:</p>
       <ul>
@@ -257,5 +263,6 @@
           .catch(function () { /* keep "Sign in" */ });
       })();
     </script>
-  </body>
+      <script src="/assets/site-nav.js"></script>
+</body>
 </html>

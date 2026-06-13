@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
+import { LearnNavMenu } from '../layout/LearnNavMenu';
 
 const SUPPORT_EMAIL = 'support@gtfsx.com';
 const SUPPORT_PHONE = '(406) 548-4488';
@@ -42,8 +43,7 @@ export function HelpPage() {
         <nav className="hidden min-[720px]:flex gap-1 ml-3">
           <a href="/about/" className="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream">About</a>
           <a href="/docs/" className="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream">Docs</a>
-          <a href="/learn/gtfs/" className="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream">Learn</a>
-          <a href="/docs/deep-links/" className="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream">Integrations</a>
+          <LearnNavMenu triggerClassName="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream transition-colors" />
           <Link to="/community" className="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream">Community</Link>
           <Link to="/help" className="text-sm font-semibold px-3 py-2 rounded-md text-dark-brown bg-cream">Help</Link>
         </nav>

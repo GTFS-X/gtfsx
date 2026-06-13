@@ -1,0 +1,328 @@
+/* =======================================================================
+   docs-nav.css — shared sidebar layout for Docs and Learn pages
+   Injected by docs-nav.js; defines grid, rail, mobile toggle, prev/next,
+   and breadcrumbs. Uses the same CSS custom-property palette as the site.
+   ======================================================================= */
+
+/* ── Two-column grid (desktop >= 960 px) ─────────────────────────────── */
+@media (min-width: 960px) {
+  body.docs-with-sidebar {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    min-height: 100vh;
+  }
+
+  body.docs-with-sidebar .site-header {
+    grid-column: 1 / -1;
+  }
+
+  body.docs-with-sidebar .docs-sidebar {
+    grid-column: 1;
+    position: sticky;
+    top: 56px;
+    max-height: calc(100vh - 56px);
+    overflow-y: auto;
+    align-self: start;
+    border-right: 1px solid var(--rule, #EADBC8);
+    background: var(--bg, #FFF8F0);
+    padding: 20px 0 40px;
+  }
+
+  body.docs-with-sidebar main {
+    grid-column: 2;
+  }
+
+  body.docs-with-sidebar footer {
+    grid-column: 2;
+  }
+
+  .docs-nav-mobile-toggle {
+    display: none !important;
+  }
+
+  .docs-nav-list {
+    display: block !important;
+  }
+}
+
+/* ── Mobile (< 960 px): collapsible drawer ─────────────────────────── */
+@media (max-width: 959px) {
+  body.docs-with-sidebar .docs-sidebar {
+    background: var(--bg, #FFF8F0);
+    border-bottom: 1px solid var(--rule, #EADBC8);
+  }
+
+  .docs-nav-mobile-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 20px;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--rule, #EADBC8);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink, #2A1F18);
+    font-family: inherit;
+    text-align: left;
+  }
+
+  .docs-nav-mobile-toggle:focus-visible {
+    outline: 2px solid var(--accent, #E8734A);
+    outline-offset: -2px;
+  }
+
+  .docs-nav-mobile-toggle-icon {
+    display: inline-block;
+    transition: transform 0.2s;
+    font-size: 11px;
+    color: var(--muted, #6B5A4D);
+  }
+
+  .docs-nav-mobile-toggle[aria-expanded="true"] .docs-nav-mobile-toggle-icon {
+    transform: rotate(90deg);
+  }
+
+  .docs-nav-list[hidden] {
+    display: none !important;
+  }
+
+  .docs-nav-list {
+    padding-bottom: 8px;
+  }
+}
+
+/* ── Sidebar section labels ─────────────────────────────────────────── */
+.docs-nav-section-label {
+  display: block;
+  padding: 16px 20px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted, #6B5A4D);
+}
+
+/* ── Sidebar nav list ───────────────────────────────────────────────── */
+.docs-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.docs-nav-list li {
+  margin: 0;
+}
+
+.docs-nav-list a {
+  display: block;
+  padding: 6px 20px;
+  color: var(--ink, #2A1F18);
+  text-decoration: none;
+  font-size: 14px;
+  line-height: 1.4;
+  border-left: 3px solid transparent;
+  transition: background 0.12s, color 0.12s;
+}
+
+.docs-nav-list a:hover {
+  background: rgba(232, 115, 74, 0.06);
+  color: var(--accent, #E8734A);
+}
+
+.docs-nav-list a[aria-current="page"] {
+  color: var(--accent, #E8734A);
+  font-weight: 700;
+  background: rgba(232, 115, 74, 0.08);
+  border-left-color: var(--accent, #E8734A);
+}
+
+.docs-nav-list a:focus-visible {
+  outline: 2px solid var(--accent, #E8734A);
+  outline-offset: -2px;
+}
+
+/* ── Prev / Next navigation ─────────────────────────────────────────── */
+.docs-prev-next {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--rule, #EADBC8);
+  margin-top: 40px;
+  padding-top: 24px;
+}
+
+.docs-prev-next a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-decoration: none;
+  max-width: 48%;
+}
+
+.docs-prev-next a:hover .docs-prev-next-title {
+  color: var(--accent, #E8734A);
+}
+
+.docs-prev-next-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted, #6B5A4D);
+}
+
+.docs-prev-next-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink, #2A1F18);
+  transition: color 0.12s;
+}
+
+.docs-pn-prev {
+  align-items: flex-start;
+}
+
+.docs-pn-next {
+  align-items: flex-end;
+  margin-left: auto;
+}
+
+/* ── Breadcrumbs (learn pages) ──────────────────────────────────────── */
+.docs-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--muted, #6B5A4D);
+}
+
+.docs-breadcrumbs li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.docs-breadcrumbs li + li::before {
+  content: "/";
+  color: var(--rule, #EADBC8);
+}
+
+.docs-breadcrumbs a {
+  color: var(--muted, #6B5A4D);
+  text-decoration: none;
+}
+
+.docs-breadcrumbs a:hover {
+  color: var(--accent, #E8734A);
+}
+
+.docs-breadcrumbs [aria-current="page"] {
+  color: var(--ink, #2A1F18);
+  font-weight: 600;
+}
+
+/* ── More in Learn (cross-links between learn articles) ─────────────── */
+.learn-more {
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule, #EADBC8);
+}
+
+.learn-more-title {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--ink, #2A1F18);
+}
+
+.learn-more-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.learn-more-list a {
+  color: var(--accent, #E8734A);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.learn-more-list a:hover {
+  text-decoration: underline;
+}
+
+.learn-more-list a:focus-visible {
+  outline: 2px solid var(--accent, #E8734A);
+  outline-offset: 2px;
+}
+
+/* ── Section permalinks (copy-link buttons on docs/learn headings) ──── */
+/* Clear the 56px sticky site-header when jumping to a #fragment. */
+main h2,
+main h3 {
+  scroll-margin-top: 72px;
+}
+
+.docs-heading .heading-anchor {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin-left: 8px;
+  cursor: pointer;
+  color: var(--accent, #E8734A);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  vertical-align: middle;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  font-family: inherit;
+}
+
+/* Subtle at rest; reveal on heading hover and on keyboard focus. */
+.docs-heading:hover .heading-anchor,
+.heading-anchor:focus-visible,
+.heading-anchor.copied {
+  opacity: 1;
+}
+
+.heading-anchor:hover {
+  filter: brightness(0.88);
+}
+
+.heading-anchor:focus-visible {
+  outline: 2px solid var(--accent, #E8734A);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.heading-anchor svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.heading-anchor-feedback {
+  display: none;
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, #E8734A);
+}
+
+.heading-anchor.copied .heading-anchor-feedback {
+  display: inline;
+}

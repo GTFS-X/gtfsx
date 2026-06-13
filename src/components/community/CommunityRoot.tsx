@@ -3,6 +3,7 @@ import { useStore } from '../../store';
 import { Avatar } from './Avatar';
 import { useEffect, useState } from 'react';
 import { getMyForumProfile, type ForumProfile } from '../../services/forumApi';
+import { LearnNavMenu } from '../layout/LearnNavMenu';
 
 // Matches the site-wide marketing header used on /about/, /docs/, /learn/*,
 // /docs/deep-links/. Keep the structure here in sync with those static pages
@@ -52,8 +53,7 @@ export function CommunityRoot({ children }: { children: React.ReactNode }) {
         <nav className="hidden min-[720px]:flex gap-1 ml-3">
           <NavLink href="/about/">About</NavLink>
           <NavLink href="/docs/">Docs</NavLink>
-          <NavLink href="/learn/gtfs/">Learn</NavLink>
-          <NavLink href="/docs/deep-links/">Integrations</NavLink>
+          <LearnNavMenu triggerClassName="text-sm font-semibold px-3 py-2 rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream transition-colors" />
           <NavLink href="/community" active>Community</NavLink>
           <NavLink href="/help">Help</NavLink>
         </nav>
