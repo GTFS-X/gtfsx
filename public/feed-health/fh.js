@@ -514,14 +514,6 @@
           // City · organization-type summary.
           const summary = agencySummary(ag);
           if (summary) nameCell.appendChild(h("span", { className: "ag-sub" }, summary));
-          // Modes (FTA Weblinks crosswalk). Omitted when unknown so we never
-          // imply "no modes" for an agency we simply lack a weblink for.
-          if (ag.modes) nameCell.appendChild(h("span", { className: "ag-modes" }, ag.modes));
-          // Feed end / expiration date (styled red when already expired).
-          const fe = feedEndLabel(ag);
-          if (fe) nameCell.appendChild(
-            h("span", { className: "ag-feedend" + (ag.expired ? " expired" : "") }, fe)
-          );
         } else {
           nameCell.appendChild(h("span", { className: "nm" }, ag.name));
           if (ag.city) nameCell.appendChild(h("span", { className: "ag-city" }, ag.city));
