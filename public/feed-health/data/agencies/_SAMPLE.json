@@ -8,7 +8,12 @@
       "reporterType": "full",
       "status": "ok",
       "feedUrl": "https://example.com/gtfs.zip",
-      "lastValidated": "2026-05-28"
+      "lastValidated": "2026-05-28",
+      "orgType": "Independent Public Agency or Authority of Transit Service",
+      "modes": "Bus, Light Rail, Streetcar Rail",
+      "isFlex": false,
+      "serviceEnd": "2026-09-30",
+      "expired": false
     },
     {
       "name": "Placeholder Area Rapid Transit",
@@ -17,7 +22,12 @@
       "reporterType": "reduced",
       "status": "expired",
       "feedUrl": "https://example.com/gtfs2.zip",
-      "lastValidated": "2025-11-15"
+      "lastValidated": "2025-11-15",
+      "orgType": "City, County or Local Government Unit or Department of Transportation",
+      "modes": "Bus",
+      "isFlex": false,
+      "serviceEnd": "2025-12-31",
+      "expired": true
     },
     {
       "name": "Demo Rural Connect",
@@ -26,7 +36,12 @@
       "reporterType": "rural",
       "status": "none",
       "feedUrl": null,
-      "lastValidated": null
+      "lastValidated": null,
+      "orgType": "Private-Non-Profit Corporation",
+      "modes": null,
+      "isFlex": false,
+      "serviceEnd": null,
+      "expired": false
     },
     {
       "name": "Test County Paratransit",
@@ -35,7 +50,12 @@
       "reporterType": "reduced",
       "status": "invalid",
       "feedUrl": "https://example.com/gtfs4.zip",
-      "lastValidated": "2026-02-20"
+      "lastValidated": "2026-02-20",
+      "orgType": "Area Agency on Aging",
+      "modes": "Demand Response",
+      "isFlex": true,
+      "serviceEnd": "2026-08-15",
+      "expired": false
     },
     {
       "name": "Sample Community Shuttle",
@@ -44,7 +64,12 @@
       "reporterType": "rural",
       "status": "none",
       "feedUrl": null,
-      "lastValidated": null
+      "lastValidated": null,
+      "orgType": "Tribe",
+      "modes": null,
+      "isFlex": false,
+      "serviceEnd": null,
+      "expired": false
     },
     {
       "name": "Fictitious Regional Rail",
@@ -53,7 +78,12 @@
       "reporterType": "full",
       "status": "ok",
       "feedUrl": "https://example.com/gtfs6.zip",
-      "lastValidated": "2026-06-01"
+      "lastValidated": "2026-06-01",
+      "orgType": "State Government Unit or Department of Transportation",
+      "modes": "Commuter Rail, Bus, Ferryboat",
+      "isFlex": false,
+      "serviceEnd": "2027-01-15",
+      "expired": false
     }
   ]
 }

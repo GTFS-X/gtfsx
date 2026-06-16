@@ -23,7 +23,12 @@ where `<ABBR>` is the two-letter state abbreviation (e.g. `CA.json`, `TX.json`).
       "reporterType": "full | reduced | rural",
       "status": "ok | expired | invalid | none",
       "feedUrl": "https://... or null",
-      "lastValidated": "YYYY-MM-DD or null"
+      "lastValidated": "YYYY-MM-DD or null",
+      "orgType": "NTD organization_type string or null",
+      "modes": "Descriptive modes string or null",
+      "isFlex": false,
+      "serviceEnd": "YYYY-MM-DD or null",
+      "expired": false
     }
   ]
 }
@@ -41,6 +46,11 @@ where `<ABBR>` is the two-letter state abbreviation (e.g. `CA.json`, `TX.json`).
 | `status` | `"ok"` \| `"expired"` \| `"invalid"` \| `"none"` | Feed health status (see below) |
 | `feedUrl` | string or null | Canonical GTFS feed URL; null when status is `"none"` |
 | `lastValidated` | `YYYY-MM-DD` or null | Date the canonical validator last ran against this feed |
+| `orgType` | string or null | NTD `organization_type` (e.g. "Independent Public Agency or Authority of Transit Service"); ~100% coverage. Shortened to a friendly label in the UI |
+| `modes` | string or null | Descriptive modes served, from the FTA GTFS Weblinks crosswalk (`weblink_modes`, e.g. "Bus, Ferryboat, Streetcar Rail"); null when no weblink is on file (~55% coverage). Absence means unknown, not "no service" |
+| `isFlex` | boolean | True when the matched Mobility Database feed publishes GTFS-Flex (`mdb_is_flex`); rare |
+| `serviceEnd` | `YYYY-MM-DD` or null | Date the matched MDB feed's service window ends (date portion of MDB `service_end`); null when unmatched (~35% coverage) |
+| `expired` | boolean | True when the feed's service period has already ended (`mdb_expired`); mirrors `status == "expired"` |
 
 ### Status semantics
 

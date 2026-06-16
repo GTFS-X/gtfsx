@@ -355,6 +355,23 @@ def write_agency_jsons(rows_by_state, mdb_by_id, as_of_iso):
         for r in sorted(rows, key=lambda x: x["agency_name"]):
             status   = get_status(r)
             feed_url = best_feed_url(r, mdb_by_id)
+
+            # ── Phase 1 enrichment — fields already produced by the pipeline ──
+            # All sourced from the same CSV / MDB cache the script already loads;
+            # no feed parsing and no new external calls.
+            #   modes      ← weblink_modes (FTA Weblinks crosswalk descriptive string)
+            #   orgType    ← organization_type (NTD; ~100% coverage)
+            #   isFlex     ← mdb_is_flex (MDB feature flag; True only when matched + flex)
+            #   serviceEnd ← service_end of the matched MDB feed (date portion of the
+            #                ISO timestamp in mdb_us_feeds.json), None when unmatched
+            #   expired    ← mdb_expired (service period already ended)
+            mdb_id = r.get("mdb_id", "").strip()
+            service_end = None
+            if mdb_id and mdb_id in mdb_by_id:
+                se = (mdb_by_id[mdb_id].get("service_end") or "").strip()
+                if se:
+                    service_end = se[:10]  # YYYY-MM-DD from the ISO timestamp
+
             agencies.append({
                 "name":         r["agency_name"],
                 "ntdId":        r["ntd_id"],
@@ -363,6 +380,11 @@ def write_agency_jsons(rows_by_state, mdb_by_id, as_of_iso):
                 "status":       status,
                 "feedUrl":      feed_url,
                 "lastValidated": None,  # not stored in current CSV pipeline output
+                "orgType":      r.get("organization_type") or None,
+                "modes":        (r.get("weblink_modes") or "").strip() or None,
+                "isFlex":       r.get("mdb_is_flex") == "True",
+                "serviceEnd":   service_end,
+                "expired":      r.get("mdb_expired") == "True",
             })
         payload = {"asOf": as_of_iso, "agencies": agencies}
         out_path = os.path.join(OUT_AGENCIES, f"{abbr}.json")

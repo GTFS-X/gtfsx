@@ -83,10 +83,10 @@
   }
 
   // ---- Subtle pencil "edit" icon → GTFS·X editor (state view only) ----
-  // Muted by default, darkens on hover. Links to the same editor URL the
-  // "Edit in GTFS·X" CTA used ("/"). Not a button — the owner felt the old
-  // Action column was too pushy for the DOT-facing state view.
-  function editPencil(agencyName) {
+  // Muted by default, darkens on hover. Deep-links the agency's own feed into
+  // the editor via the /import?url= route (DeepLinkImportPage fetches the zip
+  // and loads it). Only rendered for feed-present agencies that have a feedUrl.
+  function editPencil(agencyName, feedUrl) {
     // NOTE: use the `class` attribute (not `className`) — on SVG elements
     // `el.className` is a read-only SVGAnimatedString and assigning to it throws.
     const svg = h("svg", {
@@ -97,9 +97,9 @@
     svg.innerHTML = '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>';
     return h("a", {
       className: "ag-edit-link",
-      href: "/",
-      title: "Edit this feed in GTFS·X",
-      "aria-label": "Edit " + agencyName + " in GTFS·X",
+      href: "/import?url=" + encodeURIComponent(feedUrl),
+      title: "Open this feed in the GTFS·X editor",
+      "aria-label": "Open " + agencyName + "’s feed in GTFS·X",
     }, svg);
   }
 
@@ -400,6 +400,49 @@
       return ({ full: "Full", reduced: "Reduced", rural: "Rural" })[type] || type;
     }
 
+    // Verbose NTD organization_type strings → compact, readable labels for the
+    // muted summary sub-line (kept short so the cell stays tidy at ~390px).
+    const ORG_TYPE_SHORT = {
+      "City, County or Local Government Unit or Department of Transportation": "Local government",
+      "Independent Public Agency or Authority of Transit Service": "Public transit authority",
+      "Private-Non-Profit Corporation": "Nonprofit",
+      "Tribe": "Tribal nation",
+      "MPO, COG or Other Planning Agency": "Planning agency (MPO/COG)",
+      "Area Agency on Aging": "Area Agency on Aging",
+      "State Government Unit or Department of Transportation": "State DOT / government",
+      "University": "University",
+      "Private-For-Profit Corporation": "Private (for-profit)",
+      "Other Publicly-Owned or Privately Chartered Corporation": "Chartered corporation",
+      "Subsidiary Unit of a Transit Agency, Reporting Separately": "Transit subsidiary",
+      "Private Provider Reporting on Behalf of a Public Entity": "Private operator",
+    };
+    function shortOrgType(t) { return t ? (ORG_TYPE_SHORT[t] || t) : ""; }
+
+    // City · organization-type summary (both ~100% coverage in the data).
+    function agencySummary(ag) {
+      const parts = [];
+      if (ag.city) parts.push(ag.city);
+      const ot = shortOrgType(ag.orgType);
+      if (ot) parts.push(ot);
+      return parts.join(" · ");
+    }
+
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    function prettyDate(iso) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+      if (!m) return null;
+      const mi = parseInt(m[2], 10) - 1;
+      if (mi < 0 || mi > 11) return null;
+      return MONTHS[mi] + " " + parseInt(m[3], 10) + ", " + m[1];
+    }
+    // Feed end / expiration sub-line; null when we have no service-end date.
+    function feedEndLabel(ag) {
+      const d = prettyDate(ag.serviceEnd);
+      if (!d) return null;
+      return (ag.expired ? "Service ended " : "Service ends ") + d;
+    }
+
     function getSorted() {
       return data.agencies.slice().sort(function (a, b) {
         if (agSortKey === "name") {
@@ -434,7 +477,11 @@
       statusTh.addEventListener("click", function () { setAgSort("status"); });
 
       if (stateMode) {
-        tr.append(nameTh, repTh, statusTh);
+        // Trailing edit-pencil column carries no header text so the Feed status
+        // badge above it stays cleanly right-aligned.
+        const pencilTh = h("th", { className: "ag-pencil-col", style: { cursor: "default" } });
+        pencilTh.setAttribute("aria-label", "Edit");
+        tr.append(nameTh, repTh, statusTh, pencilTh);
       } else {
         const actionTh = h("th", { style: { cursor: "default" } }, "Action");
         tr.append(nameTh, repTh, statusTh, actionTh);
@@ -450,25 +497,60 @@
         const tr = document.createElement("tr");
         tr.style.cursor = "default";
 
-        tr.appendChild(h("td", null,
-          h("div", { className: "ag-name-cell" },
-            h("span", { className: "nm" }, ag.name),
-            ag.city ? h("span", { className: "ag-city" }, ag.city) : null
-          )
-        ));
+        // ---- Agency cell ----
+        const nameCell = h("div", { className: "ag-name-cell" });
+        if (stateMode) {
+          // Name line + GTFS-Flex badge (only when the matched feed publishes
+          // Flex; rare, so it reads as a highlight rather than clutter).
+          nameCell.appendChild(
+            h("div", { className: "ag-name-line" },
+              h("span", { className: "nm" }, ag.name),
+              ag.isFlex ? h("span", {
+                className: "ag-flex-badge",
+                title: "Publishes GTFS-Flex (on-demand / flexible service)",
+              }, "Flex") : null
+            )
+          );
+          // City · organization-type summary.
+          const summary = agencySummary(ag);
+          if (summary) nameCell.appendChild(h("span", { className: "ag-sub" }, summary));
+          // Modes (FTA Weblinks crosswalk). Omitted when unknown so we never
+          // imply "no modes" for an agency we simply lack a weblink for.
+          if (ag.modes) nameCell.appendChild(h("span", { className: "ag-modes" }, ag.modes));
+          // Feed end / expiration date (styled red when already expired).
+          const fe = feedEndLabel(ag);
+          if (fe) nameCell.appendChild(
+            h("span", { className: "ag-feedend" + (ag.expired ? " expired" : "") }, fe)
+          );
+        } else {
+          nameCell.appendChild(h("span", { className: "nm" }, ag.name));
+          if (ag.city) nameCell.appendChild(h("span", { className: "ag-city" }, ag.city));
+        }
+        tr.appendChild(h("td", null, nameCell));
+
+        // ---- Reporter type cell ----
         tr.appendChild(h("td", null,
           h("span", { className: "reporter-pill" }, reporterLabel(ag.reporterType))
         ));
-        const statusCell = h("div", { className: "ag-status-cell" },
-          h("span", { className: "lb-pill " + sm.cls }, sm.label)
-        );
-        // State view: subtle pencil → editor, only for feed-present (edit) agencies.
-        // Fix/Build statuses get no pencil; the section + closing CTAs cover those.
-        if (stateMode && cm.key === "edit") {
-          statusCell.appendChild(editPencil(ag.name));
-        }
-        tr.appendChild(h("td", null, statusCell));
-        if (!stateMode) {
+
+        // ---- Feed status cell: JUST the badge (stays right-aligned) ----
+        tr.appendChild(h("td", null,
+          h("div", { className: "ag-status-cell" },
+            h("span", { className: "lb-pill " + sm.cls }, sm.label)
+          )
+        ));
+
+        // ---- Trailing cell ----
+        if (stateMode) {
+          // Edit pencil in its own no-header column, deep-linking the feed into
+          // the GTFS·X editor. Only clean "edit" feeds that have a URL get it;
+          // fix/build statuses rely on the section + closing CTAs.
+          const pencilCell = h("td", { className: "ag-pencil-col" });
+          if (cm.key === "edit" && ag.feedUrl) {
+            pencilCell.appendChild(editPencil(ag.name, ag.feedUrl));
+          }
+          tr.appendChild(pencilCell);
+        } else {
           tr.appendChild(h("td", null,
             h("a", { className: "action-pill " + cm.toneClass, href: "/" }, cm.label)
           ));

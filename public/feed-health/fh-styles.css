@@ -454,6 +454,24 @@ a { color: inherit; }
 .ag-name-cell { display: flex; flex-direction: column; gap: 2px; }
 .ag-name-cell .nm { font-weight: 600; color: var(--gtfs-dark-brown); }
 .ag-city { font-size: 11px; color: var(--gtfs-warm-gray); }
+
+/* State-view enrichment sub-lines (national table never renders these). */
+.ag-name-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ag-sub { font-size: 11px; color: var(--gtfs-warm-gray); }
+.ag-modes { font-size: 11px; color: var(--gtfs-brown); line-height: 1.3; }
+.ag-feedend { font-size: 11px; color: var(--gtfs-warm-gray); }
+.ag-feedend.expired { color: var(--gtfs-coral); font-weight: 600; }
+.ag-flex-badge {
+  font-family: var(--font-body); font-weight: 700; font-size: 9px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 2px 6px; border-radius: var(--radius-xs);
+  background: var(--gtfs-purple-light); color: var(--gtfs-purple);
+  white-space: nowrap;
+}
+/* Trailing edit-pencil column: narrow, no header text. */
+.ag-table th.ag-pencil-col, .ag-table td.ag-pencil-col {
+  width: 1%; white-space: nowrap; text-align: right; padding-left: 6px;
+}
 .reporter-pill {
   font-family: var(--font-body); font-weight: 600; font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.04em;
@@ -603,6 +621,16 @@ a { color: inherit; }
   .top-nav a { display: none; }
   .drill-stats { grid-template-columns: repeat(2, 1fr); }
   .drill-header { padding: 20px; }
+  /* State-view agency table only (#agencies): tighten padding and let the
+     enriched 4-column table scroll horizontally inside its card on narrow
+     screens so the trailing pencil column is never clipped. The page itself
+     does not scroll horizontally. National drill-down is untouched. */
+  #agencies .lb-card { overflow-x: auto; }
+  #agencies .ag-table { min-width: 420px; }
+  #agencies .ag-table td, #agencies .ag-table th { padding-left: 12px; padding-right: 10px; }
+  #agencies .ag-table td:first-child, #agencies .ag-table th:first-child { padding-left: 14px; }
+  #agencies .ag-table th { font-size: 9px; }
+  #agencies .reporter-pill { font-size: 9px; padding: 2px 5px; }
   .closing-band { padding: 48px 0 40px; }
   .closing-h2 { font-size: 24px; }
   .closing-plank-stat { font-size: 44px; }
