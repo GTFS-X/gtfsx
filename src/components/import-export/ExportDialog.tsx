@@ -12,6 +12,7 @@ interface ExportDialogProps {
 
 export function ExportDialog({ onClose }: ExportDialogProps) {
   const [exporting, setExporting] = useState(false);
+  const [warningsExpanded, setWarningsExpanded] = useState(false);
   const state = useStore();
   const [fileName, setFileName] = useState(
     () => state.projectName.replace(/\s+/g, '_').toLowerCase()
@@ -140,14 +141,26 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
 
         {warnings.length > 0 && (
           <div className="bg-gold-light border border-gold rounded-lg p-3 mb-4">
-            <p className="font-semibold text-sm text-amber-800 mb-1">
-              {warnings.length} warning{warnings.length !== 1 ? 's' : ''} — export will proceed
-            </p>
-            {warnings.slice(0, 8).map((w) => (
-              <p key={w.id} className="text-xs text-amber-700">• {w.message}</p>
-            ))}
-            {warnings.length > 8 && (
-              <p className="text-xs text-amber-600 mt-1">...and {warnings.length - 8} more</p>
+            <button
+              type="button"
+              onClick={() => setWarningsExpanded((v) => !v)}
+              aria-expanded={warningsExpanded}
+              className="w-full flex items-center gap-2 text-left cursor-pointer hover:opacity-80 transition-opacity"
+            >
+              <span className="font-semibold text-sm text-amber-800 flex-1">
+                {warnings.length} warning{warnings.length !== 1 ? 's' : ''} — export will proceed
+              </span>
+              <span className="text-amber-700 text-xs shrink-0">{warningsExpanded ? '▾' : '▸'}</span>
+            </button>
+            {warningsExpanded && (
+              <div className="mt-1">
+                {warnings.slice(0, 8).map((w) => (
+                  <p key={w.id} className="text-xs text-amber-700">• {w.message}</p>
+                ))}
+                {warnings.length > 8 && (
+                  <p className="text-xs text-amber-600 mt-1">...and {warnings.length - 8} more</p>
+                )}
+              </div>
             )}
           </div>
         )}
