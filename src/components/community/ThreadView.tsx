@@ -43,6 +43,7 @@ export function ThreadView() {
   const [subscribed, setSubscribed] = useState<boolean | null>(null);
   const [replyPending, setReplyPending] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
+  const [replyResetKey, setReplyResetKey] = useState(0);
 
   // Thread-level copy-link state
   const [threadLinkCopied, setThreadLinkCopied] = useState(false);
@@ -146,6 +147,9 @@ export function ThreadView() {
       const res = await replyToThread(thread.id, md);
       setPosts((prev) => [...prev, res.post]);
       setThread({ ...thread, postCount: thread.postCount + 1, lastPostAt: res.post.createdAt });
+      // Remount the reply Composer (via key change) so its internal text resets
+      // to empty — but ONLY on a successful post, so a failed post keeps the text.
+      setReplyResetKey((k) => k + 1);
     } catch (e) {
       if (e instanceof ApiError && (e.extra as { reason?: string })?.reason === 'needs_display_name') {
         setReplyError('Set a community display name before posting — open the picker above.');
@@ -337,7 +341,7 @@ export function ThreadView() {
               </div>
             )}
             <Composer
-              key="reply"
+              key={`reply-${replyResetKey}`}
               submitLabel={replyPending ? 'Posting…' : 'Post reply'}
               onSubmit={handleReply}
               disabled={replyPending}
