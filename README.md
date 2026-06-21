@@ -4,6 +4,8 @@ A web-based editor for creating, editing, analyzing, and publishing [GTFS](https
 
 **Live site:** [www.gtfsx.com](https://www.gtfsx.com)
 
+![The GTFS·X editor: drawing transit routes on a map with live demographic coverage and Title VI equity analysis](docs/walksheds.png)
+
 ## Features
 
 ### Editor (anonymous, browser-only)
