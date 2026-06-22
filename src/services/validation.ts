@@ -3,7 +3,7 @@ import type { AppStore } from '../store';
 import { featureEnabled } from '../store/featuresSlice';
 import { flexZoneHasGroup, flexZoneHasPolygons, flexZoneShape } from '../store/flexSlice';
 import { gtfsTimeToSeconds, secondsToGtfsTime, formatTimeShort } from '../utils/time';
-import { getUSHolidaysInRange } from '../utils/holidays';
+import { getUSHolidaysInRange, serviceRunsOnDate } from '../utils/holidays';
 import { findBlockOverlaps } from './blockBuilder';
 
 // Stable codes for validation rules the user can dismiss per feed. The code is
@@ -16,12 +16,19 @@ export const VALIDATION_CODES = {
   // calendar_dates exception. A soft "most agencies run a holiday schedule"
   // reminder, not a real defect — hence dismissible.
   holidayExceptions: 'holiday-exceptions',
+  // A calendar_dates exception that doesn't change service: a "no service"
+  // (exception_type 2) row on a day the weekly pattern is already off, or an
+  // "added service" (exception_type 1) row on a day it already runs. Harmless
+  // but noisy — a common artifact of bulk holiday-adders and rough imports —
+  // so it's a dismissible cleanup nudge, not a hard error.
+  redundantException: 'redundant-calendar-exception',
 } as const;
 
 // Human label for each dismissible rule, shown in the validation panel's
 // "dismissed" drawer so a silenced rule stays identifiable and restorable.
 export const DISMISSIBLE_RULE_LABELS: Record<string, string> = {
   [VALIDATION_CODES.holidayExceptions]: 'Holiday calendar_dates reminders',
+  [VALIDATION_CODES.redundantException]: 'Redundant calendar_dates exceptions',
 };
 
 let msgId = 0;
@@ -33,6 +40,11 @@ function msg(
   code?: string,
 ): ValidationMessage {
   return { id: String(++msgId), severity, message, entity_type, entity_id, code };
+}
+
+/** GTFS YYYYMMDD → YYYY-MM-DD for human-readable messages. */
+function prettyGtfs(d: string): string {
+  return d.length === 8 ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : d;
 }
 
 export function runValidation(state: AppStore): ValidationMessage[] {
@@ -490,7 +502,6 @@ export function runValidation(state: AppStore): ValidationMessage[] {
   // active range, with no calendar_dates exception. Scan at most the first
   // year of the range so a far-future end_date (e.g. the default 20991231)
   // doesn't generate decades of nudges; holidays repeat annually anyway.
-  const dayFields = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
   const exceptionKeys = new Set(state.calendarDates.map((cd) => `${cd.service_id} ${cd.date}`));
   for (const c of state.calendars) {
     if (!c.start_date || !c.end_date || c.start_date.length !== 8) continue;
@@ -502,7 +513,7 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     const missing: string[] = [];
     const seen = new Set<string>();
     for (const h of getUSHolidaysInRange(c.start_date, scanEnd)) {
-      if (c[dayFields[h.dayOfWeek]] !== 1) continue;
+      if (!serviceRunsOnDate(c, h.gtfsDate)) continue;
       if (exceptionKeys.has(`${c.service_id} ${h.gtfsDate}`)) continue;
       if (seen.has(h.name)) continue;
       seen.add(h.name);
@@ -517,6 +528,47 @@ export function runValidation(state: AppStore): ValidationMessage[] {
         VALIDATION_CODES.holidayExceptions,
       ));
     }
+  }
+
+  // ── Redundant / off-service-day calendar_dates exceptions — dismissible ──
+  // An exception is redundant when it duplicates what the weekly calendar
+  // already does, so it changes nothing:
+  //   • exception_type 2 ("no service") on a date the pattern doesn't serve
+  //     (off weekday, or outside the active range) — removes nothing. This is
+  //     exactly the phantom row a Sat/Sun holiday creates on a Mon–Fri service.
+  //   • exception_type 1 ("added service") on a date the pattern already serves
+  //     (running weekday inside the range) — adds nothing.
+  // A service defined ONLY via calendar_dates (no calendar.txt row) is skipped:
+  // there every row is load-bearing, so nothing is redundant. Consolidated to
+  // one warning per service to avoid flooding the panel; dismissible per feed.
+  const calendarById = new Map(state.calendars.map((c) => [c.service_id, c]));
+  const redundantByService = new Map<string, string[]>();
+  for (const cd of state.calendarDates) {
+    const cal = calendarById.get(cd.service_id);
+    if (!cal || !cd.date || cd.date.length !== 8) continue;
+    if (cal.start_date.length !== 8 || cal.end_date.length !== 8) continue;
+    const inRange = cd.date >= cal.start_date && cd.date <= cal.end_date;
+    // Whether the plain weekly calendar already provides service on this date.
+    const scheduled = inRange && serviceRunsOnDate(cal, cd.date);
+    const redundant = cd.exception_type === 2 ? !scheduled : scheduled;
+    if (!redundant) continue;
+    const list = redundantByService.get(cd.service_id) ?? [];
+    list.push(cd.date);
+    redundantByService.set(cd.service_id, list);
+  }
+  for (const [serviceId, dates] of redundantByService) {
+    const cal = calendarById.get(serviceId);
+    const label = cal?._description || serviceId;
+    const sorted = [...dates].sort();
+    const preview = sorted.slice(0, 5).map(prettyGtfs).join(', ');
+    const more = sorted.length > 5 ? `, +${sorted.length - 5} more` : '';
+    const n = dates.length;
+    messages.push(msg(
+      'warning',
+      `Service "${label}" has ${n} calendar_dates exception${n !== 1 ? 's' : ''} that match the regular weekly schedule and have no effect (${preview}${more}). Remove the redundant row${n !== 1 ? 's' : ''} to keep calendar_dates clean.`,
+      'calendar', serviceId,
+      VALIDATION_CODES.redundantException,
+    ));
   }
 
   // Demand-response / paratransit is on (the default) but the feed defines no

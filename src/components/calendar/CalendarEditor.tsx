@@ -7,7 +7,7 @@ import { CalendarPreview } from './CalendarPreview';
 import { generateId } from '../../services/idGenerator';
 import type { Calendar } from '../../types/gtfs';
 import { format } from 'date-fns';
-import { US_HOLIDAYS, getUSHolidaysInRange } from '../../utils/holidays';
+import { US_HOLIDAYS, getEligibleHolidayExceptions } from '../../utils/holidays';
 
 function formatGtfsDate(d: string): string {
   if (!d || d.length !== 8) return '';
@@ -75,11 +75,6 @@ export function CalendarEditor() {
     [editingCalendarServiceId, calendarDates],
   );
 
-  const holidaysInRange = useMemo(
-    () => (selected ? getUSHolidaysInRange(selected.start_date, selected.end_date) : []),
-    [selected],
-  );
-
   const existingDateSet = useMemo(() => {
     return new Set(selectedDates.map((cd) => cd.date));
   }, [selectedDates]);
@@ -111,11 +106,18 @@ export function CalendarEditor() {
     );
   }
 
-  // Only the holidays the user has checked AND that fall within this
-  // calendar's date range are eligible to be added. Plain const (no
-  // useMemo) — this lives after a conditional early return above, and
-  // the underlying lists are tiny.
-  const eligibleHolidays = holidaysInRange.filter((h) => selectedHolidaySet.has(h.name));
+  // Holidays eligible to bulk-add: checked by the user, inside this calendar's
+  // date range, AND on a weekday this pattern actually runs. That last filter
+  // (via getEligibleHolidayExceptions → serviceRunsOnDate) is the fix for the
+  // phantom-exception bug — without it a Mon–Fri service would get a "no
+  // service" exception on a Saturday/Sunday holiday, a spurious calendar_dates
+  // row that trips validation. Plain const (no useMemo) — this lives after a
+  // conditional early return above, and the underlying lists are tiny. Every
+  // derived count/label below reads `eligibleHolidays`, so the DOW filter flows
+  // through to the "(N)" total and the disabled/"all added" button states.
+  const eligibleHolidays = selected
+    ? getEligibleHolidayExceptions(selected, selectedHolidaySet)
+    : [];
 
   const handleAddUSHolidays = () => {
     if (!selected) return;
@@ -407,7 +409,7 @@ export function CalendarEditor() {
               }`}
           >
             {eligibleHolidays.length === 0
-              ? 'No selected holidays fall in this calendar’s date range'
+              ? 'No selected holidays fall on a service day in this range'
               : allEligibleAdded
                 ? `All selected holidays added (${eligibleHolidays.length})`
                 : `Add selected holidays (${eligibleToAdd} to add${eligibleAlreadyAdded > 0 ? `, ${eligibleAlreadyAdded} already added` : ''})`}

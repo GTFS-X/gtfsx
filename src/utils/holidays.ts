@@ -1,7 +1,10 @@
 // US federal-holiday date math, shared by the calendar editor's "bulk-add
 // holiday exceptions" feature and the #17 validation nudge. All public helpers
-// speak GTFS YYYYMMDD date strings. Date components are read in LOCAL time
-// throughout (new Date(y, m, d) + getDate()/getDay()), so there's no UTC drift.
+// speak GTFS YYYYMMDD date strings. The holiday-date generators read components
+// in LOCAL time (new Date(y, m, d) + getDate()/getDay()); the day-of-week
+// helpers below (gtfsWeekday / serviceRunsOnDate) parse the YYYYMMDD string in
+// UTC (Date.UTC + getUTCDay) so an arbitrary date never drifts across the
+// timezone boundary. Both approaches agree on the weekday of a given civil date.
 
 /**
  * Date for the Nth occurrence of a given weekday in a month.
@@ -89,4 +92,64 @@ export function getUSHolidaysInRange(startDate: string, endDate: string): USHoli
     }
   }
   return out;
+}
+
+// ── Service-day helpers ────────────────────────────────────────────────────
+// "Does this calendar's weekly pattern run on this date's weekday?" — shared by
+// the calendar editor (so bulk-add only creates exceptions on running days) and
+// the validator (so it can flag redundant / off-service-day exceptions). Kept
+// pure and structural (just the seven day flags) so both can reuse it.
+
+/** The seven calendar.txt day columns, indexed by JS weekday (0=Sunday … 6=Saturday). */
+const DAY_FIELDS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+
+/** A calendar's seven weekly service flags (1 = runs that weekday). */
+export interface ServiceWeekdays {
+  monday: number;
+  tuesday: number;
+  wednesday: number;
+  thursday: number;
+  friday: number;
+  saturday: number;
+  sunday: number;
+}
+
+/**
+ * Weekday (0=Sunday … 6=Saturday) of a GTFS YYYYMMDD date string. Parses the
+ * components into a UTC date and reads getUTCDay() so the result never drifts
+ * with the host timezone (the classic `new Date('2026-07-04').getDay()` bug).
+ */
+export function gtfsWeekday(gtfsDate: string): number {
+  const y = Number(gtfsDate.slice(0, 4));
+  const m = Number(gtfsDate.slice(4, 6));
+  const d = Number(gtfsDate.slice(6, 8));
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/**
+ * Whether a calendar's weekly pattern runs on the weekday of the given GTFS
+ * date. Looks ONLY at the seven day flags (not the start/end range) — callers
+ * that care about the active window check it separately.
+ */
+export function serviceRunsOnDate(cal: ServiceWeekdays, gtfsDate: string): boolean {
+  if (!gtfsDate || gtfsDate.length !== 8) return false;
+  return cal[DAY_FIELDS[gtfsWeekday(gtfsDate)]] === 1;
+}
+
+/**
+ * US holidays a bulk "add holiday exceptions" action should create for a
+ * calendar: in the calendar's date range, selected by name, AND falling on a
+ * weekday the pattern actually runs. The day-of-week filter is what keeps us
+ * from adding a spurious "no service" exception on a day the service is already
+ * off (e.g. a Sat/Sun holiday on a Mon–Fri pattern — a phantom calendar_dates
+ * row that trips validators). The returned list drives both the add loop and
+ * the button's "(N)" count, so the two stay in lockstep.
+ */
+export function getEligibleHolidayExceptions(
+  cal: ServiceWeekdays & { start_date: string; end_date: string },
+  selectedNames: ReadonlySet<string>,
+): USHolidayDate[] {
+  return getUSHolidaysInRange(cal.start_date, cal.end_date).filter(
+    (h) => selectedNames.has(h.name) && serviceRunsOnDate(cal, h.gtfsDate),
+  );
 }

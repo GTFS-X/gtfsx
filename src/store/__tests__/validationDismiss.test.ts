@@ -19,6 +19,26 @@ const everydayCalendar = {
   end_date: `${NEXT_YEAR}1231`,
 };
 
+// A Mon–Fri pattern across next year, for the redundant-exception rule.
+const weekdayCalendar = {
+  service_id: 'WD',
+  monday: 1, tuesday: 1, wednesday: 1, thursday: 1, friday: 1, saturday: 0, sunday: 0,
+  start_date: `${NEXT_YEAR}0101`,
+  end_date: `${NEXT_YEAR}1231`,
+};
+
+// First date on/after Jan 1 of `year` whose UTC weekday is `dow` (0=Sun…6=Sat),
+// as a GTFS YYYYMMDD string. Computed independently of the code under test so it
+// can serve as an anchor (a known off-day Saturday vs a running-day Monday for
+// the Mon–Fri pattern above).
+function firstGtfsWeekday(year: number, dow: number): string {
+  const d = new Date(Date.UTC(year, 0, 1));
+  while (d.getUTCDay() !== dow) d.setUTCDate(d.getUTCDate() + 1);
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${d.getUTCFullYear()}${m}${day}`;
+}
+
 function reset() {
   const s = useStore.getState();
   s.setCalendars([]);
@@ -102,5 +122,60 @@ describe('dismiss filtering (panel logic)', () => {
     useStore.getState().restoreValidation(VALIDATION_CODES.holidayExceptions);
     const visible = visibleAfterDismiss(msgs, useStore.getState().dismissedValidations);
     expect(holidayMsgs(visible).length).toBeGreaterThan(0);
+  });
+});
+
+const redundantMsgs = (msgs: ValidationMessage[]) =>
+  msgs.filter((m) => m.code === VALIDATION_CODES.redundantException);
+
+describe('redundant calendar_dates exception rule', () => {
+  it('flags a "no service" exception on a day the pattern is already off, with a dismissible code', () => {
+    // Mon–Fri pattern + a type-2 ("no service") exception on a Saturday: the
+    // calendar already doesn't run Saturdays, so the row removes nothing — the
+    // exact phantom row Task 1 stops the bulk-adder from creating.
+    const sat = firstGtfsWeekday(NEXT_YEAR, 6);
+    useStore.getState().setCalendars([weekdayCalendar as never]);
+    useStore.getState().setCalendarDates([{ service_id: 'WD', date: sat, exception_type: 2 } as never]);
+
+    const red = redundantMsgs(runValidation(useStore.getState()));
+    expect(red.length).toBeGreaterThan(0);
+    expect(red[0].severity).toBe('warning');
+    expect(red[0].entity_type).toBe('calendar');
+    expect(red[0].entity_id).toBe('WD');
+    // Registered with a human label for the dismissed drawer.
+    expect(DISMISSIBLE_RULE_LABELS[VALIDATION_CODES.redundantException]).toBeTruthy();
+  });
+
+  it('does NOT flag a "no service" exception on a running weekday (it removes real service)', () => {
+    const mon = firstGtfsWeekday(NEXT_YEAR, 1);
+    useStore.getState().setCalendars([weekdayCalendar as never]);
+    useStore.getState().setCalendarDates([{ service_id: 'WD', date: mon, exception_type: 2 } as never]);
+    expect(redundantMsgs(runValidation(useStore.getState())).length).toBe(0);
+  });
+
+  it('flags an "added service" exception on a day the pattern already runs', () => {
+    const mon = firstGtfsWeekday(NEXT_YEAR, 1);
+    useStore.getState().setCalendars([weekdayCalendar as never]);
+    useStore.getState().setCalendarDates([{ service_id: 'WD', date: mon, exception_type: 1 } as never]);
+    expect(redundantMsgs(runValidation(useStore.getState())).length).toBeGreaterThan(0);
+  });
+
+  it('skips calendar_dates-only services (no calendar.txt row to be redundant against)', () => {
+    const sat = firstGtfsWeekday(NEXT_YEAR, 6);
+    useStore.getState().setCalendars([]); // no weekly calendar for 'ONLY'
+    useStore.getState().setCalendarDates([{ service_id: 'ONLY', date: sat, exception_type: 1 } as never]);
+    expect(redundantMsgs(runValidation(useStore.getState())).length).toBe(0);
+  });
+
+  it('dismissing the redundant-exception code hides those messages per feed', () => {
+    const sat = firstGtfsWeekday(NEXT_YEAR, 6);
+    useStore.getState().setCalendars([weekdayCalendar as never]);
+    useStore.getState().setCalendarDates([{ service_id: 'WD', date: sat, exception_type: 2 } as never]);
+    const msgs = runValidation(useStore.getState());
+    expect(redundantMsgs(msgs).length).toBeGreaterThan(0);
+
+    useStore.getState().dismissValidation(VALIDATION_CODES.redundantException);
+    const visible = visibleAfterDismiss(msgs, useStore.getState().dismissedValidations);
+    expect(redundantMsgs(visible).length).toBe(0);
   });
 });
