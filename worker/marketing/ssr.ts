@@ -75,7 +75,7 @@ function pricingSeo(env: Env): MarketingSeo {
     <p class="lede">Free editor, forever. Pro adds managed publishing at a stable URL. Agency adds the full transit-planning suite — demographic coverage, cost estimation, and Title VI equity analysis — at roughly one-sixth the price of Remix.</p>
     <ul class="tiers">
       <li><strong>Free — $0.</strong> Create, edit, validate, and export GTFS feeds in your browser. Up to 3 saved feeds in the cloud, GTFS ZIP export, GTFS-Flex authoring, a nationwide demand-propensity map, community support.</li>
-      <li><strong>Pro — $49/mo.</strong> Host and publish feeds. Up to 10 saved feeds, publish 1 feed to a stable URL, rider-facing embeds + mini-site, Mobility Database submission, named snapshot history.</li>
+      <li><strong>Pro — $49/mo.</strong> Host and publish feeds. Unlimited saved feeds, feed publication and hosting, a rider-facing schedule mini-site, and feed submission to Google Maps, the Mobility Database, and more.</li>
       <li><strong>Agency — $299/mo.</strong> Plan routes and service as a team. Unlimited saved feeds, route operating cost estimates, demographic coverage, Title VI equity analysis, GTFS-Realtime Service Alerts authoring, a fully white-labeled rider site, unlimited team members, cross-org membership for consultants. <a href="/planning">See all planning features →</a></li>
       <li><strong>Enterprise — custom.</strong> For state DOTs, RTAP networks, and large consortiums. Custom feed/seat limits, unlimited managed publishing, phone + email support with SLA.</li>
     </ul>

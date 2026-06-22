@@ -39,7 +39,7 @@ import { TalkToSalesModal } from './TalkToSalesModal';
 const FALLBACK_PLANS: PlanCatalogEntry[] = [
   {
     plan: 'free',
-    displayName: 'Free',
+    displayName: 'Edit',
     monthlyPriceUsd: 0,
     annualPriceUsd: 0,
     perSeat: false,
@@ -64,12 +64,11 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
     perSeat: false,
     tagline: 'Host and publish feeds.',
     features: [
-      'Up to 10 saved feeds',
-      'Publish 1 feed to a stable URL',
-      'Rider-facing embeds + mini-site (with GTFS·X badge)',
-      'Submit to the Mobility Database',
-      'Named snapshot history',
-      'Custom brand color',
+      'Fast, free GTFS·X editor',
+      'Feed publication and hosting',
+      'Rider-facing schedule mini-site',
+      'Feed submission (Google Maps, Mobility Database, etc.)',
+      'Unlimited saved feeds',
       'Email support',
     ],
   },
@@ -82,18 +81,13 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
     tagline: 'Plan routes and service as a team.',
     features: [
       'Team workspace: your whole org owns and manages feeds together',
-      'Unlimited members at a flat rate (no per-seat fees)',
       'Cross-org access for consultants and partners',
-      'Custom org logo',
+      'Service scenario comparison',
       'Route operating cost estimates',
-      'Demographic coverage analysis',
-      'Network-distance walksheds',
-      'Stop-level analysis',
-      'Title VI equity analysis',
-      'Service Alerts authoring (GTFS-Realtime)',
-      'Fully white-labeled rider site (your domain, your brand)',
+      'Demographic coverage and Title VI equity analysis',
+      'GTFS-Realtime Service Alerts',
+      'White-labeled rider site',
       'Everything in Pro',
-      'Unlimited feeds',
       'Phone + email support',
     ],
     detailsHref: '/planning',
@@ -124,29 +118,23 @@ const AGENCY_FEATURE_GROUPS = [
     heading: 'Built for teams',
     items: [
       'Team workspace: your whole org owns and manages feeds together',
-      'Unlimited members at a flat rate (no per-seat fees)',
       'Cross-org access for consultants and partners',
-      'Custom org logo',
     ],
   },
   {
     heading: 'Route planning suite',
     items: [
+      'Service scenario comparison',
       'Route operating cost estimates',
-      'Demographic coverage analysis',
-      'Network-distance walksheds',
-      'Stop-level analysis',
-      'Title VI equity analysis',
-      'Service Alerts authoring (GTFS-Realtime)',
-      'Fully white-labeled rider site (your domain, your brand)',
+      'Demographic coverage and Title VI equity analysis',
+      'GTFS-Realtime Service Alerts',
+      'White-labeled rider site',
     ],
   },
 ] as const;
 // Items shown below the two pillar groups (secondary, no heading label).
-// "Unlimited feeds" is intentionally demoted here per product direction.
 const AGENCY_TRAILING_FEATURES = [
   'Everything in Pro',
-  'Unlimited feeds',
   'Phone + email support',
 ] as const;
 
@@ -285,6 +273,7 @@ export function PricingPage() {
     const monthly = p.monthlyPriceUsd;
     const annual = p.annualPriceUsd;
     if (monthly === null || annual === null) return { amount: 'Custom', per: '', sub: null };
+    if (monthly === 0 && annual === 0) return { amount: 'Free Forever', per: '', sub: null };
     if (interval === 'month') {
       return {
         amount: `$${monthly}`,
@@ -622,9 +611,9 @@ export function PricingPage() {
                   )}
                 </div>
                 {p.plan === 'agency' ? (
-                  <div className="mt-4 space-y-3 text-sm text-brown flex-1">
-                    {AGENCY_FEATURE_GROUPS.map((group) => (
-                      <div key={group.heading}>
+                  <div className="mt-4 text-sm text-brown flex-1">
+                    {AGENCY_FEATURE_GROUPS.map((group, gi) => (
+                      <div key={group.heading} className={gi > 0 ? 'mt-3' : ''}>
                         <p className="text-[10px] font-bold uppercase tracking-wide text-warm-gray mb-1.5">
                           {group.heading}
                         </p>
@@ -638,7 +627,7 @@ export function PricingPage() {
                         </ul>
                       </div>
                     ))}
-                    <ul className="space-y-1.5 pt-1">
+                    <ul className="space-y-1.5 mt-1.5">
                       {AGENCY_TRAILING_FEATURES.map((f) => (
                         <li key={f} className="flex items-start gap-2">
                           <span className="mt-0.5 text-teal">✓</span>

@@ -234,11 +234,11 @@ describe('POST /api/projects/:id/duplicate', () => {
   });
 
   it('enforces project quota: at the warn threshold the duplicate sets X-Quota-Warning (soft mode)', async () => {
-    // Pro tier projects=10, warnAt=floor(10*0.9)=9. Seed 8, create source =9,
-    // duplicate observes used=9 >= warnAt and emits the warning header.
-    const { client, userId } = await loggedInClient('dup-quota@example.com', 'pro');
+    // Free tier projects=3, warnAt=floor(3*0.9)=2. Seed 1, create source =2,
+    // duplicate observes used=2 >= warnAt and emits the warning header.
+    const { client, userId } = await loggedInClient('dup-quota@example.com', 'free');
     const now = Date.now();
-    for (let i = 0; i < 8; i += 1) {
+    for (let i = 0; i < 1; i += 1) {
       await dbRun(
         `INSERT INTO feed_project (id, slug, name, description, owner_type, owner_id,
            working_state_r2_key, working_state_version, working_state_size, working_state_updated_at,
@@ -258,6 +258,6 @@ describe('POST /api/projects/:id/duplicate', () => {
 
     const res = await client.post(`/api/projects/${src.id}/duplicate`);
     expect(res.status).toBe(201); // soft mode: still creates
-    expect(res.headers.get('X-Quota-Warning')).toMatch(/^\d+\/10$/);
+    expect(res.headers.get('X-Quota-Warning')).toMatch(/^\d+\/3$/);
   });
 });

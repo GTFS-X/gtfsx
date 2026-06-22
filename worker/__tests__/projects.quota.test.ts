@@ -16,8 +16,9 @@ import {
 import { ulid } from 'ulidx';
 
 async function loggedInClient(email: string, plan: 'free' | 'pro' | 'agency' | 'enterprise' = 'pro') {
-  // Quota tests pin to a plan with known small limits so the assertions stay
-  // readable. Pro = 10 projects + 25 snapshots/project; Agency = 500 + 50.
+  // Quota tests pin to a plan with a finite project limit so the assertions
+  // stay readable. Free = 3 projects — the only finite-project tier now that
+  // Pro and Agency are unlimited; Agency still has 50 snapshots/project.
   const user = await seedUser({ email, plan });
   const client = makeClient();
   await client.post('/auth/login', { email: user.email, password: user.password });
@@ -37,13 +38,13 @@ describe('project quotas', () => {
     capture.restore();
   });
 
-  it('soft warning at 90%: 10th project creates + X-Quota-Warning header (pro tier)', async () => {
-    const { client, userId } = await loggedInClient('quota1@example.com');
+  it('soft warning at 90%: 3rd project creates + X-Quota-Warning header (free tier)', async () => {
+    const { client, userId } = await loggedInClient('quota1@example.com', 'free');
 
-    // Pro tier has projects=10. warnAt = floor(10 * 0.9) = 9. Seed 9 so the
-    // 10th POST observes used=9 >= warnAt and emits the warning header.
+    // Free tier has projects=3. warnAt = floor(3 * 0.9) = 2. Seed 2 so the
+    // 3rd POST observes used=2 >= warnAt and emits the warning header.
     const now = Date.now();
-    for (let i = 0; i < 9; i += 1) {
+    for (let i = 0; i < 2; i += 1) {
       await dbRun(
         `INSERT INTO feed_project (id, slug, name, description, owner_type, owner_id,
            working_state_r2_key, working_state_version, working_state_size, working_state_updated_at,
@@ -58,16 +59,16 @@ describe('project quotas', () => {
       );
     }
 
-    const res = await client.post('/api/projects', { name: 'Project 10' });
+    const res = await client.post('/api/projects', { name: 'Project 3' });
     expect(res.status).toBe(201);
-    expect(res.headers.get('X-Quota-Warning')).toMatch(/^\d+\/10$/);
+    expect(res.headers.get('X-Quota-Warning')).toMatch(/^\d+\/3$/);
   });
 
-  it('soft mode: pro user can create an 11th project (HARD_LIMITS=false in tests); warning still set', async () => {
-    const { client, userId } = await loggedInClient('quota2@example.com');
+  it('soft mode: free user can create a 4th project over the limit (HARD_LIMITS=false in tests); warning still set', async () => {
+    const { client, userId } = await loggedInClient('quota2@example.com', 'free');
 
     const now = Date.now();
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < 3; i += 1) {
       await dbRun(
         `INSERT INTO feed_project (id, slug, name, description, owner_type, owner_id,
            working_state_r2_key, working_state_version, working_state_size, working_state_updated_at,
@@ -84,7 +85,7 @@ describe('project quotas', () => {
 
     const res = await client.post('/api/projects', { name: 'Over Limit' });
     expect(res.status).toBe(201);
-    expect(res.headers.get('X-Quota-Warning')).toBe('10/10');
+    expect(res.headers.get('X-Quota-Warning')).toBe('3/3');
   });
 
   // TODO(test-harness): assert the HARD_LIMITS=true path. The env binding is
