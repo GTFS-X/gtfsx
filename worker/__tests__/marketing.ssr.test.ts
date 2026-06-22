@@ -11,6 +11,8 @@ describe('legacy-alias 301 redirects', () => {
     ['/quickstart', '/docs/quick-start/'],
     ['/gtfs-flex', '/learn/gtfs-flex/'],
     ['/what-is-gtfs', '/learn/gtfs/'],
+    // Retired agency-planning campaign LP, merged into /planning.
+    ['/lp/agency-planning', '/planning'],
   ];
 
   for (const [from, to] of cases) {

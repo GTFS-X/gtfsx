@@ -25,6 +25,12 @@ const LEGACY_ALIAS_REDIRECTS: Record<string, string> = {
   // context (?plan, ?feature, ?source, ?ownerType…) carries over.
   '/upgrade': '/pricing',
   '/welcome/plan': '/pricing',
+  // The agency-planning Google Ads landing page (/lp/agency-planning) was
+  // merged into the /planning marketing page; the ads now point at /planning
+  // directly, leaving the LP orphaned. 301 it so old inbound links follow.
+  // The trailing-slash form (/lp/agency-planning/) is covered too, because
+  // aliasKey strips trailing slashes before the lookup.
+  '/lp/agency-planning': '/planning',
 };
 
 // Client-side (React Router) routes that have NO pre-rendered HTML file and

@@ -1,6 +1,6 @@
 /**
- * Static landing-page sanity tests for bundle 8 (campaign LPs at
- * /lp/gtfs-editor/ and /lp/agency-planning/).
+ * Static landing-page sanity tests for bundle 8 (campaign LP at
+ * /lp/gtfs-editor/).
  *
  * These are pure file-content assertions — the LPs are static HTML served
  * directly from `public/` (no SSR overlay), so we don't need a worker
@@ -10,6 +10,12 @@
  * preload="metadata", and the inline gclid/cta_click beacon. Anything more
  * (visual layout, PageSpeed) is left to the manual mobile-audit step in
  * the PR description.
+ *
+ * The agency-planning campaign LP (formerly /lp/agency-planning/) was merged
+ * into the /planning marketing page — its Google Ads now land on /planning and
+ * the LP file was deleted. The conversion content it carried (the
+ * GTFS·X-vs-Remix comparison table and the FAQ) now lives on /planning; the
+ * final describe block asserts that content survived the port.
  */
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -51,17 +57,6 @@ const PAGES = [
     softwareName: 'GTFS·X',
     faqFirstQuestion: 'Is it really free?',
     breadcrumbLeaf: 'GTFS Editor',
-  },
-  {
-    label: 'agency LP',
-    file: 'public/lp/agency-planning/index.html',
-    canonical: 'https://www.gtfsx.com/lp/agency-planning/',
-    primaryCtaLabel: 'lp_agency_primary_cta',
-    primaryCtaHref: 'https://www.gtfsx.com/pricing/#agency',
-    videoSrc: 'https://videos.gtfsx.com/lp_planning_demo.mp4',
-    softwareName: 'GTFS·X Agency',
-    faqFirstQuestion: 'How does GTFS·X Agency compare to Remix?',
-    breadcrumbLeaf: 'Agency Planning',
   },
 ] as const;
 
@@ -155,20 +150,34 @@ for (const p of PAGES) {
   });
 }
 
-describe('agency LP — Remix-compare secondary CTA', () => {
-  it('has the lp_agency_compare_remix label on the Compare-to-Remix link', async () => {
-    const html = await loadPage('public/lp/agency-planning/index.html');
-    expect(html).toMatch(/data-cta=["']lp_agency_compare_remix["'][^>]*href=["']\/compare\/remix\/["']|href=["']\/compare\/remix\/["'][^>]*data-cta=["']lp_agency_compare_remix["']/);
-  });
-});
-
-describe('agency LP — pricing comparison renders both desktop table and mobile cards', () => {
-  it('has the GTFS·X $2,988 price prominently in both layouts', async () => {
-    const html = await loadPage('public/lp/agency-planning/index.html');
+describe('/planning — ported comparison table + FAQ (from the retired agency LP)', () => {
+  it('renders the GTFS·X $2,988 comparison in both the desktop table and mobile cards', async () => {
+    const html = await loadPage('public/planning/index.html');
     expect(html).toMatch(/\$2,988/);
-    // Cards stack to single column < 640px — markup must contain a .compare-cards
-    // container alongside the .compare-table.
+    // Cards stack to a single column < 640px, so the markup must contain a
+    // .compare-cards container alongside the .compare-table.
     expect(html).toContain('compare-table');
     expect(html).toContain('compare-cards');
+    // The price positioning links out to the honest side-by-side comparisons.
+    expect(html).toContain('/compare/remix/');
+  });
+
+  it('keeps the FAQ (visible <details> + matching FAQPage JSON-LD)', async () => {
+    const html = await loadPage('public/planning/index.html');
+    const blocks = parseJsonLdBlocks(html);
+    const faq = blocks.find((b) => jsonLdType(b) === 'FAQPage') as
+      | { mainEntity: Array<{ name: string }> }
+      | undefined;
+    expect(faq).toBeDefined();
+    expect(faq!.mainEntity.length).toBeGreaterThanOrEqual(6);
+    // The Remix comparison question is the lead FAQ entry, visible and in JSON-LD.
+    expect(html).toContain('How does GTFS·X Agency compare to Remix?');
+    expect(faq!.mainEntity[0].name).toBe('How does GTFS·X Agency compare to Remix?');
+  });
+
+  it('points the demo video caption track at the moved /planning/captions.vtt', async () => {
+    const html = await loadPage('public/planning/index.html');
+    expect(html).toContain('src="/planning/captions.vtt"');
+    expect(html).not.toContain('/lp/agency-planning/captions.vtt');
   });
 });

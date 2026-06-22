@@ -65,10 +65,42 @@
       .video-wrap video { width: 100%; height: 100%; display: block; background: #000; }
       .video-note { color: var(--muted); font-size: 13px; text-align: center; margin: 12px 0 0; }
       .free-tag { font-size: 0.62em; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; background:#E8EFD9; color:#3F6014; border:1px solid #C9D9A1; vertical-align: middle; }
-      .split { background: var(--bg); }
-      .split h2 { font-size: 22px; margin: 0 0 12px; }
-      .split p { color: var(--ink); margin: 0 0 8px; }
-      .split .label { font-weight: 700; }
+      .compare { background: var(--bg); }
+      .compare h2 { font-size: 22px; margin: 0 0 12px; }
+      .compare-lead { font-size: clamp(16px, 2vw, 18px); margin: 0 0 16px; max-width: 720px; }
+      .compare-split { margin: 0 0 8px; }
+      .compare-split .label { font-weight: 700; }
+      /* Pricing comparison: real table on desktop, stacked cards on mobile. */
+      .compare-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; margin-top: 20px; }
+      .compare-table th, .compare-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--rule); font-size: 14px; }
+      .compare-table th { background: var(--bg); font-weight: 700; }
+      .compare-table th.us { color: var(--accent); }
+      .compare-table tr:last-child td { border-bottom: 0; }
+      .compare-table .num { text-align: left; font-variant-numeric: tabular-nums; }
+      .compare-note { color: var(--muted); font-size: 13px; margin-top: 12px; }
+      .buy-highlight { background:#fff; border:1px solid var(--rule); border-left:4px solid var(--accent); border-radius:8px; padding:14px 18px; margin-top:16px; font-size:14px; }
+      .buy-highlight strong { color: var(--ink); }
+      .compare-cards { display: none; }
+      @media (max-width: 640px) {
+        .compare-table { display: none; }
+        .compare-cards { display: grid; gap: 12px; margin-top: 18px; }
+        .compare-card { background: #fff; border: 1px solid var(--rule); border-radius: 8px; padding: 16px; }
+        .compare-card.us { border-color: var(--accent); border-width: 2px; }
+        .compare-card h3 { margin: 0 0 4px; font-size: 16px; }
+        .compare-card .price { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+        .compare-card.us .price { color: var(--accent); }
+        .compare-card ul { margin: 0; padding-left: 16px; color: var(--muted); font-size: 14px; }
+        .compare-card li { margin: 2px 0; }
+      }
+      .faq { background: #fff; border-top: 1px solid var(--rule); }
+      .faq h2 { font-size: 22px; margin: 0 0 16px; }
+      details { border-bottom: 1px solid var(--rule); padding: 14px 0; }
+      details > summary { cursor: pointer; font-weight: 600; font-size: 16px; list-style: none; padding-right: 28px; position: relative; min-height: 28px; }
+      details > summary::-webkit-details-marker { display: none; }
+      details > summary::after { content: "+"; position: absolute; right: 0; top: 0; color: var(--muted); font-size: 20px; line-height: 1; }
+      details[open] > summary::after { content: "−"; }
+      details > div { color: var(--muted); padding-top: 10px; font-size: 15px; }
+      details > div a { color: var(--accent); }
       .cta-secondary { text-align: center; background:#fff; border-top:1px solid var(--rule); }
       .cta-secondary h2 { font-size: 24px; margin: 0 0 20px; }
       footer { background:#fff; border-top:1px solid var(--rule); color: var(--muted); font-size: 14px; padding: 24px; }
@@ -98,7 +130,10 @@
   "url": "https://www.gtfsx.com/planning/",
   "applicationCategory": "BusinessApplication",
   "operatingSystem": "Web",
-  "image": "https://www.gtfsx.com/og-default.png"
+  "image": "https://www.gtfsx.com/og-default.png",
+  "offers": [
+    { "@type": "Offer", "name": "Agency", "price": "2988", "priceCurrency": "USD", "description": "Annual subscription. Includes route-level cost and coverage, Title VI equity analysis, stop analysis, cost estimation, and Pro hosting features." }
+  ]
 }
     </script>
     <script type="application/ld+json">
@@ -108,6 +143,20 @@
   "itemListElement": [
     { "@type": "ListItem", "position": 1, "name": "GTFS·X", "item": "https://www.gtfsx.com/" },
     { "@type": "ListItem", "position": 2, "name": "Route planning", "item": "https://www.gtfsx.com/planning/" }
+  ]
+}
+    </script>
+    <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "How does GTFS·X Agency compare to Remix?", "acceptedAnswer": { "@type": "Answer", "text": "Same core map-based planning, demographics, and Title VI, at roughly 1/6 the annual cost ($2,988 vs. $20K+). The trade-off: GTFS·X is leaner, with fewer enterprise features (multi-user permissioning, white-label, professional services), but the planning fundamentals are equivalent. See /compare/remix/ for details." } },
+    { "@type": "Question", "name": "Can I try the Agency features without signing up?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The editor is free; demographics and Title VI analysis run inside a free trial of the Agency tier. No credit card required." } },
+    { "@type": "Question", "name": "What's included in Agency tier?", "acceptedAnswer": { "@type": "Answer", "text": "Route planning + demographics + Title VI + cost estimation + Pro hosting features. Multi-org membership (good for consultants serving multiple agencies). Email support." } },
+    { "@type": "Question", "name": "Do you offer professional services?", "acceptedAnswer": { "@type": "Answer", "text": "No. We're software. If you need consulting, we can refer you to AICP-credentialed planners (including the founder)." } },
+    { "@type": "Question", "name": "What about FTA reporting requirements?", "acceptedAnswer": { "@type": "Answer", "text": "Title VI equity analysis is built in. Disparate-impact and disparate-burden reports follow FTA Circular 4702.1B structure. NTD-ready service-hour reporting is on the roadmap." } },
+    { "@type": "Question", "name": "What if we outgrow the Agency tier?", "acceptedAnswer": { "@type": "Answer", "text": "The product scales to large-agency volumes. The \"outgrow\" path is usually adding enterprise features (SSO, audit logs, dedicated support), which we'd add as needed. Talk to us before you decide you've outgrown it." } }
   ]
 }
     </script>
@@ -144,7 +193,7 @@
           <div class="video-wrap">
             <video controls preload="metadata" poster="/assets/docs/demographic-coverage-hero.png" playsinline>
               <source src="https://videos.gtfsx.com/lp_planning_demo.mp4" type="video/mp4" />
-              <track kind="captions" src="/lp/agency-planning/captions.vtt" srclang="en" label="English" default />
+              <track kind="captions" src="/planning/captions.vtt" srclang="en" label="English" default />
               Your browser can&#39;t play HTML5 video. <a href="https://videos.gtfsx.com/lp_planning_demo.mp4">Download the demo (MP4)</a>.
             </video>
           </div>
@@ -196,11 +245,116 @@
         </div>
       </section>
 
-      <section class="split">
+      <section class="compare">
         <div class="inner">
-          <h2>What's free vs. Agency</h2>
-          <p><span class="label">Free on every plan:</span> the Demand Dots layer, the <a href="/docs/service-summary/">Service Summary</a> (revenue hours, trips, peak vehicles, span), and the system-level headline figures for cost and coverage.</p>
-          <p><span class="label">Agency:</span> route-level cost and coverage depth, Title VI, stop analysis, and team collaboration.</p>
+          <h2>The planning suite, without the enterprise price tag</h2>
+          <p class="compare-lead">GTFS·X Agency is $2,988 a year: route-level cost and coverage, Title VI, and stop analysis, computed next to the feed you already edit, for roughly a sixth of what a dedicated planning platform runs.</p>
+          <p class="compare-split"><span class="label">Free on every plan:</span> the Demand Dots layer, the <a href="/docs/service-summary/">Service Summary</a> (revenue hours, trips, peak vehicles, span), and the system-level headline figures for cost and coverage.</p>
+          <p class="compare-split"><span class="label">Agency:</span> route-level cost and coverage depth, Title VI, stop analysis, and team collaboration.</p>
+
+          <table class="compare-table">
+            <thead>
+              <tr>
+                <th>&nbsp;</th>
+                <th class="us">GTFS·X Agency</th>
+                <th>Remix</th>
+                <th>Optibus</th>
+                <th>Trillium</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Annual cost</td>
+                <td class="num"><strong>$2,988</strong></td>
+                <td class="num">$20,000+</td>
+                <td class="num">$25,000+</td>
+                <td class="num">$5,000-10,000+</td>
+              </tr>
+              <tr><td>Route planning</td><td>✓</td><td>✓</td><td>✓</td><td>(managed)</td></tr>
+              <tr><td>Demographics</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>
+              <tr><td>Title VI</td><td>✓</td><td>✓</td><td>partial</td><td>—</td></tr>
+              <tr><td>Self-serve</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>
+            </tbody>
+          </table>
+
+          <div class="compare-cards" aria-hidden="false">
+            <div class="compare-card us">
+              <h3>GTFS·X Agency</h3>
+              <div class="price">$2,988/yr</div>
+              <ul>
+                <li>Route planning ✓</li>
+                <li>Demographics ✓</li>
+                <li>Title VI ✓</li>
+                <li>Self-serve ✓</li>
+              </ul>
+            </div>
+            <div class="compare-card">
+              <h3>Remix</h3>
+              <div class="price">$20,000+/yr</div>
+              <ul>
+                <li>Route planning ✓</li>
+                <li>Demographics ✓</li>
+                <li>Title VI ✓</li>
+                <li>Self-serve ✓</li>
+              </ul>
+            </div>
+            <div class="compare-card">
+              <h3>Optibus</h3>
+              <div class="price">$25,000+/yr</div>
+              <ul>
+                <li>Route planning ✓</li>
+                <li>Demographics ✓</li>
+                <li>Title VI: partial</li>
+                <li>Self-serve ✓</li>
+              </ul>
+            </div>
+            <div class="compare-card">
+              <h3>Trillium</h3>
+              <div class="price">$5,000-10,000+/yr</div>
+              <ul>
+                <li>Route planning: managed</li>
+                <li>Demographics: —</li>
+                <li>Title VI: —</li>
+                <li>Self-serve: —</li>
+              </ul>
+            </div>
+          </div>
+
+          <p class="compare-note">Pricing estimates as of 2026. See <a href="/compare/remix/">/compare/remix/</a> and <a href="/compare/trillium/">/compare/trillium/</a> for honest side-by-side comparisons.</p>
+
+          <div class="buy-highlight">
+            <strong>Buy it on a P-card, not an RFP.</strong> At $2,988/year, Agency is below the federal micro-purchase threshold (raised to $15,000 in October 2025, under 2 CFR 200.320 and the FAR) and below most agencies' small-purchase limits, so you can usually subscribe on a purchasing card with no competitive procurement. Confirm your own local threshold. <a href="/compare/remix/">See how this compares to Remix.</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="faq">
+        <div class="inner">
+          <h2>Questions planners ask</h2>
+          <details>
+            <summary>How does GTFS·X Agency compare to Remix?</summary>
+            <div>Same core map-based planning, demographics, and Title VI, at roughly 1/6 the annual cost ($2,988 vs. $20K+). The trade-off: GTFS·X is leaner, with fewer enterprise features (multi-user permissioning, white-label, professional services), but the planning fundamentals are equivalent. See <a href="/compare/remix/">/compare/remix/</a> for details.</div>
+          </details>
+          <details>
+            <summary>Can I try the Agency features without signing up?</summary>
+            <div>Yes. The editor is free; demographics and Title VI analysis run inside a free trial of the Agency tier. No credit card required.</div>
+          </details>
+          <details>
+            <summary>What's included in Agency tier?</summary>
+            <div>Route planning + demographics + Title VI + cost estimation + Pro hosting features. Multi-org membership (good for consultants serving multiple agencies). Email support.</div>
+          </details>
+          <details>
+            <summary>Do you offer professional services?</summary>
+            <div>No. We're software. If you need consulting, we can refer you to AICP-credentialed planners (including the founder).</div>
+          </details>
+          <details>
+            <summary>What about FTA reporting requirements?</summary>
+            <div>Title VI equity analysis is built in. Disparate-impact and disparate-burden reports follow FTA Circular 4702.1B structure. NTD-ready service-hour reporting is on the roadmap.</div>
+          </details>
+          <details>
+            <summary>What if we outgrow the Agency tier?</summary>
+            <div>The product scales to large-agency volumes. The "outgrow" path is usually adding enterprise features (SSO, audit logs, dedicated support), which we'd add as needed. Talk to us before you decide you've outgrown it.</div>
+          </details>
         </div>
       </section>
 
