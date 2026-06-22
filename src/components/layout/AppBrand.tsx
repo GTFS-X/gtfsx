@@ -1,4 +1,3 @@
-import { useNavigate } from 'react-router-dom';
 import { db } from '../../db/dexie';
 import { useStore } from '../../store';
 
@@ -22,11 +21,12 @@ export function AppBrand({
   showTagline?: boolean;
   taglineClassName?: string;
 }) {
-  const navigate = useNavigate();
-
   const handleClick = () => {
     if (mode === 'link') {
-      navigate('/');
+      // Full-page load to the site root so the Worker serves the marketing
+      // landing. The SPA's own '/' route renders the editor, so a client-side
+      // navigate('/') would land on the editor instead of the landing page.
+      window.location.href = import.meta.env.BASE_URL;
       return;
     }
     // Editor mode: only warn if there are actual unsaved changes. A

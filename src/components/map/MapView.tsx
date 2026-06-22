@@ -1110,7 +1110,7 @@ export function MapView() {
         return;
       }
 
-      const flexFeature = e.features?.find((f: MapboxGeoJSONFeature) => f.layer?.id === 'flex-zone-fill');
+      const flexFeature = e.features?.find((f: MapboxGeoJSONFeature) => f.layer?.id === 'flex-zone-hit');
       if (flexFeature?.properties) {
         setPopupFlexZoneId(flexFeature.properties.zoneId);
         setPopupStopId(null);
@@ -1193,7 +1193,7 @@ export function MapView() {
         doubleClickZoom={mapMode !== 'place_stop'}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        interactiveLayerIds={mapMode === 'edit_shape' || mapMode === 'edit_flex_zone' || mapMode === 'draw_flex_zone' || mapMode === 'draw_fare_zone' || mapMode === 'select_stops_polygon' ? [] : ['stop-circles', 'stop-cluster-points', 'stop-clusters', 'route-lines', 'flex-zone-fill']}
+        interactiveLayerIds={mapMode === 'edit_shape' || mapMode === 'edit_flex_zone' || mapMode === 'draw_flex_zone' || mapMode === 'draw_fare_zone' || mapMode === 'select_stops_polygon' ? [] : ['stop-circles', 'stop-cluster-points', 'stop-clusters', 'route-lines', 'flex-zone-hit']}
       >
         <NavigationControl position="bottom-right" />
         <DrawControl

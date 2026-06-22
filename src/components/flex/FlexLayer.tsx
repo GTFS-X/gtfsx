@@ -69,19 +69,23 @@ export function FlexLayer() {
     <Source id="flex-zones" type="geojson" data={combinedGeojson}>
       {/*
         Flex zones are symbolized by the dashed outline only — a visible fill
-        made the (often large) service areas dominate the map. We keep this
-        fill layer but render it fully transparent: an opacity-0 fill is still
-        returned by queryRenderedFeatures, so it remains the click/hover hit
-        target for the whole zone interior (see MapView's interactiveLayerIds +
-        the 'flex-zone-fill' check in handleMapClick). Do NOT delete this layer
-        to "clean up" — without it, only the thin outline would be clickable.
+        made the (often large) service areas dominate the map. The click target
+        is this invisible "hit" line tracing the zone boundary: an opacity-0
+        line is still returned by queryRenderedFeatures, so clicking ON (or just
+        beside) the outline opens the zone popup, while clicking the empty
+        interior does nothing. It's wider than the visible outline so it's easy
+        to hit, and solid (no dash gaps) so the whole boundary is live (see
+        MapView's interactiveLayerIds + the 'flex-zone-hit' check in
+        handleMapClick). Do NOT delete this layer — without it the zone would
+        only be selectable on the thin, gappy dashed line.
       */}
       <Layer
-        id="flex-zone-fill"
-        type="fill"
+        id="flex-zone-hit"
+        type="line"
         paint={{
-          'fill-color': ['coalesce', ['get', 'color'], DEFAULT_FLEX_COLOR],
-          'fill-opacity': 0,
+          'line-color': '#000000',
+          'line-opacity': 0,
+          'line-width': 14,
         }}
       />
       <Layer
