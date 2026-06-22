@@ -287,7 +287,7 @@ projectsRouter.post('/', async (c) => {
 
   const ownerQuotas = await getOwnerQuotas(c.env, ownerType, ownerId);
   const used = await countProjects(c.env, ownerType, ownerId);
-  const { warning } = enforceQuota(c.env, 'projects', used, ownerQuotas.projects);
+  const { warning } = enforceQuota(c.env, 'projects', used, ownerQuotas.projects, { hard: true });
   setQuotaWarningHeader(c, warning);
 
   let desiredSlug: string;
@@ -581,7 +581,7 @@ projectsRouter.post('/:id/transfer', async (c) => {
   // Quota check on the destination.
   const destQuotas = await getOwnerQuotas(c.env, destOwnerType, destOwnerId);
   const usedAtDest = await countProjects(c.env, destOwnerType, destOwnerId);
-  enforceQuota(c.env, 'projects', usedAtDest, destQuotas.projects);
+  enforceQuota(c.env, 'projects', usedAtDest, destQuotas.projects, { hard: true });
 
   // Slug uniqueness in the destination.
   const finalSlug = await uniqueSlug(c.env, destOwnerType, destOwnerId, current.slug);
@@ -657,7 +657,7 @@ projectsRouter.post('/:id/duplicate', async (c) => {
   // Quota check on the (shared) destination owner — same rule as POST /.
   const ownerQuotas = await getOwnerQuotas(c.env, ownerType, ownerId);
   const used = await countProjects(c.env, ownerType, ownerId);
-  const { warning } = enforceQuota(c.env, 'projects', used, ownerQuotas.projects);
+  const { warning } = enforceQuota(c.env, 'projects', used, ownerQuotas.projects, { hard: true });
   setQuotaWarningHeader(c, warning);
 
   // Name + slug dedupe. The name gets a " (copy)" suffix; the slug is derived

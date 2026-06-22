@@ -125,9 +125,14 @@ export function enforceQuota(
   kind: QuotaKind,
   used: number,
   limit: number,
+  opts?: { hard?: boolean },
 ): EnforceResult {
   if (used >= limit) {
-    if (isHard(env)) {
+    // Global HARD_LIMITS env hard-enforces every quota; `opts.hard` lets a
+    // single call hard-enforce regardless (the saved-feed cap is a hard wall at
+    // feed creation even while snapshots/blob stay soft). See the `projects`
+    // create/duplicate/transfer call sites.
+    if (isHard(env) || opts?.hard) {
       throw quotaExceeded(quotaMessage(kind, used, limit), { kind, used, limit });
     }
     return { warning: `${used}/${limit}` };

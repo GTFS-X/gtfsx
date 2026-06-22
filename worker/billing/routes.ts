@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { AppContext } from '../env';
+import type { AppContext, Env } from '../env';
 import { requireAuth } from '../auth/middleware';
 import { forbidden, notFound, validationFailed, paymentRequired, badGateway, ApiError } from '../util/errors';
 import { logAudit } from '../util/audit';
@@ -14,6 +14,7 @@ import {
   getOwnerQuotas,
 } from '../projects/quotas';
 import { PLAN_CATALOG } from './plans';
+import { ulid } from 'ulidx';
 
 export const billingRouter = new Hono<AppContext>();
 
@@ -139,6 +140,28 @@ billingRouter.get('/orgs/:id', async (c) => {
     },
   });
 });
+
+// GH #68: record a checkout_started pro-intent signal (per-account, authenticated)
+// so the warm-cohort export can rank accounts that began the upgrade path. Writes
+// to pro_intent (migration 0023). Best-effort — swallow every error so a logging
+// failure can never break checkout. Exported for a focused unit test (the full
+// /checkout route needs Stripe env the worker test pool doesn't have).
+export async function recordCheckoutStarted(
+  env: Env,
+  userId: string,
+  plan: string,
+  interval: string,
+): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO pro_intent (id, user_id, ts, action, source) VALUES (?, ?, ?, 'checkout_started', ?)`,
+    )
+      .bind(ulid(), userId, Date.now(), `${plan}_${interval}`)
+      .run();
+  } catch {
+    // instrumentation must never affect checkout
+  }
+}
 
 // Self-serve checkout supports the two flat-priced plans (Pro on the user,
 // Agency on the org — DB id 'agency'). Enterprise is sales-led.
@@ -308,6 +331,9 @@ billingRouter.post('/checkout', async (c) => {
   )
     .bind(session.id, body.ownerType, body.ownerId, body.plan, interval, quantity, user.id, Date.now())
     .run();
+
+  // GH #68: the upgrade path has started — record it (best-effort, never blocks).
+  await recordCheckoutStarted(c.env, user.id, body.plan, interval);
 
   await logAudit(c.env, {
     actorUserId: user.id,

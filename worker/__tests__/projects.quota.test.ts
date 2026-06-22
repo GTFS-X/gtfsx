@@ -7,6 +7,7 @@ import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { makeClient } from './_client';
 import {
   applyMigrations,
+  dbAll,
   dbRun,
   resetDb,
   seedUser,
@@ -64,7 +65,10 @@ describe('project quotas', () => {
     expect(res.headers.get('X-Quota-Warning')).toMatch(/^\d+\/3$/);
   });
 
-  it('soft mode: free user can create a 4th project over the limit (HARD_LIMITS=false in tests); warning still set', async () => {
+  it('hard cap: free user at the 3-feed limit is blocked from creating a 4th (409), even with HARD_LIMITS=false', async () => {
+    // The saved-feed cap is a hard wall at feed creation regardless of the
+    // global HARD_LIMITS env (enforceQuota(..., { hard: true }) on the projects
+    // create path), so a free owner already at 3 feeds cannot create a 4th.
     const { client, userId } = await loggedInClient('quota2@example.com', 'free');
 
     const now = Date.now();
@@ -84,8 +88,17 @@ describe('project quotas', () => {
     }
 
     const res = await client.post('/api/projects', { name: 'Over Limit' });
-    expect(res.status).toBe(201);
-    expect(res.headers.get('X-Quota-Warning')).toBe('3/3');
+    expect(res.status).toBe(409);
+    // Read the raw body directly — the client.json() helper throws on non-2xx.
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('quota_exceeded');
+
+    // The blocked feed was not created (still 3).
+    const rows = await dbAll<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM feed_project WHERE owner_id = ? AND deleted_at IS NULL`,
+      userId,
+    );
+    expect(rows[0].n).toBe(3);
   });
 
   // TODO(test-harness): assert the HARD_LIMITS=true path. The env binding is
