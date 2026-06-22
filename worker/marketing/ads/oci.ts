@@ -20,7 +20,14 @@
 
 import type { Env } from '../../env';
 
-const API_VERSION = 'v17';
+// Google Ads API version. Bump to the latest stable when the current version
+// is sunset (Google retires major versions ~14 months after release). The
+// uploadClickConversions endpoint shape has been stable since v3; bumping the
+// version string is usually sufficient (verified against the v24 proto: the
+// request/ClickConversion/response fields we use are unchanged — v24 only
+// *adds* an optional job_id we don't send or read). Last bumped 2026-06-22
+// (v17 → v24). Release notes: https://developers.google.com/google-ads/api/docs/release-notes
+const API_VERSION = 'v24';
 // Google Ads uploadClickConversions accepts up to 2000 conversions per call;
 // keep below that with headroom in case we ever extend the payload shape.
 const BATCH_SIZE = 1000;
