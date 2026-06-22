@@ -298,6 +298,7 @@ interface UserListRow {
   staff: number;
   plan: AuthedUser['plan'] | null;
   plan_status: AuthedUser['planStatus'] | null;
+  plan_expires_at: number | null;
   created_at: number;
   last_session_at: number | null;
   project_count: number;
@@ -364,7 +365,7 @@ adminRouter.get('/users', async (c) => {
 adminRouter.get('/users/:id', async (c) => {
   const id = c.req.param('id');
   const row = await c.env.DB.prepare(
-    `SELECT u.id, u.email, u.display_name, u.status, u.staff, u.created_at,
+    `SELECT u.id, u.email, u.display_name, u.status, u.staff, u.plan, u.plan_status, u.plan_expires_at, u.created_at,
             (SELECT MAX(last_used_at) FROM session s WHERE s.user_id = u.id) AS last_session_at,
             (SELECT COUNT(*) FROM feed_project p
                 WHERE p.owner_type = 'user' AND p.owner_id = u.id AND p.deleted_at IS NULL) AS project_count
@@ -404,6 +405,9 @@ adminRouter.get('/users/:id', async (c) => {
       displayName: row.display_name,
       status: row.status,
       staff: row.staff === 1,
+      plan: row.plan ?? 'free',
+      planStatus: row.plan_status ?? 'active',
+      planExpiresAt: row.plan_expires_at ?? null,
       createdAt: row.created_at,
       lastSessionAt: row.last_session_at,
       projectCount: row.project_count,
@@ -693,13 +697,18 @@ adminRouter.post('/end-impersonation', async (c) => {
   return c.body(null, 204);
 });
 
-// ─── Enterprise plan grants (staff-only) ──────────────────────────────────
+// ─── Comp plan grants (staff-only) ─────────────────────────────────────────
 //
 // Bypasses Stripe — no subscription is created. The cached plan column on
-// user/org is set to 'enterprise' and (optionally) plan_expires_at is set
-// so the nightly cron can downgrade lapsed grants.
+// user/org is set to the granted plan ('agency' or 'enterprise') and
+// (optionally) plan_expires_at is set so the nightly cron can downgrade lapsed
+// grants. The legacy `enterprise-grant`/`enterprise-revoke` route names are
+// kept for backward-compat; `plan` defaults to 'enterprise' when omitted.
 
-const enterpriseGrantSchema = z.object({
+const planGrantSchema = z.object({
+  // Which comp plan to grant. Defaults to enterprise so the original
+  // enterprise-only callers keep working unchanged.
+  plan: z.enum(['agency', 'enterprise']).optional().default('enterprise'),
   // Unix ms. Null/undefined = open-ended grant (no expiry).
   expiresAt: z.number().int().positive().nullable().optional(),
   note: z.string().max(500).optional(),
@@ -708,7 +717,7 @@ const enterpriseGrantSchema = z.object({
 adminRouter.post('/users/:id/enterprise-grant', async (c) => {
   const staff = c.var.user!;
   const id = c.req.param('id');
-  const body = await parseJson(c, enterpriseGrantSchema);
+  const body = await parseJson(c, planGrantSchema);
 
   const target = await c.env.DB.prepare(`SELECT id, email FROM user WHERE id = ?`)
     .bind(id)
@@ -718,11 +727,11 @@ adminRouter.post('/users/:id/enterprise-grant', async (c) => {
   const now = Date.now();
   await c.env.DB.prepare(
     `UPDATE user
-        SET plan = 'enterprise', plan_status = 'active',
+        SET plan = ?, plan_status = 'active',
             plan_expires_at = ?, plan_renewal_at = ?, updated_at = ?
       WHERE id = ?`,
   )
-    .bind(body.expiresAt ?? null, body.expiresAt ?? null, now, id)
+    .bind(body.plan, body.expiresAt ?? null, body.expiresAt ?? null, now, id)
     .run();
 
   await logAudit(c.env, {
@@ -730,17 +739,17 @@ adminRouter.post('/users/:id/enterprise-grant', async (c) => {
     subjectType: 'user',
     subjectId: id,
     action: 'admin.enterprise_grant',
-    metadata: { targetEmail: target.email, expiresAt: body.expiresAt ?? null, note: body.note ?? null },
+    metadata: { targetEmail: target.email, plan: body.plan, expiresAt: body.expiresAt ?? null, note: body.note ?? null },
     ip: clientIp(c.req.raw),
   });
 
-  return c.json({ ok: true, userId: id, expiresAt: body.expiresAt ?? null });
+  return c.json({ ok: true, userId: id, plan: body.plan, expiresAt: body.expiresAt ?? null });
 });
 
 adminRouter.post('/orgs/:id/enterprise-grant', async (c) => {
   const staff = c.var.user!;
   const id = c.req.param('id');
-  const body = await parseJson(c, enterpriseGrantSchema);
+  const body = await parseJson(c, planGrantSchema);
 
   const org = await c.env.DB.prepare(`SELECT id, name FROM organization WHERE id = ? AND deleted_at IS NULL`)
     .bind(id)
@@ -749,11 +758,11 @@ adminRouter.post('/orgs/:id/enterprise-grant', async (c) => {
 
   await c.env.DB.prepare(
     `UPDATE organization
-        SET plan = 'enterprise', plan_status = 'active',
+        SET plan = ?, plan_status = 'active',
             plan_expires_at = ?, plan_renewal_at = ?
       WHERE id = ?`,
   )
-    .bind(body.expiresAt ?? null, body.expiresAt ?? null, id)
+    .bind(body.plan, body.expiresAt ?? null, body.expiresAt ?? null, id)
     .run();
 
   await logAudit(c.env, {
@@ -761,14 +770,15 @@ adminRouter.post('/orgs/:id/enterprise-grant', async (c) => {
     subjectType: 'org',
     subjectId: id,
     action: 'admin.enterprise_grant',
-    metadata: { targetOrgName: org.name, expiresAt: body.expiresAt ?? null, note: body.note ?? null },
+    metadata: { targetOrgName: org.name, plan: body.plan, expiresAt: body.expiresAt ?? null, note: body.note ?? null },
     ip: clientIp(c.req.raw),
   });
 
-  return c.json({ ok: true, orgId: id, expiresAt: body.expiresAt ?? null });
+  return c.json({ ok: true, orgId: id, plan: body.plan, expiresAt: body.expiresAt ?? null });
 });
 
-// Revoke an enterprise grant — drops the principal back to 'free'.
+// Revoke a comp grant (agency or enterprise) — drops the principal back to
+// 'free'. Rejects only when the principal is already free (nothing to revoke).
 adminRouter.post('/users/:id/enterprise-revoke', async (c) => {
   const staff = c.var.user!;
   const id = c.req.param('id');
@@ -776,7 +786,7 @@ adminRouter.post('/users/:id/enterprise-revoke', async (c) => {
     .bind(id)
     .first<{ id: string; email: string; plan: string }>();
   if (!target) throw notFound('User not found');
-  if (target.plan !== 'enterprise') throw validationFailed('User is not on enterprise plan');
+  if (target.plan === 'free') throw validationFailed('User is not on a granted plan');
 
   const now = Date.now();
   await c.env.DB.prepare(
@@ -789,7 +799,7 @@ adminRouter.post('/users/:id/enterprise-revoke', async (c) => {
     subjectType: 'user',
     subjectId: id,
     action: 'admin.enterprise_revoke',
-    metadata: { targetEmail: target.email },
+    metadata: { targetEmail: target.email, revokedPlan: target.plan },
     ip: clientIp(c.req.raw),
   });
   return c.json({ ok: true });
@@ -802,7 +812,7 @@ adminRouter.post('/orgs/:id/enterprise-revoke', async (c) => {
     .bind(id)
     .first<{ id: string; name: string; plan: string }>();
   if (!target) throw notFound('Organization not found');
-  if (target.plan !== 'enterprise') throw validationFailed('Organization is not on enterprise plan');
+  if (target.plan === 'free') throw validationFailed('Organization is not on a granted plan');
 
   await c.env.DB.prepare(
     `UPDATE organization SET plan = 'free', plan_status = 'active', plan_expires_at = NULL, plan_renewal_at = NULL WHERE id = ?`,
@@ -814,7 +824,7 @@ adminRouter.post('/orgs/:id/enterprise-revoke', async (c) => {
     subjectType: 'org',
     subjectId: id,
     action: 'admin.enterprise_revoke',
-    metadata: { targetOrgName: target.name },
+    metadata: { targetOrgName: target.name, revokedPlan: target.plan },
     ip: clientIp(c.req.raw),
   });
   return c.json({ ok: true });
@@ -877,8 +887,17 @@ adminRouter.get('/orgs', async (c) => {
 adminRouter.get('/orgs/:id', async (c) => {
   const id = c.req.param('id');
   const org = await c.env.DB.prepare(
-    `SELECT id, slug, name, created_at FROM organization WHERE id = ? AND deleted_at IS NULL`,
-  ).bind(id).first<{ id: string; slug: string; name: string; created_at: number }>();
+    `SELECT id, slug, name, plan, plan_status, plan_expires_at, created_at
+       FROM organization WHERE id = ? AND deleted_at IS NULL`,
+  ).bind(id).first<{
+    id: string;
+    slug: string;
+    name: string;
+    plan: AuthedUser['plan'] | null;
+    plan_status: AuthedUser['planStatus'] | null;
+    plan_expires_at: number | null;
+    created_at: number;
+  }>();
   if (!org) throw notFound('Organization not found');
 
   const members = await c.env.DB.prepare(
@@ -902,6 +921,9 @@ adminRouter.get('/orgs/:id', async (c) => {
       id: org.id,
       slug: org.slug,
       name: org.name,
+      plan: org.plan ?? 'free',
+      planStatus: org.plan_status ?? 'active',
+      planExpiresAt: org.plan_expires_at ?? null,
       createdAt: org.created_at,
     },
     members: members.results ?? [],

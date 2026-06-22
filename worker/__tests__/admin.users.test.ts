@@ -2,11 +2,13 @@
 // soft-delete.
 
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
+import { ulid } from 'ulidx';
 import { makeClient, type TestClient } from './_client';
 import {
   applyMigrations,
   dbAll,
   dbGet,
+  dbRun,
   resetDb,
   seedUser,
   setupEmailCapture,
@@ -308,5 +310,140 @@ describe('/api/admin/users/:id/delete', () => {
     // Target's GET /api/me is now 401 (session revoked) or 403 (deleted). Either works.
     const me = await tClient.get('/api/me');
     expect([401, 403]).toContain(me.status);
+  });
+});
+
+// Comp grants — staff sets an Agency/Enterprise plan with no Stripe. Route
+// names keep the legacy `enterprise-grant`/`enterprise-revoke` form but accept
+// any grantable plan; `plan` defaults to enterprise when omitted.
+describe('/api/admin comp plan grants', () => {
+  let capture: EmailCapture;
+
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+    capture = setupEmailCapture();
+  });
+
+  afterEach(() => {
+    capture.restore();
+  });
+
+  async function seedOrg(): Promise<string> {
+    const id = ulid();
+    await dbRun(
+      `INSERT INTO organization (id, slug, name, created_at) VALUES (?, ?, 'Grant Org', ?)`,
+      id,
+      `grant-org-${id.toLowerCase()}`,
+      Date.now(),
+    );
+    return id;
+  }
+
+  it('grants an agency plan + expiry to a user and audit-logs the plan', async () => {
+    const { client } = await staffClient();
+    const target = await seedUser({ email: 'grant-agency@example.com', plan: 'free' });
+    const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+    const res = await client.post(`/api/admin/users/${target.id}/enterprise-grant`, {
+      plan: 'agency',
+      expiresAt,
+      note: 'pilot',
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { plan: string; expiresAt: number };
+    expect(body.plan).toBe('agency');
+    expect(body.expiresAt).toBe(expiresAt);
+
+    const row = await dbGet<{ plan: string; plan_status: string; plan_expires_at: number | null }>(
+      `SELECT plan, plan_status, plan_expires_at FROM user WHERE id = ?`,
+      target.id,
+    );
+    expect(row?.plan).toBe('agency');
+    expect(row?.plan_status).toBe('active');
+    expect(row?.plan_expires_at).toBe(expiresAt);
+
+    const audit = await dbAll<{ metadata_json: string | null }>(
+      `SELECT metadata_json FROM audit_event WHERE action='admin.enterprise_grant' AND subject_id=?`,
+      target.id,
+    );
+    expect(audit.length).toBe(1);
+    expect(JSON.parse(audit[0].metadata_json ?? '{}').plan).toBe('agency');
+  });
+
+  it('grants an agency plan + expiry to an org', async () => {
+    const { client } = await staffClient();
+    const orgId = await seedOrg();
+    const expiresAt = Date.now() + 14 * 24 * 60 * 60 * 1000;
+
+    const res = await client.post(`/api/admin/orgs/${orgId}/enterprise-grant`, {
+      plan: 'agency',
+      expiresAt,
+    });
+    expect(res.status).toBe(200);
+
+    const row = await dbGet<{ plan: string; plan_expires_at: number | null }>(
+      `SELECT plan, plan_expires_at FROM organization WHERE id = ?`,
+      orgId,
+    );
+    expect(row?.plan).toBe('agency');
+    expect(row?.plan_expires_at).toBe(expiresAt);
+  });
+
+  it('defaults to enterprise when plan is omitted (backward-compat)', async () => {
+    const { client } = await staffClient();
+    const target = await seedUser({ email: 'grant-default@example.com', plan: 'free' });
+
+    const res = await client.post(`/api/admin/users/${target.id}/enterprise-grant`, {});
+    expect(res.status).toBe(200);
+
+    const row = await dbGet<{ plan: string; plan_expires_at: number | null }>(
+      `SELECT plan, plan_expires_at FROM user WHERE id = ?`,
+      target.id,
+    );
+    expect(row?.plan).toBe('enterprise');
+    expect(row?.plan_expires_at).toBeNull(); // no expiry passed
+  });
+
+  it('exposes the grant + expiry on the user detail endpoint', async () => {
+    const { client } = await staffClient();
+    const target = await seedUser({ email: 'grant-detail@example.com', plan: 'free' });
+    const expiresAt = Date.now() + 60 * 24 * 60 * 60 * 1000;
+    await client.post(`/api/admin/users/${target.id}/enterprise-grant`, { plan: 'agency', expiresAt });
+
+    const res = await client.get(`/api/admin/users/${target.id}`);
+    const body = (await res.json()) as {
+      user: { plan: string; planStatus: string; planExpiresAt: number | null };
+    };
+    expect(body.user.plan).toBe('agency');
+    expect(body.user.planStatus).toBe('active');
+    expect(body.user.planExpiresAt).toBe(expiresAt);
+  });
+
+  it('revokes an agency grant back to free', async () => {
+    const { client } = await staffClient();
+    const target = await seedUser({ email: 'revoke-agency@example.com', plan: 'free' });
+    await client.post(`/api/admin/users/${target.id}/enterprise-grant`, {
+      plan: 'agency',
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+
+    const res = await client.post(`/api/admin/users/${target.id}/enterprise-revoke`);
+    expect(res.status).toBe(200);
+
+    const row = await dbGet<{ plan: string; plan_expires_at: number | null }>(
+      `SELECT plan, plan_expires_at FROM user WHERE id = ?`,
+      target.id,
+    );
+    expect(row?.plan).toBe('free');
+    expect(row?.plan_expires_at).toBeNull();
+  });
+
+  it('rejects revoke when the user is already on free (nothing to revoke)', async () => {
+    const { client } = await staffClient();
+    const target = await seedUser({ email: 'revoke-free@example.com', plan: 'free' });
+
+    const res = await client.post(`/api/admin/users/${target.id}/enterprise-revoke`);
+    expect(res.status).toBe(422);
   });
 });

@@ -336,7 +336,7 @@ export function UserRowActions({
 // pro / teal agency / dark-brown enterprise); a small grey suffix calls out
 // non-active plan_status (past_due, canceled, trialing) so a delinquent
 // pro subscriber doesn't visually look the same as a current one.
-function PlanPill({
+export function PlanPill({
   plan,
   planStatus,
 }: {

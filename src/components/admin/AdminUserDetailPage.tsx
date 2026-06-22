@@ -4,6 +4,7 @@ import { AdminLayout } from './AdminLayout';
 import { ConfirmDialog, ErrorBanner, StatusPill } from './adminShared';
 import { formatDateTime } from './adminFormat';
 import { UserRowActions } from './AdminUsersPage';
+import { PlanGrantCard } from './PlanGrantCard';
 import {
   getAdminUser,
   impersonateUser,
@@ -155,6 +156,15 @@ export function AdminUserDetailPage() {
               </div>
             </div>
           </div>
+
+          <PlanGrantCard
+            kind="user"
+            id={data.user.id}
+            plan={data.user.plan}
+            planStatus={data.user.planStatus}
+            planExpiresAt={data.user.planExpiresAt ?? null}
+            onChanged={load}
+          />
 
           <section>
             <h3 className="font-heading font-bold text-lg text-dark-brown mb-3">

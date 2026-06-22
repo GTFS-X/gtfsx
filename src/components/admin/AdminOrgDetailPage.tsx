@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { AdminLayout } from './AdminLayout';
 import { ConfirmDialog, ErrorBanner } from './adminShared';
 import { formatDateTime } from './adminFormat';
+import { PlanGrantCard } from './PlanGrantCard';
 import {
   getAdminOrg,
   patchAdminOrgMember,
@@ -114,6 +115,15 @@ export function AdminOrgDetailPage() {
             </div>
             <div className="text-xs text-warm-gray mt-1 font-mono">{data.org.id}</div>
           </div>
+
+          <PlanGrantCard
+            kind="org"
+            id={data.org.id}
+            plan={data.org.plan}
+            planStatus={data.org.planStatus}
+            planExpiresAt={data.org.planExpiresAt}
+            onChanged={load}
+          />
 
           <section>
             <h3 className="font-heading font-bold text-lg text-dark-brown mb-3">

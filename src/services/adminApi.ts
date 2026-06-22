@@ -24,14 +24,22 @@ export interface AdminStats {
   };
 }
 
+export type Plan = 'free' | 'pro' | 'agency' | 'enterprise';
+export type PlanStatus = 'active' | 'past_due' | 'canceled' | 'trialing';
+
+/** Plans a staff member can comp-grant (no Stripe). */
+export type GrantPlan = 'agency' | 'enterprise';
+
 export interface AdminUserRow {
   id: string;
   email: string;
   displayName: string;
   status: UserStatus;
   staff: boolean;
-  plan: 'free' | 'pro' | 'agency' | 'enterprise';
-  planStatus: 'active' | 'past_due' | 'canceled' | 'trialing';
+  plan: Plan;
+  planStatus: PlanStatus;
+  /** Unix ms; only present on the detail endpoint. null = no comp expiry. */
+  planExpiresAt?: number | null;
   createdAt: number;
   lastSessionAt: number | null;
   projectCount: number;
@@ -101,6 +109,9 @@ export interface AdminOrgDetailResponse {
     id: string;
     slug: string;
     name: string;
+    plan: Plan;
+    planStatus: PlanStatus;
+    planExpiresAt: number | null;
     createdAt: number;
   };
   members: AdminOrgMember[];
@@ -275,6 +286,52 @@ export function removeAdminOrgMember(orgId: string, userId: string): Promise<voi
   return request<void>(
     `/api/admin/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`,
     { method: 'DELETE' },
+  );
+}
+
+// ─── Comp plan grants (no Stripe) ───────────────────────────────────────────
+// Grants a time-limited Agency/Enterprise plan to a user or org. The endpoint
+// paths keep the legacy `enterprise-grant`/`enterprise-revoke` names but now
+// accept any grantable plan.
+
+export interface PlanGrantInput {
+  plan: GrantPlan;
+  /** Unix ms; null = open-ended (no expiry). */
+  expiresAt: number | null;
+  note?: string;
+}
+
+export interface PlanGrantResult {
+  ok: boolean;
+  plan: GrantPlan;
+  expiresAt: number | null;
+}
+
+export function grantUserPlan(userId: string, input: PlanGrantInput): Promise<PlanGrantResult> {
+  return request<PlanGrantResult>(
+    `/api/admin/users/${encodeURIComponent(userId)}/enterprise-grant`,
+    { method: 'POST', body: input },
+  );
+}
+
+export function revokeUserPlan(userId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    `/api/admin/users/${encodeURIComponent(userId)}/enterprise-revoke`,
+    { method: 'POST' },
+  );
+}
+
+export function grantOrgPlan(orgId: string, input: PlanGrantInput): Promise<PlanGrantResult> {
+  return request<PlanGrantResult>(
+    `/api/admin/orgs/${encodeURIComponent(orgId)}/enterprise-grant`,
+    { method: 'POST', body: input },
+  );
+}
+
+export function revokeOrgPlan(orgId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    `/api/admin/orgs/${encodeURIComponent(orgId)}/enterprise-revoke`,
+    { method: 'POST' },
   );
 }
 

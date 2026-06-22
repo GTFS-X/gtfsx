@@ -11,7 +11,12 @@ import {
   setupEmailCapture,
   type EmailCapture,
 } from './_setup';
-import { reapDeletedUsers, summarizeWeeklyMetrics, DELETE_GRACE_MS } from '../cron/tasks';
+import {
+  reapDeletedUsers,
+  summarizeWeeklyMetrics,
+  expireEnterpriseGrants,
+  DELETE_GRACE_MS,
+} from '../cron/tasks';
 import { hashPassword } from '../util/crypto';
 
 async function seedSoftDeletedUser(opts: {
@@ -177,6 +182,98 @@ describe('reapDeletedUsers', () => {
       .bind(userId)
       .first();
     expect(preserved).not.toBeNull();
+  });
+});
+
+describe('expireEnterpriseGrants (comp grants)', () => {
+  let capture: EmailCapture;
+
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+    capture = setupEmailCapture();
+  });
+
+  afterEach(() => {
+    capture.restore();
+  });
+
+  async function seedPlanUser(plan: string, planExpiresAt: number | null): Promise<string> {
+    const id = ulid();
+    const now = Date.now();
+    await env.DB.prepare(
+      `INSERT INTO user (id, email, display_name, status, staff, plan, plan_status, plan_expires_at, created_at, updated_at)
+       VALUES (?, ?, 'x', 'active', 0, ?, 'active', ?, ?, ?)`,
+    )
+      .bind(id, `grant-${id.toLowerCase()}@example.com`, plan, planExpiresAt, now, now)
+      .run();
+    return id;
+  }
+
+  async function seedPlanOrg(plan: string, planExpiresAt: number | null): Promise<string> {
+    const id = ulid();
+    const now = Date.now();
+    await env.DB.prepare(
+      `INSERT INTO organization (id, slug, name, plan, plan_status, plan_expires_at, created_at)
+       VALUES (?, ?, 'Grant Org', ?, 'active', ?, ?)`,
+    )
+      .bind(id, `org-${id.toLowerCase()}`, plan, planExpiresAt, now)
+      .run();
+    return id;
+  }
+
+  const past = Date.now() - 60 * 60 * 1000; // 1 hour ago
+  const future = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days out
+
+  it('downgrades lapsed agency AND enterprise grants (user + org) to free', async () => {
+    const agencyUser = await seedPlanUser('agency', past);
+    const enterpriseUser = await seedPlanUser('enterprise', past);
+    const agencyOrg = await seedPlanOrg('agency', past);
+
+    const summary = await expireEnterpriseGrants(env);
+    expect(summary.users).toBeGreaterThanOrEqual(2);
+    expect(summary.orgs).toBeGreaterThanOrEqual(1);
+
+    for (const id of [agencyUser, enterpriseUser]) {
+      const row = await env.DB.prepare(
+        `SELECT plan, plan_expires_at FROM user WHERE id = ?`,
+      ).bind(id).first<{ plan: string; plan_expires_at: number | null }>();
+      expect(row?.plan).toBe('free');
+      expect(row?.plan_expires_at).toBeNull();
+    }
+
+    const orgRow = await env.DB.prepare(
+      `SELECT plan, plan_expires_at FROM organization WHERE id = ?`,
+    ).bind(agencyOrg).first<{ plan: string; plan_expires_at: number | null }>();
+    expect(orgRow?.plan).toBe('free');
+    expect(orgRow?.plan_expires_at).toBeNull();
+  });
+
+  it('does NOT downgrade a paid-style agency row (plan_expires_at NULL)', async () => {
+    const paidUser = await seedPlanUser('agency', null);
+    const paidOrg = await seedPlanOrg('agency', null);
+
+    await expireEnterpriseGrants(env);
+
+    const userRow = await env.DB.prepare(`SELECT plan FROM user WHERE id = ?`)
+      .bind(paidUser).first<{ plan: string }>();
+    expect(userRow?.plan).toBe('agency');
+
+    const orgRow = await env.DB.prepare(`SELECT plan FROM organization WHERE id = ?`)
+      .bind(paidOrg).first<{ plan: string }>();
+    expect(orgRow?.plan).toBe('agency');
+  });
+
+  it('does NOT downgrade a not-yet-expired grant', async () => {
+    const futureUser = await seedPlanUser('agency', future);
+
+    const summary = await expireEnterpriseGrants(env);
+    expect(summary.users).toBe(0);
+
+    const row = await env.DB.prepare(`SELECT plan, plan_expires_at FROM user WHERE id = ?`)
+      .bind(futureUser).first<{ plan: string; plan_expires_at: number | null }>();
+    expect(row?.plan).toBe('agency');
+    expect(row?.plan_expires_at).toBe(future);
   });
 });
 

@@ -16,17 +16,23 @@ import type { OwnerType } from '../projects/quotas';
 
 export const DELETE_GRACE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-// ─── Enterprise grant expiry ────────────────────────────────────────────────
+// ─── Comp grant expiry ──────────────────────────────────────────────────────
 //
-// Manually-granted enterprise plans can have an `expires_at` end-date. Run
-// once a day to downgrade anything past its window. Idempotent.
+// Manually-granted comp plans (agency or enterprise) can have an `expires_at`
+// end-date. Run once a day to downgrade anything past its window. Idempotent.
+//
+// Guarded on `plan_expires_at IS NOT NULL`, which only ever matches comp
+// grants: the Stripe webhook for paid subs sets plan/plan_status/
+// plan_renewal_at but NEVER plan_expires_at (it stays NULL), so a paying
+// Agency/Enterprise customer is never caught here. (Verified against
+// worker/billing/webhooks.ts.)
 export async function expireEnterpriseGrants(env: Env): Promise<{ users: number; orgs: number }> {
   const now = Date.now();
   const expiredUsers = await env.DB.prepare(
     `UPDATE user
         SET plan = 'free', plan_status = 'active',
             plan_expires_at = NULL, plan_renewal_at = NULL, updated_at = ?
-      WHERE plan = 'enterprise'
+      WHERE plan IN ('enterprise', 'agency')
         AND plan_expires_at IS NOT NULL
         AND plan_expires_at < ?`,
   )
@@ -37,7 +43,7 @@ export async function expireEnterpriseGrants(env: Env): Promise<{ users: number;
     `UPDATE organization
         SET plan = 'free', plan_status = 'active',
             plan_expires_at = NULL, plan_renewal_at = NULL
-      WHERE plan = 'enterprise'
+      WHERE plan IN ('enterprise', 'agency')
         AND plan_expires_at IS NOT NULL
         AND plan_expires_at < ?`,
   )
