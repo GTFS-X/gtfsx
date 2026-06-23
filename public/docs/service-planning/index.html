@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <title>Service planning — GTFS·X</title>
-    <meta name="description" content="Light service planning in GTFS·X: generate a timetable from a headway, fork the feed into variants and compare their cost, block trips onto vehicles, and set running times — all in the map's pane." />
+    <meta name="description" content="Light service planning in GTFS·X: generate a timetable from a headway, fork the feed into variants and compare their cost, block trips onto vehicles, and set running times in a rail beneath the map." />
     <link rel="canonical" href="https://www.gtfsx.com/docs/service-planning/" />
     <meta property="og:title" content="Service planning — GTFS·X" />
     <meta property="og:description" content="Generate timetables from headways, compare service variants by cost, block trips onto vehicles, and set running times — without an optimizer." />
@@ -32,7 +32,7 @@
     "logo": { "@type": "ImageObject", "url": "https://www.gtfsx.com/gtfsx-lockup.svg" }
   },
   "datePublished": "2026-06-18",
-  "dateModified": "2026-06-18",
+  "dateModified": "2026-06-23",
   "mainEntityOfPage": { "@type": "WebPage", "@id": "https://www.gtfsx.com/docs/service-planning/" }
 }
   </script>
@@ -55,14 +55,14 @@
     <main>
       <div class="crumbs"><a href="/docs/">Docs</a> · Analysis tools · Service planning</div>
       <h1>Service planning <span class="tier-badge agency">Agency</span></h1>
-      <p class="lede">GTFS·X is a feed editor that now does light <strong>service planning</strong> too: enter a headway and get a timetable, fork the feed into variants and compare what each one costs, chain trips onto vehicles, and set running times. The scheduling tools open in the map's pane, so you plan and edit in the same window.</p>
+      <p class="lede">GTFS·X is a feed editor that now does light <strong>service planning</strong> too: enter a headway and get a timetable, fork the feed into variants and compare what each one costs, chain trips onto vehicles, and set running times. The scheduling tools open in a rail along the bottom of the editor, so the map stays in view while you plan.</p>
       <p>These tools are built for small and rural agencies. They stay deliberately simple and fully editable: there is no optimizer and no runcutting. The generated timetable and the auto-blocking are starting points you adjust, not black-box answers.</p>
 
-      <h2 id="the-scheduling-views">The scheduling views</h2>
-      <p>A small switcher sits at the top of the map pane with three modes: <strong>Map</strong>, <strong>Timetable</strong>, and <strong>Blocks</strong>. The map stays loaded behind the scheduling views, so switching back to it is instant and keeps your camera position. Pick a route and service day inside each view.</p>
+      <h2 id="the-scheduling-rail">The scheduling rail</h2>
+      <p>The scheduling tools live in the <strong>bottom rail</strong> that runs along the bottom of the editor, beside the validation and visualization panels. The map stays in the center the whole time, so you can keep the route on screen while you schedule it. Click the <strong>Timetable</strong> tab to generate and edit trips, or the <strong>Blocks</strong> tab to chain those trips onto vehicles; pick a route and service day inside each one. Drag the rail's top edge to give it more height, or use the <strong>maximize</strong> button in the rail header to expand it to the full editor when you need room (the map collapses; click again to restore the split). Variants are forked and compared from the header, not the rail.</p>
 
       <h2 id="generate-service">Generate a timetable</h2>
-      <p>Drawing a route gives you a shape and stops, but no trips. Rather than hand-entering every departure, open the <strong>Timetable</strong> view and use <strong>Generate service</strong>. Set a window (say 06:00 to 22:00), a headway ("a bus every 30 min"), and an end-to-end run time, and GTFS·X lays out evenly-spaced trips for you. A live count ("Creates 33 trips") updates as you type.</p>
+      <p>Drawing a route gives you a shape and stops, but no trips. Rather than hand-entering every departure, open the <strong>Timetable</strong> tab and use <strong>Generate service</strong>. Set a window (say 06:00 to 22:00), a headway ("a bus every 30 min"), and an end-to-end run time, and GTFS·X lays out evenly-spaced trips for you. A live count ("Creates 33 trips") updates as you type.</p>
       <figure>
         <img src="/assets/docs/service-planning-generate.png" alt="The Generate service form in the timetable: run-from and to times, a headway with preset chips, an end-to-end run time pre-filled from the route shape, and a live 'Creates 33 trips' preview." loading="lazy" />
         <figcaption>Generate service reads like a sentence. The end-to-end run time is pre-filled from the route's shape length, so the common case is just a window plus a headway.</figcaption>
@@ -73,10 +73,10 @@
       <p>Once trips exist, <strong>Running time</strong> (in the timetable toolbar) sets the scheduled end-to-end run time for the whole pattern. Apply it and every trip on the pattern is re-timed to match, while each trip keeps its own start time, so your headways stay exactly as they were. Intermediate stops are re-interpolated. This is the quick way to push a realistic running time through a generated timetable, or to stretch the schedule for a season with heavier traffic.</p>
 
       <h2 id="vehicle-blocking">Block trips onto vehicles</h2>
-      <p>The <strong>Blocks</strong> view is a vehicle-by-time chart: one row per vehicle (block), trip bars colored by route, the gaps between them labeled as layover, and dotted connectors where a vehicle deadheads between two stops. Columns on the left show each block's platform hours and its pull-out and pull-in times.</p>
+      <p>The <strong>Blocks</strong> tab is a vehicle-by-time chart: one row per vehicle (block), trip bars colored by route, the gaps between them labeled as layover, and dotted connectors where a vehicle deadheads between two stops. Columns on the left show each block's platform hours and its pull-out and pull-in times.</p>
       <figure>
-        <img src="/assets/docs/service-planning-blocks.png" alt="The Blocks view: a vehicle-row by time-axis Gantt with trip bars colored by route, layover gaps labeled in minutes, and a cost header showing vehicles, peak-in-service, and daily and annual cost split into service, layover, and deadhead hours." loading="lazy" />
-        <figcaption>The blocking view on the Sunny Valley feed. The header tracks vehicles, peak vehicles in service, and the daily and annual cost broken into service, layover, and deadhead hours.</figcaption>
+        <img src="/assets/docs/service-planning-blocks.png" alt="The Blocks tab in the bottom rail: a vehicle-row by time-axis Gantt with trip bars colored by route, layover gaps labeled in minutes, and a cost header showing vehicles, peak-in-service, and daily and annual cost split into service, layover, and deadhead hours." loading="lazy" />
+        <figcaption>The Blocks tab on the Sunny Valley feed. The header tracks vehicles, peak vehicles in service, and the daily and annual cost broken into service, layover, and deadhead hours.</figcaption>
       </figure>
       <p><strong>Quick Block</strong> auto-chains feasible trips onto as few vehicles as possible with a transparent greedy rule: it appends each trip to the earliest-finishing vehicle that can still reach the trip's start in time and without sitting idle too long, opening a new vehicle only when none fits. Turn on <strong>Interline</strong> to allow chaining across different routes; leave it off to keep each vehicle on one route. <strong>Unblock all</strong> clears the day. Everything Quick Block produces is editable: drag a trip bar onto another vehicle (or click it and pick one) to reassign it. If two trips on the same vehicle would overlap, GTFS·X flags them in red and counts them in the toolbar, because one bus can't run two trips at once.</p>
       <p>The cost header upgrades the flat deadhead multiplier used elsewhere to real, block-derived numbers: service hours from the trips, layover hours from the in-block gaps, and deadhead hours from the distance a vehicle repositions between trips. Toggle <strong>Cost layover</strong> and <strong>Cost deadhead</strong> to see how each affects the total. Block overlaps also surface as a warning in the pre-publish validation, so an infeasible block can't slip into a published feed.</p>
