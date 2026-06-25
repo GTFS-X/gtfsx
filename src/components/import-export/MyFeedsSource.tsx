@@ -1,15 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { ApiError } from '../../services/authApi';
-import { feedsOrigin, listMyFeeds, type MyFeedItem } from '../../services/myFeedsImport';
-
-function feedsHost(): string {
-  try {
-    return new URL(feedsOrigin()).host;
-  } catch {
-    return 'feeds.gtfsx.com';
-  }
-}
+import { listMyFeeds, type MyFeedItem } from '../../services/myFeedsImport';
 
 interface Props {
   /** Resolve + import the selected feed. Throws to surface an inline error. */
@@ -24,10 +16,12 @@ function fmtDate(ms: number): string {
 }
 
 /**
- * Importer source that lists the signed-in user's own + org feeds and hands a
- * selected (published) feed off to the shared ImportDialog parse → picker →
- * import pipeline. Org-scoped: feeds are listed per workspace (personal or a
- * specific org), and the server only returns feeds the caller can access.
+ * Importer source that lists EVERY feed the signed-in account can access — its
+ * own + each org's, published or draft — and hands a selected feed off to the
+ * shared ImportDialog picker → merge pipeline. The selected feed is resolved
+ * from its live working state (latest edits), so drafts are importable too.
+ * Org-scoped: feeds are listed per workspace (personal or a specific org), and
+ * the server only returns feeds the caller can access.
  */
 export function MyFeedsSource({ onSelect }: Props) {
   const activeWorkspace = useStore((s) => s.activeWorkspace);
@@ -72,7 +66,6 @@ export function MyFeedsSource({ onSelect }: Props) {
   }, [scope, load]);
 
   const handleImport = async (feed: MyFeedItem) => {
-    if (!feed.published) return;
     setImportError(null);
     setImportingId(feed.id);
     try {
@@ -128,18 +121,16 @@ export function MyFeedsSource({ onSelect }: Props) {
             ) : (
               feeds.map((feed) => {
                 const isImporting = importingId === feed.id;
-                const disabled = !feed.published || importingId !== null;
+                // Only block input while another import is in flight; every feed
+                // is importable now (published or draft).
+                const disabled = importingId !== null;
                 return (
                   <button
                     key={feed.id}
                     type="button"
                     onClick={() => handleImport(feed)}
                     disabled={disabled}
-                    title={
-                      feed.published
-                        ? 'Import routes/stops from this feed'
-                        : 'Publish this feed first to import from it'
-                    }
+                    title="Import routes/stops from this feed"
                     className={`w-full text-left block select-none px-3 py-2.5 transition-colors ${
                       disabled ? 'opacity-60 cursor-not-allowed' : 'hover:bg-cream'
                     }`}
@@ -150,11 +141,13 @@ export function MyFeedsSource({ onSelect }: Props) {
                         <div className="text-[11px] text-warm-gray flex items-center flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
                           <span className="font-mono">{feed.slug}</span>
                           {feed.updatedAt > 0 && <span>· updated {fmtDate(feed.updatedAt)}</span>}
-                          {!feed.published && <span className="text-amber-600">· not published</span>}
+                          <span className={feed.published ? 'text-teal-700' : 'text-amber-600'}>
+                            · {feed.published ? 'published' : 'draft'}
+                          </span>
                         </div>
                       </div>
                       <span className="text-xs text-coral font-semibold whitespace-nowrap pt-0.5">
-                        {isImporting ? 'Loading…' : feed.published ? 'Import →' : 'Publish first'}
+                        {isImporting ? 'Loading…' : 'Import →'}
                       </span>
                     </div>
                   </button>
@@ -166,8 +159,8 @@ export function MyFeedsSource({ onSelect }: Props) {
       )}
 
       <p className="text-[10px] text-warm-gray/80">
-        Imports from your <strong>published</strong> feeds ({feedsHost()}/&lt;slug&gt;/gtfs.zip).
-        Publish a feed from the editor to make it importable here.
+        Imports routes and stops from any of your feeds (published or draft), pulled from
+        the latest saved edits. Your current project stays open; choose which routes to bring in.
       </p>
     </div>
   );

@@ -4,7 +4,7 @@ import { useStore } from '../../store';
 import type { Route } from '../../types/gtfs';
 import { CatalogSearch, type CatalogFeed } from './CatalogSearch';
 import { MyFeedsSource } from './MyFeedsSource';
-import type { MyFeedItem } from '../../services/myFeedsImport';
+import { resolveMyFeedImportData, type MyFeedItem } from '../../services/myFeedsImport';
 
 type ImportSource = 'upload' | 'url' | 'catalog' | 'myfeeds';
 
@@ -129,6 +129,24 @@ export function ImportDialog({ onClose, onComplete, completeLabel }: ImportDialo
     });
   }, []);
 
+  /** Hand a fully-resolved feed (from any source — zip parse or a "My feeds"
+   * working-state fetch) to the import UI: surface warnings, then either
+   * replace immediately (empty project) or open the route-picker so the user
+   * chooses what to merge into the current project. Never mutates the store
+   * itself except via doReplaceImport's explicit replace. */
+  const presentImportData = useCallback((data: ImportData, name: string) => {
+    setImportWarnings(data.warnings);
+    // If the project is empty, skip the options screen and import immediately
+    if (useStore.getState().routes.length === 0) {
+      doReplaceImport(data, name);
+      return;
+    }
+    setParsedData(data);
+    setFileName(name);
+    // Select all routes by default
+    setSelectedRouteIds(new Set(data.routes.map((r) => r.route_id)));
+  }, [doReplaceImport]);
+
   // The actual (expensive) parse. Always reached via parseFile so every entry
   // point — upload, URL, catalog — goes through the size pre-flight first.
   const runParse = useCallback(async (file: File) => {
@@ -140,23 +158,14 @@ export function ImportDialog({ onClose, onComplete, completeLabel }: ImportDialo
         setProgress(rows ? `${phase} ${rows.toLocaleString()} rows` : phase),
       );
       const name = file.name.replace(/\.zip$/i, '');
-      setImportWarnings(data.warnings);
-      // If the project is empty, skip the options screen and import immediately
-      if (useStore.getState().routes.length === 0) {
-        doReplaceImport(data, name);
-        return;
-      }
-      setParsedData(data);
-      setFileName(name);
-      // Select all routes by default
-      setSelectedRouteIds(new Set(data.routes.map((r) => r.route_id)));
+      presentImportData(data, name);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to parse GTFS feed');
     } finally {
       setParsing(false);
       setProgress(null);
     }
-  }, [doReplaceImport]);
+  }, [presentImportData]);
 
   const parseFile = useCallback(async (file: File) => {
     setError(null);
@@ -211,38 +220,21 @@ export function ImportDialog({ onClose, onComplete, completeLabel }: ImportDialo
     await parseFile(file);
   }, [parseFile]);
 
-  // "My feeds" import: resolve the selected feed to its published GTFS zip and
-  // run the SAME parse → route/stop picker → merge/replace pipeline as every
-  // other source. The published feed lives on our own feeds zone, so we route
-  // through /api/import/fetch (which reads the bytes straight from R2 — a
-  // browser/worker can't fetch our own zone cross-zone) rather than the
-  // generic /_import/proxy used for third-party catalog URLs.
+  // "My feeds" import: resolve the selected feed — published OR draft — from its
+  // live working state (the same in-progress edit the editor loads on open),
+  // then run the SAME route/stop picker → merge/replace pipeline as every other
+  // source. We reshape the working state into the transient ImportData the
+  // picker consumes WITHOUT touching the editor store, so importing another
+  // project never clobbers or switches away from the one currently open.
+  // Org-scoping is enforced server-side on the /working-state route.
   const handleMyFeedSelect = useCallback(async (feed: MyFeedItem) => {
-    if (!feed.gtfsUrl) throw new Error('That feed isn’t published yet.');
     setError(null);
-    const res = await fetch(`/api/import/fetch?url=${encodeURIComponent(feed.gtfsUrl)}`, {
-      method: 'GET',
-      headers: { 'X-GB-Client': 'web' },
-      credentials: 'omit',
-    });
-    if (!res.ok) {
-      let message = `Download failed (${res.status}).`;
-      const ct = res.headers.get('content-type') || '';
-      if (ct.includes('application/json')) {
-        try {
-          const payload = (await res.json()) as { message?: string };
-          if (payload?.message) message = payload.message;
-        } catch {
-          /* keep default message */
-        }
-      }
-      throw new Error(message);
+    const data = await resolveMyFeedImportData(feed.id);
+    if (data.routes.length === 0) {
+      throw new Error('That feed has no routes to import yet.');
     }
-    const blob = await res.blob();
-    const stem = (feed.name || feed.slug).slice(0, 60).replace(/[\\/:*?"<>|]+/g, '_') || feed.slug;
-    const file = new File([blob], `${stem}.zip`, { type: 'application/zip' });
-    await parseFile(file);
-  }, [parseFile]);
+    presentImportData(data, feed.name || feed.slug);
+  }, [presentImportData]);
 
   const handleUrlFetch = useCallback(async () => {
     const trimmed = urlInput.trim();
