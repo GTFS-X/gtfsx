@@ -726,7 +726,10 @@
           return r.json();
         })
         .then(function (data) {
-          if (data) placeholder.replaceWith(renderAgencyTable(data));
+          // stateMode:true → subtle edit-pencil action column (matches the toned-down
+          // state agency section); without it the map drill-down regressed to the loud
+          // "Build/Fix/Edit in GTFS·X" action-pills once per-state data shipped.
+          if (data) placeholder.replaceWith(renderAgencyTable(data, { stateMode: true }));
           // else: placeholder already in DOM, nothing to do
         })
         .catch(function () {
