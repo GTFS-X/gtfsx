@@ -13,7 +13,7 @@ export function RouteList() {
     routes, addRoute, trips, routeStops,
     selectedRouteId, selectRoute,
     editingRouteId, setEditingRouteId,
-    hiddenRouteIds, toggleRouteVisibility,
+    hiddenRouteIds, toggleRouteVisibility, setHiddenRouteIds,
     hiddenRouteTypes, toggleRouteType,
   } = useStore();
   const flexZones = useStore((s) => s.flexZones);
@@ -140,25 +140,50 @@ export function RouteList() {
           {/* Column header: the eye marks the swatch column as the map-visibility toggle.
               px-2.5 matches each row's left padding; the w-5 box centers the eye over the swatch. */}
           {filteredRoutes.length > 0 && (
-            <div className="flex items-center px-2.5 mb-1 text-warm-gray">
-              <div className="flex w-5 items-center justify-center shrink-0">
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                >
-                  <title>Click a swatch to show / hide that route on the map</title>
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
+            <div className="flex items-center justify-between px-2.5 mb-1 text-warm-gray">
+              <div className="flex items-center">
+                <div className="flex w-5 items-center justify-center shrink-0">
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <title>Click a swatch to show / hide that route on the map</title>
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                </div>
+                <span className="ml-2 text-[10px] uppercase tracking-wide">Map</span>
               </div>
-              <span className="ml-2 text-[10px] uppercase tracking-wide">Map</span>
+              {/* Bulk visibility shortcuts — show/hide every route in this panel
+                  on the map at once (operates on all managed routes regardless of
+                  the text/type filter). "Show all" clears the whole hidden set;
+                  Flex zones carry their own visibility in the Flex section. */}
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide">
+                <button
+                  type="button"
+                  onClick={() => setHiddenRouteIds([])}
+                  className="hover:text-coral transition-colors"
+                  title="Show all routes on the map"
+                >
+                  Show all
+                </button>
+                <span className="text-sand" aria-hidden>·</span>
+                <button
+                  type="button"
+                  onClick={() => setHiddenRouteIds(managedRoutes.map((r) => r.route_id))}
+                  className="hover:text-coral transition-colors"
+                  title="Hide all routes from the map"
+                >
+                  Hide all
+                </button>
+              </div>
             </div>
           )}
 
