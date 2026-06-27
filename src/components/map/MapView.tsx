@@ -26,6 +26,7 @@ import type { ShapePoint } from '../../types/gtfs';
 import { generateId } from '../../services/idGenerator';
 import { ROUTE_COLORS, getContrastTextColor } from '../../utils/colors';
 import { snapToRoadDetailed, type SnapStatus } from '../../services/snapToRoad';
+import { SnapWarningDialog } from './SnapWarningDialog';
 import { suggestStopName } from '../../services/suggestStopName';
 import { createDrawnShape, deriveRouteShapeIds } from '../../services/routeShapes';
 import { trimShapeAtPoint } from '../../services/shapeHelpers';
@@ -1318,34 +1319,17 @@ export function MapView() {
       {/* Snap-to-road couldn't fully match the drawn shape — keep it unsnapped
           or discard and redraw (an explicit choice; no backdrop dismiss). */}
       {snapWarning && (
-        <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div className="absolute inset-0 bg-black/20" />
-          <div className="relative bg-white rounded-xl shadow-lg p-5 max-w-sm mx-4">
-            <h3 className="font-heading font-bold text-base text-dark-brown mb-2">
-              Couldn&rsquo;t snap to roads
-            </h3>
-            <p className="text-sm text-warm-gray mb-4">
-              {snapWarning.status === 'partial'
-                ? 'Part of this shape couldn’t be matched to a roadway — it looks like the route passes through an area with no road, so the snapped version would be cut off there.'
-                : 'This shape couldn’t be matched to any roadway.'}
-              {' '}You can keep your drawn shape exactly as-is (unsnapped), or discard it and draw again.
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={handleDiscardAndRedraw}
-                className="flex-1 px-3 py-2 bg-sand text-brown rounded-lg font-heading font-bold text-sm hover:bg-coral-light hover:text-coral transition-colors"
-              >
-                Discard &amp; redraw
-              </button>
-              <button
-                onClick={handleKeepUnsnapped}
-                className="flex-1 px-3 py-2 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors"
-              >
-                Keep unsnapped
-              </button>
-            </div>
-          </div>
-        </div>
+        <SnapWarningDialog
+          title="Couldn't snap to roads"
+          message={
+            (snapWarning.status === 'partial'
+              ? 'Part of this shape couldn’t be matched to a roadway — it looks like the route passes through an area with no road, so the snapped version would be cut off there.'
+              : 'This shape couldn’t be matched to any roadway.') +
+            ' You can keep your drawn shape exactly as-is (unsnapped), or discard it and draw again.'
+          }
+          secondary={{ label: 'Discard & redraw', onClick: handleDiscardAndRedraw }}
+          primary={{ label: 'Keep unsnapped', onClick: handleKeepUnsnapped }}
+        />
       )}
 
       {/* (Shape-split confirm modal removed — replaced by Duplicate + Trim

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { generateId } from '../../services/idGenerator';
-import { snapToRoad } from '../../services/snapToRoad';
+import { snapToRoadDetailed, pathLengthMeters } from '../../services/snapToRoad';
+import { SnapWarningDialog } from '../map/SnapWarningDialog';
 import { simplifyShapePoints, SIMPLIFY_LEVELS } from '../../services/simplifyShape';
 import { duplicateShapePoints } from '../../services/shapeHelpers';
 import { deriveRouteShapeIds } from '../../services/routeShapes';
@@ -33,6 +34,16 @@ export function RouteShapesTab() {
   } = useStore();
 
   const [snappingShapeId, setSnappingShapeId] = useState<string | null>(null);
+  // Set when a per-shape Snap couldn't fully match the road network, so the user
+  // can keep the current shape unchanged or snap anyway and lose the unmatched
+  // portion (mirrors the draw-flow warning instead of silently truncating).
+  const [snapWarn, setSnapWarn] = useState<{
+    shapeId: string;
+    status: 'partial' | 'failed';
+    snapped: [number, number][];
+    currentMeters: number;
+    snappedMeters: number;
+  } | null>(null);
   const [confirmDeleteShapeId, setConfirmDeleteShapeId] = useState<string | null>(null);
   const [simplifyShapeId, setSimplifyShapeId] = useState<string | null>(null);
   const [warnEditShapeId, setWarnEditShapeId] = useState<string | null>(null);
@@ -139,24 +150,53 @@ export function RouteShapesTab() {
     setConfirmDeleteShapeId(null);
   };
 
+  // Write a snapped polyline back onto a shape (re-sequenced; distances
+  // recomputed). Shared by the clean-snap path and the "Snap anyway" choice.
+  const applySnappedPoints = (shapeId: string, snapped: [number, number][]) => {
+    const newPoints = snapped.map((c, i) => ({
+      shape_pt_lat: c[1],
+      shape_pt_lon: c[0],
+      shape_pt_sequence: i,
+      shape_dist_traveled: 0,
+    }));
+    updateShapePoints(shapeId, newPoints);
+    recalcShapeDistances(shapeId);
+  };
+
   const handleResnapShape = (shapeId: string) => {
     const shape = shapes.find((s) => s.shape_id === shapeId);
     if (!shape || shape.points.length < 2) return;
     const coords: [number, number][] = shape.points.map((p) => [p.shape_pt_lon, p.shape_pt_lat]);
     setSnappingShapeId(shapeId);
-    snapToRoad(coords)
-      .then((snapped) => {
-        const newPoints = snapped.map((c, i) => ({
-          shape_pt_lat: c[1],
-          shape_pt_lon: c[0],
-          shape_pt_sequence: i,
-          shape_dist_traveled: 0,
-        }));
-        updateShapePoints(shapeId, newPoints);
-        recalcShapeDistances(shapeId);
+    snapToRoadDetailed(coords)
+      .then((result) => {
+        if (result.status === 'ok') {
+          // Clean match — apply silently, as before.
+          applySnappedPoints(shapeId, result.snapped);
+          return;
+        }
+        // 'partial' (the snapped line is truncated where the road network ends)
+        // or 'failed' (nothing matched). Don't silently drop geometry — warn and
+        // let the user choose, showing how much length a truncated snap loses.
+        setSnapWarn({
+          shapeId,
+          status: result.status,
+          snapped: result.snapped,
+          currentMeters: pathLengthMeters(result.raw),
+          snappedMeters: pathLengthMeters(result.snapped),
+        });
       })
       .finally(() => setSnappingShapeId(null));
   };
+
+  // Snap-warning resolutions: apply the truncated snapped geometry, or keep the
+  // current shape exactly as-is (no truncation).
+  const handleSnapAnyway = () => {
+    if (!snapWarn) return;
+    applySnappedPoints(snapWarn.shapeId, snapWarn.snapped);
+    setSnapWarn(null);
+  };
+  const handleKeepCurrentShape = () => setSnapWarn(null);
 
   // Duplicate the shape + a trip pointing at it. Without the trip the new
   // shape would be invisible in this panel's list (which derives from trips
@@ -525,6 +565,29 @@ export function RouteShapesTab() {
       >
         {routeShapes.length > 0 ? 'Add new shape' : 'Draw route shape'}
       </button>
+
+      {/* Snap couldn't fully match the road network. For a partial match the
+          snapped line is truncated, so offer keep-or-snap (with a length
+          summary); for a total failure there's nothing to apply, so the shape
+          is simply left unchanged. */}
+      {snapWarn && (
+        <SnapWarningDialog
+          overlayClassName="fixed inset-0 z-50"
+          title="Couldn't snap to roads"
+          message={
+            snapWarn.status === 'partial'
+              ? "Part of this shape can't be matched to a roadway, so snapping would cut the shape off where it leaves the road network. You can keep the current shape unchanged, or snap anyway and lose the unmatched portion."
+              : "This shape couldn't be matched to any roadway, so it was left unchanged."
+          }
+          lengths={snapWarn.status === 'partial'
+            ? { currentMeters: snapWarn.currentMeters, snappedMeters: snapWarn.snappedMeters }
+            : undefined}
+          primary={{ label: 'Keep current shape', onClick: handleKeepCurrentShape }}
+          secondary={snapWarn.status === 'partial'
+            ? { label: 'Snap anyway', onClick: handleSnapAnyway }
+            : undefined}
+        />
+      )}
     </div>
   );
 }

@@ -69,7 +69,7 @@ The editor enforces a **route-first** workflow: alignment is drawn before stops 
 
 - ✅ Route metadata (short/long name, color picker, GTFS route type, agency, URL).
 - ✅ Polyline drawing with vertex add/remove/drag.
-- ✅ Snap-to-road via the Mapbox Map Matching API.
+- ✅ Snap-to-road via the Mapbox Map Matching API. When a path can't be fully matched (it leaves the road network), both the draw flow and the Routes panel's per-shape **Snap** button warn before discarding geometry: the user can keep the current/unsnapped shape or snap anyway. The Routes-panel warning also summarizes the current vs snapped shape length (and the difference, in miles) so the user can judge the loss before confirming.
 - ✅ Freehand drawing for off-road segments.
 - ✅ Multiple shape variants per route (e.g., inbound vs outbound; loops); each shape carries an editable display name (UI-only label, not exported).
 - ✅ `shape_dist_traveled` auto-calculated on export.

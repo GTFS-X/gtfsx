@@ -144,6 +144,20 @@ function mergeChunks(chunks: [number, number][][]): [number, number][] {
   return merged;
 }
 
+/**
+ * Cumulative great-circle length (metres) of a [lng, lat] polyline. Used to
+ * summarise current-vs-snapped shape length in the snap warning so the user can
+ * judge how much geometry a truncated snap would drop. Reuses haversineMeters so
+ * the measure matches the truncation check above.
+ */
+export function pathLengthMeters(coords: [number, number][]): number {
+  let total = 0;
+  for (let i = 1; i < coords.length; i++) {
+    total += haversineMeters(coords[i - 1], coords[i]);
+  }
+  return total;
+}
+
 /** Great-circle distance in metres between two [lng, lat] points. */
 function haversineMeters(a: [number, number], b: [number, number]): number {
   const R = 6_371_000;

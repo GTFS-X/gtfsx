@@ -200,3 +200,23 @@ describe('snapToRoadDetailed', () => {
     expect(res.snapped).toEqual(input);
   });
 });
+
+describe('pathLengthMeters', () => {
+  it('returns 0 for fewer than two points', async () => {
+    const { pathLengthMeters } = await import('../snapToRoad');
+    expect(pathLengthMeters([])).toBe(0);
+    expect(pathLengthMeters([[0, 0]])).toBe(0);
+  });
+
+  it('measures cumulative great-circle length so truncation shows a shorter result', async () => {
+    const { pathLengthMeters } = await import('../snapToRoad');
+    // ~1 degree of longitude at the equator is ~111.3 km.
+    const full = pathLengthMeters([[0, 0], [0.5, 0], [1, 0]]);
+    expect(full).toBeGreaterThan(110_000);
+    expect(full).toBeLessThan(112_000);
+    // A truncated version (first half only) is measurably shorter.
+    const truncated = pathLengthMeters([[0, 0], [0.5, 0]]);
+    expect(truncated).toBeLessThan(full);
+    expect(truncated).toBeCloseTo(full / 2, 0);
+  });
+});
