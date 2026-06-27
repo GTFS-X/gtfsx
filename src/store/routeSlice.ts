@@ -91,18 +91,35 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
     const tripIds = new Set(
       fullState.trips.filter((t) => t.route_id === route_id).map((t) => t.trip_id)
     );
-    // Collect shape IDs used only by this route's trips
-    const routeShapeIds = new Set(
-      fullState.trips
+    // Collect shape IDs belonging to this route — via its trips, its
+    // route-stops, OR the editor-only draft association on a freshly drawn shape
+    // that has no trip yet (`shape._route_id`). That last one is the fix for:
+    // draw a new route, delete it, and its shape was left orphaned on the map
+    // (rendered gray because its route no longer resolves).
+    const routeShapeIds = new Set<string>([
+      ...fullState.trips
         .filter((t) => t.route_id === route_id && t.shape_id)
-        .map((t) => t.shape_id!)
-    );
-    // Don't delete shapes used by other routes' trips
-    const otherShapeIds = new Set(
-      fullState.trips
+        .map((t) => t.shape_id!),
+      ...fullState.routeStops
+        .filter((rs) => rs.route_id === route_id && rs.shape_id)
+        .map((rs) => rs.shape_id!),
+      ...fullState.shapes
+        .filter((s) => s._route_id === route_id)
+        .map((s) => s.shape_id),
+    ]);
+    // Don't delete shapes still referenced by another route (trip, route-stop,
+    // or draft association).
+    const otherShapeIds = new Set<string>([
+      ...fullState.trips
         .filter((t) => t.route_id !== route_id && t.shape_id)
-        .map((t) => t.shape_id!)
-    );
+        .map((t) => t.shape_id!),
+      ...fullState.routeStops
+        .filter((rs) => rs.route_id !== route_id && rs.shape_id)
+        .map((rs) => rs.shape_id!),
+      ...fullState.shapes
+        .filter((s) => s._route_id != null && s._route_id !== route_id)
+        .map((s) => s.shape_id),
+    ]);
 
     // Remove trips
     (state as CrossSliceState).trips = fullState.trips.filter((t) => t.route_id !== route_id);
