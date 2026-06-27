@@ -107,10 +107,20 @@ function PlaceStopDialog() {
   const nextStopName = useStore((s) => s.nextStopName);
   const setNextStopName = useStore((s) => s.setNextStopName);
 
-  // One option per (route, direction) that actually has a shape. Stable
-  // labels even when the same route has shapes in both directions.
+  // One option per (route, direction) that actually has a shape. A freshly
+  // drawn shape has no trip, so its direction is unknown; processing trip-backed
+  // shapes first lets each draft take the first direction its route doesn't
+  // already use (so a route's second drawn shape doesn't collide with the first
+  // and get dropped). Labelled by the shape's own name when it has one.
   const options = useMemo(() => {
+    const isDraft = (shapeId: string) => !trips.some((t) => t.shape_id === shapeId);
+    // Trip-backed shapes (firm direction) before drafts; stable within each
+    // group preserves draw order, so the 1st draft fills dir 0, the 2nd dir 1.
+    const ordered = [...shapes].sort(
+      (a, b) => Number(isDraft(a.shape_id)) - Number(isDraft(b.shape_id)),
+    );
     const seen = new Set<string>();
+    const usedDirs = new Map<string, Set<0 | 1>>();
     const out: Array<{
       key: string;
       routeId: string;
@@ -118,26 +128,23 @@ function PlaceStopDialog() {
       label: string;
       color: string;
     }> = [];
-    for (const shape of shapes) {
+    for (const shape of ordered) {
       const trip = trips.find((t) => t.shape_id === shape.shape_id);
-      // A freshly drawn shape has no trip yet — fall back to its draft route
-      // association so it's still an assignable target for placing stops.
       const routeId = trip?.route_id ?? shape._route_id;
       if (!routeId) continue;
       const route = routes.find((r) => r.route_id === routeId);
       if (!route) continue;
-      const directionId = trip?.direction_id ?? 0;
-      const k = `${route.route_id}__${directionId}`;
+      const taken = usedDirs.get(routeId) ?? new Set<0 | 1>();
+      const directionId: 0 | 1 = trip ? trip.direction_id : taken.has(0) ? 1 : 0;
+      const k = `${routeId}__${directionId}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      const name = route.route_short_name || route.route_long_name || route.route_id;
-      out.push({
-        key: k,
-        routeId: route.route_id,
-        directionId,
-        label: `${name} — ${directionName(route, directionId)}`,
-        color: route.route_color,
-      });
+      taken.add(directionId);
+      usedDirs.set(routeId, taken);
+      const routeName = route.route_short_name || route.route_long_name || route.route_id;
+      // Prefer the shape's own name; fall back to "{route} — {direction}".
+      const label = shape._name?.trim() || `${routeName} — ${directionName(route, directionId)}`;
+      out.push({ key: k, routeId, directionId, label, color: route.route_color });
     }
     return out;
   }, [shapes, trips, routes]);

@@ -6,6 +6,7 @@ import { SnapWarningDialog } from '../map/SnapWarningDialog';
 import { simplifyShapePoints, SIMPLIFY_LEVELS } from '../../services/simplifyShape';
 import { duplicateShapePoints } from '../../services/shapeHelpers';
 import { deriveRouteShapeIds } from '../../services/routeShapes';
+import { computeShapePatterns } from '../ui/shapePatterns';
 
 /**
  * Shapes subpanel for the Routes editor. Extracted out of RouteEditor.tsx so
@@ -92,7 +93,14 @@ export function RouteShapesTab() {
   // Jump to the Stops tab focused on this shape (works even for same-direction
   // shapes the direction fallback can't disambiguate).
   const handleEditStops = (shapeId: string) => {
-    const dir = trips.find((t) => t.shape_id === shapeId)?.direction_id ?? 0;
+    // Resolve the shape's direction the SAME way the Stops subpanel does, so a
+    // freshly drawn shape (no trip/stops yet, direction assigned by pattern
+    // order) focuses the right slot instead of falling back to direction 0.
+    const patterns = computeShapePatterns(selectedRouteId, trips, routeStops, shapes);
+    const dir =
+      patterns.find((p) => p.shapeId === shapeId)?.directionId ??
+      trips.find((t) => t.shape_id === shapeId)?.direction_id ??
+      0;
     setStopsPanelShapeId(shapeId);
     setStopPlacementDirection(dir);
     setRouteDetailTab('stops');
