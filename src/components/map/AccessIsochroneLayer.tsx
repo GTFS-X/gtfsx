@@ -4,12 +4,16 @@ import type { Feature, Geometry, Position } from 'geojson';
 import { useStore } from '../../store';
 import { accessRingColor, ACCESS_FILL_COLOR } from '../../services/accessIsochrone/colors';
 
-/** Northernmost coordinate of a (Multi)Polygon — used to anchor the ring's time
- *  label at the top edge of the contour, where rings naturally separate. */
-function northPoint(geom: Geometry): Position | null {
+type Dir = 'n' | 'e' | 's' | 'w';
+/** Extreme boundary coordinate of a (Multi)Polygon in a compass direction.
+ *  Each ring labels at a different direction (n/e/s/w) so the nested contours'
+ *  labels spread out instead of stacking at the same edge. */
+function extremePoint(geom: Geometry, dir: Dir): Position | null {
   let best: Position | null = null;
+  const score = (p: Position) =>
+    dir === 'n' ? p[1] : dir === 's' ? -p[1] : dir === 'e' ? p[0] : -p[0];
   const consider = (p: Position) => {
-    if (!best || p[1] > best[1]) best = p;
+    if (!best || score(p) > score(best)) best = p;
   };
   const walk = (coords: unknown) => {
     if (!Array.isArray(coords)) return;
@@ -19,6 +23,8 @@ function northPoint(geom: Geometry): Position | null {
   if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') walk(geom.coordinates);
   return best;
 }
+
+const LABEL_DIRS: Dir[] = ['n', 'e', 's', 'w'];
 
 /**
  * Map overlay for the Access Isochrones panel. The reachable area is a single
@@ -50,17 +56,20 @@ export function AccessIsochroneLayer() {
       properties: { color, budget: ring.budgetMin },
     }));
 
+    // Labels in ASCENDING budget order so each ring gets a stable compass
+    // direction (n/e/s/w) — keeps the nested contours' labels from stacking.
     const labelFeatures: Feature[] = [];
-    for (const { ring, color } of ordered) {
-      const np = ring.polygon ? northPoint((ring.polygon as Feature).geometry) : null;
-      if (np) {
+    result.rings.forEach((ring, i) => {
+      if (!ring.polygon) return;
+      const pt = extremePoint((ring.polygon as Feature).geometry, LABEL_DIRS[i % LABEL_DIRS.length]);
+      if (pt) {
         labelFeatures.push({
           type: 'Feature',
-          geometry: { type: 'Point', coordinates: np },
-          properties: { label: `${ring.budgetMin} min`, color },
+          geometry: { type: 'Point', coordinates: pt },
+          properties: { label: `${ring.budgetMin} min`, color: accessRingColor(i) },
         });
       }
-    }
+    });
 
     return {
       fills: { type: 'FeatureCollection' as const, features: fillFeatures },

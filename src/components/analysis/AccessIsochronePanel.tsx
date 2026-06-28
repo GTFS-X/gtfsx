@@ -91,7 +91,9 @@ export function AccessIsochronePanel() {
           departureSec: params.departureSec,
           serviceIds,
           walkMinutes: params.walkMinutes,
-          straightLineWalk: true,
+          // Routed egress: real street-network walkshed (Mapbox isochrones) around
+          // each reached stop, not a fixed-radius circle.
+          straightLineWalk: false,
         },
         state,
         blockGroups,
@@ -225,7 +227,7 @@ export function AccessIsochronePanel() {
         disabled={running || !origin}
         className="w-full px-4 py-2.5 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
       >
-        {running ? (loadingCensus ? 'Loading demographics…' : 'Routing…') : 'Run analysis'}
+        {running ? (loadingCensus ? 'Loading demographics…' : 'Analyzing…') : 'Run analysis'}
       </button>
 
       {error && (
@@ -266,9 +268,10 @@ export function AccessIsochronePanel() {
             </div>
           ))}
           <p className="text-[10px] text-warm-gray/80 leading-snug">
-            Estimate. Straight-line walk access/egress; schedule-based routing (RAPTOR) over
-            the busiest representative day. Equity shares are apportioned from ACS block groups
-            overlapping the reachable area.
+            Estimate. Egress drawn as street-network walksheds (Mapbox walking isochrones)
+            around each reached stop; schedule-based routing (RAPTOR) over the busiest
+            representative day. Equity shares are apportioned from ACS block groups overlapping
+            the reachable area.
           </p>
         </div>
       )}
