@@ -267,23 +267,6 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
         </div>
 
         <div className="px-6 py-4 border-t border-sand shrink-0 flex flex-col gap-2">
-          {/* GeoJSON export (Pro+) — routes + stops as a GeoJSON FeatureCollection
-              for GIS. Geometry-only, so it's allowed even with validation errors. */}
-          <button
-            onClick={handleExportGeoJSON}
-            disabled={exporting || !hasGeoGeometry}
-            title="Export route shapes (LineStrings) and stops (Points) as a GeoJSON FeatureCollection for QGIS, ArcGIS, Mapbox, etc."
-            className="w-full px-4 py-2 rounded-lg font-heading font-bold text-sm border-2 border-sand
-              text-dark-brown hover:border-coral hover:text-coral transition-colors
-              disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            Export routes &amp; stops as GeoJSON
-            {!canGeoExport && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-coral">
-                🔒 {geoTargetPlan}
-              </span>
-            )}
-          </button>
           <div className="flex gap-2">
             <button
               onClick={onClose}
@@ -300,6 +283,21 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
               {exporting ? 'Exporting...' : 'Export GTFS'}
             </button>
           </div>
+          {/* Subtle secondary export — routes + stops as a GeoJSON FeatureCollection
+              for GIS (Pro+). Geometry-only, so it's allowed even with validation
+              errors. Kept understated below the primary actions. */}
+          <button
+            onClick={handleExportGeoJSON}
+            disabled={exporting || !hasGeoGeometry}
+            title="Export route shapes (LineStrings) and stops (Points) as a GeoJSON FeatureCollection for QGIS, ArcGIS, Mapbox, etc."
+            className="self-center inline-flex items-center gap-1.5 text-xs text-warm-gray hover:text-coral
+              transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-warm-gray"
+          >
+            <span className="underline decoration-dotted underline-offset-2">Export routes &amp; stops as GeoJSON</span>
+            {!canGeoExport && (
+              <span className="text-[10px] font-semibold uppercase tracking-wide">🔒 {geoTargetPlan}</span>
+            )}
+          </button>
         </div>
       </div>
     </div>
