@@ -43,6 +43,12 @@ export interface UISlice {
    *  false (default), the cell collapses to a single time and the editor
    *  keeps arrival_time === departure_time on commit. */
   timetableSplitArrDep: boolean;
+  /** When true, the timetable renders two schedule panes side by side, each
+   *  with its own route / direction / shape / service selection — used to line
+   *  up arrival/departure times across two patterns (e.g. outbound vs inbound).
+   *  Pane A is driven by the usual global timetable* fields; pane B keeps its
+   *  own selection in local component state. */
+  timetableSplit: boolean;
   selectedRouteId: string | null;
   selectedStopId: string | null;
   selectedTripId: string | null;
@@ -128,6 +134,7 @@ export interface UISlice {
   setTimetableServiceId: (id: string | null) => void;
   setTimetableShapeId: (id: string | null) => void;
   setTimetableSplitArrDep: (v: boolean) => void;
+  setTimetableSplit: (v: boolean) => void;
   selectRoute: (id: string | null) => void;
   selectStop: (id: string | null) => void;
   selectTrip: (id: string | null) => void;
@@ -168,6 +175,7 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   timetableServiceId: null,
   timetableShapeId: null,
   timetableSplitArrDep: false,
+  timetableSplit: false,
   selectedRouteId: null,
   selectedStopId: null,
   selectedTripId: null,
@@ -282,6 +290,7 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   setTimetableServiceId: (id) => set((state) => { state.timetableServiceId = id; }),
   setTimetableShapeId: (id) => set((state) => { state.timetableShapeId = id; }),
   setTimetableSplitArrDep: (v) => set((state) => { state.timetableSplitArrDep = v; }),
+  setTimetableSplit: (v) => set((state) => { state.timetableSplit = v; }),
   selectRoute: (id) => set((state) => { state.selectedRouteId = id; }),
   selectStop: (id) => set((state) => { state.selectedStopId = id; }),
   selectTrip: (id) => set((state) => { state.selectedTripId = id; }),

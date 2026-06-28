@@ -37,13 +37,53 @@ function uniqueTripId(baseId: string, existingIds: Set<string>): string {
   return `${baseId}-${suffix}`;
 }
 
-export function TimetableGrid() {
+/** A timetable pane's selection state. The main pane reads/writes the global
+ *  `timetable*` store fields (so it stays synced with the map highlight and the
+ *  cross-panel "View timetable" handlers). The split view's second pane passes
+ *  its own local-state-backed scope so the two panes select route / direction /
+ *  shape / service independently. */
+export type TimetableScope = {
+  routeId: string | null;
+  setRouteId: (id: string | null) => void;
+  directionId: 0 | 1;
+  setDirectionId: (d: 0 | 1) => void;
+  serviceId: string | null;
+  setServiceId: (id: string | null) => void;
+  shapeId: string | null;
+  setShapeId: (id: string | null) => void;
+};
+
+export function TimetableGrid({ scope }: { scope?: TimetableScope } = {}) {
   const {
-    selectedRouteId, selectRoute, routes, trips, stops, routeStops, calendars, shapes,
+    routes, trips, stops, routeStops, calendars, shapes,
     setStopTime, addTrip, duplicateTrip, applyTripPattern, removeTrip, updateTrip, renameTripId,
     interpolateStopTimes, skipStop, seedTripStops,
   } = useStore();
   const { byTrip: stopTimesByTrip } = useStopTimesIndex();
+
+  // Selection fields. Without a scope (the main pane) these proxy the global
+  // `timetable*` store fields exactly as before; with a scope (the split view's
+  // pane B) they read/write that pane's own local state so it can show a
+  // different route/direction/shape without moving the global selection or the
+  // map highlight. Everything below this block uses the resolved aliases, so the
+  // rest of the component is identical in both modes.
+  const gSelectedRouteId = useStore((s) => s.selectedRouteId);
+  const gSelectRoute = useStore((s) => s.selectRoute);
+  const gDirectionId = useStore((s) => s.timetableDirectionId);
+  const gSetDirectionId = useStore((s) => s.setTimetableDirectionId);
+  const gServiceId = useStore((s) => s.timetableServiceId);
+  const gSetServiceId = useStore((s) => s.setTimetableServiceId);
+  const gShapeId = useStore((s) => s.timetableShapeId);
+  const gSetShapeId = useStore((s) => s.setTimetableShapeId);
+
+  const selectedRouteId = scope ? scope.routeId : gSelectedRouteId;
+  const selectRoute = scope ? scope.setRouteId : gSelectRoute;
+  const directionId = scope ? scope.directionId : gDirectionId;
+  const setDirectionId = scope ? scope.setDirectionId : gSetDirectionId;
+  const selectedServiceId = scope ? scope.serviceId : gServiceId;
+  const setSelectedServiceId = scope ? scope.setServiceId : gSetServiceId;
+  const selectedShapeId = scope ? scope.shapeId : gShapeId;
+  const setSelectedShapeId = scope ? scope.setShapeId : gSetShapeId;
 
   const route = routes.find((r) => r.route_id === selectedRouteId);
 
@@ -51,25 +91,15 @@ export function TimetableGrid() {
   // per-stop ⚑ override only appears when this feature is enabled for the feed.
   const showContinuous = useStore((s) => featureEnabled(s, 'continuousStops'));
 
-  // Direction toggle state — synced to store so RouteLayer can read it
-  const directionId = useStore((s) => s.timetableDirectionId);
-  const setDirectionId = useStore((s) => s.setTimetableDirectionId);
+  // Split-view toggle (global UI pref). The button lives only in the main pane's
+  // toolbar; pane B never shows it.
+  const timetableSplit = useStore((s) => s.timetableSplit);
+  const setTimetableSplit = useStore((s) => s.setTimetableSplit);
 
   // Advanced: when true, every stop cell shows two inputs (arr / dep) so
-  // dwell time can be authored. Persisted in the UI slice.
+  // dwell time can be authored. Persisted in the UI slice. Shared across panes.
   const splitArrDep = useStore((s) => s.timetableSplitArrDep);
   const setSplitArrDep = useStore((s) => s.setTimetableSplitArrDep);
-
-  // Service pattern selector — lives in the store so cross-panel handlers
-  // (Calendars > Routes > "View timetable") can switch the timetable to the
-  // calendar the user just clicked. null falls back to the first calendar.
-  const selectedServiceId = useStore((s) => s.timetableServiceId);
-  const setSelectedServiceId = useStore((s) => s.setTimetableServiceId);
-  // Trip-pattern (shape) selector — only meaningful when the route has 3+
-  // distinct shape_ids. The legacy direction toggle still drives ≤2-shape
-  // routes via timetableDirectionId.
-  const selectedShapeId = useStore((s) => s.timetableShapeId);
-  const setSelectedShapeId = useStore((s) => s.setTimetableShapeId);
 
   // Safety net: a user who somehow lands on the timetable with no calendars
   // gets one auto-created. The primary path (draw_route's finishDrawing)
@@ -559,8 +589,10 @@ export function TimetableGrid() {
   };
 
   if (!route) {
-    // Auto-select first route if available
-    if (routes.length > 0) {
+    // Auto-select first route if available. Only the main pane does this — pane
+    // B is initialised with a valid route and manages its own selection, so
+    // calling its parent's setState during render here would warn.
+    if (!scope && routes.length > 0) {
       selectRoute(routes[0].route_id);
     }
     return (
@@ -638,6 +670,19 @@ export function TimetableGrid() {
           >
             Edit Stops
           </button>
+          {!scope && (
+            <button
+              onClick={() => setTimetableSplit(!timetableSplit)}
+              title="Split the timetable into two panes — compare or line up times across two patterns (e.g. outbound vs inbound)"
+              className={`px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors ${
+                timetableSplit
+                  ? 'bg-coral text-white'
+                  : 'border-2 border-dashed border-sand text-warm-gray hover:border-coral hover:text-coral'
+              }`}
+            >
+              ⊟ Split view
+            </button>
+          )}
           <label
             className="flex items-center gap-1.5 text-[11px] text-warm-gray cursor-pointer select-none whitespace-nowrap"
             title="Show separate arrival and departure inputs for each stop. Use this for services with dwell time at intermediate stops (e.g. ferries, long-distance rail)."
