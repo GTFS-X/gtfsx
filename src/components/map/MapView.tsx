@@ -13,6 +13,7 @@ import { StopPopup } from './StopPopup';
 import { RoutePopup } from './RoutePopup';
 import { FlexZonePopup } from './FlexZonePopup';
 import { CoverageLayer } from './CoverageLayer';
+import { AccessIsochroneLayer } from './AccessIsochroneLayer';
 import { StopAnalysisLayer } from './StopAnalysisLayer';
 import { FlexLayer } from '../flex/FlexLayer';
 import { DemandDotsLayer } from './DemandDotsLayer';
@@ -901,6 +902,14 @@ export function MapView() {
 
     const currentState = useStore.getState();
 
+    // Access-isochrone origin placement — drop the trip-origin pin, then return
+    // to select mode. (The pin is also draggable afterwards via its Marker.)
+    if (currentState.mapMode === 'place_access_origin') {
+      currentState.setAccessOrigin({ lon: e.lngLat.lng, lat: e.lngLat.lat });
+      currentState.setMapMode('select');
+      return;
+    }
+
     // Don't handle map clicks during shape editing
     if (currentState.mapMode === 'edit_shape') return;
 
@@ -1169,6 +1178,7 @@ export function MapView() {
   const cursor = mapMode === 'draw_route' || mapMode === 'draw_flex_zone' ? 'crosshair'
     : mapMode === 'draw_fare_zone' || mapMode === 'select_stops_polygon' ? 'crosshair'
     : mapMode === 'place_stop' ? 'crosshair'
+    : mapMode === 'place_access_origin' ? 'crosshair'
     : mapMode === 'trim_shape' ? 'crosshair'
     : mapMode === 'move_stop' ? (hoveringStop ? 'grab' : 'crosshair')
     : mapMode === 'edit_shape' || mapMode === 'edit_flex_zone' ? 'default'
@@ -1204,6 +1214,7 @@ export function MapView() {
         />
         <DemandDotsLayer visible={showDemandDots} />
         <CoverageLayer />
+        <AccessIsochroneLayer />
         <FlexLayer />
         <RouteLayer simplified={simplifyShapes} />
         <StopLayer clustered={clusterStops} />

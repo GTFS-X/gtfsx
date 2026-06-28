@@ -22,6 +22,7 @@ export type FeatureKey =
   | 'brand_color'          // custom brand primary color
   | 'service_alerts'       // author GTFS-Realtime Service Alerts
   | 'geojson_export'       // export routes + stops as GeoJSON for GIS
+  | 'access_isochrones'    // schedule-based transit travel-time reach analysis
   | 'phone_support';       // SLA-backed phone support
 
 // Per-feature: which plans grant access. Free is excluded by absence.
@@ -50,6 +51,7 @@ export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   brand_color:         ['pro', 'agency', 'enterprise'],
   service_alerts:      ['agency', 'enterprise'],
   geojson_export:      ['pro', 'agency', 'enterprise'],
+  access_isochrones:   ['agency', 'enterprise'],
   phone_support:       ['agency', 'enterprise'],
 };
 
@@ -140,6 +142,7 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
       'Custom org logo',
       'Route operating cost estimates',
       'Demographic coverage analysis',
+      'Transit access isochrones (travel-time reach)',
       'Network-distance walksheds',
       'Stop-level analysis',
       'Title VI equity analysis',

@@ -21,6 +21,7 @@ export type FeatureKey =
   | 'service_alerts'
   | 'variants'
   | 'geojson_export'
+  | 'access_isochrones'
   | 'phone_support';
 
 // Pricing v3 (Jun 2026): demand dots are free for all; cost/coverage split into a
@@ -45,6 +46,7 @@ export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   service_alerts:      ['agency', 'enterprise'],
   variants:            ['agency', 'enterprise'],
   geojson_export:      ['pro', 'agency', 'enterprise'],
+  access_isochrones:   ['agency', 'enterprise'],
   phone_support:       ['agency', 'enterprise'],
 };
 
@@ -148,5 +150,9 @@ export const FEATURE_COPY: Record<FeatureKey, { title: string; description: stri
   geojson_export: {
     title: 'GeoJSON export',
     description: 'Export your route shapes and stops as a GeoJSON FeatureCollection — drop them straight into QGIS, ArcGIS, Mapbox, or any GIS tool.',
+  },
+  access_isochrones: {
+    title: 'Transit access isochrones',
+    description: 'Drop a pin and see where a rider can reach on your network in 15 / 30 / 45 minutes — combining walk access, wait, and in-vehicle time — with the population, jobs, and equity populations inside each contour.',
   },
 };

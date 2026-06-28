@@ -28,6 +28,7 @@ const ANALYSIS: NavItem[] = [
   { key: 'costs', label: 'Costs', tile: 'tile-gold' },
   { key: 'stop-analysis', label: 'Stop Analysis', tile: 'tile-coral' },
   { key: 'coverage', label: 'Coverage', tile: 'tile-teal' },
+  { key: 'access-isochrones', label: 'Access', tile: 'tile-teal' },
   { key: 'titlevi', label: 'Title VI', tile: 'tile-purple' },
 ];
 const OPERATIONS: NavItem[] = [
@@ -172,6 +173,13 @@ const ICON_PATHS: Record<SidebarSection, ReactNode> = {
       <circle cx="12" cy="12" r="9" />
       <circle cx="12" cy="12" r="5.5" />
       <circle cx="12" cy="12" r="2" />
+    </>
+  ),
+  // Access Isochrones — origin pin over a reach arc
+  'access-isochrones': (
+    <>
+      <path d="M12 21s5-4.5 5-9a5 5 0 1 0-10 0c0 4.5 5 9 5 9z" />
+      <circle cx="12" cy="11.5" r="1.75" />
     </>
   ),
   // Title VI — two figures (people / community)

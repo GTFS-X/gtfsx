@@ -12,6 +12,7 @@ export type SidebarSection =
   | 'coverage'
   | 'titlevi'
   | 'stop-analysis'
+  | 'access-isochrones'
   | 'alerts'
   | 'settings';
 
@@ -46,7 +47,8 @@ export type MapMode =
   | 'draw_flex_zone'
   | 'edit_flex_zone'
   | 'draw_fare_zone'
-  | 'select_stops_polygon';
+  | 'select_stops_polygon'
+  | 'place_access_origin';
 
 export type StopPlacementMode = 'snap_to_route' | 'freehand';
 

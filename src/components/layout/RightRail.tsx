@@ -13,6 +13,7 @@ import { CostSummary } from '../costs/CostSummary';
 import { CoveragePanel } from '../coverage/CoveragePanel';
 import { TitleVIPanel } from '../titlevi/TitleVIPanel';
 import { StopAnalysisPanel } from '../analysis/StopAnalysisPanel';
+import { AccessIsochronePanel } from '../analysis/AccessIsochronePanel';
 import { FlexEditor } from '../flex/FlexEditor';
 import { StationsPanel } from '../stations/StationsPanel';
 import { FrequenciesEditor } from '../frequencies/FrequenciesEditor';
@@ -45,6 +46,7 @@ const SECTION_TITLES: Record<SidebarSection, string> = {
   coverage: 'Coverage',
   titlevi: 'Title VI',
   'stop-analysis': 'Stop Analysis',
+  'access-isochrones': 'Access Isochrones',
   alerts: 'Service Alerts',
   settings: 'Feature settings',
 };
@@ -63,6 +65,7 @@ const SECTION_GROUP: Record<SidebarSection, string | null> = {
   coverage: 'Analysis',
   titlevi: 'Analysis',
   'stop-analysis': 'Analysis',
+  'access-isochrones': 'Analysis',
   alerts: 'Operations',
   settings: null,
 };
@@ -106,6 +109,12 @@ function PanelBody({ section }: { section: SidebarSection }) {
       return (
         <PaywallOverlay feature="analysis_basic" currentPlan={plan}>
           <StopAnalysisPanel />
+        </PaywallOverlay>
+      );
+    case 'access-isochrones':
+      return (
+        <PaywallOverlay feature="access_isochrones" currentPlan={plan}>
+          <AccessIsochronePanel />
         </PaywallOverlay>
       );
     case 'alerts':
