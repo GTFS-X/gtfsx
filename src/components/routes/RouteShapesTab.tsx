@@ -103,6 +103,9 @@ export function RouteShapesTab() {
       0;
     setStopsPanelShapeId(shapeId);
     setStopPlacementDirection(dir);
+    // Don't pan/zoom the map when jumping to a shape's stops (Mark: the auto-fit
+    // to the whole route is disorienting mid-edit). Reuse the one-shot fit guard.
+    window.__suppressNextRouteFit = true;
     setRouteDetailTab('stops');
   };
 
