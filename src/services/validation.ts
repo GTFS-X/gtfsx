@@ -5,6 +5,7 @@ import { flexZoneHasGroup, flexZoneHasPolygons, flexZoneShape } from '../store/f
 import { gtfsTimeToSeconds, secondsToGtfsTime, formatTimeShort } from '../utils/time';
 import { getUSHolidaysInRange, serviceRunsOnDate } from '../utils/holidays';
 import { findBlockOverlaps } from './blockBuilder';
+import { unreachableTimetableTripIds } from '../components/ui/shapePatterns';
 
 // Stable codes for validation rules the user can dismiss per feed. The code is
 // attached to EVERY message a rule emits (a rule can emit one message per
@@ -164,6 +165,14 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     messages.push(wcMsg);
   }
 
+  // "Ghost" trips: unreachable in the timetable editor. Once a route has a real
+  // shape the timetable filters trips by shape_id, so a trip with no/unknown
+  // shape on that route matches no pattern selector and becomes invisible AND
+  // undeletable in the grid (the reported repro: an outbound timetable built
+  // before any shape existed, then an inbound shape drawn → outbound trips
+  // vanish). Surface them with a one-click bulk delete. Computed once (O(n)).
+  const ghostTripIds = unreachableTimetableTripIds(state.trips, state.routeStops);
+
   // Trip checks (using pre-built indexes — O(n) not O(n²))
   for (const t of state.trips) {
     if (!routeIdSet.has(t.route_id)) {
@@ -176,6 +185,16 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     }
     if (!stopTimesByTrip.has(t.trip_id)) {
       messages.push(msg('warning', `Trip "${t.trip_id}" has no stop times`, 'trip', t.trip_id));
+    }
+    if (ghostTripIds.has(t.trip_id)) {
+      const m = msg(
+        'warning',
+        `Trip "${t.trip_id}" can't be reached in the timetable editor — its route has shapes but this trip has no matching shape, so the grid hides it. Open the Fix recipe to delete it (and its stop times), or assign it a shape.`,
+        'trip',
+        t.trip_id,
+      );
+      m.fix = { id: 'remove-ghost-trips' };
+      messages.push(m);
     }
   }
 

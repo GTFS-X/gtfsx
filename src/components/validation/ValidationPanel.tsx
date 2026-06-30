@@ -7,6 +7,7 @@ import {
   type ValidationFixResult,
 } from '../../services/validationFixes';
 import { groupValidationMessages } from '../../services/validationGrouping';
+import { noShapeBucketId } from '../ui/shapePatterns';
 import type { ValidationMessage } from '../../types/ui';
 import { Badge } from '../ui/Badge';
 
@@ -44,7 +45,7 @@ export function ValidationPanel() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const messages = useMemo(() => runValidation(state), [
     state.agencies, state.calendars, state.calendarDates,
-    state.routes, state.stops, state.trips, state.stopTimes, state.shapes,
+    state.routes, state.routeStops, state.stops, state.trips, state.stopTimes, state.shapes,
     state.fareAttributes, state.fareRules, state.transfers,
     state.flexZones, state.frequencies, state.levels, state.pathways,
     state.featureSettings,
@@ -129,7 +130,9 @@ export function ValidationPanel() {
           state.selectRoute(trip.route_id);
           state.setTimetableServiceId(trip.service_id);
           state.setTimetableDirectionId(trip.direction_id);
-          if (trip.shape_id) state.setTimetableShapeId(trip.shape_id);
+          // A shaped trip opens on its shape; a shapeless "ghost" trip opens on
+          // the synthetic "No shape" bucket so the grid actually shows it.
+          state.setTimetableShapeId(trip.shape_id || noShapeBucketId(trip.direction_id));
         }
       }
     }

@@ -99,6 +99,31 @@ const FIXES: Record<ValidationFixId, ValidationFix> = {
     },
   },
 
+  'remove-ghost-trips': {
+    id: 'remove-ghost-trips',
+    label: 'Fix',
+    description:
+      "Removes this trip (and its stop_times and any frequency windows) because it "
+      + "can't be reached in the timetable editor: its route has shapes but this trip "
+      + 'has no matching shape, so the grid hides it. Delete it here, or assign it a '
+      + 'shape to make it visible. You can undo this.',
+    apply: (message) => {
+      const tripId = message.entity_id ?? '';
+      const snapshot = useStore.getState().removeTripWithSnapshot(tripId);
+      const stCount = snapshot.stopTimes.length;
+      const fqCount = snapshot.frequencies.length;
+      return {
+        fixId: 'remove-ghost-trips',
+        changed: snapshot.trip !== undefined,
+        label: snapshot.trip
+          ? `Removed unreachable trip "${tripId}" (${stCount} stop time${stCount === 1 ? '' : 's'}`
+            + `${fqCount > 0 ? `, ${fqCount} frequency window${fqCount === 1 ? '' : 's'}` : ''}).`
+          : `Trip "${tripId}" not found — nothing removed.`,
+        undo: () => useStore.getState().restoreTrip(snapshot),
+      };
+    },
+  },
+
   'delete-unused-stop': {
     id: 'delete-unused-stop',
     label: 'Fix',

@@ -69,6 +69,7 @@ export type ValidationFixId =
   | 'fill-trip-edge-times'
   | 'fill-missing-wheelchair'
   | 'remove-orphan-trips'
+  | 'remove-ghost-trips'
   | 'delete-unused-stop';
 
 export interface ValidationMessage {

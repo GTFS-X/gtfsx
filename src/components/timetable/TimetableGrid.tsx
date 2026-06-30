@@ -5,7 +5,7 @@ import { ensureDefaultCalendar } from '../../services/defaultCalendar';
 import { formatTimeShort, normalizeTimeInput, gtfsTimeToSeconds, secondsToGtfsTime } from '../../utils/time';
 import { directionName } from '../../utils/constants';
 import { PatternSelector } from '../ui/ShapePatternSelector';
-import { computeShapePatterns } from '../ui/shapePatterns';
+import { computeTimetablePatterns, isNoShapeBucket } from '../ui/shapePatterns';
 import type { Route, StopTime } from '../../types/gtfs';
 import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 import { estimateStopTravelByRoad, layoutStopTimes } from '../../services/travelTime';
@@ -101,8 +101,11 @@ export function TimetableGrid() {
   // A route with 0 shapes (e.g. trips with empty shape_id) falls back to the
   // legacy direction-only toggle so we keep authoring useful for in-progress
   // feeds before a shape exists.
+  // Includes a synthetic "No shape" bucket per direction for trips whose
+  // shape_id matches no real shape, so trips can never become ghosts (hidden +
+  // undeletable) once the route also has a real shape. See computeTimetablePatterns.
   const patterns = useMemo(
-    () => computeShapePatterns(selectedRouteId, trips, routeStops),
+    () => computeTimetablePatterns(selectedRouteId, trips, routeStops),
     [selectedRouteId, trips, routeStops],
   );
 
@@ -143,6 +146,18 @@ export function TimetableGrid() {
       ? selectedShapeId
       : patterns[0].shapeId;
   }, [patterns, selectedShapeId]);
+
+  // The selected pattern is the synthetic "No shape" bucket (holds trips with
+  // no/unknown shape on a route that otherwise has shapes). In that mode the
+  // grid scopes by direction + empty-shape rather than by a real shape_id, and
+  // the bucket sentinel must never be written to a trip/shape downstream.
+  const noShapeBucket = isNoShapeBucket(effectiveShapeId);
+  // Shape ids that correspond to a REAL pattern (exclude the bucket sentinels);
+  // used to decide which trips/stops belong to the no-shape bucket.
+  const realShapeIds = useMemo(
+    () => new Set(patterns.filter((p) => !isNoShapeBucket(p.shapeId)).map((p) => p.shapeId)),
+    [patterns],
+  );
 
   // Service patterns that have trips for this route+direction (for "copy from" feature)
   const serviceIdsWithTrips = useMemo(() => {
@@ -210,11 +225,15 @@ export function TimetableGrid() {
   // stop_times) alongside its resolved Stop.
   const orderedStops = useMemo(() => {
     if (!selectedRouteId) return [];
-    // Columns are the selected shape's own stops (per-shape). Shapeless routes
-    // (no shape selected) fall back to direction-keyed stops.
-    const list = effectiveShapeId
-      ? routeStops.filter((rs) => rs.route_id === selectedRouteId && rs.shape_id === effectiveShapeId)
-      : routeStops.filter((rs) => rs.route_id === selectedRouteId && rs.direction_id === directionId);
+    // Columns are the selected shape's own stops (per-shape). The "No shape"
+    // bucket and shapeless routes fall back to this direction's empty-shape
+    // route_stops (the columns the bucket's trips were built from).
+    const list = noShapeBucket
+      ? routeStops.filter((rs) => rs.route_id === selectedRouteId && rs.direction_id === directionId
+          && (!rs.shape_id || !realShapeIds.has(rs.shape_id)))
+      : effectiveShapeId
+        ? routeStops.filter((rs) => rs.route_id === selectedRouteId && rs.shape_id === effectiveShapeId)
+        : routeStops.filter((rs) => rs.route_id === selectedRouteId && rs.direction_id === directionId);
     return [...list]
       .sort((a, b) => a.stop_sequence - b.stop_sequence)
       .map((rs) => {
@@ -224,7 +243,7 @@ export function TimetableGrid() {
           : null;
       })
       .filter((x): x is { uid: string; seq: number; stop: typeof stops[number] } => x !== null);
-  }, [selectedRouteId, effectiveShapeId, directionId, routeStops, stops]);
+  }, [selectedRouteId, effectiveShapeId, directionId, routeStops, stops, noShapeBucket, realShapeIds]);
 
   // Find a specific stop_time by trip + stop_sequence (the per-instance key)
   // using the byTrip index — keying by stop_id would collapse a repeated stop.
@@ -315,9 +334,12 @@ export function TimetableGrid() {
     return trips
       .filter((t) => t.route_id === selectedRouteId
         && (!activeServiceId || t.service_id === activeServiceId)
-        // Filter by the selected shape when there is one (so two shapes sharing
-        // a direction don't pile into one view); otherwise by direction.
-        && (effectiveShapeId ? t.shape_id === effectiveShapeId : t.direction_id === directionId))
+        // The "No shape" bucket collects this direction's trips with no/unknown
+        // shape; otherwise filter by the selected shape when there is one (so two
+        // shapes sharing a direction don't pile into one view), else by direction.
+        && (noShapeBucket
+          ? (t.direction_id === directionId && (!t.shape_id || !realShapeIds.has(t.shape_id)))
+          : effectiveShapeId ? t.shape_id === effectiveShapeId : t.direction_id === directionId))
       .sort((a, b) => {
         // Sort by earliest assigned arrival; trips with no times yet go last.
         const earliest = (tripId: string) => {
@@ -334,7 +356,7 @@ export function TimetableGrid() {
         if (!aTime || !bTime) return (aTime ? 0 : 1) - (bTime ? 0 : 1);
         return aTime.localeCompare(bTime);
       });
-  }, [selectedRouteId, trips, stopTimesByTrip, directionId, activeServiceId, effectiveShapeId]);
+  }, [selectedRouteId, trips, stopTimesByTrip, directionId, activeServiceId, effectiveShapeId, noShapeBucket, realShapeIds]);
 
   // Tab key navigation. Walks to the next focusable cell, stepping OVER skipped
   // columns (which render no input and so register no ref) until it lands on a
@@ -383,7 +405,11 @@ export function TimetableGrid() {
       service_id: activeServiceId || calendars[0]?.service_id || '',
       direction_id: directionId,
       trip_headsign: route?.route_short_name || '',
-      shape_id: effectiveShapeId ?? trips.find((t) => t.route_id === selectedRouteId && t.direction_id === directionId)?.shape_id,
+      // Never stamp the "No shape" bucket sentinel onto a real trip — a trip
+      // added in that bucket genuinely has no shape.
+      shape_id: noShapeBucket
+        ? undefined
+        : effectiveShapeId ?? trips.find((t) => t.route_id === selectedRouteId && t.direction_id === directionId)?.shape_id,
     });
     // Seed a blank (served, no time) row for each stop so the new trip's cells
     // default to "served" — without rows every cell would render as skipped.
@@ -720,7 +746,7 @@ export function TimetableGrid() {
           <RuntimeEditor
             routeId={selectedRouteId!}
             directionId={directionId}
-            shapeId={effectiveShapeId ?? undefined}
+            shapeId={noShapeBucket ? undefined : (effectiveShapeId ?? undefined)}
             serviceId={activeServiceId}
             onCancel={() => setShowRuntime(false)}
           />
@@ -1299,7 +1325,7 @@ export function TimetableGrid() {
             <GenerateServiceForm
               routeId={selectedRouteId!}
               directionId={directionId}
-              shapeId={effectiveShapeId ?? undefined}
+              shapeId={noShapeBucket ? undefined : (effectiveShapeId ?? undefined)}
               serviceId={activeServiceId}
               headsign={route?.route_short_name || undefined}
               variant="card"
