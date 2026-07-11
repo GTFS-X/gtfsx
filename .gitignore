@@ -63,3 +63,6 @@ test/
 .claude/
 CLAUDE.md
 tiles/coverage/*.fgb
+
+# Google Drive strategy docs (symlink, not part of repo)
+/GTFS-X
