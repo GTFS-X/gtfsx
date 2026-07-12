@@ -5,6 +5,10 @@ import type { Route } from '../../types/gtfs';
 import { CatalogSearch, type CatalogFeed } from './CatalogSearch';
 import { MyFeedsSource } from './MyFeedsSource';
 import { resolveMyFeedImportData, type MyFeedItem } from '../../services/myFeedsImport';
+import { feedNeedsShapes } from '../../services/shapesFromStops';
+import { detectRtapFeed } from '../../services/rtapDetect';
+import type { BuilderSignals } from '../../services/gtfsParse';
+import { ShapesFromStopsDialog } from '../shapes/ShapesFromStopsDialog';
 
 type ImportSource = 'upload' | 'url' | 'catalog' | 'myfeeds';
 
@@ -99,6 +103,17 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     routes: number; stops: number; trips: number;
   } | null>(null);
 
+  // "No shapes" offer on the success screen (RTAP feeds and similar). "Not
+  // now" just hides the callout for this screen — the same recipe stays
+  // reachable later from the Validation panel, so nothing is lost.
+  const [shapesOfferDismissed, setShapesOfferDismissed] = useState(false);
+  const [showShapesDialog, setShowShapesDialog] = useState(false);
+  // Structural export-tool signals captured at parse time (see BuilderSignals
+  // in gtfsParse.ts). Stashed here rather than read off parsedData at render
+  // time because the empty-project fast-import path never sets parsedData —
+  // doReplaceImport is called directly with the freshly parsed data instead.
+  const [importBuilderSignals, setImportBuilderSignals] = useState<BuilderSignals | null>(null);
+
   // Async completion state (only used when onComplete is provided).
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
@@ -135,6 +150,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
       stops: data.stops.length,
       trips: data.trips.length,
     });
+    setImportBuilderSignals(data.builderSignals);
   }, []);
 
   /** Hand a fully-resolved feed (from any source — zip parse or a "My feeds"
@@ -328,6 +344,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
         stops: selStopIds.size,
         trips: selTripIds.size,
       });
+      setImportBuilderSignals(parsedData.builderSignals);
     }
   };
 
@@ -336,44 +353,119 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
 
   // ── Success screen ─────────────────────────────────────────────────────────
   if (importedCounts) {
+    // Read the just-landed feed back from the store to decide whether to
+    // offer the shapes-from-stops recipe. feedNeedsShapes looks at the whole
+    // current project (not just what this import contributed) — consistent
+    // with generateShapesFromStops itself, which repairs every shapeless
+    // pattern in the store.
+    const storeState = useStore.getState();
+    const needsShapes = feedNeedsShapes(
+      storeState.trips, storeState.stopTimes, storeState.stops, storeState.shapes,
+    );
+    // RTAP detection is copy-only flavor, so prefer the just-parsed feed's own
+    // feed_info/agency rows (parsedData) when we have them — merge mode never
+    // writes the imported feed's metadata into the store, only its routes. The
+    // "project was empty" fast-import path skips parsedData entirely, so fall
+    // back to the store, which a full replace populated from this same feed.
+    // importBuilderSignals has no store fallback (the store doesn't retain
+    // it) — it's stashed in state at import time for exactly this read.
+    const rtap = detectRtapFeed(
+      parsedData?.feedInfo ?? storeState.feedInfo,
+      parsedData?.agencies ?? storeState.agencies,
+      importBuilderSignals,
+    );
+
     return (
-      <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={completing ? undefined : onClose}>
-        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-teal-light rounded-lg flex items-center justify-center text-xl">✓</div>
-            <h3 className="font-heading font-bold text-lg text-dark-brown">
-              {mode === 'merge' ? 'Routes Added' : 'Import Successful'}
-            </h3>
-          </div>
-          {importWarnings.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4 text-xs text-amber-700">
-              {importWarnings.map((w, i) => <p key={i}>{w}</p>)}
+      <>
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={completing ? undefined : onClose}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-teal-light rounded-lg flex items-center justify-center text-xl">✓</div>
+              <h3 className="font-heading font-bold text-lg text-dark-brown">
+                {mode === 'merge' ? 'Routes Added' : 'Import Successful'}
+              </h3>
             </div>
-          )}
-          <div className="flex flex-col gap-2 mb-4">
-            {([['Routes', importedCounts.routes], ['Stops', importedCounts.stops], ['Trips', importedCounts.trips]] as [string, number][]).map(
-              ([label, count]) => (
-                <div key={label} className="flex justify-between px-3 py-2 bg-cream rounded-lg text-sm">
-                  <span>{label}</span>
-                  <span className="font-semibold">{count}</span>
-                </div>
-              ),
+            {importWarnings.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4 text-xs text-amber-700">
+                {importWarnings.map((w, i) => <p key={i}>{w}</p>)}
+              </div>
             )}
-          </div>
-          {completeError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4 text-sm text-red-700">
-              {completeError}
+            <div className="flex flex-col gap-2 mb-4">
+              {([['Routes', importedCounts.routes], ['Stops', importedCounts.stops], ['Trips', importedCounts.trips]] as [string, number][]).map(
+                ([label, count]) => (
+                  <div key={label} className="flex justify-between px-3 py-2 bg-cream rounded-lg text-sm">
+                    <span>{label}</span>
+                    <span className="font-semibold">{count}</span>
+                  </div>
+                ),
+              )}
             </div>
-          )}
-          <button
-            onClick={handleComplete}
-            disabled={completing}
-            className="w-full px-4 py-2.5 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {completing ? 'Saving…' : onComplete ? (completeLabel ?? 'Save feed') : 'Open in Editor'}
-          </button>
+            {needsShapes && !shapesOfferDismissed && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-base">🛣️</span>
+                  <p className="font-heading font-bold text-sm text-dark-brown">No route geometry in this feed</p>
+                </div>
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  {/* Lead with the observed fact in every case; the RTAP line is
+                      additional color, worded to match how sure we actually are.
+                      High confidence = an explicit "National RTAP" self-mention,
+                      so it's fine to name RTAP outright. Low confidence is a
+                      structural-only match (BOM + empty shapes.txt + full
+                      optional-column set) that isn't provably RTAP specifically,
+                      so it's phrased as a likeness, never an assertion. */}
+                  {rtap.isRtap && rtap.confidence === 'high' && (
+                    <>This looks like a National RTAP GTFS Builder feed: that tool ships shapes.txt empty by default. </>
+                  )}
+                  {rtap.isRtap && rtap.confidence === 'low' && (
+                    <>This has some of the hallmarks of a spreadsheet-based GTFS Builder export (the kind National RTAP provides), which often ships shapes.txt empty rather than leaving it out. </>
+                  )}
+                  This feed has no usable route geometry, so trip planners will draw straight lines
+                  between stops instead of following the streets. GTFS·X can generate route geometry by
+                  snapping each route's stop sequence to the road network.
+                </p>
+                <div className="flex gap-2 mt-2.5">
+                  <button
+                    onClick={() => setShowShapesDialog(true)}
+                    className="flex-1 px-3 py-2 bg-coral text-white rounded-lg font-heading font-bold text-xs hover:bg-[#d4603a] transition-colors"
+                  >
+                    Generate shapes from stops
+                  </button>
+                  <button
+                    onClick={() => setShapesOfferDismissed(true)}
+                    className="px-3 py-2 text-xs text-amber-700 hover:text-dark-brown transition-colors"
+                  >
+                    Not now
+                  </button>
+                </div>
+                <p className="text-[11px] text-amber-700/80 mt-1.5">
+                  You can run this later from the Validation panel too.
+                </p>
+              </div>
+            )}
+            {completeError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4 text-sm text-red-700">
+                {completeError}
+              </div>
+            )}
+            <button
+              onClick={handleComplete}
+              disabled={completing}
+              className="w-full px-4 py-2.5 bg-coral text-white rounded-lg font-heading font-bold text-sm hover:bg-[#d4603a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {completing ? 'Saving…' : onComplete ? (completeLabel ?? 'Save feed') : 'Open in Editor'}
+            </button>
+          </div>
         </div>
-      </div>
+        {/* Rendered as a sibling, not nested inside the overlay above, so its
+            own backdrop click doesn't bubble into this screen's onClose. */}
+        {showShapesDialog && (
+          <ShapesFromStopsDialog
+            rtapConfidence={rtap.isRtap ? rtap.confidence : undefined}
+            onClose={() => setShowShapesDialog(false)}
+          />
+        )}
+      </>
     );
   }
 

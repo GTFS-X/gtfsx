@@ -6,6 +6,11 @@ import { gtfsTimeToSeconds, secondsToGtfsTime, formatTimeShort } from '../utils/
 import { getUSHolidaysInRange, serviceRunsOnDate } from '../utils/holidays';
 import { findBlockOverlaps } from './blockBuilder';
 import { unreachableTimetableTripIds } from '../components/ui/shapePatterns';
+// Imported from the PURE plan module, not shapesFromStops.ts: the latter pulls in
+// snapToRoad, whose module-scope `import.meta.env` read throws under plain Node,
+// which would make this file (and the whole validation graph) unloadable in the
+// tsx editor-test harness.
+import { feedNeedsShapes } from './shapesFromStopsPlan';
 
 // Stable codes for validation rules the user can dismiss per feed. The code is
 // attached to EVERY message a rule emits (a rule can emit one message per
@@ -23,6 +28,13 @@ export const VALIDATION_CODES = {
   // but noisy — a common artifact of bulk holiday-adders and rough imports —
   // so it's a dismissible cleanup nudge, not a hard error.
   redundantException: 'redundant-calendar-exception',
+  // The feed has no route geometry at all (shapes.txt). Common for feeds
+  // built with National RTAP's GTFS Builder, which leaves shapes as an
+  // optional step. A real gap for rider apps (straight-line polylines instead
+  // of street-following ones), but some agencies genuinely don't want
+  // geometry (e.g. a hand-drawn ferry alignment they'll add later) — so it's
+  // dismissible like the other soft nudges above.
+  noShapeGeometry: 'no-shape-geometry',
 } as const;
 
 // Human label for each dismissible rule, shown in the validation panel's
@@ -30,6 +42,7 @@ export const VALIDATION_CODES = {
 export const DISMISSIBLE_RULE_LABELS: Record<string, string> = {
   [VALIDATION_CODES.holidayExceptions]: 'Holiday calendar_dates reminders',
   [VALIDATION_CODES.redundantException]: 'Redundant calendar_dates exceptions',
+  [VALIDATION_CODES.noShapeGeometry]: 'No route geometry (shapes.txt) reminder',
 };
 
 let msgId = 0;
@@ -344,6 +357,26 @@ export function runValidation(state: AppStore): ValidationMessage[] {
         shape.shape_id,
       ));
     }
+  }
+
+  // No route geometry at all — one feed-level nudge, not one per route/trip.
+  // feedNeedsShapes is true when at least one trip has 2+ located stops but no
+  // resolvable shape (see services/shapesFromStops.ts for the exact rule).
+  // The fix is INTERACTIVE (opens ShapesFromStopsDialog rather than a
+  // one-click apply — see services/validationFixes.ts), because generating
+  // geometry is async, calls out to Mapbox, and needs a mode choice.
+  if (feedNeedsShapes(state.trips, state.stopTimes, state.stops, state.shapes)) {
+    const m = msg(
+      'warning',
+      'This feed has no route geometry (shapes.txt), so trip planners will draw straight '
+      + 'lines between stops instead of following the streets. Open the Fix recipe to '
+      + 'generate shapes automatically.',
+      undefined,
+      undefined,
+      VALIDATION_CODES.noShapeGeometry,
+    );
+    m.fix = { id: 'generate-shapes-from-stops' };
+    messages.push(m);
   }
 
   // Fare checks

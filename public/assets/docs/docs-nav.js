@@ -40,6 +40,7 @@
       pages: [
         { path: '/docs/validation/',       title: 'Validation' },
         { path: '/docs/import-and-export/', title: 'Import & Export' },
+        { path: '/docs/shapes-from-stops/', title: 'Generate Shapes from Stops' },
         { path: '/docs/service-summary/',  title: 'Service Summary' },
         { path: '/docs/deep-links/',       title: 'Integrations' }
       ]

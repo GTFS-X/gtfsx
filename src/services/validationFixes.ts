@@ -31,8 +31,18 @@ export interface ValidationFix {
   label: string;
   /** Tooltip / a11y description of what the fix does. */
   description: string;
-  /** Mutate the store to resolve `message`; return an undo handle. */
-  apply: (message: ValidationMessage) => ValidationFixResult;
+  /**
+   * True when this recipe needs a dedicated dialog rather than a one-click
+   * mutation (e.g. it's async, needs user-chosen options, or shows progress).
+   * The panel opens that dialog instead of calling `apply` — see the
+   * `interactive` special-case in components/validation/ValidationPanel.tsx,
+   * which mirrors the existing wheelchair-picker special-case. `apply` is
+   * absent on these fixes so the batch "Fix all" path can never invoke them.
+   */
+  interactive?: boolean;
+  /** Mutate the store to resolve `message`; return an undo handle. Omitted
+   *  for `interactive` fixes (there's no one-click mutation to run). */
+  apply?: (message: ValidationMessage) => ValidationFixResult;
 }
 
 const FIXES: Record<ValidationFixId, ValidationFix> = {
@@ -145,6 +155,20 @@ const FIXES: Record<ValidationFixId, ValidationFix> = {
       };
     },
   },
+
+  'generate-shapes-from-stops': {
+    id: 'generate-shapes-from-stops',
+    label: 'Generate shapes',
+    description:
+      'Opens a dialog that builds a shape for every stop pattern missing one (snapped to '
+      + 'the road network, or straight lines between stops), links it onto the matching '
+      + 'trips, and flags any pattern that needs a second look. Interactive (network calls '
+      + 'and a mode choice), so it runs from its own dialog rather than one click. '
+      + 'You can undo the whole batch afterward.',
+    // No `apply` — this recipe is interactive-only (see the `interactive` doc
+    // above). applyValidationFix / applyValidationFixBatch both skip it.
+    interactive: true,
+  },
 };
 
 /** Look up a registered fix by id (undefined if the id isn't in the catalog —
@@ -194,11 +218,13 @@ export function applyWheelchairFill(value: number): ValidationFixResult {
 }
 
 /** Apply the fix a message carries, if any. Returns the undo result, or null
- *  when the message has no fix or its id isn't registered. */
+ *  when the message has no fix, its id isn't registered, or it's `interactive`
+ *  (no `apply` — the caller should open its dialog instead; see
+ *  components/validation/ValidationPanel.tsx). */
 export function applyValidationFix(message: ValidationMessage): ValidationFixResult | null {
   if (!message.fix) return null;
   const fix = FIXES[message.fix.id];
-  if (!fix) return null;
+  if (!fix || !fix.apply) return null;
   return fix.apply(message);
 }
 
@@ -215,6 +241,11 @@ export function applyValidationFix(message: ValidationMessage): ValidationFixRes
  * `undo()` reverses all of them. Returns null when no message in the batch has a
  * registered fix. Re-running validation after a batch is automatic: the fixes
  * mutate store slices the validation memo depends on, so the list refreshes.
+ *
+ * `interactive` fixes (no `apply`) are skipped here — they can never be
+ * silently invoked by the batch "Fix all" path; the panel doesn't even show
+ * that affordance for them (see ValidationPanel.tsx), but this guard holds
+ * even if a caller passes one in directly.
  */
 export function applyValidationFixBatch(messages: ValidationMessage[]): ValidationFixResult | null {
   const results: ValidationFixResult[] = [];
@@ -224,7 +255,7 @@ export function applyValidationFixBatch(messages: ValidationMessage[]): Validati
   for (const m of messages) {
     if (!m.fix) continue;
     const fix = FIXES[m.fix.id];
-    if (!fix) continue;
+    if (!fix || !fix.apply) continue;
     total++;
     fixId = m.fix.id;
     const r = fix.apply(m);

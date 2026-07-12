@@ -10,6 +10,7 @@ import { groupValidationMessages } from '../../services/validationGrouping';
 import { noShapeBucketId } from '../ui/shapePatterns';
 import type { ValidationMessage } from '../../types/ui';
 import { Badge } from '../ui/Badge';
+import { ShapesFromStopsDialog } from '../shapes/ShapesFromStopsDialog';
 
 // Below this many active messages the panel defaults to the flat "Individual"
 // list; at or above it, it opens "By type" so a feed with hundreds of the same
@@ -35,6 +36,9 @@ export function ValidationPanel() {
   // Last applied fix (single OR batch), held for the undo toast. Lives outside
   // the validation memo so it survives the re-validate that clears fixed errors.
   const [fixUndo, setFixUndo] = useState<ValidationFixResult | null>(null);
+  // An `interactive` fix (currently just generate-shapes-from-stops) has no
+  // `apply` to run — clicking its Fix button opens this dialog instead.
+  const [showShapesDialog, setShowShapesDialog] = useState(false);
 
   // Depend on the specific entity slices the validator reads; `state` as a
   // whole would re-trigger on every unrelated store change (UI state,
@@ -200,7 +204,14 @@ export function ValidationPanel() {
         </button>
         {m.fix && m.fix.id !== 'fill-missing-wheelchair' && getValidationFix(m.fix.id) && (
           <button
-            onClick={() => applySingle(m)}
+            onClick={() => {
+              // Interactive fixes (no `apply`) have no one-click mutation to
+              // run — open their dialog instead. Mirrors the wheelchair
+              // special-case above, generalized via the `interactive` flag.
+              const fixDef = getValidationFix(m.fix!.id)!;
+              if (fixDef.interactive) setShowShapesDialog(true);
+              else applySingle(m);
+            }}
             title={getValidationFix(m.fix.id)!.description}
             className="shrink-0 self-center mr-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-teal text-white hover:bg-teal/90 transition-colors"
           >
@@ -403,9 +414,14 @@ export function ValidationPanel() {
             onFixOne={() => focusedMessage && applySingle(focusedMessage)}
             onFixAll={() => selectedGroup && applyBatch(selectedGroup.messages)}
             onWheelchairFill={applyWheelchair}
+            onOpenInteractiveFix={() => setShowShapesDialog(true)}
           />
         </div>
       </div>
+
+      {showShapesDialog && (
+        <ShapesFromStopsDialog onClose={() => setShowShapesDialog(false)} />
+      )}
     </div>
   );
 }
@@ -413,13 +429,16 @@ export function ValidationPanel() {
 // The right-rail "how do I fix this" panel. Shows the catalog recipe for the
 // selected rule's fix (or a no-auto-fix note) plus Fix-this-one / Fix-all-N.
 function FixRecipeRail({
-  group, focused, onFixOne, onFixAll, onWheelchairFill,
+  group, focused, onFixOne, onFixAll, onWheelchairFill, onOpenInteractiveFix,
 }: {
   group: ReturnType<typeof groupValidationMessages>[number] | null;
   focused: ValidationMessage | null;
   onFixOne: () => void;
   onFixAll: () => void;
   onWheelchairFill: (value: number) => void;
+  /** Open the dialog for an `interactive` fix (currently just
+   *  generate-shapes-from-stops — see services/validationFixes.ts). */
+  onOpenInteractiveFix: () => void;
 }) {
   if (!group) {
     return (
@@ -430,7 +449,11 @@ function FixRecipeRail({
     );
   }
   const fix = group.fixId ? getValidationFix(group.fixId) : undefined;
-  const focusedFixable = !!(focused?.fix && getValidationFix(focused.fix.id));
+  const focusedFixDef = focused?.fix ? getValidationFix(focused.fix.id) : undefined;
+  // Interactive fixes are never one-click-fixable, at the single-message
+  // level either — "Fix this one" stays disabled for them (the button itself
+  // doesn't even render once `fix.interactive` is true; see below).
+  const focusedFixable = !!(focusedFixDef && !focusedFixDef.interactive);
   return (
     <div className="p-3 flex flex-col gap-2.5">
       <p className="font-heading font-bold text-[13px] text-dark-brown">Fix recipe</p>
@@ -457,7 +480,17 @@ function FixRecipeRail({
         </p>
       </div>
 
-      {fix && group.fixId === 'fill-missing-wheelchair' ? (
+      {fix && fix.interactive ? (
+        // No one-click apply (and no batch "Fix all N" — this recipe needs a
+        // mode choice + network calls, so every affected message is fixed
+        // through the same dialog, one feed-wide run at a time).
+        <button
+          onClick={onOpenInteractiveFix}
+          className="px-3 py-1.5 rounded-md text-[12px] font-semibold bg-teal text-white hover:bg-teal/90 transition-colors"
+        >
+          {fix.label}
+        </button>
+      ) : fix && group.fixId === 'fill-missing-wheelchair' ? (
         <WheelchairFillPicker onFill={onWheelchairFill} />
       ) : fix && (
         <div className="flex flex-col gap-1.5">

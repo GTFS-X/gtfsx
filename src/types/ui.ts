@@ -70,7 +70,8 @@ export type ValidationFixId =
   | 'fill-missing-wheelchair'
   | 'remove-orphan-trips'
   | 'remove-ghost-trips'
-  | 'delete-unused-stop';
+  | 'delete-unused-stop'
+  | 'generate-shapes-from-stops';
 
 export interface ValidationMessage {
   id: string;
