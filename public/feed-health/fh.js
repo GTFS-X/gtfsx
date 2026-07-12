@@ -477,6 +477,23 @@
       }, short);
     }
 
+    // NTD ↔ Mobility Database crosswalk sub-line, e.g. "NTD 90157 · MDB mdb-223".
+    // Rendered as a muted third line under the agency name rather than as new
+    // columns, so the table still fits ~390px. Agencies with no MDB-matched feed
+    // show the muted dash. Users copy these two ids straight into FTA's P-50 form.
+    function agencyIdLine(ag) {
+      const title = ag.mdbId
+        ? "NTD ID " + ag.ntdId + " · Mobility Database feed ID " + ag.mdbId
+          + " — the identifiers FTA's P-50 form asks for"
+        : "NTD ID " + ag.ntdId
+          + " — no Mobility Database feed is matched to this agency";
+      return h("span", { className: "ag-sub ag-id-line", title: title },
+        "NTD " + ag.ntdId,
+        " · MDB ",
+        ag.mdbId ? ag.mdbId : h("span", { className: "ag-muted-dash" }, "–")
+      );
+    }
+
     function getSorted() {
       return data.agencies.slice().sort(function (a, b) {
         if (agSortKey === "name") {
@@ -554,6 +571,8 @@
           // City · organization-type summary.
           const summary = agencySummary(ag);
           if (summary) nameCell.appendChild(h("span", { className: "ag-sub" }, summary));
+          // NTD / MDB identifier crosswalk.
+          nameCell.appendChild(agencyIdLine(ag));
         } else {
           nameCell.appendChild(h("span", { className: "nm" }, ag.name));
           if (ag.city) nameCell.appendChild(h("span", { className: "ag-city" }, ag.city));
