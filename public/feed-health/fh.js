@@ -1063,8 +1063,12 @@
                 copyBtn
               ),
               h("div", { className: "txt" }, citation)
-            )
+            ),
             // Item 14: removed companion article / gtfsfeeds.net sentence
+            h("dd", { style: { marginTop: "14px", paddingTop: "14px", borderTop: "1px solid var(--gtfs-sand)" } },
+              "Looking for TransitFeeds? That registry is gone; the Mobility Database (linked above) is its successor. ",
+              h("a", { href: "/transitfeeds/" }, "See where GTFS feed data lives now →")
+            )
           )
         )
       )
