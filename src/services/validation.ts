@@ -36,6 +36,19 @@ export const VALIDATION_CODES = {
   // dismissible like the other soft nudges above.
   noShapeGeometry: 'no-shape-geometry',
 
+  // ── NTD reporting (FTA) ────────────────────────────────────────────────
+  // FTA's July 10, 2025 final notice (FR 2025-12813) made agency_id
+  // NON-conditional — i.e. always required — for NTD reporters, including in
+  // routes.txt, because FTA crosswalks a feed to the agency's NTD ID (via the
+  // P-50 form) on agency_id. The GTFS spec is looser (agency_id may be omitted
+  // in a single-agency feed), so a perfectly spec-legal feed can still break an
+  // agency's NTD reporting. Both codes are warnings, not errors, and both are
+  // dismissible: an agency that knowingly doesn't report to the NTD can silence
+  // them. Kept as two codes so the (real, spec-level) multi-agency defect and
+  // the (advisory, spec-legal) single-agency nudge dismiss independently.
+  ntdMissingAgencyId: 'ntd-missing-agency-id',
+  ntdSingleAgencyNoAgencyId: 'ntd-single-agency-no-agency-id',
+
   // ── GTFS-Flex (gtfs.org/community/extensions/flex) ─────────────────────
   // One code per spec rule, named after the canonical MobilityData notice it
   // mirrors so tests/external/validator-parity-mapping.ts can line the two
@@ -76,6 +89,9 @@ export const DISMISSIBLE_RULE_LABELS: Record<string, string> = {
   [VALIDATION_CODES.holidayExceptions]: 'Holiday calendar_dates reminders',
   [VALIDATION_CODES.redundantException]: 'Redundant calendar_dates exceptions',
   [VALIDATION_CODES.noShapeGeometry]: 'No route geometry (shapes.txt) reminder',
+
+  [VALIDATION_CODES.ntdMissingAgencyId]: 'Missing agency_id (required in a multi-agency feed; NTD reporting)',
+  [VALIDATION_CODES.ntdSingleAgencyNoAgencyId]: 'Single-agency feed omits agency_id (NTD reporting advisory)',
 
   [VALIDATION_CODES.flexNoServiceArea]: 'Flex zone has no service area',
   [VALIDATION_CODES.flexEmptyStopGroup]: 'Flex stop group has no stops',
@@ -151,6 +167,56 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     for (const a of state.agencies) {
       if (!a.agency_name) messages.push(msg('error', `Agency "${a.agency_id}" is missing a name`, 'agency', a.agency_id));
       if (!a.agency_timezone) messages.push(msg('error', `Agency "${a.agency_id}" is missing a timezone`, 'agency', a.agency_id));
+    }
+  }
+
+  // agency_id presence — GTFS spec + FTA NTD reporting (see VALIDATION_CODES).
+  // Silent on an empty feed: "At least one agency is required" above already
+  // covers that, and nagging about agency_id on a feed with no agency is noise.
+  const blank = (v: string | undefined) => !v || !v.trim();
+  if (state.agencies.length > 1) {
+    // Multi-agency: the GTFS spec itself requires agency_id here, so this is a
+    // real defect, not just an NTD one. Per-entity so each row is fixable.
+    for (const a of state.agencies) {
+      if (blank(a.agency_id)) {
+        messages.push(msg(
+          'warning',
+          `Agency "${a.agency_name || '(unnamed)'}" is missing an agency_id, which is required in a feed with more than one agency. Give it a stable id (e.g. "MTA") and reference that id from its routes — FTA crosswalks the feed to your NTD ID on agency_id.`,
+          'agency',
+          a.agency_id || undefined,
+          VALIDATION_CODES.ntdMissingAgencyId,
+        ));
+      }
+    }
+    for (const r of state.routes) {
+      if (blank(r.agency_id)) {
+        messages.push(msg(
+          'warning',
+          `Route "${r.route_short_name || r.route_long_name || r.route_id}" is missing an agency_id, which is required in routes.txt when the feed has more than one agency. Set it to the agency_id of the agency that operates the route, so riders and FTA can tell whose service it is.`,
+          'route',
+          r.route_id,
+          VALIDATION_CODES.ntdMissingAgencyId,
+        ));
+      }
+    }
+  } else if (state.agencies.length === 1) {
+    // Single agency: omitting agency_id is spec-legal, so this is ADVISORY and
+    // is emitted at most ONCE for the whole feed (never once per route).
+    const agencyRowMissing = blank(state.agencies[0].agency_id);
+    const routesMissing = state.routes.filter((r) => blank(r.agency_id)).length;
+    if (agencyRowMissing || routesMissing > 0) {
+      const where = agencyRowMissing && routesMissing > 0
+        ? `agencies.txt and on ${routesMissing} route${routesMissing === 1 ? '' : 's'}`
+        : agencyRowMissing
+          ? 'agencies.txt'
+          : `${routesMissing} route${routesMissing === 1 ? '' : 's'} in routes.txt`;
+      messages.push(msg(
+        'warning',
+        `agency_id is not set in ${where}. That is allowed by the GTFS spec in a single-agency feed, but FTA's July 2025 final notice (FR 2025-12813) made agency_id non-conditional for NTD reporters — including in routes.txt — and FTA cannot crosswalk this feed to your NTD ID without it. If you report to the NTD, set a stable agency_id on the agency and on every route; otherwise dismiss this warning.`,
+        'agency',
+        state.agencies[0].agency_id || undefined,
+        VALIDATION_CODES.ntdSingleAgencyNoAgencyId,
+      ));
     }
   }
 
