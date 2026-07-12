@@ -42,6 +42,12 @@ const DATA_KEYS = [
   'flexZones',
   'featureSettings',
   'dismissedValidations',
+  // The project's NTD ID (string, leading zeros significant — never coerce
+  // through Number()) and the opt-in flag to write it as an `ext_ntd_id`
+  // column on agency.txt at export time. Feed-state, round-trips through the
+  // working-state snapshot like any other editor data.
+  'ntdId',
+  'exportNtdIdColumn',
 ] as const;
 
 type DataKey = (typeof DATA_KEYS)[number];
@@ -105,6 +111,8 @@ export function resetStoreEntities() {
   state.setFlexZones([] as never);
   state.setFeatureSettings({});
   state.setDismissedValidations([]);
+  state.setNtdId(null);
+  state.setExportNtdIdColumn(false);
 }
 
 export function applySnapshotToStore(snapshot: Record<string, unknown>) {
@@ -182,6 +190,13 @@ function applySnapshotToStoreInner(snapshot: Record<string, unknown>) {
   // every rule (no cross-feed leak).
   if (Array.isArray(g('dismissedValidations'))) {
     state.setDismissedValidations(g('dismissedValidations') as never);
+  }
+  // resetStoreEntities() above already cleared these to null/false, so an
+  // absent or explicitly-null key correctly leaves a fresh/cleared feed
+  // rather than leaking the previous project's NTD ID.
+  if (typeof g('ntdId') === 'string') state.setNtdId(g('ntdId') as string);
+  if (typeof g('exportNtdIdColumn') === 'boolean') {
+    state.setExportNtdIdColumn(g('exportNtdIdColumn') as boolean);
   }
   // Older saved blobs may still carry a `visibilitySets` key (the removed
   // "Scenarios" feature). It's intentionally ignored here — unknown keys are
