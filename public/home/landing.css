@@ -433,6 +433,9 @@ h3.sub { font-weight: 800; font-size: 20px; line-height: 1.2; }
 @media (max-width: 940px) {
   .hero-panels.planner-forward { grid-template-columns: 1fr; }
   .planner-body { grid-template-columns: 1fr; }
+  /* Stacked panel is content-height, so the desktop margin-top:auto baseline
+     trick resolves to 0 — give the CTA row real breathing room below the mock. */
+  .planner-forward .panel-planner .panel-ctas { margin-top: 22px; }
 }
 @media (max-width: 560px) {
   .btn-demo { width: 100%; font-size: 18px; padding: 16px 30px; }
