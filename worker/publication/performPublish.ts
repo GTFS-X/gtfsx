@@ -39,13 +39,14 @@ export interface PerformPublishInput {
   /** Acknowledges the agency_id-churn warning (C2). */
   ignoreAgencyChurn?: boolean;
   /**
-   * NTD ID / SPDX license to project onto `feed_project` as part of this
-   * publish. `undefined` leaves the existing projection untouched (the cron
-   * path never supplies them); `null` clears it.
+   * SPDX license identifier to record on `feed_project` as part of this
+   * publish. `undefined` leaves the stored value untouched (the cron path never
+   * supplies it); `null` clears it.
    *
-   * ntdId is a STRING — NTD IDs carry significant leading zeros ("00123").
+   * There is no NTD ID here: it lives on the agency, inside the feed
+   * (agency.external_id), so it arrives with the snapshot state and is read
+   * per-agency by the feeds origin.
    */
-  ntdId?: string | null;
   licenseSpdx?: string | null;
   /** Null for system/cron-initiated publishes. */
   actorUserId: string | null;
@@ -156,24 +157,13 @@ export async function performPublish(env: Env, input: PerformPublishInput): Prom
     await putFeedBlob(env, pubKey, buf, { contentType: 'application/zip' });
   }
 
-  // Project the NTD ID + license onto feed_project (migration 0024). The
-  // editor's feed state stays the source of truth; this is the copy the public
-  // feeds origin reads for feed_info.json + dmfr.json without having to inflate
-  // the state blob. Only written when the caller supplied the field — the cron
-  // path omits both and must not clobber what the last interactive publish set.
-  const sets: string[] = [];
-  const binds: (string | null)[] = [];
-  if (input.ntdId !== undefined) {
-    sets.push('ntd_id = ?');
-    binds.push(input.ntdId); // string | null — never Number()
-  }
+  // Record the feed's license on feed_project (migration 0024) — the copy the
+  // public feeds origin serves in feed_info.json + dmfr.json. Only written when
+  // the caller supplied it: the cron path omits it and must not clobber what the
+  // last interactive publish set.
   if (input.licenseSpdx !== undefined) {
-    sets.push('license_spdx = ?');
-    binds.push(input.licenseSpdx);
-  }
-  if (sets.length > 0) {
-    await env.DB.prepare(`UPDATE feed_project SET ${sets.join(', ')} WHERE id = ?`)
-      .bind(...binds, project.id)
+    await env.DB.prepare(`UPDATE feed_project SET license_spdx = ? WHERE id = ?`)
+      .bind(input.licenseSpdx, project.id)
       .run();
   }
 
