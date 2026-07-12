@@ -168,6 +168,9 @@ export function PricingPage() {
   const [plans, setPlans] = useState<PlanCatalogEntry[]>(FALLBACK_PLANS);
   const [serverBillingEnabled, setServerBillingEnabled] = useState<boolean>(billingEnabled);
   const [talkToSalesOpen, setTalkToSalesOpen] = useState(false);
+  // Which flow opened the modal — picks the prefilled mailto (Enterprise
+  // inquiry vs. fix-my-feed scoping). Same booking link either way.
+  const [talkToSalesContext, setTalkToSalesContext] = useState<'enterprise' | 'services'>('enterprise');
 
   // Checkout flow state (ported from the old WelcomePlanPage).
   const [pendingPlan, setPendingPlan] = useState<Plan | null>(null);
@@ -328,6 +331,7 @@ export function PricingPage() {
     }
     if (plan === 'enterprise') {
       trackCtaClick('pricing_talk_to_sales_open');
+      setTalkToSalesContext('enterprise');
       setTalkToSalesOpen(true);
       return;
     }
@@ -474,18 +478,13 @@ export function PricingPage() {
     }
     if (isWelcome) return 'Your email is verified. Pick the plan that fits—you can always change later.';
     if (onPaidPlan) return `You're on ${planDisplayName(currentPlan)}. Compare tiers or change your plan below.`;
-    return 'The fast, free GTFS editor. Paid plans add Premium Feed Management and Route Planning Features.';
+    return 'The Editor is free forever. Planner adds hosted publishing and the service-planning suite for transit agencies.';
   })();
 
   return (
     <AuthLayout title={pageTitle} subtitle={pageSubtitle} wide>
       <div className="space-y-8">
         <TestModeBanner />
-        {!checkoutContext && (
-          <div className="text-sm text-warm-gray">
-            The editor and GTFS-Flex authoring are always free. Planner adds hosting, publishing, and the full route-planning suite for transit agencies.
-          </div>
-        )}
 
         {error && (
           <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
@@ -722,23 +721,18 @@ export function PricingPage() {
                   <p className="mt-4 text-xs text-warm-gray">
                     Priced per feed after a 10-min scoping call. Most jobs land in the $500–$1,500 range.
                   </p>
-                  <div className="mt-5 space-y-2">
-                    <a
-                      href={SCHEDULE_CALL_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => trackCtaClick('pricing_fix_my_feed_schedule')}
+                  <div className="mt-5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        trackCtaClick('pricing_fix_my_feed_talk_open');
+                        setTalkToSalesContext('services');
+                        setTalkToSalesOpen(true);
+                      }}
                       className="block w-full rounded-lg bg-coral py-2.5 text-center font-heading text-sm font-bold text-white hover:bg-[#d4603a]"
                     >
-                      Book a scoping call
-                    </a>
-                    <a
-                      href={FIX_FEED_MAIL}
-                      onClick={() => trackCtaClick('pricing_fix_my_feed_email')}
-                      className="block w-full rounded-lg border border-sand bg-cream py-2.5 text-center font-heading text-sm font-bold text-brown hover:border-coral hover:text-coral"
-                    >
-                      Or email us your details
-                    </a>
+                      Talk to sales
+                    </button>
                   </div>
                 </div>
               </div>
@@ -770,23 +764,11 @@ export function PricingPage() {
                     ),
                   },
                   {
-                    q: "What's included in Premium Feed Management?",
+                    q: 'How does the 14-day free trial work?',
                     a: (
                       <p className="mt-2 text-sm text-warm-gray">
-                        We host your feed at <code>feeds.gtfsx.com/&lt;slug&gt;/gtfs.zip</code>—a stable
-                        URL you can hand to the Mobility Database, riders, or regulators. We also generate a
-                        rider-facing mini-site, embed widgets you can drop on your own website, draft preview
-                        links for stakeholder review, and validation + expiry monitoring.
-                      </p>
-                    ),
-                  },
-                  {
-                    q: "What's included in Route Planning Features?",
-                    a: (
-                      <p className="mt-2 text-sm text-warm-gray">
-                        Cost estimation (revenue hours, peak vehicles, weekly + annual operating cost),
-                        demographic coverage from US Census ACS, a nationwide demand-propensity map layer,
-                        and Title VI equity analysis using the FTA four-fifths threshold.
+                        Planner trials get full access for 14 days. A card is required to start; cancel anytime
+                        during the trial from your billing portal and you won't be charged.
                       </p>
                     ),
                   },
@@ -800,38 +782,25 @@ export function PricingPage() {
                     ),
                   },
                   {
-                    q: 'How does GTFS·X compare to other tools?',
+                    q: 'Can my agency pay by PO or invoice instead of a card?',
                     a: (
-                      <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                        <Link
-                          to="/compare/trillium/"
-                          className="block rounded-2xl border border-sand bg-white p-4 hover:border-coral"
+                      <p className="mt-2 text-sm text-warm-gray">
+                        Card checkout keeps Planner below most micro-purchase thresholds, so many agencies can buy
+                        it on a P-card with no procurement cycle. If your agency requires a PO or invoice,
+                        Enterprise agreements support both—{' '}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            trackCtaClick('pricing_faq_talk_to_sales');
+                            setTalkToSalesContext('enterprise');
+                            setTalkToSalesOpen(true);
+                          }}
+                          className="font-semibold text-teal underline hover:text-coral"
                         >
-                          <div className="font-heading text-sm font-bold text-dark-brown">vs. Trillium (Optibus)</div>
-                          <p className="mt-1 text-xs text-warm-gray">Managed GTFS service vs. self-serve editor—cost, control, fit.</p>
-                        </Link>
-                        <Link
-                          to="/compare/remix/"
-                          className="block rounded-2xl border border-sand bg-white p-4 hover:border-coral"
-                        >
-                          <div className="font-heading text-sm font-bold text-dark-brown">vs. Remix by Via</div>
-                          <p className="mt-1 text-xs text-warm-gray">Network planning suite vs. GTFS-first tool—where each one fits.</p>
-                        </Link>
-                        <Link
-                          to="/compare/gtfs-builder-rtap/"
-                          className="block rounded-2xl border border-sand bg-white p-4 hover:border-coral"
-                        >
-                          <div className="font-heading text-sm font-bold text-dark-brown">vs. National RTAP GTFS Builder</div>
-                          <p className="mt-1 text-xs text-warm-gray">Free spreadsheet builder vs. map-based editor—when to use which.</p>
-                        </Link>
-                        <Link
-                          to="/compare/spare-flex-builder/"
-                          className="block rounded-2xl border border-sand bg-white p-4 hover:border-coral"
-                        >
-                          <div className="font-heading text-sm font-bold text-dark-brown">vs. Spare GTFS-Flex Builder</div>
-                          <p className="mt-1 text-xs text-warm-gray">Microtransit-only builder vs. full GTFS + Flex authoring.</p>
-                        </Link>
-                      </div>
+                          talk to sales
+                        </button>
+                        .
+                      </p>
                     ),
                   },
                 ] as { q: string; a: React.ReactNode }[]).map(({ q, a }) => (
@@ -846,13 +815,20 @@ export function PricingPage() {
                   </details>
                 ))}
               </div>
-              <div className="mt-4 pt-3 border-t border-sand">
+              <div className="mt-4 pt-3 border-t border-sand space-y-1.5">
                 <a
-                  href="/docs/"
-                  className="text-sm font-semibold text-teal hover:underline"
+                  href="/docs/pricing/"
+                  className="block text-sm font-semibold text-teal hover:underline"
                 >
-                  See the full GTFS·X documentation →
+                  See the full plan and feature breakdown →
                 </a>
+                <p className="text-xs text-warm-gray">
+                  Comparing tools? GTFS·X vs.{' '}
+                  <Link to="/compare/trillium/" className="font-semibold text-brown underline hover:text-coral">Trillium</Link>,{' '}
+                  <Link to="/compare/remix/" className="font-semibold text-brown underline hover:text-coral">Remix</Link>,{' '}
+                  <Link to="/compare/gtfs-builder-rtap/" className="font-semibold text-brown underline hover:text-coral">RTAP GTFS Builder</Link>, and{' '}
+                  <Link to="/compare/spare-flex-builder/" className="font-semibold text-brown underline hover:text-coral">Spare Flex Builder</Link>.
+                </p>
               </div>
             </section>
           </>
@@ -862,7 +838,7 @@ export function PricingPage() {
         open={talkToSalesOpen}
         onClose={() => setTalkToSalesOpen(false)}
         scheduleUrl={SCHEDULE_CALL_URL}
-        mailto={ENTERPRISE_MAIL}
+        mailto={talkToSalesContext === 'services' ? FIX_FEED_MAIL : ENTERPRISE_MAIL}
       />
     </AuthLayout>
   );
