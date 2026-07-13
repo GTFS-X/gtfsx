@@ -115,7 +115,10 @@ async function parseErrorResponse(res: Response): Promise<ApiError> {
   if (res.status === 409 && typeof extra.currentVersion === 'number') {
     return new ConflictError(message, extra.currentVersion);
   }
-  return new ApiError(code, message, res.status);
+  // Pass the full parsed payload through as `extra` (matching apiClient's
+  // default mode) so callers like PublishPanel can read error details —
+  // e.g. rt_breakage's `removed`, validation_failed's `issues`.
+  return new ApiError(code, message, res.status, extra);
 }
 
 function requestJson<T>(
