@@ -132,6 +132,7 @@ function applySnapshotToStoreInner(snapshot: Record<string, unknown>) {
   state.setEditingRouteId(null);
   state.setEditingShapeId(null);
   state.setEditingFlexZoneId(null);
+  state.setFlexZoneDetailId(null);
   state.setMapMode('select');
   useStore.setState((s) => {
     s.hiddenRouteIds = [];

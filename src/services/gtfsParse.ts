@@ -686,6 +686,10 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
       const id = String(row.booking_rule_id || '');
       if (!id) continue;
       bookingRuleMap.set(id, {
+        // booking_rules.txt has no name column, so the id doubles as the
+        // library label until the user renames it.
+        id,
+        name: id,
         bookingType: (num(row.booking_type) as 0 | 1 | 2),
         priorNoticeDurationMin: row.prior_notice_duration_min ? num(row.prior_notice_duration_min) : undefined,
         priorNoticeDurationMax: row.prior_notice_duration_max ? num(row.prior_notice_duration_max) : undefined,
@@ -703,6 +707,38 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
       });
     }
   }
+
+  /**
+   * Five zones run off one call centre → ONE booking rule in the library, not
+   * five. Feeds we exported before the library existed wrote a separate but
+   * identical row per zone (`${zoneId}-booking`), and third-party feeds do the
+   * same, so rules with identical content collapse onto the first id they
+   * appeared under. Every zone that referenced any of them resolves to that one
+   * rule, and the next export writes a single row for all of them. Rules that
+   * differ anywhere — even just the phone number — stay separate.
+   */
+  const bookingFingerprint = (r: BookingRule) => JSON.stringify([
+    r.bookingType, r.priorNoticeDurationMin, r.priorNoticeDurationMax,
+    r.priorNoticeLastDay, r.priorNoticeLastTime, r.priorNoticeStartDay,
+    r.priorNoticeStartTime, r.priorNoticeServiceId, r.message, r.pickupMessage,
+    r.dropOffMessage, r.phoneNumber, r.infoUrl, r.bookingUrl,
+  ]);
+  const canonicalBookingRule = new Map<string, BookingRule>();
+  const bookingRuleByFingerprint = new Map<string, BookingRule>();
+  for (const [id, rule] of bookingRuleMap) {
+    const existing = bookingRuleByFingerprint.get(bookingFingerprint(rule));
+    if (existing) {
+      canonicalBookingRule.set(id, existing);
+      continue;
+    }
+    bookingRuleByFingerprint.set(bookingFingerprint(rule), rule);
+    canonicalBookingRule.set(id, rule);
+  }
+  /** The library rule a zone's pickup/drop_off_booking_rule_id resolves to. */
+  const resolveBookingRule = (id: unknown): BookingRule | undefined => {
+    const rule = id ? canonicalBookingRule.get(String(id)) : undefined;
+    return rule ? { ...rule } : undefined;
+  };
 
   // location_groups.txt + location_group_stops.txt → group flex zones.
   // Each group becomes a FlexZone with stopIds (no polygon geometry).
@@ -784,10 +820,9 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
       (r) => String(r.location_group_id) === groupId,
     );
     const flexRow = myGroupRows[0];
-    const bookingId =
-      flexRow?.pickup_booking_rule_id ||
-      flexRow?.drop_off_booking_rule_id;
-    const bookingRule = bookingId ? bookingRuleMap.get(String(bookingId)) : undefined;
+    const bookingRule = resolveBookingRule(
+      flexRow?.pickup_booking_rule_id || flexRow?.drop_off_booking_rule_id,
+    );
     const pickupStart = flexRow?.start_pickup_drop_off_window;
     const pickupEnd = flexRow?.end_pickup_drop_off_window;
 
@@ -858,12 +893,12 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
         const flexRow = myFlexRows[0];
         const extraRows = myFlexRows.slice(1);
 
-        const bookingId =
+        const bookingRule = resolveBookingRule(
           flexRow?.pickup_booking_rule_id ||
           flexRow?.drop_off_booking_rule_id ||
           props.pickup_booking_rule_id ||
-          props.drop_off_booking_rule_id;
-        const bookingRule = bookingId ? bookingRuleMap.get(String(bookingId)) : undefined;
+          props.drop_off_booking_rule_id,
+        );
 
         const pickupStart = flexRow?.start_pickup_drop_off_window || props.start_pickup_drop_off_window;
         const pickupEnd = flexRow?.end_pickup_drop_off_window || props.end_pickup_drop_off_window;
@@ -955,6 +990,27 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   }
 
   report({ phase: 'Finalizing…' });
+  // booking_rules.txt has no name column, so a rule arrives labelled with its
+  // own id. Where that id is one we generated (`<zone id>-booking`), it is a
+  // slug no reader can make sense of, so name the rule after the zones using it
+  // now that those are known. A meaningful id from a third-party feed is left
+  // alone: it is the best label the feed gave us.
+  const zonesByBookingRule = new Map<string, FlexZone[]>();
+  for (const zone of flexZones) {
+    const ruleId = zone.bookingRule?.id;
+    if (!ruleId) continue;
+    zonesByBookingRule.set(ruleId, [...(zonesByBookingRule.get(ruleId) ?? []), zone]);
+  }
+  for (const [ruleId, zones] of zonesByBookingRule) {
+    const unnamed = zones[0].bookingRule!.name === ruleId;
+    const derivedFromZone = zones.some((z) => ruleId.startsWith(z.id));
+    if (!unnamed || !derivedFromZone) continue;
+    const name = zones.length === 1
+      ? `${zones[0].name} booking`
+      : `Shared booking rule (${zones.length} zones)`;
+    for (const zone of zones) zone.bookingRule = { ...zone.bookingRule!, name };
+  }
+
   // Strip the synthetic flex trips from trips[] so re-exporting doesn't
   // create a duplicate (materializeFlex regenerates them from the zones).
   const flexZoneRouteIds = new Set(flexZones.map((z) => z.routeId).filter(Boolean) as string[]);

@@ -38,6 +38,10 @@ const LEGACY_ALIAS_REDIRECTS: Record<string, string> = {
   // 2026-07-12; keep them pointing at the matching docs pages.
   '/title-vi': '/docs/title-vi-analysis/',
   '/demographics': '/docs/demographic-coverage/',
+  // The editor Google Ads landing page was retired in pricing v4 (2026-07):
+  // with no paid editor tier left to upsell, the homepage's editor hero panel
+  // does the same job. The ads point at / directly now.
+  '/lp/gtfs-editor': '/',
 };
 
 // Client-side (React Router) routes that have NO pre-rendered HTML file and
@@ -279,19 +283,17 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     // before the React bundle takes over. The dispatcher returns null for
     // SPA-only paths (/community/new, /community/profile) so they fall
     // through to the static-assets binding unchanged.
-    if (env.BACKEND_ENABLED === 'true') {
-      try {
-        const ssr = await maybeRenderForumPage(request, env);
-        if (ssr) return ssr;
-      } catch (err) {
-        // Never let SSR break the SPA shell — log and fall back.
-        console.error(`[forum-ssr] render error, falling back to SPA shell: ${errorDetail(err)}`);
-      }
+    try {
+      const ssr = await maybeRenderForumPage(request, env);
+      if (ssr) return ssr;
+    } catch (err) {
+      // Never let SSR break the SPA shell — log and fall back.
+      console.error(`[forum-ssr] render error, falling back to SPA shell: ${errorDetail(err)}`);
     }
 
     // Dynamic sitemap that augments the static one in `public/` with every
     // public forum thread URL.
-    if (url.pathname === '/sitemap.xml' && env.BACKEND_ENABLED === 'true') {
+    if (url.pathname === '/sitemap.xml') {
       try {
         return await serveSitemap(request, env);
       } catch (err) {

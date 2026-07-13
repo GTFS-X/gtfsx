@@ -277,9 +277,34 @@ Design rationale is preserved in the decisions appendix of the archived
 
 - **Repo transferred to the GTFS-X GitHub org (2026-07-12):** moved from
   `markegge/gtfsx` to `GTFS-X/gtfsx` (https://github.com/GTFS-X/gtfsx), same
-  `main` default branch, still public. Cloudflare Workers Builds' GitHub App
-  connection had to be re-authorized for the new org to keep the push-to-main
-  prod auto-deploy working.
+  `main` default branch, still public.
+- **Push-to-main auto-deploy: BROKEN by the transfer, now RECONNECTED and
+  verified (2026-07-12).** The Cloudflare Workers Builds GitHub App had been
+  connected to the old `markegge/gtfsx` and did not follow the repo to the org,
+  so for a window that day `main` pushes gave a green CI run and no deploy while
+  prod kept serving the pre-transfer bundle. The GitHub App has been
+  re-authorized on the GTFS-X org and the build re-linked. Verified with a real
+  push: `ce88751` landed at 22:57:16Z and Cloudflare created a deployment at
+  22:58:39Z (~83s later), and prod served a string unique to that commit.
+  Manual ship (still the fallback, and the only path for a hotfix that cannot
+  wait for the build):
+  ```
+  npm run build:prod && npx wrangler deploy   # wrangler does NOT build
+  ```
+  Always `build:prod`, never a bare `npm run build`, which ships a Stripe test
+  key (see §5 deploy gotchas).
+  **Verifying a deploy actually shipped:** `npx wrangler@4 deployments list` and
+  compare the newest timestamp against your push. Do NOT try to fingerprint the
+  prod bundle by grepping the chunks linked from a page's HTML: that HTML lists
+  only the entry and preloaded chunks, so lazily-imported code (most components)
+  is absent from it and you will get confident false negatives.
+- `main` is protected by the **"main protection" ruleset** (blocks deletions and
+  force-pushes; repo admins can bypass). It survived the org transfer intact.
+  ⚠️ Check it with the RULESETS api, not the legacy branch-protection one:
+  `gh api repos/GTFS-X/gtfsx/rulesets` shows it, whereas
+  `gh api repos/GTFS-X/gtfsx/branches/main/protection` returns a misleading
+  `404 Branch not protected` for ruleset-based protection. That 404 looks
+  identical to genuinely unprotected. Do not conclude from it that main is open.
 - Worker `gtfs-builder`. SPA serves the full editor + auth + billing + forum.
 - **Backend + billing live since 2026-05-15.** `wrangler.jsonc` top-level vars:
   `BACKEND_ENABLED=true`, `BILLING_ENABLED=true`, `HARD_LIMITS=false`. (Originally
@@ -337,10 +362,18 @@ Design rationale is preserved in the decisions appendix of the archived
   "Pro"/"Agency Tier" copy scrubbed from sitelinks and headlines), a
   "Book a 30-Min Demo" campaign sitelink added, duplicate sitelinks removed,
   and 12 negative keywords added (GIS-intent terms on Editor, consumer
-  trip-planning terms on Agency & Planning). Still open in Google Ads: the
-  disapproved 400×400 business-logo asset (Misleading Ad Design) needs a
-  compliant re-upload, and bidding stays Maximize Clicks until ≥30
-  conversions/30 days.
+  trip-planning terms on Agency & Planning). The disapproved bare-mark
+  business logo was replaced 2026-07-12 with the full-lockup
+  `docs/brand-kit/assets/google-ads/logo-coral-on-white-1200.png` (pending
+  Google review). Bidding stays Maximize Clicks until ≥30 conversions/30 days.
+- **Marketing videos (2026-07-12):** /planning serves the re-recorded demo
+  (`lp_planning_demo-v2.mp4` on the `gtfsx-videos` R2 bucket behind
+  videos.gtfsx.com; versioned key to dodge edge caching; captions regenerated
+  via Whisper — the "$2,500 agency tier" close is gone, ends on book-a-demo).
+  The editor LP `/lp/gtfs-editor/` was **retired** instead of re-recording its
+  stale video: page deleted, path 301s to `/`, editor-campaign ads land on the
+  homepage, `lp-editor-demo.mp4` removed from R2. No paid editor tier exists
+  to upsell, so the homepage's editor hero panel is the landing experience.
 - **`/transitfeeds/` static page live since 2026-07-12**
   (`public/transitfeeds/index.html`, `https://www.gtfsx.com/transitfeeds/`), a
   landing page for the shut-down transitfeeds.com/OpenMobilityData. Registered
@@ -413,6 +446,18 @@ Staging runs test-mode Stripe and both `*_ENABLED` flags true.
   asset bundle (observed 2026-05-30 on a docs/content push). **Always verify the
   live `index-*.js` hash changed** (§7 verify step); if not, use the manual
   fallback deploy.
+- **A bare `npm run build` ships a Stripe TEST key to prod.** `featureFlags.ts`
+  reads `VITE_STRIPE_PUBLISHABLE_KEY` and falls back to
+  `VITE_STRIPE_PUBLISHABLE_TEST_KEY`, but `.env` only defines the `_LIVE_KEY` /
+  `_TEST_KEY` pair, never the generic name (CF's build env used to supply it).
+  On 2026-07-12 a manual `npm run build` silently took that fallback and prod
+  shipped `pk_test_`: build green, deploy green, site up, checkout dead for ~30
+  minutes. **Prod is built with `npm run build:prod`, never a bare
+  `npm run build`.** It promotes `_LIVE_KEY` to the generic name, aborts if any
+  build var is missing or wrong, and verifies the emitted bundle
+  (`scripts/check-prod-bundle.mjs`: rejects `pk_test_`, requires `pk_live_` +
+  a Mapbox token + backend/billing on). `npm run build` is unchanged and still
+  correct for dev and staging, which legitimately use the test key.
 - **Resend sending domain.** The prod key must be scoped to `gtfsx.com` (a
   legacy `gtfsbuilder.net`-scoped key fails signup email with "domain not verified").
 
@@ -472,9 +517,13 @@ Repo: `GTFS-X/gtfsx` (https://github.com/GTFS-X/gtfsx), public, default branch
 ```
 main = source of truth; stays deployable. Feature branches are short-lived,
 branched off main, merged via --ff-only. Every push to main is a prod deploy
-(Cloudflare Workers Builds runs `npm run build` with the VITE_* build-env vars,
-then `wrangler deploy`; live in ~1 minute).
+(Cloudflare Workers Builds runs `npm run build:prod` with the VITE_* build-env
+vars, then `wrangler deploy`; live in ~1 minute).
 ```
+
+The CF Workers Builds **"Build command" must be `npm run build:prod`**, so a
+missing build var fails the build loudly instead of shipping a test-key bundle
+(§5 deploy gotchas).
 
 Branch naming: `feature/` · `bug/` · `docs/` · `chore/`. There is no long-lived
 develop branch and no tag-driven promotion. Staging is a manual rehearsal env
@@ -517,21 +566,23 @@ npx tsc -p tsconfig.worker.json --noEmit      # worker typecheck
    ```bash
    curl -sS https://www.gtfsx.com/ | grep -oE 'index-[a-zA-Z0-9_-]+\.js'   # must differ from the previous bundle
    ```
-   If unchanged, use the manual fallback.
+   If unchanged, use the manual fallback. The deployed bundle is self-describing:
+   `__GTFSX_BUILD__` in prod devtools reports `{backend, billing, stripeKeyKind,
+   mapbox}`. `stripeKeyKind` must read `live`.
 7. Smoke-test in incognito (homepage, anonymous IndexedDB editor save/load, ZIP export; if backend on, `/login` shows the form not the placeholder).
 
 ### Manual fallback deploy (CF Builds broken, or to ship a specific local SHA)
 
 ```bash
 git pull origin main
-VITE_BACKEND_ENABLED=true VITE_BILLING_ENABLED=true npm run build
+npm run build:prod                  # reads .env, promotes the live Stripe key, verifies the bundle
 unset CLOUDFLARE_API_TOKEN
 npx wrangler deploy --env=""
 ```
 
 ### Hotfix
 
-Branch off the deployed SHA (not main), fix, `npm run build && npx wrangler deploy --env=""`,
+Branch off the deployed SHA (not main), fix, `npm run build:prod && npx wrangler deploy --env=""`,
 then merge the fix back into main.
 
 ---
