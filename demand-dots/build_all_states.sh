@@ -3,15 +3,23 @@
 # Runs 4 states in parallel; writes per-state logs to tiles/ldjson/dots_{ST}.log.
 #
 # Safe to re-run: a state is skipped only if its existing .ldjson was built from
-# the SAME class/density config as the current build_dots.py. The config
-# fingerprint lives in each state's dots_{ST}.ldjson.meta.json sidecar.
+# the SAME config as the current build_dots.py. The config fingerprint lives in
+# each state's dots_{ST}.ldjson.meta.json sidecar.
 #
 # That check matters. This script used to skip any non-empty output, so after the
-# dot pipeline grew from 3 classes to 10, a re-run would have quietly kept every
-# 3-class file from the previous build and cat'd them together with the new
-# 10-class ones — a nationwide tileset that had the analytical overlays in the
-# states that happened to get rebuilt and not in the rest, with no error emitted
-# anywhere. Stale outputs are now rebuilt instead.
+# dot pipeline was rewritten, a re-run would have quietly kept every file from the
+# previous build and cat'd them together with the new ones — a nationwide tileset
+# with one schema in the states that happened to get rebuilt and another in the
+# rest, internally consistent and wrong, with no error emitted anywhere.
+#
+# THE SKIP CHECK BELOW IS A FAST PATH, NOT THE SAFETY NET. It only saves you a
+# rebuild. The actual authority lives in Python, in build_dots.py's concatenation
+# gate: the tileset is built by piping through `build_dots.py --cat-verified`,
+# which refuses to emit a single byte if any input's sidecar disagrees with the
+# current config_hash. That guard cannot be lost by rewriting this script — if you
+# delete everything below, the worst case is a slow rebuild, not a corrupt
+# tileset. (A previous bash-only version of this guard WAS lost in a rewrite,
+# which is exactly why the authority is no longer in bash.)
 
 set -u
 
@@ -21,8 +29,9 @@ mkdir -p ../tiles/ldjson
 
 STATES=(AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR)
 
-# Fingerprint of the current class vocabulary + per-class density + minzooms +
-# ACS var list. Any change to DOT_CLASSES or ACS_VARS changes this.
+# Fingerprint of everything that determines a dot file's CONTENT: the flag bits,
+# per-universe density, the zoom ladder, the ACS vars, the PUMA corrections and
+# the apportionment version. Any change to those changes this.
 CONFIG_HASH="$(./.venv/bin/python -c 'import build_dots; print(build_dots.config_hash())')"
 export CONFIG_HASH
 echo "Config fingerprint: $CONFIG_HASH"
@@ -79,6 +88,15 @@ minzooms in the .ldjson all come from those same constants, which is the only
 reason they agree. (They didn't: the legend said z16 while the build said z15, so
 the frontend asked Mapbox for a z16 tile that never existed and the layer went
 blank from z16 in.)
+
+Note it pipes through '--cat-verified', not 'cat'. Do not "simplify" that back to
+a bare cat: it is the gate that refuses to concatenate a state whose sidecar does
+not match the current config ${CONFIG_HASH}. A bare cat cannot tell a stale state
+from a fresh one, and nothing downstream can either — the tiles come out
+internally consistent and wrong. If you want to check the inputs without
+building, that same gate runs standalone:
+
+  ./.venv/bin/python build_dots.py --verify-inputs '../tiles/ldjson/*.ldjson'
 
 ${TILE_CMD}
 
