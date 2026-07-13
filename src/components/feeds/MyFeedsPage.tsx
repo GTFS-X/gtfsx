@@ -6,6 +6,7 @@ import { AuthLayout } from '../auth/AuthLayout';
 import { AuthButton } from '../auth/AuthButton';
 import { FormField } from '../ui/FormField';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { Modal } from '../ui/Modal';
 import { Badge } from '../ui/Badge';
 import { AppBrand } from '../layout/AppBrand';
 import { UserMenu } from '../layout/UserMenu';
@@ -854,13 +855,8 @@ function CreateFeedDialog({
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <form
-        onSubmit={submit}
-        className="relative bg-white rounded-2xl shadow-lg p-6 w-full max-w-md mx-4"
-      >
-        <h3 className="font-heading font-bold text-lg text-dark-brown mb-3">Create feed</h3>
+    <Modal open onClose={onClose} maxWidthClassName="max-w-md" title="Create feed">
+      <form onSubmit={submit}>
         <FormField label="Name" value={name} onChange={setName} required />
         <FormField
           label="Description (optional)"
@@ -881,7 +877,7 @@ function CreateFeedDialog({
           </AuthButton>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
 
@@ -920,13 +916,8 @@ function RenameFeedDialog({
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <form
-        onSubmit={submit}
-        className="relative bg-white rounded-2xl shadow-lg p-6 w-full max-w-md mx-4"
-      >
-        <h3 className="font-heading font-bold text-lg text-dark-brown mb-3">Edit feed</h3>
+    <Modal open onClose={onClose} maxWidthClassName="max-w-md" title="Edit feed">
+      <form onSubmit={submit}>
         <FormField label="Name" value={name} onChange={setName} required />
         <FormField label="Slug" value={slug} onChange={setSlug} required />
         <FormField label="Description" value={description} onChange={setDescription} />
@@ -944,7 +935,7 @@ function RenameFeedDialog({
           </AuthButton>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
 
@@ -1000,17 +991,20 @@ function MoveFeedDialog({
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      <div className="absolute inset-0 bg-black/30" onClick={busy ? undefined : onClose} />
-      <form
-        onSubmit={submit}
-        className="relative bg-white rounded-2xl shadow-lg p-6 w-full max-w-md mx-4"
-      >
-        <h3 className="font-heading font-bold text-lg text-dark-brown mb-1">Move feed</h3>
-        <p className="text-xs text-warm-gray mb-4">
+    <Modal
+      open
+      onClose={onClose}
+      dismissable={!busy}
+      maxWidthClassName="max-w-md"
+      title="Move feed"
+      description={
+        <>
           Move <span className="font-semibold text-dark-brown">{project.name}</span> to a different
           workspace. Snapshots, working state, and any active publication move with it.
-        </p>
+        </>
+      }
+    >
+      <form onSubmit={submit}>
         {options.length === 0 ? (
           <div className="px-3 py-2 mb-3 rounded-md bg-cream text-sm text-warm-gray">
             No destinations available. Create an organization or join one as an editor to enable
@@ -1051,7 +1045,7 @@ function MoveFeedDialog({
           </AuthButton>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
 
@@ -1077,19 +1071,15 @@ function PublishedDeleteDialog({
   onUnpublishAndDelete: () => void;
 }) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      <div className="absolute inset-0 bg-black/20" onClick={busy ? undefined : onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-lg p-6 w-full max-w-md mx-4">
-        <h3 className="font-heading font-bold text-lg text-dark-brown mb-2">
-          {`"${project.name}" is published`}
-        </h3>
-        <p className="text-sm text-warm-gray mb-4">{message}</p>
-        {error && (
-          <div className="mb-4 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-xs">
-            {error}
-          </div>
-        )}
-        <div className="flex justify-end gap-2">
+    <Modal
+      open
+      onClose={onCancel}
+      dismissable={!busy}
+      maxWidthClassName="max-w-md"
+      title={`"${project.name}" is published`}
+      description={message}
+      footer={
+        <>
           <AuthButton variant="secondary" onClick={onCancel} disabled={busy}>
             Cancel
           </AuthButton>
@@ -1097,9 +1087,15 @@ function PublishedDeleteDialog({
           <AuthButton variant="danger" onClick={onUnpublishAndDelete} disabled={busy}>
             {busy ? 'Unpublishing and deleting…' : 'Unpublish and delete'}
           </AuthButton>
+        </>
+      }
+    >
+      {error && (
+        <div className="px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-xs">
+          {error}
         </div>
-      </div>
-    </div>
+      )}
+    </Modal>
   );
 }
 

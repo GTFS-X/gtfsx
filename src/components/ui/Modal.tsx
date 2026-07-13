@@ -76,18 +76,6 @@ export function Modal({
             if (!dismissable) e.preventDefault();
           }}
         >
-          {showClose && (
-            <Dialog.Close asChild>
-              <button
-                type="button"
-                aria-label="Close"
-                onClick={onClose}
-                className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-lg leading-none text-warm-gray hover:text-dark-brown hover:bg-sand/50 transition-colors"
-              >
-                ×
-              </button>
-            </Dialog.Close>
-          )}
           <Dialog.Title
             className={
               hideTitle
@@ -104,6 +92,20 @@ export function Modal({
           )}
           {children}
           {footer && <div className="flex justify-end gap-2 mt-5">{footer}</div>}
+          {/* Rendered last (absolutely positioned) so Radix's focus scope lands
+              on the first real content control on open, not the close button. */}
+          {showClose && (
+            <Dialog.Close asChild>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={onClose}
+                className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-lg leading-none text-warm-gray hover:text-dark-brown hover:bg-sand/50 transition-colors"
+              >
+                ×
+              </button>
+            </Dialog.Close>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
