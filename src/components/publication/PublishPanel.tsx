@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { AuthButton } from '../auth/AuthButton';
 import { Badge } from '../ui/Badge';
+import { Modal } from '../ui/Modal';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import {
   fetchSnapshotState,
   getPublicationHistory,
@@ -666,7 +668,7 @@ export function PublishPanel() {
       </div>
 
       {unpublishConfirm && (
-        <ConfirmModal
+        <ConfirmDialog
           title="Unpublish feed?"
           body="The canonical URL will return 404 until you publish again. Existing downstream consumers (Google Maps, Transit app, etc.) may stop receiving updates."
           confirmLabel="Unpublish"
@@ -930,49 +932,47 @@ function RtBreakageModal({
     ['Trips', removed.trips],
   ];
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      <div className="absolute inset-0 bg-black/20" onClick={onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-lg p-6 w-full max-w-lg mx-4">
-        <h3 className="font-heading font-bold text-lg text-dark-brown mb-2">
-          GTFS-Realtime breakage detected
-        </h3>
-        <p className="text-sm text-warm-gray mb-4">
-          Publishing this snapshot will remove or rename IDs that your registered GTFS-Realtime feed
-          references. Downstream trip-update and vehicle-position consumers may break until your RT
-          producer catches up.
-        </p>
-        <ScheduleAckNote mode={mode} />
-        <div className="max-h-64 overflow-auto bg-cream border border-sand rounded-md p-3 text-xs font-mono text-dark-brown">
-          {sections.map(([label, ids]) =>
-            ids && ids.length > 0 ? (
-              <div key={label} className="mb-2">
-                <div className="font-heading font-bold text-warm-gray uppercase tracking-wide text-[10px] mb-1">
-                  {label} ({ids.length})
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {ids.slice(0, 50).map((id) => (
-                    <span key={id} className="bg-white px-1.5 py-0.5 rounded border border-sand">
-                      {id}
-                    </span>
-                  ))}
-                  {ids.length > 50 && (
-                    <span className="text-warm-gray">… and {ids.length - 50} more</span>
-                  )}
-                </div>
-              </div>
-            ) : null,
-          )}
-        </div>
-        <div className="flex justify-end gap-2 mt-4">
+    <Modal
+      open
+      onClose={onCancel}
+      dismissable={!busy}
+      maxWidthClassName="max-w-lg"
+      title="GTFS-Realtime breakage detected"
+      description="Publishing this snapshot will remove or rename IDs that your registered GTFS-Realtime feed references. Downstream trip-update and vehicle-position consumers may break until your RT producer catches up."
+      footer={
+        <>
           <AuthButton variant="secondary" onClick={onCancel} disabled={busy}>
             Cancel
           </AuthButton>
           <AuthButton variant="danger" onClick={onConfirm} disabled={busy}>
             {confirmLabel(mode, busy)}
           </AuthButton>
-        </div>
+        </>
+      }
+    >
+      <ScheduleAckNote mode={mode} />
+      <div className="max-h-64 overflow-auto bg-cream border border-sand rounded-md p-3 text-xs font-mono text-dark-brown">
+        {sections.map(([label, ids]) =>
+          ids && ids.length > 0 ? (
+            <div key={label} className="mb-2">
+              <div className="font-heading font-bold text-warm-gray uppercase tracking-wide text-[10px] mb-1">
+                {label} ({ids.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {ids.slice(0, 50).map((id) => (
+                  <span key={id} className="bg-white px-1.5 py-0.5 rounded border border-sand">
+                    {id}
+                  </span>
+                ))}
+                {ids.length > 50 && (
+                  <span className="text-warm-gray">… and {ids.length - 50} more</span>
+                )}
+              </div>
+            </div>
+          ) : null,
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -994,87 +994,53 @@ function AgencyChurnModal({
   busy: boolean;
 }) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      <div className="absolute inset-0 bg-black/20" onClick={onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-lg p-6 w-full max-w-lg mx-4">
-        <h3 className="font-heading font-bold text-lg text-dark-brown mb-2">
-          agency_id changed — this breaks your NTD crosswalk
-        </h3>
-        <p className="text-sm text-warm-gray mb-4">
-          These <code className="font-mono">agency_id</code> values are in your published feed but
-          not in the snapshot you're about to publish. FTA's enhanced P-50 form matches your feed to
-          your National Transit Database ID by <code className="font-mono">agency_id</code>, and any
-          downstream consumer keyed on it (trip planners, analytics, your own RT producer) will lose
-          the link too.
-        </p>
-        <p className="text-sm text-warm-gray mb-4">
-          The safe fix is to keep the existing <code className="font-mono">agency_id</code> values
-          and change <code className="font-mono">agency_name</code> instead. If the change is
-          intentional, {mode === 'schedule' ? 'schedule' : 'publish'} anyway — then refile your P-50
-          with the new IDs.
-        </p>
-        <ScheduleAckNote mode={mode} />
-        <div className="max-h-48 overflow-auto bg-cream border border-sand rounded-md p-3 text-xs font-mono text-dark-brown">
-          <div className="font-heading font-bold text-warm-gray uppercase tracking-wide text-[10px] mb-1">
-            Removed agency_id ({agencies.length})
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {agencies.slice(0, 50).map((id) => (
-              <span key={id} className="bg-white px-1.5 py-0.5 rounded border border-sand">
-                {id}
-              </span>
-            ))}
-            {agencies.length > 50 && (
-              <span className="text-warm-gray">… and {agencies.length - 50} more</span>
-            )}
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 mt-4">
+    <Modal
+      open
+      onClose={onCancel}
+      dismissable={!busy}
+      maxWidthClassName="max-w-lg"
+      title="agency_id changed — this breaks your NTD crosswalk"
+      footer={
+        <>
           <AuthButton variant="secondary" onClick={onCancel} disabled={busy}>
             Cancel
           </AuthButton>
           <AuthButton variant="danger" onClick={onConfirm} disabled={busy}>
             {confirmLabel(mode, busy)}
           </AuthButton>
+        </>
+      }
+    >
+      <p className="text-sm text-warm-gray mb-4">
+        These <code className="font-mono">agency_id</code> values are in your published feed but
+        not in the snapshot you're about to publish. FTA's enhanced P-50 form matches your feed to
+        your National Transit Database ID by <code className="font-mono">agency_id</code>, and any
+        downstream consumer keyed on it (trip planners, analytics, your own RT producer) will lose
+        the link too.
+      </p>
+      <p className="text-sm text-warm-gray mb-4">
+        The safe fix is to keep the existing <code className="font-mono">agency_id</code> values
+        and change <code className="font-mono">agency_name</code> instead. If the change is
+        intentional, {mode === 'schedule' ? 'schedule' : 'publish'} anyway — then refile your P-50
+        with the new IDs.
+      </p>
+      <ScheduleAckNote mode={mode} />
+      <div className="max-h-48 overflow-auto bg-cream border border-sand rounded-md p-3 text-xs font-mono text-dark-brown">
+        <div className="font-heading font-bold text-warm-gray uppercase tracking-wide text-[10px] mb-1">
+          Removed agency_id ({agencies.length})
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {agencies.slice(0, 50).map((id) => (
+            <span key={id} className="bg-white px-1.5 py-0.5 rounded border border-sand">
+              {id}
+            </span>
+          ))}
+          {agencies.length > 50 && (
+            <span className="text-warm-gray">… and {agencies.length - 50} more</span>
+          )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function ConfirmModal({
-  title,
-  body,
-  confirmLabel,
-  onConfirm,
-  onCancel,
-  busy,
-  danger,
-}: {
-  title: string;
-  body: string;
-  confirmLabel: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  busy: boolean;
-  danger?: boolean;
-}) {
-  return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      <div className="absolute inset-0 bg-black/20" onClick={onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-lg p-6 w-full max-w-sm mx-4">
-        <h3 className="font-heading font-bold text-lg text-dark-brown mb-2">{title}</h3>
-        <p className="text-sm text-warm-gray mb-5">{body}</p>
-        <div className="flex justify-end gap-2">
-          <AuthButton variant="secondary" onClick={onCancel} disabled={busy}>
-            Cancel
-          </AuthButton>
-          <AuthButton variant={danger ? 'danger' : 'primary'} onClick={onConfirm} disabled={busy}>
-            {busy ? 'Working…' : confirmLabel}
-          </AuthButton>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Papa from 'papaparse';
 import { useStore } from '../../store';
 import { EmptyState } from '../ui/EmptyState';
-import { AuthButton } from '../auth/AuthButton';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useVisibleFeed } from '../../hooks/useVisibleFeed';
 import { RouteScopeNote } from '../ui/RouteScopeNote';
 import { downloadBlob } from '../../services/gtfsExport';
@@ -533,33 +533,28 @@ function RemoveStopConfirm({
   onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      <div className="absolute inset-0 bg-black/20" onClick={onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-lg p-6 w-full max-w-sm mx-4">
-        <h3 className="font-heading font-bold text-lg text-dark-brown mb-2">
-          Remove "{candidate.removalStopName}" from this route?
-        </h3>
-        <p className="text-sm text-warm-gray mb-3">
-          This removes <span className="font-medium text-dark-brown">{candidate.removalStopName}</span> from{' '}
-          <span className="font-medium text-dark-brown">{candidate.routeName}</span> ({candidate.directionLabel}),
-          deleting its stop_times on{' '}
-          <span className="font-medium text-dark-brown">
-            {affectedTripCount} {affectedTripCount === 1 ? 'trip' : 'trips'}
-          </span>{' '}
-          so those trips no longer serve it.
-        </p>
-        <p className="text-sm text-warm-gray mb-5">
-          The stop stays in your feed (stops.txt) and on any other routes — only this route stops serving it.
-        </p>
-        <div className="flex justify-end gap-2">
-          <AuthButton variant="secondary" onClick={onCancel}>
-            Cancel
-          </AuthButton>
-          <AuthButton variant="danger" onClick={onConfirm}>
-            Remove from route
-          </AuthButton>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      danger
+      title={`Remove "${candidate.removalStopName}" from this route?`}
+      confirmLabel="Remove from route"
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+      body={
+        <>
+          <p className="mb-3">
+            This removes <span className="font-medium text-dark-brown">{candidate.removalStopName}</span> from{' '}
+            <span className="font-medium text-dark-brown">{candidate.routeName}</span> ({candidate.directionLabel}),
+            deleting its stop_times on{' '}
+            <span className="font-medium text-dark-brown">
+              {affectedTripCount} {affectedTripCount === 1 ? 'trip' : 'trips'}
+            </span>{' '}
+            so those trips no longer serve it.
+          </p>
+          <p>
+            The stop stays in your feed (stops.txt) and on any other routes — only this route stops serving it.
+          </p>
+        </>
+      }
+    />
   );
 }
