@@ -60,7 +60,9 @@ test('quick start: agency through export produces a valid GTFS zip', async ({ pa
   // "Generate service" modal — either match works.
   const bottomPanel = page.getByTestId('bottom-panel');
   await bottomPanel.getByRole('button', { name: /generate service/i }).first().click();
-  await expect(page.getByRole('heading', { name: /generate service/i })).toBeVisible();
+  // The shared Modal renders an sr-only Radix Dialog.Title alongside the form's
+  // visible heading, so assert the dialog by its accessible name instead.
+  await expect(page.getByRole('dialog', { name: /generate service/i })).toBeVisible();
   const generateButton = page.getByRole('button', { name: /^generate/i });
   await expect(generateButton).toBeEnabled();
   await generateButton.click();
