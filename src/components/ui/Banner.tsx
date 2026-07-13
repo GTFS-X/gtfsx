@@ -39,8 +39,13 @@ export function Banner({
   className = '',
 }: BannerProps) {
   const styles = variantStyles[variant];
+  // Announce to screen readers: alert is assertive (role="alert"), the softer
+  // info/promo/warning notices are polite (role="status").
+  const isAlert = variant === 'alert';
   return (
     <div
+      role={isAlert ? 'alert' : 'status'}
+      aria-live={isAlert ? 'assertive' : 'polite'}
       className={`shrink-0 flex items-center gap-3 px-5 py-2 border-b ${styles.container} ${className}`}
     >
       {icon && <span aria-hidden>{icon}</span>}
