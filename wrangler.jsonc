@@ -209,9 +209,10 @@
         // client ID; GOOGLE_CLIENT_SECRET is a wrangler secret on --env staging.
         "GOOGLE_CLIENT_ID": "304043605957-q5okm9i8jvdm4f6boha8fktjvi49h8oq.apps.googleusercontent.com",
         // Turnstile SITE key (public) for the /book-demo lead form; same public
-        // value as VITE_TURNSTILE_SITE_KEY. Empty => widget + server-side
-        // verification both skipped. See the prod block above.
-        "TURNSTILE_SITE_KEY": ""
+        // value the staging SPA build bakes as VITE_TURNSTILE_SITE_KEY, so the
+        // widget renders and (with the staging TURNSTILE_SECRET_KEY) the submit
+        // is verified server-side. See the prod block above (still empty there).
+        "TURNSTILE_SITE_KEY": "0x4AAAAAADLpCWm4g4Q3zl6V"
       },
       "routes": [
         { "pattern": "staging.gtfsx.com", "custom_domain": true },
