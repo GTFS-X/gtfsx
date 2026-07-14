@@ -187,12 +187,35 @@ built, total block points, total pop/jobs, and output size.
 
 Upload the build to the GTFS·X tiles R2 bucket under the **versioned key that
 matches the client's `COVERAGE_REGION`** (`src/services/blockCoverage.ts`) —
-currently `us-v2` — NOT the bare `coverage/us.fgb` key:
+currently `us-v2` — NOT the bare `coverage/us.fgb` key.
+
+**Use `rclone`, not `wrangler`.** `us-v2.fgb` is ~1.7 GiB, and wrangler
+hard-fails above 300 MiB ("Wrangler only supports uploading files up to 300 MiB
+in size") — `wrangler r2 object put` has never been able to upload this file;
+it fails exactly this way every time it's tried. rclone is already configured
+with an `r2:` remote (S3-compatible endpoint, Cloudflare provider):
 
 ```bash
-wrangler r2 object put gtfs-builder-tiles/coverage/us-v2.fgb \
-  --file us-v2.fgb --content-type application/octet-stream --remote
+rclone copyto us-v2.fgb r2:gtfs-builder-tiles/coverage/us-v2.fgb \
+  --s3-no-check-bucket --s3-chunk-size 64M --s3-upload-concurrency 4
 ```
+
+`--s3-no-check-bucket` is REQUIRED. Without it, rclone calls `CreateBucket`
+before the upload, and our R2 token — scoped to object read/write, not bucket
+creation — returns `403 AccessDenied` on that call. The error surfaces as a
+bucket-creation failure, not an upload failure, which points at the wrong thing
+if you don't already know the flag is missing.
+
+**Verify the upload against the bucket, not the exit code.** Piping the
+command (e.g. `rclone ... | tail`) makes the reported exit status `tail`'s, not
+rclone's — a failed upload can still report success. Confirm the object
+actually landed with:
+
+```bash
+rclone lsl r2:gtfs-builder-tiles/coverage/
+```
+
+That listing, not the command's exit status, is the source of truth.
 
 (Name the local `--out` file to match — `build_us.py --out us-v2.fgb` — so the
 upload command above needs no translation.) The worker serves whatever key it's
@@ -276,8 +299,8 @@ ship, because the schema break cuts BOTH ways:
 1. Build the layer (see *Run*), naming the output after the NEW key
    (`--out us-v2.fgb`).
 2. Upload it to the NEW key — `coverage/us-v2.fgb` — per *Host it*, above.
-   **Never** `wrangler r2 object put ... coverage/us.fgb` over the existing
-   object while a client that depends on the old schema is still deployed.
+   **Never** `rclone copyto ... coverage/us.fgb` over the existing object
+   while a client that depends on the old schema is still deployed.
 3. Deploy the client change that points `COVERAGE_REGION` at the new key
    (already done in this repo — see `src/services/blockCoverage.ts`) and
    verify it in production against `/_coverage/us-v2.fgb`.

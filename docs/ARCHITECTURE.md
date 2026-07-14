@@ -276,74 +276,83 @@ Design rationale is preserved in the decisions appendix of the archived
 - D1 `gtfs-builder` (`cfb27d4e-…`), KV (`da2476e5…`), R2 `gtfs-builder-feeds`
   + `gtfs-builder-forum-images`, tiles in `gtfs-builder-tiles`. Migrations
   0001–0018 applied.
-- **Demand-dot pipeline rebuilt to ATTRIBUTE DOTS (2026-07-13), NOT published.**
-  Archive `us-2026e`. This is a **tile schema change, not a reissue**: a dot is
-  now one PERSON carrying a packed flag bitmask in an integer `d` attribute, and
-  the old composite/backdrop/segment CLASSES (`prop_all`, `need_all`,
-  `backdrop_prop`, `backdrop_need`, `carless`, `low_income`, `senior`,
-  `disability`) no longer exist in the tiles at all. See Appendix A. Status:
+- **Demand-dot pipeline rebuilt to ATTRIBUTE DOTS (2026-07-13), being re-tiled,
+  NOT YET published.** Archive `us-2026e`. This is a **tile schema change, not
+  a reissue**: a dot is now one PERSON carrying a packed flag bitmask in an
+  integer `d` attribute, and the old composite/backdrop/segment CLASSES
+  (`prop_all`, `need_all`, `backdrop_prop`, `backdrop_need`, `carless`,
+  `low_income`, `senior`, `disability`) no longer exist in the tiles at all.
+  See Appendix A. Status:
   - Pipeline (`build_dots.py`, `joint_flags.py`, `puma_union.py`,
     `build_puma_corrections.py`, `verify_tiles.py`, `demand-legend.json`) and the
     frontend consumer (`demandCategories.ts`, `demandLegend.ts`,
     `DemandDotsLayer.tsx`, `MapLayerControls.tsx`) are rewritten in the working
-    tree and **entirely uncommitted**.
-  - **No state has been built under the current config.** The newest local
-    artifacts (`tiles/mt-2026d.pmtiles` 17.0 MB, `tiles/ldjson/dots_MT.ldjson`
-    + sidecar) are from the *previous* class-per-segment schema: the sidecar
-    says `archive: us-2026d`, carries `config_hash 0aec3e55aff8` against the
-    current `6179fb9f9380`, and has no `code_dots` key, so `verify_tiles.py`
-    rejects it outright as "a PRE-ATTRIBUTE-DOTS sidecar". `build_all_states.sh`
-    will therefore rebuild all 51 states + DC + PR on the next run, as intended.
-    (Montana was built and measured under the new schema during development at
-    **7.3 MB**, a 2.23x shrink against the 17.0 MB `us-2026d` build, but that
-    archive is not on disk.)
-  - Nothing pushed to R2 `gtfs-builder-tiles` under the new name.
-  - **Production still serves `us-2026b`** — the original 3-class tileset, two
+    tree and **entirely uncommitted**, on branch
+    `feat/demand-dots-demographic-layers`.
+  - **A nationwide re-tile is in progress.** The prior local artifacts
+    (`tiles/mt-2026d.pmtiles` 17.0 MB, `tiles/ldjson/dots_MT.ldjson` + sidecar)
+    were from the *previous* class-per-segment schema—sidecar `archive:
+    us-2026d`, `config_hash 0aec3e55aff8` against the current `6179fb9f9380`,
+    no `code_dots` key, so `verify_tiles.py` rejects it outright as "a
+    PRE-ATTRIBUTE-DOTS sidecar"—so `build_all_states.sh` is rebuilding all 51
+    states + DC + PR from scratch, as intended. (Montana was built and
+    measured under the new schema during development at **7.3 MB**, a 2.23x
+    shrink against the 17.0 MB `us-2026d` build, but that archive is not on
+    disk.)
+  - **`us-2026e` is NOT yet published to R2** `gtfs-builder-tiles`, and
+    **production still serves `us-2026b`**—the original 3-class tileset, two
     schema generations behind (`us-2026c` and `us-2026d` were never published
     either).
-  - A **nationwide rebuild + `verify_tiles.py` pass is required** before
-    `us-2026e` can be published. Do not consider the redesign live until then;
-    see the Demand-dot regen runbook in Appendix A.
-- **⚠️ Coverage block layer schema change — regen still pending (2026-07-13).**
-  The new schema retires `riders` and adds `carless`, `disability`,
-  `prop_all`, `need_all` (PUMS-derived ridership-propensity / transit-need
-  unions). `coverage-pipeline/build_coverage_blocks.py` and the frontend
-  consumers (`blockCoverage.ts`, `walkshedProfile.ts`, `demographics.ts`,
-  `CoveragePanel.tsx`, `WalkshedProfileTable.tsx`) are committed on this
-  branch, validated on a single-state Montana build only. Status:
-  - **The R2 key is now versioned, not overwritten in place.** The client
-    reads `COVERAGE_REGION` (`src/services/blockCoverage.ts`) = `us-v2`, not a
-    bare `us`, so the nationwide rebuild ships to a **new** object,
+  - Publishing still requires the tile build (piped through `--cat-verified`,
+    never a bare `cat`—see Appendix A) to pass `verify_tiles.py`, then an
+    rclone upload (wrangler hard-fails above 300 MiB; the pmtiles archive is
+    ~1.28 GiB—see the Demand-dot regen runbook in Appendix A). Do not consider
+    the redesign live until both have happened.
+- **Coverage block layer schema change — BUILT, UPLOADED, VERIFIED
+  (2026-07-13).** The new schema retires `riders` and adds `carless`,
+  `disability`, `prop_all`, `need_all` (PUMS-derived ridership-propensity /
+  transit-need unions). `coverage-pipeline/build_coverage_blocks.py` and the
+  frontend consumers (`blockCoverage.ts`, `walkshedProfile.ts`,
+  `demographics.ts`, `CoveragePanel.tsx`, `WalkshedProfileTable.tsx`) are
+  committed on branch `feat/demand-dots-demographic-layers` (unmerged).
+  Status:
+  - **The R2 key is versioned, not overwritten in place.** The client reads
+    `COVERAGE_REGION` (`src/services/blockCoverage.ts`) = `us-v2`, not a bare
+    `us`, so the nationwide rebuild shipped to a **new** object,
     `coverage/us-v2.fgb`, leaving prod's currently-deployed old-schema client
-    reading its existing `coverage/us.fgb` untouched until it redeploys. This
-    covers the direction `CoverageLayerSchemaError` (below) cannot: an OLD,
+    reading its existing `coverage/us.fgb` untouched. This covers the
+    direction `CoverageLayerSchemaError` (below) cannot: an OLD,
     already-deployed client reading a NEW layer would otherwise read a
     missing `riders` column as `undefined → 0`, with no error surface,
-    because that client was built before this change existed. See the
-    Coverage-layer regen runbook in Appendix A and
-    `demand-dots/coverage-pipeline/README.md`'s "Deploy ordering" section for
-    the exact upload command and safe sequencing.
-  - **A nationwide regen is still required and has NOT been run** — that is a
-    deliberate, separate, ~3–5h step:
-    ```
-    cd demand-dots/coverage-pipeline
-    ../.venv/bin/python build_us.py --out us-v2.fgb --jobs 4
-    wrangler r2 object put gtfs-builder-tiles/coverage/us-v2.fgb \
-      --file us-v2.fgb --content-type application/octet-stream --remote
-    ```
-  - **The other direction (new client / stale or missing layer) was already
-    defended before this fix, and still is:** `loadBlocksInBbox()` throws
-    `CoverageLayerSchemaError` when the served `.fgb` lacks the union
-    columns, so until the regen above is run and uploaded, this client
-    degrades to the block-group path (straight ACS counts, propensity/need
-    estimate marked unavailable) rather than rendering `prop_all` as a
-    confident `0`.
+    because that client was built before this change existed.
+  - **The nationwide regen is done.** `build_us.py --out us-v2.fgb --jobs 4`
+    ran to completion, and `us-v2.fgb` was uploaded to
+    `gtfs-builder-tiles/coverage/us-v2.fgb` via **rclone**, not wrangler—
+    wrangler hard-fails above 300 MiB ("Wrangler only supports uploading
+    files up to 300 MiB in size") and the file is ~1.7 GiB, so `wrangler r2
+    object put` has never been able to upload it. See the Coverage-layer
+    regen runbook in Appendix A and
+    `demand-dots/coverage-pipeline/README.md`'s "Host it" section for the
+    exact command (`--s3-no-check-bucket` is required, or the R2 token—
+    scoped to object read/write only—gets a 403 trying to `CreateBucket`).
+  - **Verified serving from prod:** `/_coverage/us-v2.fgb` returns **HTTP
+    206** (range request against the uploaded FlatGeobuf), confirmed against
+    the bucket listing (`rclone lsl r2:gtfs-builder-tiles/coverage/`), not
+    just the upload command's exit code—a piped `rclone … | tail` reports
+    `tail`'s exit status, not rclone's, so that distinction mattered today.
+  - **`coverage/us.fgb` (the old schema) is untouched** and is the rollback:
+    prod's currently-deployed client still reads it exclusively until the
+    client change (`COVERAGE_REGION = 'us-v2'`) merges and deploys.
+    `loadBlocksInBbox()` throws `CoverageLayerSchemaError` if a served `.fgb`
+    ever lacks the union columns, so a stale/old layer degrades to the
+    block-group path (counts only, no propensity/need estimate) rather than
+    rendering `prop_all` as a confident `0`.
   - **The old layer also under-counted.** Independent per-column rounding in
     the apportionment destroyed rare attributes: measured on Montana, the
     live `coverage/us.fgb` is short **-10.2% of zero-vehicle households** (a
     Title VI equity numerator) and **-5.7% of carless residents**. Fixed with
-    largest-remainder apportionment; the regen is what puts the fix into
-    prod.
+    largest-remainder apportionment; `us-v2.fgb` carries the fix, but it only
+    reaches prod once the client redeploys reading the new key.
   - Once prod is confirmed running the client that reads `us-v2`, the old
     `coverage/us.fgb` object may be deleted from R2.
 - **GTFS-Realtime Service Alerts (BE-90..93)** live since 2026-05-30 — Agency+
@@ -979,7 +988,8 @@ The build is now generated from constants by `build_dots.tippecanoe_command()` s
 the runbook cannot hand-type a flag that disagrees with the legend:
 
 ```
-cat ../tiles/ldjson/*.ldjson | tippecanoe --output=../tiles/us-2026e.pmtiles \
+./.venv/bin/python build_dots.py --cat-verified '../tiles/ldjson/*.ldjson' \
+  | tippecanoe --output=../tiles/us-2026e.pmtiles \
     --layer=demand --minimum-zoom=8 --maximum-zoom=15 \
     --drop-rate=1 --base-zoom=8 \
     --maximum-tile-bytes=1500000 --maximum-tile-features=300000 \
@@ -996,6 +1006,48 @@ cat ../tiles/ldjson/*.ldjson | tippecanoe --output=../tiles/us-2026e.pmtiles \
   the built maxzoom deterministic and equal to `TILE_MAX_ZOOM = 15`.
 - `--drop-densest-as-needed` is kept as a **safety net only**. The ladder is sized
   so it never fires, and `verify_tiles.py` fails the build if it ever does.
+
+#### CRITICAL: the input is piped through `--cat-verified`, NEVER a bare `cat`
+
+A bare `cat ../tiles/ldjson/*.ldjson | tippecanoe …` is wrong in two ways, both
+found the hard way in production, and either alone is enough to block a
+publish:
+
+- **It bypasses the staleness gate.** `--cat-verified` checks every input's
+  `.meta.json` sidecar against the pipeline's current `config_hash` before it
+  emits a single byte, and refuses outright if any input is missing its
+  sidecar, unreadable, pre-attribute-dots, or built under a different config
+  (`validate_tile_inputs()`/`StaleInputError` in `build_dots.py`). Fifty-two
+  leftover `.ldjson` files from a previous schema are exactly the kind of thing
+  a bare `cat` would happily splice into a tileset that comes out internally
+  consistent and entirely wrong—with no error raised anywhere, because once
+  the bytes are concatenated no downstream check can tell a stale state from a
+  fresh one.
+- **It re-phases the zoom ladder across the whole stream, and a bare `cat`
+  reintroduces a real dot bias.** Each dot's per-feature `minzoom` comes from
+  its code's running ordinal, taken modulo the ladder's period (128, the z8
+  stride)—see `restride_lines()`. That ordinal has to run across the ENTIRE
+  archive, not restart per state, or every state's z8 slot (ordinal 0, the
+  rarest rung) rounds its count up by an extra dot, and the ~0.5-dot excess per
+  code accumulates once per state. `--cat-verified` does this re-phasing at
+  concatenation time, the one point where the whole archive exists as a single
+  stream. A bare `cat` leaves each of the 52 states' ordinals restarting at
+  zero: measured on the real archive, `carless+disability` (121,221 dots)
+  carried 28 extra dots at z8 against an expected 947—**+2.9%**, six times
+  `verify_tiles.py`'s 0.5% tolerance—and it hits the rarest codes hardest, at
+  the lowest zooms only, which is exactly the signature a bare `cat` produces.
+
+Both failures produce a tileset that **passes casual inspection**—it renders,
+it looks internally consistent, the totals are plausible—**and fails
+verification**. Do not "simplify" the generated command back to a bare `cat`;
+that is precisely the bug this flag exists to close.
+
+The mandatory verify step—an archive that fails it must not be published:
+
+```
+./.venv/bin/python verify_tiles.py ../tiles/us-2026e.pmtiles \
+  --meta '../tiles/ldjson/*.ldjson.meta.json' --legend demand-legend.json
+```
 
 #### CRITICAL: EVERY feature carries an explicit minzoom—do not revert this
 
@@ -1178,8 +1230,20 @@ cd /Users/clippy2/proj/gtfsx
    --meta '../tiles/ldjson/*.ldjson.meta.json')
 
 ARCHIVE="$(cd demand-dots && ./.venv/bin/python -c 'import build_dots; print(build_dots.TILESET_ARCHIVE)')"
-npx wrangler r2 object put gtfs-builder-tiles/${ARCHIVE}.pmtiles --file=tiles/${ARCHIVE}.pmtiles \
-  --remote --content-type=application/vnd.pmtiles --cache-control="public, max-age=31536000, immutable"  # 7
+# 7. UPLOAD via rclone, NOT wrangler. wrangler hard-fails above 300 MiB
+#    ("Wrangler only supports uploading files up to 300 MiB in size") and the
+#    pmtiles archive is ~1.28 GiB, so `wrangler r2 object put` cannot do this
+#    upload (same ceiling that blocks the coverage .fgb—see "Coverage-layer
+#    regen" below and coverage-pipeline/README.md "Host it"). rclone is already
+#    configured with an `r2:` remote. `--s3-no-check-bucket` is REQUIRED:
+#    without it rclone calls CreateBucket first, and the R2 token (object
+#    read/write only) returns 403 AccessDenied on that call—not on the upload,
+#    which is misleading if you don't already know the flag is missing.
+rclone copyto "tiles/${ARCHIVE}.pmtiles" "r2:gtfs-builder-tiles/${ARCHIVE}.pmtiles" \
+  --s3-no-check-bucket --s3-chunk-size 64M --s3-upload-concurrency 4
+# Verify against the bucket, not the exit code—a piped `| tail` reports tail's
+# exit status, not rclone's, so a failed upload can still report success:
+rclone lsl r2:gtfs-builder-tiles/ | grep "${ARCHIVE}.pmtiles"
 # 8. commit demand-dots/demand-legend.json (it names the archive the frontend fetches,
 #    and carries the flag bits every client-side filter is enumerated from)
 #    alongside any TILESET_ARCHIVE bump, and push—CI deploys. No DemandDotsLayer.tsx
@@ -1227,8 +1291,18 @@ prop_all, need_all, jobs`. `carless`/`disability` are straight ACS counts;
 ```bash
 cd demand-dots/coverage-pipeline
 ../.venv/bin/python build_us.py --out us-v2.fgb --jobs 4   # ~3-5 h cold, resumable
-wrangler r2 object put gtfs-builder-tiles/coverage/us-v2.fgb \
-  --file us-v2.fgb --content-type application/octet-stream --remote
+# Upload via rclone, NOT wrangler—wrangler hard-fails above 300 MiB
+# ("Wrangler only supports uploading files up to 300 MiB in size") and
+# us-v2.fgb is ~1.7 GiB, so `wrangler r2 object put` has never worked for this
+# file. --s3-no-check-bucket is REQUIRED: without it rclone calls CreateBucket
+# first, and the R2 token (object read/write only) returns 403 AccessDenied—
+# pointing at bucket creation, not the upload. See
+# coverage-pipeline/README.md "Host it" for the full detail.
+rclone copyto us-v2.fgb r2:gtfs-builder-tiles/coverage/us-v2.fgb \
+  --s3-no-check-bucket --s3-chunk-size 64M --s3-upload-concurrency 4
+# Verify against the bucket, not the exit code (a piped `| tail` reports
+# tail's exit status, not rclone's—a failed upload can still report success):
+rclone lsl r2:gtfs-builder-tiles/coverage/
 ```
 
 `us-v2` is the current value of `COVERAGE_REGION` in
