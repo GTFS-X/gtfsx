@@ -2,6 +2,10 @@ import type { StateCreator } from 'zustand';
 import type { SidebarSection, BottomPanelTab, MapMode, StopPlacementMode, RouteDetailTab, StopDetailTab, CalendarDetailTab, StopAnalysisOverlay } from '../types/ui';
 import type { ProIntentAction } from '../services/proIntent';
 
+/** How per-trip actions (interpolate / estimate / duplicate / apply-to-all /
+ *  delete) present in the timetable grid's actions column. */
+export type TimetableRowActionStyle = 'menu' | 'strip' | 'flyout';
+
 export interface UISlice {
   sidebarSection: SidebarSection | null;
   bottomPanelOpen: boolean;
@@ -37,12 +41,20 @@ export interface UISlice {
    *  same-direction patterns apart. null = filter by direction only (the
    *  ≤2-pattern path). */
   timetableShapeId: string | null;
-  /** Advanced toggle on the timetable: when true, each stop cell exposes
-   *  separate arrival and departure inputs so users can author dwell time at
-   *  intermediate stops (ferry layovers, rail station holds, etc.). When
-   *  false (default), the cell collapses to a single time and the editor
-   *  keeps arrival_time === departure_time on commit. */
-  timetableSplitArrDep: boolean;
+  /** stop_ids whose timetable column authors separate arrival & departure times
+   *  (dwell). Now a per-column choice (was a single global toggle), set from the
+   *  column ▾ config menu; shared across the main and companion panes. A column
+   *  in this set renders two stacked inputs (arrival mirrors to departure until
+   *  both are set independently). */
+  timetableArrDepStops: string[];
+  /** How the per-trip actions column presents — a compact wrench Menu (default),
+   *  an always-visible Icon strip, or a Hover flyout. In-memory UI pref, so the
+   *  planner's choice sticks across tab switches within a session. */
+  timetableRowActions: TimetableRowActionStyle;
+  /** Headway hints in the Trip column — the interval since the previous trip,
+   *  with intervals that differ from the pattern's usual one flagged. Off by
+   *  default (product owner undecided; shipped behind this toggle). */
+  timetableHeadwayHints: boolean;
   /** When true, the timetable shows a second, read-only pane alongside the main
    *  one that mirrors the current route + service with the direction flipped —
    *  so outbound and inbound trips can be read side by side to line up
@@ -141,7 +153,10 @@ export interface UISlice {
   setTimetableDirectionId: (dir: 0 | 1) => void;
   setTimetableServiceId: (id: string | null) => void;
   setTimetableShapeId: (id: string | null) => void;
-  setTimetableSplitArrDep: (v: boolean) => void;
+  /** Turn separate arrival & departure on/off for one stop's column. */
+  setTimetableArrDep: (stopId: string, on: boolean) => void;
+  setTimetableRowActions: (v: TimetableRowActionStyle) => void;
+  setTimetableHeadwayHints: (v: boolean) => void;
   setTimetableOppositeOpen: (v: boolean) => void;
   selectRoute: (id: string | null) => void;
   selectStop: (id: string | null) => void;
@@ -183,7 +198,9 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   timetableDirectionId: 0,
   timetableServiceId: null,
   timetableShapeId: null,
-  timetableSplitArrDep: false,
+  timetableArrDepStops: [],
+  timetableRowActions: 'menu',
+  timetableHeadwayHints: false,
   timetableOppositeOpen: false,
   selectedRouteId: null,
   selectedStopId: null,
@@ -308,7 +325,13 @@ export const createUISlice: StateCreator<UISlice, [['zustand/immer', never]], []
   setTimetableDirectionId: (dir) => set((state) => { state.timetableDirectionId = dir; }),
   setTimetableServiceId: (id) => set((state) => { state.timetableServiceId = id; }),
   setTimetableShapeId: (id) => set((state) => { state.timetableShapeId = id; }),
-  setTimetableSplitArrDep: (v) => set((state) => { state.timetableSplitArrDep = v; }),
+  setTimetableArrDep: (stopId, on) => set((state) => {
+    const has = state.timetableArrDepStops.includes(stopId);
+    if (on && !has) state.timetableArrDepStops.push(stopId);
+    else if (!on && has) state.timetableArrDepStops = state.timetableArrDepStops.filter((id) => id !== stopId);
+  }),
+  setTimetableRowActions: (v) => set((state) => { state.timetableRowActions = v; }),
+  setTimetableHeadwayHints: (v) => set((state) => { state.timetableHeadwayHints = v; }),
   setTimetableOppositeOpen: (v) => set((state) => { state.timetableOppositeOpen = v; }),
   selectRoute: (id) => set((state) => { state.selectedRouteId = id; }),
   selectStop: (id) => set((state) => { state.selectedStopId = id; }),

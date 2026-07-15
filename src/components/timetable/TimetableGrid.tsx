@@ -1,40 +1,43 @@
-import { type KeyboardEvent, useEffect, useMemo, useCallback, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store';
 import { featureEnabled } from '../../store/featuresSlice';
-import { ensureDefaultCalendar } from '../../services/defaultCalendar';
-import { formatTimeShort, normalizeTimeInput, gtfsTimeToSeconds, secondsToGtfsTime } from '../../utils/time';
+import {
+  formatTimeShort, gtfsTimeToSeconds, normalizeTimeInput, secondsToGtfsTime,
+} from '../../utils/time';
 import { directionName } from '../../utils/constants';
-import { PatternSelector } from '../ui/ShapePatternSelector';
+import type { Frequency, RouteStop, StopTime, Trip } from '../../types/gtfs';
+import {
+  generateTrips, validateGenerateParams, estimateRunSecs,
+  type GenerateTripsParams, type GenerateValidation,
+} from '../../services/timetableGen';
+import { applyPatternRunTime, currentPatternRunSecs, type PatternRef } from '../../services/runtimes';
+import { estimateStopTravelByRoad, layoutStopTimes } from '../../services/travelTime';
 import { Modal } from '../ui/Modal';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { AuthButton } from '../auth/AuthButton';
-import { computeTimetablePatterns, isNoShapeBucket } from '../ui/shapePatterns';
-import type { Route, StopTime } from '../../types/gtfs';
-import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
-import { estimateStopTravelByRoad, layoutStopTimes } from '../../services/travelTime';
-import { GenerateServiceForm } from './GenerateServiceForm';
-import { RuntimeEditor } from './RuntimeEditor';
+import { Button } from '../ui/Button';
+import { Select } from '../ui/Select';
+import { Toast, type ToastState } from '../ui/Toast';
+import { type PaneScope, useTimetableData } from './useTimetableData';
+import { planCascade } from './timetableGridHelpers';
+import { TimetableGridPane } from './TimetableGridPane';
+import { TimetableToolbar, type ToolId } from './TimetableToolbar';
+import { GenerateDrawer, RuntimeDrawer, RepeatDrawer, type GenerateInput } from './TimetableDrawers';
 import { FlexTimetablePanel } from './FlexTimetablePanel';
 import { findFlexZoneForRoute, isFlexRoute } from './flexRouteMatch';
+import type { ShapePattern } from '../ui/shapePatterns';
 
+/* ---------- trip-id helpers (unchanged from the previous grid) ---------- */
 function generateTripName(routeName: string, departureTime: string, serviceIndex: number): string {
   const prefix = (routeName || 'trip').replace(/\s+/g, '').slice(0, 4).toLowerCase();
   if (!departureTime) return `${serviceIndex}${prefix}`;
-  const parts = departureTime.split(':').map(Number);
-  const h = parts[0] || 0;
-  const m = parts[1] || 0;
+  const [h = 0, m = 0] = departureTime.split(':').map(Number);
   return `${serviceIndex}${prefix}${h}${String(m).padStart(2, '0')}`;
 }
-
-const cellKey = (tripIdx: number, stopIdx: number) => `${tripIdx}-${stopIdx}`;
-
-/** Get the 1-based index of a service_id in the calendars list */
 function getServiceIndex(serviceId: string, calendars: { service_id: string }[]): number {
   const idx = calendars.findIndex((c) => c.service_id === serviceId);
   return idx >= 0 ? idx + 1 : 1;
 }
-
-/** Generate a unique trip ID, appending suffix if needed */
 function uniqueTripId(baseId: string, existingIds: Set<string>): string {
   if (!existingIds.has(baseId)) return baseId;
   let suffix = 2;
@@ -42,540 +45,397 @@ function uniqueTripId(baseId: string, existingIds: Set<string>): string {
   return `${baseId}-${suffix}`;
 }
 
-/** A timetable pane's selection. The main pane reads/writes the global
- *  `timetable*` store fields (so it stays synced with the map highlight and the
- *  cross-panel "View timetable" handlers), and renders the full scoping toolbar.
- *  The companion "opposite direction" pane is passed a read-only scope instead:
- *  it mirrors the main pane's route + service with the direction flipped and has
- *  no controls of its own, so it renders a minimal `headerLabel` in place of the
- *  toolbar. Its selection can't change, so it exposes no setters. */
-export type TimetableScope = {
-  routeId: string | null;
-  directionId: 0 | 1;
-  serviceId: string | null;
-  shapeId: string | null;
-  /** Heading shown above the grid, replacing the scoping toolbar. */
-  headerLabel: string;
-};
+/** Feed arrays captured before a bulk op, for snapshot-based undo. Immer keeps
+ *  replaced arrays immutable, so holding a reference is a valid point-in-time
+ *  snapshot without cloning. */
+type Snap = { trips: Trip[]; stopTimes: StopTime[]; frequencies: Frequency[] };
+function snapshotFeed(): Snap {
+  const st = useStore.getState();
+  return { trips: st.trips, stopTimes: st.stopTimes, frequencies: st.frequencies };
+}
 
-/** Inert selection setter for the companion pane, which mirrors the main pane
- *  and never changes its own route / direction / service / shape. */
-const NOOP_SETTER = (_?: unknown) => {};
+type PaneId = 'main' | 'opp';
+type CommitField = 'both' | 'arrival_time' | 'departure_time';
+type ModalState =
+  | { type: 'duplicate'; paneId: PaneId; tripId: string }
+  | { type: 'estimate'; paneId: PaneId; tripId: string }
+  | { type: 'applyall'; paneId: PaneId; tripId: string }
+  | { type: 'removeall' }
+  | null;
+type CascadeState = { paneId: PaneId; seq: number; stopId: string; stopName: string; deltaMin: number; laterIds: string[] } | null;
 
-export function TimetableGrid({ scope }: { scope?: TimetableScope } = {}) {
+/**
+ * Timetable panel orchestrator. Owns the main pane's selection (proxying the
+ * global `timetable*` store fields), the optional derived companion pane
+ * (opposite direction / another pattern), the bulk-tool drawer, the per-trip
+ * modals, and the shared toast + cascade UI. Both panes are presentational
+ * `TimetableGridPane`s; every mutation flows through the handlers here, so the
+ * two panes stay live and edits are consistent. Replaces the old monolithic
+ * grid + the separate SplitTimetable wrapper.
+ */
+export function TimetableGrid() {
+  const store = useStore();
   const {
     routes, trips, stops, routeStops, calendars, shapes,
-    setStopTime, addTrip, duplicateTrip, applyTripPattern, removeTrip, updateTrip, renameTripId,
-    interpolateStopTimes, skipStop, seedTripStops,
-  } = useStore();
-  const { byTrip: stopTimesByTrip } = useStopTimesIndex();
+    setStopTime, addTrip, duplicateTrip, applyTripPattern, removeTrip, updateTrip,
+    renameTripId, interpolateStopTimes, skipStop, seedTripStops,
+  } = store;
 
-  // Selection fields. Without a scope (the main pane) these proxy the global
-  // `timetable*` store fields exactly as before; with a scope (the split view's
-  // pane B) they read/write that pane's own local state so it can show a
-  // different route/direction/shape without moving the global selection or the
-  // map highlight. Everything below this block uses the resolved aliases, so the
-  // rest of the component is identical in both modes.
-  const gSelectedRouteId = useStore((s) => s.selectedRouteId);
-  const gSelectRoute = useStore((s) => s.selectRoute);
-  const gDirectionId = useStore((s) => s.timetableDirectionId);
-  const gSetDirectionId = useStore((s) => s.setTimetableDirectionId);
-  const gServiceId = useStore((s) => s.timetableServiceId);
-  const gSetServiceId = useStore((s) => s.setTimetableServiceId);
-  const gShapeId = useStore((s) => s.timetableShapeId);
-  const gSetShapeId = useStore((s) => s.setTimetableShapeId);
+  // Main-pane selection proxies the global timetable fields.
+  const selectedRouteId = useStore((s) => s.selectedRouteId);
+  const selectRoute = useStore((s) => s.selectRoute);
+  const directionId = useStore((s) => s.timetableDirectionId);
+  const setDirectionId = useStore((s) => s.setTimetableDirectionId);
+  const selectedServiceId = useStore((s) => s.timetableServiceId);
+  const setSelectedServiceId = useStore((s) => s.setTimetableServiceId);
+  const selectedShapeId = useStore((s) => s.timetableShapeId);
+  const setSelectedShapeId = useStore((s) => s.setTimetableShapeId);
 
-  const selectedRouteId = scope ? scope.routeId : gSelectedRouteId;
-  const directionId = scope ? scope.directionId : gDirectionId;
-  const selectedServiceId = scope ? scope.serviceId : gServiceId;
-  const selectedShapeId = scope ? scope.shapeId : gShapeId;
-  // The companion pane is fully derived from the main pane, so its selection
-  // setters are inert (it never renders the controls that would call them). The
-  // shape-sync effect below also skips them because it's handed a valid shape.
-  const selectRoute: (id: string | null) => void = scope ? NOOP_SETTER : gSelectRoute;
-  const setDirectionId: (d: 0 | 1) => void = scope ? NOOP_SETTER : gSetDirectionId;
-  const setSelectedServiceId: (id: string | null) => void = scope ? NOOP_SETTER : gSetServiceId;
-  const setSelectedShapeId: (id: string | null) => void = scope ? NOOP_SETTER : gSetShapeId;
-
-  const route = routes.find((r) => r.route_id === selectedRouteId);
-
-  // Flag-stop / continuous pickup-drop-off is an advanced, niche feature; the
-  // per-stop ⚑ override only appears when this feature is enabled for the feed.
-  const showContinuous = useStore((s) => featureEnabled(s, 'continuousStops'));
-
-  // "Show opposite direction" toggle (global UI pref). The button lives only in
-  // the main pane's toolbar; the companion pane never shows it. (directionId /
-  // setDirectionId are resolved in the scope-aliasing block above, so they're
-  // not re-read here.)
   const oppositeOpen = useStore((s) => s.timetableOppositeOpen);
   const setOppositeOpen = useStore((s) => s.setTimetableOppositeOpen);
+  const arrDepStops = useStore((s) => s.timetableArrDepStops);
+  const setArrDep = useStore((s) => s.setTimetableArrDep);
+  const rowActions = useStore((s) => s.timetableRowActions);
+  const setRowActions = useStore((s) => s.setTimetableRowActions);
+  const headwayHints = useStore((s) => s.timetableHeadwayHints);
+  const setHeadwayHints = useStore((s) => s.setTimetableHeadwayHints);
 
-  // A demand-response route's trip is synthesized at export time, so it has no
-  // trips or route_stops here. Detect it and swap the fixed-route grid for a
-  // read-only explainer instead of the misleading "add stops first" empty state.
-  const flexZones = useStore((s) => s.flexZones);
+  const showContinuous = useStore((s) => featureEnabled(s, 'continuousStops'));
   const demandResponseOn = useStore((s) => featureEnabled(s, 'demandResponse'));
+  const flexZones = useStore((s) => s.flexZones);
 
-  // Advanced: when true, every stop cell shows two inputs (arr / dep) so
-  // dwell time can be authored. Persisted in the UI slice. Shared across panes.
-  const splitArrDep = useStore((s) => s.timetableSplitArrDep);
-  const setSplitArrDep = useStore((s) => s.setTimetableSplitArrDep);
+  /* ---------- pane data ---------- */
+  const mainScope: PaneScope = { routeId: selectedRouteId, directionId, serviceId: selectedServiceId, shapeId: selectedShapeId };
+  const mainData = useTimetableData(mainScope, true);
+  const {
+    route, patterns, activeServiceId, effectiveShapeId, noShapeBucket, orderedStops, routeTrips,
+  } = mainData;
 
-  // Safety net: a user who somehow lands on the timetable with no calendars
-  // gets one auto-created. The primary path (draw_route's finishDrawing)
-  // already materializes a Default Calendar via the same helper, so this
-  // mostly fires on imported feeds with zero calendars or as defensive
-  // coverage if the route-create path is bypassed.
-  useEffect(() => {
-    if (calendars.length > 0) return;
-    if (!selectedRouteId || routes.length === 0) return;
-    ensureDefaultCalendar();
-  }, [calendars.length, selectedRouteId, routes.length]);
+  // Companion scope — any pattern except the main pane's; defaults to the
+  // opposite direction. `hasOpposite` gates rendering so a stale shape can't leak
+  // the main direction into the companion.
+  const oppDir: 0 | 1 = directionId === 0 ? 1 : 0;
+  const [companionShapeId, setCompanionShapeId] = useState<string | null>(null);
+  useEffect(() => { setCompanionShapeId(null); }, [selectedRouteId, effectiveShapeId]);
 
-  // Active service pattern — allow any calendar, default to first
-  const activeServiceId = useMemo(() => {
-    if (selectedServiceId && calendars.some((c) => c.service_id === selectedServiceId)) return selectedServiceId;
-    return calendars[0]?.service_id || null;
-  }, [selectedServiceId, calendars]);
+  const companionPattern: ShapePattern | null = useMemo(() => {
+    const chosen = companionShapeId && companionShapeId !== effectiveShapeId
+      ? patterns.find((p) => p.shapeId === companionShapeId)
+      : undefined;
+    if (chosen) return chosen;
+    return patterns.find((p) => p.directionId === oppDir && p.shapeId !== effectiveShapeId)
+      ?? patterns.find((p) => p.shapeId !== effectiveShapeId)
+      ?? null;
+  }, [companionShapeId, effectiveShapeId, patterns, oppDir]);
 
-  // Trip-pattern selector contents. Each pattern is a unique non-empty
-  // shape_id used by this route's trips, tagged with its trips' direction_id
-  // (read from the first trip — trips on the same shape generally share a
-  // direction). Sorted by direction (0/outbound first) then shape_id.
-  //
-  // The selector UI adapts to the count, per Mark's spec:
-  //   1 pattern  → render the pattern name as a static label (no toggle)
-  //   2 patterns → render the legacy two-button toggle (current behaviour)
-  //   3+ patterns → render a dropdown
-  //
-  // A route with 0 shapes (e.g. trips with empty shape_id) falls back to the
-  // legacy direction-only toggle so we keep authoring useful for in-progress
-  // feeds before a shape exists.
-  // Includes a synthetic "No shape" bucket per direction for trips whose
-  // shape_id matches no real shape, so trips can never become ghosts (hidden +
-  // undeletable) once the route also has a real shape. See computeTimetablePatterns.
-  const patterns = useMemo(
-    () => computeTimetablePatterns(selectedRouteId, trips, routeStops),
-    [selectedRouteId, trips, routeStops],
-  );
+  const companionDir: 0 | 1 = companionPattern ? companionPattern.directionId : oppDir;
+  const companionScope: PaneScope = {
+    routeId: selectedRouteId,
+    directionId: companionDir,
+    serviceId: selectedServiceId,
+    shapeId: companionPattern ? companionPattern.shapeId : null,
+  };
+  const oppData = useTimetableData(companionScope, false);
 
-  // When the route changes or the pattern list updates, sync the store's
-  // selected shape to a valid entry. Three behaviours:
-  //   - patterns.length <= 2: clear the shape filter (legacy toggle handles
-  //     filtering via direction_id alone — same-direction-only-2-shape edge
-  //     case is rare; if it bites, bump to 3+ logic later).
-  //   - patterns.length >= 3 AND no current selection / stale selection:
-  //     auto-pick the first pattern, AND set directionId so the existing
-  //     stop-ordering / route_stops filtering keeps working.
-  useEffect(() => {
+  const hasOpposite = useMemo(() => {
+    if (!selectedRouteId) return false;
     if (patterns.length === 0) {
-      if (selectedShapeId !== null) setSelectedShapeId(null);
-      return;
+      return trips.some((t) => t.route_id === selectedRouteId
+        && (!activeServiceId || t.service_id === activeServiceId) && t.direction_id === oppDir);
     }
-    // Any route with shapes drives the timetable off the selected shape (one
-    // dropdown entry per shape), so a stale/empty selection picks the first
-    // and syncs directionId for route_stops + the map highlight.
-    const current = patterns.find((p) => p.shapeId === selectedShapeId);
-    if (!current) {
-      const first = patterns[0];
-      setSelectedShapeId(first.shapeId);
-      if (first.directionId !== directionId) setDirectionId(first.directionId);
-    }
-    // Only re-run when the route or patterns list actually changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRouteId, patterns]);
+    return !!companionPattern && oppData.routeTrips.length > 0;
+  }, [selectedRouteId, patterns.length, trips, activeServiceId, oppDir, companionPattern, oppData.routeTrips.length]);
 
-  // The shape the timetable filters by. Falls back to the first pattern when
-  // the stored selection is null or stale — so a route WITH shapes never
-  // filters by direction (which would union same-direction shapes' stops and
-  // duplicate the shared ones). Mirrors what the dropdown displays, and doesn't
-  // depend on the sync effect having run yet.
-  const effectiveShapeId = useMemo(() => {
-    if (patterns.length === 0) return null;
-    return patterns.some((p) => p.shapeId === selectedShapeId)
-      ? selectedShapeId
-      : patterns[0].shapeId;
-  }, [patterns, selectedShapeId]);
+  /* ---------- drawer / modal / toast / cascade state ---------- */
+  const [drawer, setDrawer] = useState<'generate' | 'runtime' | 'repeat' | null>(null);
+  const [modal, setModal] = useState<ModalState>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const [cascade, setCascade] = useState<CascadeState>(null);
+  const [syncScroll, setSyncScroll] = useState(true);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cascadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
+  const oppScrollRef = useRef<HTMLDivElement | null>(null);
 
-  // The selected pattern is the synthetic "No shape" bucket (holds trips with
-  // no/unknown shape on a route that otherwise has shapes). In that mode the
-  // grid scopes by direction + empty-shape rather than by a real shape_id, and
-  // the bucket sentinel must never be written to a trip/shape downstream.
-  const noShapeBucket = isNoShapeBucket(effectiveShapeId);
-  // Shape ids that correspond to a REAL pattern (exclude the bucket sentinels);
-  // used to decide which trips/stops belong to the no-shape bucket.
-  const realShapeIds = useMemo(
-    () => new Set(patterns.filter((p) => !isNoShapeBucket(p.shapeId)).map((p) => p.shapeId)),
-    [patterns],
-  );
+  const say = useCallback((message: string) => {
+    setToast({ message });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
+  }, []);
 
-  // Service patterns that have trips for this route+direction (for "copy from" feature)
-  const serviceIdsWithTrips = useMemo(() => {
-    if (!selectedRouteId) return [];
-    return [...new Set(
-      trips
-        .filter((t) => t.route_id === selectedRouteId && t.direction_id === directionId)
-        .map((t) => t.service_id)
-    )];
-  }, [selectedRouteId, trips, directionId]);
+  // Snapshot-based undo (HANDOFF §5). The app's history coalescing splits a
+  // multi-entity bulk op into several undo steps, so a single global undo()
+  // would only revert a sliver. Instead we snapshot the affected feed arrays
+  // BEFORE the op and the Undo button restores them wholesale.
+  const undoToast = useCallback((message: string, snap: Snap) => {
+    setToast({
+      message,
+      onUndo: () => {
+        const s = useStore.getState();
+        s.setTrips(snap.trips);
+        s.setStopTimes(snap.stopTimes);
+        s.setFrequencies(snap.frequencies);
+        setToast({ message: 'Undone' });
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        toastTimer.current = setTimeout(() => setToast(null), 1800);
+      },
+    });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 6500);
+  }, []);
+  // Snapshot, run the mutation, then show the Undo toast with the op's message.
+  const withUndo = useCallback((run: () => string) => {
+    const snap = snapshotFeed();
+    undoToast(run(), snap);
+  }, [undoToast]);
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    if (cascadeTimer.current) clearTimeout(cascadeTimer.current);
+  }, []);
 
-  // Repeat-every form state. Headway/copies are raw strings so the inputs can be
-  // cleared/intermediate while typing; they're parsed + validated on Generate.
-  const [showRepeatForm, setShowRepeatForm] = useState(false);
-  const [repeatHeadway, setRepeatHeadway] = useState('15');
-  const [repeatCopies, setRepeatCopies] = useState('5');
-  const [repeatError, setRepeatError] = useState<string | null>(null);
+  // Reset transient UI when the route changes / the selection key changes.
+  useEffect(() => { setDrawer(null); setCascade(null); }, [selectedRouteId]);
+  useEffect(() => { setCascade(null); }, [effectiveShapeId, activeServiceId, directionId]);
+  // Relayout the map/grid when the split toggles (§8 synthetic resize).
+  useEffect(() => { window.dispatchEvent(new Event('resize')); }, [oppositeOpen]);
 
-  // B1 "Generate service" — opens the GenerateServiceForm as a modal. Triggered
-  // by the toolbar control and by the empty-state button (a pattern with stops
-  // but no trips). The modal lets the user lay out a service span; on the empty
-  // state it's the primary call to action.
-  const [showGenerate, setShowGenerate] = useState(false);
-  // B2 "Running time" editor — re-time every trip on the pattern.
-  const [showRuntime, setShowRuntime] = useState(false);
-
-  // Esc closes the Generate service modal (matches the app's modal affordance).
+  // Split view: keep both panes' vertical scroll aligned (toggleable).
   useEffect(() => {
-    if (!showGenerate) return;
-    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setShowGenerate(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showGenerate]);
+    const a = mainScrollRef.current;
+    const b = oppScrollRef.current;
+    if (!oppositeOpen || !syncScroll || !a || !b) return;
+    let lock = false;
+    const mk = (src: HTMLDivElement, dst: HTMLDivElement) => () => {
+      if (lock) return;
+      lock = true;
+      dst.scrollTop = src.scrollTop;
+      requestAnimationFrame(() => { lock = false; });
+    };
+    const fa = mk(a, b);
+    const fb = mk(b, a);
+    a.addEventListener('scroll', fa);
+    b.addEventListener('scroll', fb);
+    return () => { a.removeEventListener('scroll', fa); b.removeEventListener('scroll', fb); };
+  }, [oppositeOpen, syncScroll, hasOpposite, selectedRouteId, effectiveShapeId]);
 
-  // Duplicate trip prompt state
-  const [dupPrompt, setDupPrompt] = useState<{ tripId: string; defaultStartTime: string } | null>(null);
-  const [dupStartTime, setDupStartTime] = useState('');
+  const paneData = (id: PaneId) => (id === 'opp' ? oppData : mainData);
+  const paneScopeOf = (id: PaneId) => (id === 'opp' ? companionScope : mainScope);
 
-  // "Apply to all trips" confirm state — holds the template trip id.
-  const [applyPrompt, setApplyPrompt] = useState<string | null>(null);
+  /* ---------- cell + row mutations ---------- */
+  const onCell = useCallback((paneId: PaneId, tripId: string, seq: number, stopId: string, field: CommitField, normalized: string) => {
+    const data = paneData(paneId);
+    const st = data.findStopTime(tripId, seq);
+    const prevTime = st?.arrival_time || st?.departure_time || '';
+    const prevSec = prevTime ? gtfsTimeToSeconds(prevTime) : null;
 
-  // "Remove all trips" confirm state — true while the destructive confirm is up.
-  const [removeAllPrompt, setRemoveAllPrompt] = useState(false);
-
-  // "Estimate times" dialog — holds the trip id being timed + its config.
-  const [estimatePrompt, setEstimatePrompt] = useState<string | null>(null);
-  const [estStart, setEstStart] = useState('08:00');
-  const [estDwell, setEstDwell] = useState(18);
-  const [estSpeed, setEstSpeed] = useState(1.3);
-  const [estimating, setEstimating] = useState(false);
-  const [estError, setEstError] = useState<string | null>(null);
-
-  // Flag-stop (continuous pickup/drop-off) per-stop override editor. Holds the
-  // stop_id whose popover is open, or null. Most feeds never touch this, so the
-  // affordance stays a small icon in the stop header until clicked.
-  const [flexStopId, setFlexStopId] = useState<string | null>(null);
-
-  // Ref map for Tab navigation between cells
-  const cellRefs = useRef<Map<string, HTMLInputElement>>(new Map());
-
-  // Get ordered stops for this route filtered by direction. Each column is a
-  // route_stop INSTANCE, not a stop_id — a pattern may list the same stop more
-  // than once (e.g. a loop returning to its start), so we carry the route_stop's
-  // _uid (React key) and stop_sequence (the per-instance alignment key for
-  // stop_times) alongside its resolved Stop.
-  const orderedStops = useMemo(() => {
-    if (!selectedRouteId) return [];
-    // Columns are the selected shape's own stops (per-shape). The "No shape"
-    // bucket and shapeless routes fall back to this direction's empty-shape
-    // route_stops (the columns the bucket's trips were built from).
-    const list = noShapeBucket
-      ? routeStops.filter((rs) => rs.route_id === selectedRouteId && rs.direction_id === directionId
-          && (!rs.shape_id || !realShapeIds.has(rs.shape_id)))
-      : effectiveShapeId
-        ? routeStops.filter((rs) => rs.route_id === selectedRouteId && rs.shape_id === effectiveShapeId)
-        : routeStops.filter((rs) => rs.route_id === selectedRouteId && rs.direction_id === directionId);
-    return [...list]
-      .sort((a, b) => a.stop_sequence - b.stop_sequence)
-      .map((rs) => {
-        const stop = stops.find((s) => s.stop_id === rs.stop_id);
-        return stop
-          ? { uid: rs._uid ?? `${rs.stop_id}-${rs.stop_sequence}`, seq: rs.stop_sequence, stop }
-          : null;
-      })
-      .filter((x): x is { uid: string; seq: number; stop: typeof stops[number] } => x !== null);
-  }, [selectedRouteId, effectiveShapeId, directionId, routeStops, stops, noShapeBucket, realShapeIds]);
-
-  // Find a specific stop_time by trip + stop_sequence (the per-instance key)
-  // using the byTrip index — keying by stop_id would collapse a repeated stop.
-  const findStopTime = useCallback((tripId: string, seq: number): StopTime | undefined => {
-    const tripStopTimes = stopTimesByTrip.get(tripId);
-    if (!tripStopTimes) return undefined;
-    return tripStopTimes.find((st) => st.stop_sequence === seq);
-  }, [stopTimesByTrip]);
-
-  // Timepoint lookup: set of stop_ids that have timepoint=1 in any stop_time for current route
-  const timepointStopIds = useMemo(() => {
-    const ids = new Set<string>();
-    // Only scan stop_times for trips that belong to this route
-    if (selectedRouteId) {
-      const routeTripIds = trips
-        .filter((t) => t.route_id === selectedRouteId)
-        .map((t) => t.trip_id);
-      for (const tripId of routeTripIds) {
-        const tripSTs = stopTimesByTrip.get(tripId);
-        if (tripSTs) {
-          for (const st of tripSTs) {
-            if (st.timepoint === 1) ids.add(st.stop_id);
-          }
-        }
-      }
+    if (!normalized) {
+      setStopTime(tripId, stopId, seq, { arrival_time: '', departure_time: '' });
+    } else if (field === 'both') {
+      setStopTime(tripId, stopId, seq, { arrival_time: normalized, departure_time: normalized });
+    } else if (field === 'arrival_time') {
+      setStopTime(tripId, stopId, seq, { arrival_time: normalized, departure_time: st?.departure_time || normalized });
+    } else {
+      setStopTime(tripId, stopId, seq, { arrival_time: st?.arrival_time || normalized, departure_time: normalized });
     }
-    // If no timepoints are explicitly set, treat first and last as timepoints
-    if (ids.size === 0 && orderedStops.length >= 2) {
-      ids.add(orderedStops[0].stop.stop_id);
-      ids.add(orderedStops[orderedStops.length - 1].stop.stop_id);
+
+    // Auto-name a freshly-added `_new` trip from its first committed time.
+    if (normalized && tripId.includes('_new')) {
+      const rName = route?.route_short_name || route?.route_long_name || '';
+      const trip = data.routeTrips.find((t) => t.trip_id === tripId);
+      const sIdx = getServiceIndex(trip?.service_id || activeServiceId || '', calendars);
+      const existingIds = new Set(useStore.getState().trips.map((t) => t.trip_id));
+      renameTripId(tripId, uniqueTripId(generateTripName(rName, normalized, sIdx), existingIds));
     }
-    return ids;
-  }, [stopTimesByTrip, orderedStops, selectedRouteId, trips]);
 
-  // Per-stop continuous pickup/drop-off overrides for this route. In GTFS these
-  // live on each stop_time row and override the route-level default for the
-  // segment after the stop; the editor authors them per-stop (like timepoint),
-  // applying one override across every trip's stop_time at that stop. Map keyed
-  // by stop_id → the override values found (undefined = inherit route default).
-  const continuousOverrides = useMemo(() => {
-    const map = new Map<string, { pickup?: 0 | 1 | 2 | 3; dropOff?: 0 | 1 | 2 | 3 }>();
-    if (selectedRouteId) {
-      const routeTripIds = new Set(
-        trips.filter((t) => t.route_id === selectedRouteId).map((t) => t.trip_id),
-      );
-      for (const tripId of routeTripIds) {
-        const tripSTs = stopTimesByTrip.get(tripId);
-        if (!tripSTs) continue;
-        for (const st of tripSTs) {
-          if (st.continuous_pickup === undefined && st.continuous_drop_off === undefined) continue;
-          // First non-empty wins per stop; the editor keeps them in sync across trips.
-          if (!map.has(st.stop_id)) {
-            map.set(st.stop_id, {
-              pickup: st.continuous_pickup,
-              dropOff: st.continuous_drop_off,
-            });
-          }
-        }
-      }
-    }
-    return map;
-  }, [stopTimesByTrip, selectedRouteId, trips]);
-
-  // Write a continuous pickup/drop-off override to every trip's stop_time at the
-  // given stop on the current route. Passing undefined clears the override on
-  // that field (the stop_time then inherits the route-level default on export).
-  const setContinuousOverride = useCallback(
-    (stopId: string, field: 'continuous_pickup' | 'continuous_drop_off', value: 0 | 1 | 2 | 3 | undefined) => {
-      if (!selectedRouteId) return;
-      const routeTripIds = trips
-        .filter((t) => t.route_id === selectedRouteId)
-        .map((t) => t.trip_id);
-      const allStopTimes = useStore.getState().stopTimes;
-      for (const tripId of routeTripIds) {
-        const st = allStopTimes.find((s) => s.trip_id === tripId && s.stop_id === stopId);
-        if (st) setStopTime(tripId, stopId, st.stop_sequence, { [field]: value });
-      }
-    },
-    [selectedRouteId, trips, setStopTime],
-  );
-
-  // Get trips for this route filtered by direction and service pattern.
-  // When a specific shape is selected (3+ pattern case), also filter by
-  // shape_id so the same-direction-multiple-shapes scenario picks the
-  // right subset.
-  const routeTrips = useMemo(() => {
-    if (!selectedRouteId) return [];
-    return trips
-      .filter((t) => t.route_id === selectedRouteId
-        && (!activeServiceId || t.service_id === activeServiceId)
-        // The "No shape" bucket collects this direction's trips with no/unknown
-        // shape; otherwise filter by the selected shape when there is one (so two
-        // shapes sharing a direction don't pile into one view), else by direction.
-        && (noShapeBucket
-          ? (t.direction_id === directionId && (!t.shape_id || !realShapeIds.has(t.shape_id)))
-          : effectiveShapeId ? t.shape_id === effectiveShapeId : t.direction_id === directionId))
-      .sort((a, b) => {
-        // Sort by earliest assigned arrival; trips with no times yet go last.
-        const earliest = (tripId: string) => {
-          let best = '';
-          for (const st of stopTimesByTrip.get(tripId) ?? []) {
-            if (st.arrival_time && (!best || st.arrival_time.localeCompare(best) < 0)) {
-              best = st.arrival_time;
-            }
-          }
-          return best;
-        };
-        const aTime = earliest(a.trip_id);
-        const bTime = earliest(b.trip_id);
-        if (!aTime || !bTime) return (aTime ? 0 : 1) - (bTime ? 0 : 1);
-        return aTime.localeCompare(bTime);
+    // Cascade offer: an edited (previously-set) time changed by Δ, and later
+    // trips have a time in this column → offer to shift them too.
+    if (normalized) {
+      const plan = planCascade({
+        orderedTripIds: data.routeTrips.map((t) => t.trip_id),
+        editedTripId: tripId,
+        prevSec,
+        newSec: gtfsTimeToSeconds(normalized),
+        hasTimeAt: (id) => { const s2 = data.findStopTime(id, seq); return !!(s2 && (s2.arrival_time || s2.departure_time)); },
       });
-  }, [selectedRouteId, trips, stopTimesByTrip, directionId, activeServiceId, effectiveShapeId, noShapeBucket, realShapeIds]);
-
-  // Tab key navigation. Walks to the next focusable cell, stepping OVER skipped
-  // columns (which render no input and so register no ref) until it lands on a
-  // served cell or runs off the grid.
-  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>, tripIdx: number, stopIdx: number) => {
-    if (e.key !== 'Tab') return;
-    e.preventDefault();
-    const totalStops = orderedStops.length;
-    const totalTrips = routeTrips.length;
-    if (totalStops === 0 || totalTrips === 0) return;
-
-    const step = e.shiftKey ? -1 : 1;
-    let ti = tripIdx;
-    let si = stopIdx;
-    for (let guard = 0; guard < totalStops * totalTrips + 1; guard++) {
-      si += step;
-      if (si >= totalStops) { si = 0; ti++; }
-      else if (si < 0) { si = totalStops - 1; ti--; }
-      if (ti < 0 || ti >= totalTrips) return; // ran off the grid
-
-      const key = cellKey(ti, si);
-      if (cellRefs.current.has(key)) {
-        // Defer focus until after the commit-triggered re-render completes.
-        // If the commit renames a `_new` trip, the row's key changes and React
-        // unmounts it — focusing the old element synchronously is a no-op.
-        // Two rAFs is the reliable way to land after React's effect phase.
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            cellRefs.current.get(key)?.focus();
-          });
-        });
-        return;
+      if (plan) {
+        const stopName = data.orderedStops.find((c) => c.seq === seq && c.stop.stop_id === stopId)?.stop.stop_name ?? '';
+        setCascade({ paneId, seq, stopId, stopName, deltaMin: plan.deltaMin, laterIds: plan.laterIds });
+        if (cascadeTimer.current) clearTimeout(cascadeTimer.current);
+        cascadeTimer.current = setTimeout(() => setCascade(null), 9000);
       }
     }
-  }, [orderedStops.length, routeTrips.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainData, oppData, route, activeServiceId, calendars, setStopTime, renameTripId]);
 
-  const handleAddTrip = () => {
-    if (!selectedRouteId) return;
+  const applyCascade = () => {
+    if (!cascade) return;
+    const c = cascade;
+    setCascade(null);
+    withUndo(() => {
+      const data = paneData(c.paneId);
+      const shift = c.deltaMin * 60;
+      for (const tid of c.laterIds) {
+        const st = data.findStopTime(tid, c.seq);
+        if (!st) continue;
+        setStopTime(tid, st.stop_id, c.seq, {
+          arrival_time: st.arrival_time ? secondsToGtfsTime(gtfsTimeToSeconds(st.arrival_time) + shift) : st.arrival_time,
+          departure_time: st.departure_time ? secondsToGtfsTime(gtfsTimeToSeconds(st.departure_time) + shift) : st.departure_time,
+        });
+      }
+      const n = c.laterIds.length;
+      return `Shifted ${n} later trip${n === 1 ? '' : 's'} by ${c.deltaMin > 0 ? '+' : ''}${c.deltaMin} min`;
+    });
+  };
+
+  const onRename = (tripId: string, newId: string) => {
+    const trimmed = newId.trim();
+    if (!trimmed || trimmed === tripId) return;
+    if (trips.some((t) => t.trip_id === trimmed)) return; // keep ids unique
+    renameTripId(tripId, trimmed);
+  };
+
+  const onRowAction = (paneId: PaneId, action: string, tripId: string) => {
+    if (action === 'delete') withUndo(() => { removeTrip(tripId); return `Deleted ${tripId}`; });
+    else if (action === 'interpolate') withUndo(() => { interpolateStopTimes(tripId); return `Interpolated blank times on ${tripId}`; });
+    else if (action === 'duplicate') setModal({ type: 'duplicate', paneId, tripId });
+    else if (action === 'estimate') setModal({ type: 'estimate', paneId, tripId });
+    else if (action === 'applyall') setModal({ type: 'applyall', paneId, tripId });
+  };
+
+  const onAddTrip = (paneId: PaneId) => {
+    const data = paneData(paneId);
+    const scope = paneScopeOf(paneId);
+    if (!scope.routeId) return;
     const routeName = route?.route_short_name || route?.route_long_name || '';
-    const svcIdx = getServiceIndex(activeServiceId || '', calendars);
+    const svcIdx = getServiceIndex(data.activeServiceId || '', calendars);
     const existingIds = new Set(trips.map((t) => t.trip_id));
     const tripId = uniqueTripId(generateTripName(routeName, '', svcIdx) + '_new', existingIds);
     addTrip({
       trip_id: tripId,
-      route_id: selectedRouteId,
-      service_id: activeServiceId || calendars[0]?.service_id || '',
-      direction_id: directionId,
+      route_id: scope.routeId,
+      service_id: data.activeServiceId || calendars[0]?.service_id || '',
+      direction_id: scope.directionId,
       trip_headsign: route?.route_short_name || '',
-      // Never stamp the "No shape" bucket sentinel onto a real trip — a trip
-      // added in that bucket genuinely has no shape.
-      shape_id: noShapeBucket
+      shape_id: data.noShapeBucket
         ? undefined
-        : effectiveShapeId ?? trips.find((t) => t.route_id === selectedRouteId && t.direction_id === directionId)?.shape_id,
+        : data.effectiveShapeId ?? trips.find((t) => t.route_id === scope.routeId && t.direction_id === scope.directionId)?.shape_id,
     });
-    // Seed a blank (served, no time) row for each stop so the new trip's cells
-    // default to "served" — without rows every cell would render as skipped.
-    seedTripStops(tripId, orderedStops.map((c) => ({ stop_id: c.stop.stop_id, stop_sequence: c.seq })));
+    seedTripStops(tripId, data.orderedStops.map((c) => ({ stop_id: c.stop.stop_id, stop_sequence: c.seq })));
+    say('Added a blank trip — first and last served stops need times');
   };
 
-  // Find the first displayed (non-blank) time for a trip using the timetable's stop order
-  const getFirstDisplayedTime = useCallback((tripId: string) => {
-    for (const col of orderedStops) {
-      const st = findStopTime(tripId, col.seq);
-      // Prefer departure (the trip's start at the origin), fall back to arrival.
-      // The first stop often has only a departure_time (no arrival on the origin),
-      // so checking arrival alone would skip it and return a later timepoint's
-      // arrival — e.g. seeding the Estimate "Start time" with the wrong stop.
-      const t = st?.departure_time || st?.arrival_time;
-      if (t) return t;
+  const onTimepoint = (paneId: PaneId, stopId: string, seq: number, on: boolean) => {
+    const data = paneData(paneId);
+    for (const t of data.routeTrips) {
+      if (data.findStopTime(t.trip_id, seq)) setStopTime(t.trip_id, stopId, seq, { timepoint: on ? 1 : 0 });
     }
-    return '';
-  }, [orderedStops, findStopTime]);
-
-  const handleDuplicate = (tripId: string) => {
-    const firstTime = getFirstDisplayedTime(tripId);
-    const defaultStart = firstTime ? formatTimeShort(secondsToGtfsTime(gtfsTimeToSeconds(firstTime) + 3600)) : '';
-    setDupStartTime(defaultStart);
-    setDupPrompt({ tripId, defaultStartTime: defaultStart });
+    say(on ? 'Marked as key timepoint — published time' : 'Timepoint off — times interpolate through this stop');
   };
 
-  const handleDupConfirm = () => {
-    if (!dupPrompt) return;
-    const normalized = normalizeTimeInput(dupStartTime);
-    if (!normalized) return;
-    // Calculate offset from the first displayed stop time
-    const firstTime = getFirstDisplayedTime(dupPrompt.tripId);
-    const offsetSeconds = gtfsTimeToSeconds(normalized) - gtfsTimeToSeconds(firstTime);
-    const offsetMinutes = Math.round(offsetSeconds / 60);
-    // Generate a descriptive trip_id
-    const routeName = route?.route_short_name || route?.route_long_name || '';
-    const srcTrip = trips.find((t) => t.trip_id === dupPrompt.tripId);
-    const svcIdx = getServiceIndex(srcTrip?.service_id || activeServiceId || '', calendars);
-    const existingIds = new Set(trips.map((t) => t.trip_id));
-    const newId = uniqueTripId(generateTripName(routeName, normalized, svcIdx), existingIds);
-    duplicateTrip(dupPrompt.tripId, newId, offsetMinutes);
-    setDupPrompt(null);
+  const onArrDep = (stopId: string, on: boolean) => {
+    setArrDep(stopId, on);
+    say(on ? 'Column now takes separate arrival & departure times' : 'Back to one time per trip');
   };
 
-  // Other trips this template would push its pattern to (the current view).
-  const applyTargets = useMemo(
-    () => (applyPrompt ? routeTrips.filter((t) => t.trip_id !== applyPrompt) : []),
-    [applyPrompt, routeTrips],
+  const onContinuous = (stopId: string, value: 'default' | 'none' | 'phone') => {
+    if (!selectedRouteId) return;
+    const enumVal: 0 | 1 | 2 | 3 | undefined = value === 'none' ? 1 : value === 'phone' ? 2 : undefined;
+    const all = useStore.getState().stopTimes;
+    for (const t of trips.filter((tr) => tr.route_id === selectedRouteId)) {
+      const st = all.find((s) => s.trip_id === t.trip_id && s.stop_id === stopId);
+      if (st) setStopTime(t.trip_id, stopId, st.stop_sequence, { continuous_pickup: enumVal, continuous_drop_off: enumVal });
+    }
+    say(value === 'default' ? 'Cleared pickup/drop-off override' : 'Continuous pickup override applied to all trips');
+  };
+
+  /* ---------- toolbar tools ---------- */
+  const patternRouteStops = useCallback((dir: 0 | 1, shapeId: string | undefined): RouteStop[] => {
+    if (!selectedRouteId) return [];
+    return [...routeStops
+      .filter((rs) => rs.route_id === selectedRouteId && rs.direction_id === dir && (shapeId ? rs.shape_id === shapeId : true))]
+      .sort((a, b) => a.stop_sequence - b.stop_sequence);
+  }, [selectedRouteId, routeStops]);
+
+  const mainGenShapeId = noShapeBucket ? undefined : (effectiveShapeId ?? undefined);
+  const mainPatternRouteStops = useMemo(() => patternRouteStops(directionId, mainGenShapeId), [patternRouteStops, directionId, mainGenShapeId]);
+  const shape = mainGenShapeId ? shapes.find((s) => s.shape_id === mainGenShapeId) : undefined;
+
+  const genPreview = useCallback((input: GenerateInput): GenerateValidation =>
+    validateGenerateParams({ startTime: input.startTime, endTime: input.endTime, headwaySecs: input.headwaySecs, runSecs: input.runSecs, routeStops: mainPatternRouteStops }),
+  [mainPatternRouteStops]);
+
+  const endToEndDefault = useMemo(
+    () => Math.max(1, Math.round(estimateRunSecs({ shape, routeStops: mainPatternRouteStops, stops }) / 60)),
+    [shape, mainPatternRouteStops, stops],
   );
+  const currentRunMin = useMemo(() => {
+    const ref: PatternRef = { routeId: selectedRouteId || '', directionId, shapeId: mainGenShapeId };
+    const secs = currentPatternRunSecs(ref);
+    return secs ? Math.round(secs / 60) : 20;
+  }, [selectedRouteId, directionId, mainGenShapeId]);
 
-  const handleApplyConfirm = () => {
-    if (!applyPrompt || applyTargets.length === 0) { setApplyPrompt(null); return; }
-    applyTripPattern(applyPrompt, applyTargets.map((t) => t.trip_id));
-    setApplyPrompt(null);
+  const applyGenerate = (input: GenerateInput) => {
+    if (!selectedRouteId || !activeServiceId) return;
+    const params: GenerateTripsParams = {
+      routeId: selectedRouteId, directionId, shapeId: mainGenShapeId, serviceId: activeServiceId,
+      startTime: input.startTime, endTime: input.endTime, headwaySecs: input.headwaySecs, runSecs: input.runSecs,
+      mode: input.mode, routeStops: mainPatternRouteStops, stops, shape, headsign: route?.route_short_name || undefined,
+      existingTripIds: new Set(trips.map((t) => t.trip_id)),
+    };
+    const result = generateTrips(params);
+    if (result.trips.length === 0) { say('Nothing to generate — check the inputs.'); return; }
+    setDrawer(null);
+    withUndo(() => {
+      const st = useStore.getState();
+      st.setTrips([...st.trips, ...result.trips]);
+      st.setStopTimes([...st.stopTimes, ...result.stopTimes]);
+      result.frequencies.forEach((f) => st.addFrequency(f));
+      return input.mode === 'frequency'
+        ? 'Created a reference trip + frequency window'
+        : `Generated ${result.trips.length} trip${result.trips.length === 1 ? '' : 's'}`;
+    });
   };
 
-  // Remove every trip currently shown in the grid (this route + service +
-  // direction + shape). The shape and its route_stops are untouched, so the
-  // user can immediately add one fresh trip and replicate it by headway.
-  const handleRemoveAllConfirm = () => {
-    for (const t of routeTrips) removeTrip(t.trip_id);
-    setRemoveAllPrompt(false);
+  const applyRuntime = ({ runMin, scoped }: { runMin: number; scoped: boolean }) => {
+    if (!selectedRouteId || !activeServiceId) return;
+    const ref: PatternRef = scoped
+      ? { routeId: selectedRouteId, directionId, shapeId: mainGenShapeId, serviceId: activeServiceId }
+      : { routeId: selectedRouteId, directionId, shapeId: mainGenShapeId };
+    setDrawer(null);
+    withUndo(() => {
+      const n = applyPatternRunTime(ref, runMin * 60);
+      return `Re-timed ${n} trip${n === 1 ? '' : 's'} to a ${runMin}-min run${scoped ? ' (this service day only)' : ''}`;
+    });
   };
 
-  const handleEstimate = (tripId: string) => {
-    const firstTime = getFirstDisplayedTime(tripId);
-    setEstStart(firstTime ? formatTimeShort(firstTime) : '08:00');
-    setEstError(null);
-    setEstimatePrompt(tripId);
-  };
-
-  // Estimate stop times from the real road driving time between consecutive
-  // stops (in sequence order), plus a per-stop dwell and a bus-vs-car speed
-  // factor, then write them to the trip. No drawn shape is required.
-  const handleEstimateConfirm = async () => {
-    if (!estimatePrompt) return;
-    const normalized = normalizeTimeInput(estStart);
-    if (!normalized) { setEstError('Enter a valid start time, e.g. 08:00.'); return; }
-    if (orderedStops.length < 2) { setEstError('Add at least two stops to this route first.'); return; }
-
-    setEstimating(true);
-    setEstError(null);
-    try {
-      // All ordered stops (including skipped columns) drive the directions
-      // request so a skipped stop is still physically passed and downstream
-      // times stay right; we only WRITE to served stops below.
-      const stopCoords = orderedStops.map((c) => [c.stop.stop_lon, c.stop.stop_lat] as [number, number]);
-      const cum = await estimateStopTravelByRoad(stopCoords);
-      if (!cum) {
-        setEstError("Couldn't match this route to the road network. Try again, or set times manually.");
-        return;
+  const applyRepeat = ({ headway, copies }: { headway: number; copies: number }) => {
+    if (routeTrips.length === 0) return;
+    setDrawer(null);
+    withUndo(() => {
+      const lastTrip = routeTrips[routeTrips.length - 1];
+      const routeName = route?.route_short_name || route?.route_long_name || '';
+      const svcIdx = getServiceIndex(lastTrip.service_id || activeServiceId || '', calendars);
+      const firstTime = mainData.getFirstDisplayedTime(lastTrip.trip_id);
+      const existingIds = new Set(trips.map((t) => t.trip_id));
+      for (let i = 0; i < copies; i++) {
+        const offsetMinutes = headway * (i + 1);
+        let newId: string;
+        if (firstTime) {
+          const newTimeStr = secondsToGtfsTime(gtfsTimeToSeconds(firstTime) + offsetMinutes * 60);
+          newId = uniqueTripId(generateTripName(routeName, newTimeStr, svcIdx), existingIds);
+        } else {
+          newId = uniqueTripId(generateTripName(routeName, '', svcIdx), existingIds);
+        }
+        existingIds.add(newId);
+        duplicateTrip(lastTrip.trip_id, newId, offsetMinutes);
       }
-      const timings = layoutStopTimes(cum, {
-        startSec: gtfsTimeToSeconds(normalized),
-        dwellSec: Math.max(0, estDwell),
-        speedFactor: Math.max(0.1, estSpeed),
-      });
-      timings.forEach((t, i) => {
-        const col = orderedStops[i];
-        // The travel-time layout runs over ALL columns (a skipped stop is still
-        // physically passed, so downstream times stay right), but we only WRITE
-        // to SERVED stops. A column with no stop_time row is skipped — writing
-        // one would re-create the row and un-skip the stop, so leave it alone.
-        if (!findStopTime(estimatePrompt, col.seq)) return;
-        setStopTime(estimatePrompt, col.stop.stop_id, col.seq, {
-          arrival_time: secondsToGtfsTime(t.arrivalSec),
-          departure_time: secondsToGtfsTime(t.departureSec),
-        });
-      });
-      setEstimatePrompt(null);
-    } catch {
-      setEstError('Something went wrong estimating times. Please try again.');
-    } finally {
-      setEstimating(false);
-    }
+      return `Added ${copies} trip${copies === 1 ? '' : 's'}`;
+    });
+  };
+
+  const onTool = (id: ToolId) => {
+    if (id === 'removeall') setModal({ type: 'removeall' });
+    else setDrawer((d) => (d === id ? null : id));
   };
 
   const handleCopyFromService = (sourceServiceId: string) => {
@@ -583,64 +443,125 @@ export function TimetableGrid({ scope }: { scope?: TimetableScope } = {}) {
     const routeName = route?.route_short_name || route?.route_long_name || '';
     const svcIdx = getServiceIndex(activeServiceId, calendars);
     const existingIds = new Set(trips.map((t) => t.trip_id));
-    const sourceTrips = trips.filter(
-      (t) => t.route_id === selectedRouteId && t.direction_id === directionId && t.service_id === sourceServiceId
-    );
+    const sourceTrips = trips.filter((t) => t.route_id === selectedRouteId && t.direction_id === directionId && t.service_id === sourceServiceId);
     for (const trip of sourceTrips) {
-      const firstTime = getFirstDisplayedTime(trip.trip_id);
+      const firstTime = mainData.getFirstDisplayedTime(trip.trip_id);
       const newId = uniqueTripId(generateTripName(routeName, firstTime, svcIdx), existingIds);
       existingIds.add(newId);
       duplicateTrip(trip.trip_id, newId, 0);
       updateTrip(newId, { service_id: activeServiceId });
     }
+    say(`Copied ${sourceTrips.length} trip${sourceTrips.length === 1 ? '' : 's'}`);
   };
 
-  const handleRepeatSubmit = () => {
-    if (routeTrips.length === 0) return;
+  const onEditStops = () => {
+    if (!selectedRouteId) return;
+    const st = useStore.getState();
+    st.setEditingRouteId(selectedRouteId);
+    st.setRouteDetailTab('stops');
+    st.setSidebarSection('routes');
+    st.setRightRailOpen(true);
+  };
 
-    // Validate headway + copies. Both must be integers in range.
-    const headway = Number(repeatHeadway);
-    const copies = Number(repeatCopies);
-    if (!Number.isInteger(headway) || headway < 1 || headway > 240) {
-      setRepeatError('Headway must be 1–240 min');
-      return;
-    }
-    if (!Number.isInteger(copies) || copies < 1 || copies > 100) {
-      setRepeatError('Copies must be 1–100');
-      return;
-    }
-    setRepeatError(null);
+  /* ---------- modal confirms ---------- */
+  const [dupStartTime, setDupStartTime] = useState('');
+  const [estStart, setEstStart] = useState('08:00');
+  const [estDwell, setEstDwell] = useState(18);
+  const [estSpeed, setEstSpeed] = useState(1.3);
+  const [estimating, setEstimating] = useState(false);
+  const [estError, setEstError] = useState<string | null>(null);
 
-    const lastTrip = routeTrips[routeTrips.length - 1];
+  // Seed the duplicate / estimate dialogs when they open.
+  useEffect(() => {
+    if (modal?.type === 'duplicate') {
+      const d = paneData(modal.paneId);
+      const first = d.getFirstDisplayedTime(modal.tripId);
+      setDupStartTime(first ? formatTimeShort(secondsToGtfsTime(gtfsTimeToSeconds(first) + 3600)) : '');
+    } else if (modal?.type === 'estimate') {
+      const d = paneData(modal.paneId);
+      const first = d.getFirstDisplayedTime(modal.tripId);
+      setEstStart(first ? formatTimeShort(first) : '08:00');
+      setEstError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modal]);
+
+  const confirmDuplicate = () => {
+    if (modal?.type !== 'duplicate') return;
+    const normalized = normalizeTimeInput(dupStartTime);
+    if (!normalized) return;
+    const d = paneData(modal.paneId);
+    const firstTime = d.getFirstDisplayedTime(modal.tripId);
+    const offsetMinutes = Math.round((gtfsTimeToSeconds(normalized) - gtfsTimeToSeconds(firstTime)) / 60);
     const routeName = route?.route_short_name || route?.route_long_name || '';
-    const svcIdx = getServiceIndex(lastTrip.service_id || activeServiceId || '', calendars);
-    const firstTime = getFirstDisplayedTime(lastTrip.trip_id);
-    const existingIds = new Set(trips.map((t) => t.trip_id));
-
-    for (let i = 0; i < copies; i++) {
-      const offsetMinutes = headway * (i + 1);
-      let newId: string;
-      if (firstTime) {
-        const newTimeSeconds = gtfsTimeToSeconds(firstTime) + offsetMinutes * 60;
-        const newTimeStr = secondsToGtfsTime(newTimeSeconds);
-        newId = uniqueTripId(generateTripName(routeName, newTimeStr, svcIdx), existingIds);
-      } else {
-        newId = uniqueTripId(generateTripName(routeName, '', svcIdx), existingIds);
-      }
-      existingIds.add(newId);
-      duplicateTrip(lastTrip.trip_id, newId, offsetMinutes);
-    }
-    setRepeatError(null);
-    setShowRepeatForm(false);
+    const srcTrip = trips.find((t) => t.trip_id === modal.tripId);
+    const svcIdx = getServiceIndex(srcTrip?.service_id || activeServiceId || '', calendars);
+    const newId = uniqueTripId(generateTripName(routeName, normalized, svcIdx), new Set(trips.map((t) => t.trip_id)));
+    duplicateTrip(modal.tripId, newId, offsetMinutes);
+    setModal(null);
+    say(`Duplicated ${modal.tripId} at ${normalized}`);
   };
 
-  if (!route) {
-    // Auto-select first route if available. Only the main pane does this — pane
-    // B is initialised with a valid route and manages its own selection, so
-    // calling its parent's setState during render here would warn.
-    if (!scope && routes.length > 0) {
-      selectRoute(routes[0].route_id);
+  const confirmEstimate = async () => {
+    if (modal?.type !== 'estimate') return;
+    const d = paneData(modal.paneId);
+    const normalized = normalizeTimeInput(estStart);
+    if (!normalized) { setEstError('Enter a valid start time, e.g. 08:00.'); return; }
+    if (d.orderedStops.length < 2) { setEstError('Add at least two stops to this route first.'); return; }
+    setEstimating(true);
+    setEstError(null);
+    try {
+      const coords = d.orderedStops.map((c) => [c.stop.stop_lon, c.stop.stop_lat] as [number, number]);
+      const cum = await estimateStopTravelByRoad(coords);
+      if (!cum) { setEstError("Couldn't match this route to the road network. Try again, or set times manually."); return; }
+      const timings = layoutStopTimes(cum, { startSec: gtfsTimeToSeconds(normalized), dwellSec: Math.max(0, estDwell), speedFactor: Math.max(0.1, estSpeed) });
+      const snap = snapshotFeed();
+      timings.forEach((t, i) => {
+        const col = d.orderedStops[i];
+        if (!d.findStopTime(modal.tripId, col.seq)) return; // don't un-skip
+        setStopTime(modal.tripId, col.stop.stop_id, col.seq, {
+          arrival_time: secondsToGtfsTime(t.arrivalSec), departure_time: secondsToGtfsTime(t.departureSec),
+        });
+      });
+      const doneMsg = `Estimated times for ${modal.tripId} from the road network`;
+      setModal(null);
+      undoToast(doneMsg, snap);
+    } catch {
+      setEstError('Something went wrong estimating times. Please try again.');
+    } finally {
+      setEstimating(false);
     }
+  };
+
+  const applyTargets = useMemo(() => {
+    if (modal?.type !== 'applyall') return [];
+    return paneData(modal.paneId).routeTrips.filter((t) => t.trip_id !== modal.tripId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modal, mainData, oppData]);
+
+  const confirmApplyAll = () => {
+    if (modal?.type !== 'applyall' || applyTargets.length === 0) { setModal(null); return; }
+    const templateId = modal.tripId;
+    const targetIds = applyTargets.map((t) => t.trip_id);
+    setModal(null);
+    withUndo(() => {
+      applyTripPattern(templateId, targetIds);
+      return `Applied ${templateId}'s pattern to ${targetIds.length} trip${targetIds.length === 1 ? '' : 's'}`;
+    });
+  };
+
+  const confirmRemoveAll = () => {
+    const doomed = routeTrips.map((t) => t.trip_id);
+    setModal(null);
+    withUndo(() => {
+      for (const id of doomed) removeTrip(id);
+      return `Removed all ${doomed.length} trip${doomed.length === 1 ? '' : 's'}`;
+    });
+  };
+
+  /* ---------- render guards ---------- */
+  if (!route) {
+    if (routes.length > 0) selectRoute(routes[0].route_id);
     return (
       <div className="flex items-center justify-center h-full text-warm-gray text-sm">
         {routes.length === 0 ? 'Create a route first' : 'Select a route to view its timetable'}
@@ -651,1067 +572,273 @@ export function TimetableGrid({ scope }: { scope?: TimetableScope } = {}) {
   if (demandResponseOn && isFlexRoute(route, flexZones, routes)) {
     return (
       <div className="p-2 flex flex-col min-h-0 flex-1">
-        <div className="shrink-0 mb-2 px-2">
-          <RouteSelect routes={routes} selectedRouteId={selectedRouteId} onChange={selectRoute} />
+        <div className="shrink-0 mb-2 px-3">
+          <Select
+            value={route.route_id}
+            onChange={(v) => selectRoute(v || null)}
+            options={routes.map((r) => ({ id: r.route_id, name: r.route_short_name || r.route_long_name || r.route_id }))}
+            aria-label="Route"
+          />
         </div>
         <FlexTimetablePanel route={route} zone={findFlexZoneForRoute(route, flexZones, routes)} />
       </div>
     );
   }
 
-  const hasStops = orderedStops.length > 0;
+  const allTripIds = trips.map((t) => t.trip_id);
+  const ctxLabel = `${route.route_short_name || route.route_long_name || route.route_id} · ${directionName(route, directionId)} · ${calendars.find((c) => c.service_id === activeServiceId)?._description || activeServiceId || '—'}`;
+  const siblingWithTrips = mainData.serviceIdsWithTrips.find((sid) => sid !== activeServiceId);
+
+  const renderMainPane = () => {
+    if (!mainData.hasStops) {
+      return (
+        <div className="flex-1 flex items-start justify-center pt-12 px-6 text-center text-sm text-warm-gray">
+          Add stops to this route{directionId === 1 ? ' (inbound direction)' : ''} first.
+        </div>
+      );
+    }
+    if (routeTrips.length === 0) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center gap-1.5 px-8 py-8 text-center">
+          <div className="w-[52px] h-[52px] rounded-2xl bg-coral-light flex items-center justify-center mb-2">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--color-coral)" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7 v5 l3 3" /></svg>
+          </div>
+          <div className="font-heading font-extrabold text-base text-dark-brown">No trips yet</div>
+          <div className="text-[13px] text-warm-gray max-w-[360px] leading-relaxed">
+            Generate a service pattern to get started — set a window and a headway, and we&rsquo;ll lay out the whole day.
+          </div>
+          <div className="flex gap-2.5 mt-3.5 flex-wrap justify-center">
+            <Button variant="primary" icon="✨" onClick={() => setDrawer('generate')}>Generate trips</Button>
+            <Button variant="secondary" icon="+" onClick={() => onAddTrip('main')}>Add a single trip</Button>
+            {siblingWithTrips && (
+              <Button variant="secondary" icon="⧉" onClick={() => handleCopyFromService(siblingWithTrips)}>
+                Copy from {calendars.find((c) => c.service_id === siblingWithTrips)?._description || siblingWithTrips}
+              </Button>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <TimetableGridPane
+        orderedStops={orderedStops}
+        routeTrips={routeTrips}
+        allTripIds={allTripIds}
+        timepointStopIds={mainData.timepointStopIds}
+        continuousOverrides={mainData.continuousOverrides}
+        findStopTime={mainData.findStopTime}
+        arrDepStops={arrDepStops}
+        rowActions={rowActions}
+        showHeadways={headwayHints}
+        showColumnMenu
+        showContinuous={showContinuous}
+        scrollRef={mainScrollRef}
+        onCell={(tripId, seq, stopId, field, v) => onCell('main', tripId, seq, stopId, field, v)}
+        onSkip={(tripId, seq) => skipStop(tripId, seq)}
+        onRestore={(tripId, seq, stopId) => setStopTime(tripId, stopId, seq, { arrival_time: '', departure_time: '' })}
+        onRename={(tripId, id) => onRename(tripId, id)}
+        onRowAction={(a, tripId) => onRowAction('main', a, tripId)}
+        onAddTrip={() => onAddTrip('main')}
+        onToggleRowActions={() => setRowActions(rowActions === 'strip' ? 'menu' : 'strip')}
+        onToggleHeadways={() => setHeadwayHints(!headwayHints)}
+        onTimepoint={(stopId, seq, on) => onTimepoint('main', stopId, seq, on)}
+        onArrDep={onArrDep}
+        onContinuous={onContinuous}
+      />
+    );
+  };
+
+  const renderCompanionPane = () => {
+    if (!hasOpposite || !oppData.hasStops || oppData.routeTrips.length === 0) {
+      return (
+        <div className="flex-1 flex items-start justify-center pt-12 px-6 text-center text-sm text-warm-gray">
+          No trips in the opposite direction for this service.
+        </div>
+      );
+    }
+    return (
+      <TimetableGridPane
+        orderedStops={oppData.orderedStops}
+        routeTrips={oppData.routeTrips}
+        allTripIds={allTripIds}
+        timepointStopIds={oppData.timepointStopIds}
+        continuousOverrides={oppData.continuousOverrides}
+        findStopTime={oppData.findStopTime}
+        arrDepStops={arrDepStops}
+        rowActions={rowActions}
+        showHeadways={headwayHints}
+        showColumnMenu={false}
+        showContinuous={showContinuous}
+        scrollRef={oppScrollRef}
+        onCell={(tripId, seq, stopId, field, v) => onCell('opp', tripId, seq, stopId, field, v)}
+        onSkip={(tripId, seq) => skipStop(tripId, seq)}
+        onRestore={(tripId, seq, stopId) => setStopTime(tripId, stopId, seq, { arrival_time: '', departure_time: '' })}
+        onRename={(tripId, id) => onRename(tripId, id)}
+        onRowAction={(a, tripId) => onRowAction('opp', a, tripId)}
+        onAddTrip={() => onAddTrip('opp')}
+        onToggleRowActions={() => setRowActions(rowActions === 'strip' ? 'menu' : 'strip')}
+        onToggleHeadways={() => setHeadwayHints(!headwayHints)}
+        onTimepoint={(stopId, seq, on) => onTimepoint('opp', stopId, seq, on)}
+        onArrDep={onArrDep}
+        onContinuous={onContinuous}
+      />
+    );
+  };
+
+  const companionOtherPatterns = patterns.filter((p) => p.shapeId !== effectiveShapeId);
 
   return (
-    <div className="p-2 flex flex-col min-h-0 flex-1">
-      {/* Header. The main pane gets the full scoping toolbar. The derived
-          companion pane gets a minimal label naming the direction it mirrors —
-          its selection is fixed to the main pane's opposite, so it needs no
-          controls. */}
-      {scope ? (
-        <div className="shrink-0 mb-2 px-2 flex items-center gap-2 h-[30px]">
-          <span className="text-xs font-semibold text-dark-brown whitespace-nowrap">{scope.headerLabel}</span>
-          <span className="text-xs text-warm-gray whitespace-nowrap">{routeTrips.length} trips</span>
-        </div>
-      ) : (
-      /* Toolbar — horizontally scrollable on narrow viewports so every control is reachable */
-      <div className="shrink-0 mb-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex items-center gap-2 px-2 min-w-max">
-          {/* Route selector */}
-          <RouteSelect routes={routes} selectedRouteId={selectedRouteId} onChange={selectRoute} />
-          {/* Service pattern */}
-          {calendars.length > 0 && (
-            <select
-              value={activeServiceId || ''}
-              onChange={(e) => setSelectedServiceId(e.target.value)}
-              className="px-2 py-1 border border-sand rounded-md text-xs bg-cream focus:outline-none focus:border-coral"
-            >
-              {calendars.map((cal) => (
-                <option key={cal.service_id} value={cal.service_id}>
-                  {cal._description || cal.service_id}
-                </option>
-              ))}
-            </select>
-          )}
-          {/* Adaptive trip-pattern selector. Falls back to the legacy direction
-              toggle when the route has 0-2 shape patterns; for 3+ patterns it
-              renders a dropdown so same-direction variants are reachable. */}
-          {patterns.length >= 1 ? (
-            <PatternSelector
-              patterns={patterns}
-              selectedShapeId={effectiveShapeId}
-              route={route}
-              shapes={shapes}
-              onChange={(p) => {
-                setSelectedShapeId(p.shapeId);
-                if (p.directionId !== directionId) setDirectionId(p.directionId);
-              }}
-            />
-          ) : (
-            <DirectionSelect directionId={directionId} onChange={setDirectionId} route={route} />
-          )}
-          <span className="text-xs text-warm-gray whitespace-nowrap">
-            {routeTrips.length} trips
-          </span>
-          <button
-            onClick={() => {
-              if (!selectedRouteId) return;
-              const st = useStore.getState();
-              st.setEditingRouteId(selectedRouteId);
-              st.setRouteDetailTab('stops');
-              st.setSidebarSection('routes');
-              st.setRightRailOpen(true);
-            }}
-            disabled={!selectedRouteId}
-            title="Edit the stops on this route's pattern"
-            className="px-3 py-1 border-2 border-dashed border-sand rounded-md text-xs font-semibold text-warm-gray hover:border-coral hover:text-coral transition-colors whitespace-nowrap disabled:opacity-40 disabled:hover:border-sand disabled:hover:text-warm-gray"
-          >
-            Edit Stops
-          </button>
-          <button
-            onClick={() => setOppositeOpen(!oppositeOpen)}
-            title="Show the opposite direction's trips alongside this timetable, to line up arrival/departure times (e.g. outbound vs inbound)"
-            className={`px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors ${
-              oppositeOpen
-                ? 'bg-coral text-white'
-                : 'border-2 border-dashed border-sand text-warm-gray hover:border-coral hover:text-coral'
-            }`}
-          >
-            ⇄ {oppositeOpen ? 'Hide opposite direction' : 'Show opposite direction'}
-          </button>
-          <label
-            className="flex items-center gap-1.5 text-[11px] text-warm-gray cursor-pointer select-none whitespace-nowrap"
-            title="Show separate arrival and departure inputs for each stop. Use this for services with dwell time at intermediate stops (e.g. ferries, long-distance rail)."
-          >
-            <input
-              type="checkbox"
-              checked={splitArrDep}
-              onChange={(e) => setSplitArrDep(e.target.checked)}
-              className="accent-coral"
-            />
-            Arr / Dep
-          </label>
-          {routeTrips.length > 0 && (
-            <button
-              onClick={() => setRemoveAllPrompt(true)}
-              title="Delete every trip in this view (keeps the shape and its stops)"
-              className="px-3 py-1 border-2 border-dashed border-sand rounded-md text-xs font-semibold text-warm-gray hover:border-red-400 hover:text-red-500 transition-colors whitespace-nowrap"
-            >
-              Remove All Trips
-            </button>
-          )}
-          <button
-            onClick={() => { setShowGenerate(true); setShowRuntime(false); }}
-            disabled={!hasStops}
-            title="Generate a whole span of service from a start, end, headway and run time"
-            className={`px-3 py-1 rounded-md text-xs font-bold whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-              showGenerate ? 'bg-coral text-white' : 'bg-coral/10 text-coral hover:bg-coral/20'
-            }`}
-          >
-            ✨ Generate service
-          </button>
-          {routeTrips.length > 0 && (
-            <button
-              onClick={() => { setShowRuntime((v) => !v); setShowGenerate(false); }}
-              disabled={!hasStops}
-              title="Set this pattern's running time — re-times every trip, keeping headways"
-              className={`px-3 py-1 rounded-md text-xs font-bold whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                showRuntime ? 'bg-teal text-white' : 'bg-teal/10 text-teal hover:bg-teal/20'
-              }`}
-            >
-              ⏱ Running time
-            </button>
-          )}
-          <button
-            onClick={() => {
-              setRepeatError(null);
-              setShowRepeatForm((v) => !v);
-            }}
-            disabled={!hasStops}
-            className="px-3 py-1 border-2 border-dashed border-sand rounded-md text-xs font-semibold text-warm-gray hover:border-coral hover:text-coral transition-colors whitespace-nowrap disabled:opacity-40 disabled:hover:border-sand disabled:hover:text-warm-gray"
-          >
-            Repeat Every...
-          </button>
-          <button
-            onClick={handleAddTrip}
-            disabled={!hasStops}
-            className="px-3 py-1 border-2 border-dashed border-sand rounded-md text-xs font-semibold text-warm-gray hover:border-coral hover:text-coral transition-colors whitespace-nowrap disabled:opacity-40 disabled:hover:border-sand disabled:hover:text-warm-gray"
-          >
-            + Add Trip
-          </button>
-        </div>
-      </div>
+    <div className="flex flex-col min-h-0 flex-1">
+      <TimetableToolbar
+        route={route}
+        routes={routes}
+        shapes={shapes}
+        calendars={calendars}
+        selectedRouteId={selectedRouteId}
+        activeServiceId={activeServiceId}
+        patterns={patterns}
+        effectiveShapeId={effectiveShapeId}
+        directionId={directionId}
+        tripCount={routeTrips.length}
+        oppositeOpen={oppositeOpen}
+        onSelectRoute={(id) => selectRoute(id)}
+        onSelectService={(id) => setSelectedServiceId(id)}
+        onSelectPattern={(p) => { setSelectedShapeId(p.shapeId); if (p.directionId !== directionId) setDirectionId(p.directionId); }}
+        onSelectDirection={(d) => setDirectionId(d)}
+        onSetOpposite={(v) => setOppositeOpen(v)}
+        onEditStops={onEditStops}
+        onTool={onTool}
+      />
+
+      {drawer === 'generate' && (
+        <GenerateDrawer ctx={ctxLabel} endToEndDefault={endToEndDefault} getPreview={genPreview} onApply={applyGenerate} onCancel={() => setDrawer(null)} />
+      )}
+      {drawer === 'runtime' && (
+        <RuntimeDrawer ctx={ctxLabel} currentRun={currentRunMin} tripCount={routeTrips.length} onApply={applyRuntime} onCancel={() => setDrawer(null)} />
+      )}
+      {drawer === 'repeat' && (
+        <RepeatDrawer
+          lastStart={routeTrips.length ? formatTimeShort(mainData.getFirstDisplayedTime(routeTrips[routeTrips.length - 1].trip_id) || '') || '—' : '—'}
+          tripCount={routeTrips.length}
+          onApply={applyRepeat}
+          onCancel={() => setDrawer(null)}
+        />
       )}
 
-      {/* Cell-state legend. Three states per stop: a typed time, a blank
-          served stop (interpolated), and a skipped stop. Kept terse so it
-          doesn't crowd the grid. Hidden in the empty state (no grid to explain). */}
-      {hasStops && routeTrips.length > 0 && (
-        <p className="px-2 mb-1 text-[10px] text-warm-gray/80 whitespace-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          Type a time to set it. Leave a stop blank for "served, time interpolated." Hover a cell and click
-          <span className="mx-0.5 font-semibold text-red-500">&times;</span>
-          to skip a stop the trip doesn&rsquo;t serve (shown as
-          <span className="mx-0.5 font-semibold text-warm-gray/60 line-through">SKIP</span>
-          ).
-        </p>
-      )}
-
-      {/* B2 Running-time editor */}
-      {showRuntime && hasStops && routeTrips.length > 0 && activeServiceId && (
-        <div className="mx-2 mb-2 shrink-0">
-          <RuntimeEditor
-            routeId={selectedRouteId!}
-            directionId={directionId}
-            shapeId={noShapeBucket ? undefined : (effectiveShapeId ?? undefined)}
-            serviceId={activeServiceId}
-            onCancel={() => setShowRuntime(false)}
-          />
+      <div className="flex-1 min-h-0 flex">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
+          {renderMainPane()}
         </div>
-      )}
-
-      {/* Repeat Every inline form */}
-      {showRepeatForm && (
-        <div className="mx-2 mb-2 p-3 bg-cream rounded-lg border border-sand">
-          <div className="flex items-center gap-3 flex-wrap">
-            <label className="text-xs text-dark-brown font-semibold">Headway</label>
-            <input
-              type="number"
-              min={1}
-              max={240}
-              step={1}
-              value={repeatHeadway}
-              onChange={(e) => {
-                setRepeatHeadway(e.target.value);
-                setRepeatError(null);
-              }}
-              className="w-16 px-2 py-1 text-xs rounded border border-sand focus:border-coral focus:outline-none bg-white"
-            />
-            <span className="text-xs text-warm-gray">min</span>
-            <label className="text-xs text-dark-brown font-semibold ml-2">Copies</label>
-            <input
-              type="number"
-              min={1}
-              max={100}
-              step={1}
-              value={repeatCopies}
-              onChange={(e) => {
-                setRepeatCopies(e.target.value);
-                setRepeatError(null);
-              }}
-              className="w-16 px-2 py-1 text-xs rounded border border-sand focus:border-coral focus:outline-none bg-white"
-            />
-            <button
-              onClick={handleRepeatSubmit}
-              disabled={routeTrips.length === 0}
-              className="px-3 py-1 bg-coral text-white text-xs font-semibold rounded hover:bg-coral/90 transition-colors disabled:opacity-40"
-            >
-              Generate
-            </button>
-            <button
-              onClick={() => {
-                setRepeatError(null);
-                setShowRepeatForm(false);
-              }}
-              className="px-3 py-1 text-xs text-warm-gray hover:text-dark-brown transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-          {repeatError && (
-            <p className="text-[11px] text-red-600 mt-1">{repeatError}</p>
-          )}
-          {routeTrips.length === 0 && (
-            <p className="text-[11px] text-warm-gray mt-1">Add at least one trip first to duplicate from.</p>
-          )}
-        </div>
-      )}
-
-      {routeTrips.length === 0 && serviceIdsWithTrips.length > 0 && (
-        <div className="mx-2 mb-2 p-3 bg-cream rounded-lg border border-sand shrink-0">
-          <p className="text-xs text-warm-gray mb-2">
-            No trips for this service pattern. Copy from:
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            {serviceIdsWithTrips
-              .filter((sid) => sid !== activeServiceId)
-              .map((sid) => {
-                const cal = calendars.find((c) => c.service_id === sid);
-                const count = trips.filter((t) => t.route_id === selectedRouteId && t.direction_id === directionId && t.service_id === sid).length;
-                return (
-                  <button
-                    key={sid}
-                    onClick={() => handleCopyFromService(sid)}
-                    className="px-3 py-1.5 bg-coral text-white rounded-lg text-xs font-bold hover:bg-[#d4603a] transition-colors"
-                  >
-                    {cal?._description || sid} ({count} trips)
-                  </button>
-                );
-              })}
-          </div>
-        </div>
-      )}
-
-      <div className="overflow-auto flex-1 min-h-0">
-        {!hasStops ? (
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr>
-                <th className="sticky left-0 bg-cream px-3 py-2 text-left font-semibold text-warm-gray text-[11px] border-b border-sand z-10">
-                  Trip
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="px-3 py-6 text-center text-warm-gray text-sm">
-                  Add stops to this route{directionId === 1 ? ' (inbound direction)' : ''} first
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        ) : routeTrips.length === 0 ? (
-          // Empty state — the pattern has stops but no trips yet. Surface a
-          // single, prominent call to action centered where the grid would be
-          // (replacing the old inline form). "Generate service" opens the modal.
-          <div className="h-full min-h-[16rem] flex flex-col items-center justify-center text-center px-6 py-10">
-            <span className="text-coral mb-3" aria-hidden>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" />
-              </svg>
-            </span>
-            <p className="text-sm text-warm-gray mb-4 max-w-xs">
-              No trips yet — generate a service pattern to get started.
-            </p>
-            <button
-              onClick={() => { setShowGenerate(true); setShowRuntime(false); }}
-              className="px-6 py-3 bg-coral text-white rounded-xl font-heading font-bold text-base shadow-sm hover:bg-[#d4603a] transition-colors"
-            >
-              ✨ Generate service
-            </button>
-          </div>
-        ) : (
-        <table className="w-full text-xs border-collapse min-w-[600px]">
-          <thead>
-            <tr>
-              <th className="sticky left-0 bg-cream px-3 py-2 text-left font-semibold text-warm-gray text-[11px] border-b border-sand z-10">
-                Trip
-              </th>
-              {orderedStops.map(({ uid, stop }) => {
-                const isTimepoint = timepointStopIds.has(stop.stop_id);
-                const ov = continuousOverrides.get(stop.stop_id);
-                const hasOverride = ov && (ov.pickup !== undefined || ov.dropOff !== undefined);
-                return (
-                  <th
-                    key={uid}
-                    className={`relative px-2 py-2 text-left font-semibold text-warm-gray text-[11px] border-b border-sand whitespace-nowrap ${
-                      isTimepoint ? 'bg-coral/10' : ''
-                    }`}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      <span>{stop.stop_name.length > 20 ? stop.stop_name.slice(0, 18) + '\u2026' : stop.stop_name}</span>
-                      {showContinuous && (
-                        <button
-                          type="button"
-                          onClick={() => setFlexStopId((cur) => (cur === uid ? null : uid))}
-                          title={hasOverride
-                            ? 'Flag-stop override set for this stop \u2014 click to edit'
-                            : 'Set per-stop flag-stop (continuous pickup/drop-off) override'}
-                          aria-label="Flag-stop override"
-                          aria-expanded={flexStopId === uid}
-                          className={`shrink-0 leading-none text-[11px] rounded px-0.5 transition-opacity ${
-                            hasOverride
-                              ? 'text-coral opacity-100'
-                              : 'text-warm-gray/40 opacity-40 hover:opacity-100 hover:text-coral'
-                          }`}
-                        >
-                          {/* flag glyph */}
-                          {'\u2691'}
-                        </button>
-                      )}
-                    </span>
-                    {showContinuous && flexStopId === uid && (
-                      <ContinuousOverridePopover
-                        pickup={ov?.pickup}
-                        dropOff={ov?.dropOff}
-                        routePickup={route?.continuous_pickup}
-                        routeDropOff={route?.continuous_drop_off}
-                        onSet={(field, value) => setContinuousOverride(stop.stop_id, field, value)}
-                        onClose={() => setFlexStopId(null)}
-                      />
-                    )}
-                  </th>
-                );
-              })}
-              <th className="px-2 py-2 border-b border-sand" />
-            </tr>
-          </thead>
-          <tbody>
-            {routeTrips.map((trip, tripIdx) => (
-              <tr key={trip.trip_id} className="hover:bg-cream">
-                <TripIdCell
-                  tripId={trip.trip_id}
-                  allTripIds={trips.map((t) => t.trip_id)}
-                  onRename={(newId) => renameTripId(trip.trip_id, newId)}
+        {oppositeOpen && (
+          <div className="flex-1 min-w-0 flex flex-col min-h-0 border-l border-sand">
+            <div className="shrink-0 flex items-center gap-2 px-3.5 h-[47px] border-b border-sand bg-cream font-heading font-extrabold text-xs text-dark-brown">
+              {companionOtherPatterns.length > 1 && companionPattern ? (
+                <Select
+                  value={companionPattern.shapeId}
+                  onChange={(v) => setCompanionShapeId(v)}
+                  options={companionOtherPatterns.map((p) => ({ id: p.shapeId, name: directionName(route, p.directionId) }))}
+                  aria-label="Companion pattern"
                 />
-
-                {(() => {
-                  // Compute time-order errors: a cell is invalid if its time is <= the previous non-blank time
-                  const times = orderedStops.map((col) => {
-                    const st = findStopTime(trip.trip_id, col.seq);
-                    return st?.arrival_time || '';
-                  });
-                  let prevSeconds = -1;
-                  const errors = times.map((t) => {
-                    if (!t) return false; // blank — no error
-                    const sec = gtfsTimeToSeconds(t);
-                    if (prevSeconds >= 0 && sec <= prevSeconds) return true; // out of order
-                    prevSeconds = sec;
-                    return false;
-                  });
-
-                  return orderedStops.map(({ uid, seq, stop }, stopIdx) => {
-                    const st = findStopTime(trip.trip_id, seq);
-                    const isTimepoint = timepointStopIds.has(stop.stop_id);
-                    // Shared commit callback factory. In single-time mode,
-                    // both fields move together; in split mode the caller
-                    // names which field to update and we preserve the other.
-                    // Writes are keyed by `seq` (the route_stop instance's
-                    // stop_sequence) so a repeated stop's two cells map to two
-                    // distinct stop_times.
-                    const commit = (field: 'both' | 'arrival_time' | 'departure_time', normalized: string) => {
-                      if (!normalized) {
-                        // Blanking either side blanks both — partial timing
-                        // (only arrival or only departure) is invalid for
-                        // intermediate stops in practice and is a spec
-                        // violation for first/last stops.
-                        setStopTime(trip.trip_id, stop.stop_id, seq, { arrival_time: '', departure_time: '' });
-                        return;
-                      }
-                      let updates: Partial<typeof st & { arrival_time: string; departure_time: string }>;
-                      if (field === 'both') {
-                        updates = { arrival_time: normalized, departure_time: normalized };
-                      } else if (field === 'arrival_time') {
-                        // First time entered? mirror to departure so cells
-                        // collapse cleanly when the user later turns the
-                        // toggle off. If departure already exists, leave it.
-                        const dep = st?.departure_time || normalized;
-                        updates = { arrival_time: normalized, departure_time: dep };
-                      } else {
-                        const arr = st?.arrival_time || normalized;
-                        updates = { arrival_time: arr, departure_time: normalized };
-                      }
-                      setStopTime(trip.trip_id, stop.stop_id, seq, updates);
-                      // Auto-rename trip if it's a new trip with placeholder name
-                      if (trip.trip_id.includes('_new')) {
-                        const rName = route?.route_short_name || route?.route_long_name || '';
-                        const sIdx = getServiceIndex(trip.service_id, calendars);
-                        const existingIds = new Set(useStore.getState().trips.map((t) => t.trip_id));
-                        const newId = uniqueTripId(generateTripName(rName, normalized, sIdx), existingIds);
-                        renameTripId(trip.trip_id, newId);
-                      }
-                    };
-
-                    // A missing stop_time row = the trip SKIPS this stop. It
-                    // renders as a distinct "SKIP" chip (not an editable time)
-                    // and the exporter omits it entirely.
-                    const isSkipped = !st;
-
-                    return (
-                      <td
-                        key={uid}
-                        className={`relative group px-1 py-0.5 border-b border-[#F5F0EB] ${isTimepoint ? 'bg-coral/10' : ''}`}
-                      >
-                        {isSkipped ? (
-                          <SkippedCell
-                            compact={splitArrDep}
-                            onRestore={() => setStopTime(trip.trip_id, stop.stop_id, seq, { arrival_time: '', departure_time: '' })}
-                          />
-                        ) : (
-                          <>
-                            {splitArrDep ? (
-                              <SplitTimeCell
-                                arrival={st?.arrival_time || ''}
-                                departure={st?.departure_time || ''}
-                                onCommitArrival={(n) => commit('arrival_time', n)}
-                                onCommitDeparture={(n) => commit('departure_time', n)}
-                                inputRef={(el) => {
-                                  const key = cellKey(tripIdx, stopIdx);
-                                  if (el) cellRefs.current.set(key, el);
-                                  else cellRefs.current.delete(key);
-                                }}
-                                onKeyDown={(e) => handleKeyDown(e, tripIdx, stopIdx)}
-                                timeError={errors[stopIdx]}
-                              />
-                            ) : (
-                              <TimeCell
-                                value={st?.arrival_time || st?.departure_time || ''}
-                                onCommit={(normalized) => commit('both', normalized)}
-                                inputRef={(el) => {
-                                  const key = cellKey(tripIdx, stopIdx);
-                                  if (el) cellRefs.current.set(key, el);
-                                  else cellRefs.current.delete(key);
-                                }}
-                                onKeyDown={(e) => handleKeyDown(e, tripIdx, stopIdx)}
-                                timeError={errors[stopIdx]}
-                              />
-                            )}
-                            {/* Skip affordance — appears on hover/focus so the
-                                dense grid stays clean. Clicking removes the
-                                stop_time row (this trip no longer serves the
-                                stop); the cell then shows "SKIP". */}
-                            <button
-                              type="button"
-                              tabIndex={-1}
-                              onClick={() => skipStop(trip.trip_id, seq)}
-                              title="Skip this stop on this trip (the trip won't serve it)"
-                              aria-label="Skip this stop on this trip"
-                              className="absolute top-0 right-0 leading-none text-[10px] px-0.5 rounded text-warm-gray/40 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-red-500 transition-opacity"
-                            >
-                              ×
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    );
-                  });
-                })()}
-                <td className="px-2 py-1.5 border-b border-[#F5F0EB]">
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => interpolateStopTimes(trip.trip_id)}
-                      title="Interpolate stop times"
-                      className="text-warm-gray hover:text-coral text-[11px]"
-                    >
-                      ⟿
-                    </button>
-                    {orderedStops.length >= 2 && (
-                      <button
-                        onClick={() => handleEstimate(trip.trip_id)}
-                        title="Estimate stop times from the road driving time between stops (Mapbox)"
-                        className="text-warm-gray hover:text-coral text-[11px]"
-                      >
-                        ◷
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleDuplicate(trip.trip_id)}
-                      title="Duplicate (+60 min)"
-                      className="text-warm-gray hover:text-coral text-[11px]"
-                    >
-                      ⧉
-                    </button>
-                    {routeTrips.length > 1 && (
-                      <button
-                        onClick={() => setApplyPrompt(trip.trip_id)}
-                        title="Apply this trip's stops + timing to all other trips on this route/direction (each keeps its own start time)"
-                        className="text-warm-gray hover:text-coral text-[11px]"
-                      >
-                        ⇶
-                      </button>
-                    )}
-                    <button
-                      onClick={() => removeTrip(trip.trip_id)}
-                      title="Delete trip"
-                      className="text-warm-gray hover:text-red-500 text-[11px]"
-                    >
-                      ×
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              ) : (
+                <span>Direction {companionDir} · {directionName(route, companionDir)}</span>
+              )}
+              <span className="font-body font-normal text-[12.5px] text-warm-gray">{oppData.routeTrips.length} trips</span>
+              <button
+                type="button"
+                onClick={() => setSyncScroll((v) => !v)}
+                title="Keep both panes' vertical scroll aligned, trip-for-trip"
+                className={`h-[22px] px-2.5 rounded-md border font-heading font-bold text-[11px] ${
+                  syncScroll ? 'bg-coral-light border-coral text-[#d4603a]' : 'bg-white border-sand text-warm-gray'
+                }`}
+              >
+                ⇅ Synced
+              </button>
+              <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-warm-gray bg-white border border-sand px-1.5 py-0.5 rounded" title="No toolbar of its own — same route & service; re-derives when the main pane changes">derived</span>
+            </div>
+            {renderCompanionPane()}
+          </div>
         )}
       </div>
 
-      {/* Duplicate trip prompt */}
-      {dupPrompt && (
+      {/* Modals */}
+      {modal?.type === 'duplicate' && (
         <Modal
           open
-          onClose={() => setDupPrompt(null)}
-          title="Duplicate Trip"
-          description="Start time for the new trip:"
-          maxWidthClassName="max-w-xs"
-          footer={
-            <>
-              <AuthButton variant="secondary" onClick={() => setDupPrompt(null)}>
-                Cancel
-              </AuthButton>
-              <AuthButton onClick={handleDupConfirm}>Add Trip</AuthButton>
-            </>
-          }
+          onClose={() => setModal(null)}
+          title={`Duplicate ${modal.tripId}`}
+          description="Every stop time is offset by the same amount as the new start."
+          maxWidthClassName="max-w-sm"
+          footer={<>
+            <AuthButton variant="secondary" onClick={() => setModal(null)}>Cancel</AuthButton>
+            <AuthButton onClick={confirmDuplicate} disabled={!normalizeTimeInput(dupStartTime)}>Duplicate trip</AuthButton>
+          </>}
         >
-          <input
-            autoFocus
-            value={dupStartTime}
-            onChange={(e) => setDupStartTime(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleDupConfirm(); }}
-            placeholder="e.g. 08:00"
-            className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral tabular-nums"
-          />
+          <label className="flex items-center gap-2 text-sm text-brown">
+            New trip starts at
+            <input
+              autoFocus
+              value={dupStartTime}
+              onChange={(e) => setDupStartTime(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmDuplicate(); }}
+              className="w-[74px] px-2 py-1 border-2 border-sand rounded-md text-sm bg-cream focus:outline-none focus:border-coral font-mono tabular-nums"
+            />
+          </label>
         </Modal>
       )}
 
-      {/* Apply-to-all-trips confirm */}
-      {applyPrompt && (
-        <ConfirmDialog
-          title="Apply to all trips"
-          body={
-            <>
-              Re-lay the {applyTargets.length} other {directionName(route, directionId).toLowerCase()} trip
-              {applyTargets.length === 1 ? '' : 's'} on this route to match this trip&rsquo;s stops and
-              timing. Each keeps its own start time — headways and departures stay the same; only the
-              stop sequence and run/dwell times change.
-            </>
-          }
-          confirmLabel={`Apply to ${applyTargets.length}`}
-          onConfirm={handleApplyConfirm}
-          onCancel={() => setApplyPrompt(null)}
-          confirmDisabled={applyTargets.length === 0}
-        />
-      )}
-
-      {/* Remove-all-trips confirm */}
-      {removeAllPrompt && (
-        <ConfirmDialog
-          danger
-          title="Remove all trips"
-          body={
-            <>
-              Delete all {routeTrips.length} {directionName(route, directionId).toLowerCase()} trip
-              {routeTrips.length === 1 ? '' : 's'} shown for {route.route_short_name || route.route_long_name || route.route_id}?
-              This also removes their stop times. The shape and its stops are kept, so you can add a
-              fresh trip and replicate it by headway.
-            </>
-          }
-          confirmLabel={`Remove ${routeTrips.length}`}
-          onConfirm={handleRemoveAllConfirm}
-          onCancel={() => setRemoveAllPrompt(false)}
-        />
-      )}
-
-      {/* Estimate times dialog */}
-      {estimatePrompt && (
+      {modal?.type === 'estimate' && (
         <Modal
           open
-          onClose={() => setEstimatePrompt(null)}
+          onClose={() => setModal(null)}
           dismissable={!estimating}
-          title="Estimate times"
-          description={
-            <>
-              Fill this trip&rsquo;s stop times from the road driving time between your stops, in order,
-              plus a dwell at each stop. Then use&nbsp;⇶ to apply it to the route&rsquo;s other trips.
-            </>
-          }
-          footer={
-            <>
-              <AuthButton variant="secondary" onClick={() => setEstimatePrompt(null)} disabled={estimating}>
-                Cancel
-              </AuthButton>
-              <AuthButton onClick={handleEstimateConfirm} disabled={estimating}>
-                {estimating ? 'Estimating…' : 'Estimate'}
-              </AuthButton>
-            </>
-          }
+          title={`Estimate times — ${modal.tripId}`}
+          description="Fills stop times from real road-network driving time between stops (Mapbox). Skipped stops are computed through, but not written to."
+          footer={<>
+            {estError && <span className="text-red-500 text-xs mr-auto">{estError}</span>}
+            <AuthButton variant="secondary" onClick={() => setModal(null)} disabled={estimating}>Cancel</AuthButton>
+            <AuthButton onClick={confirmEstimate} disabled={estimating}>{estimating ? 'Estimating…' : 'Estimate times'}</AuthButton>
+          </>}
         >
-          <div className="space-y-3">
-            <label className="block">
-              <span className="text-xs font-semibold text-dark-brown">Start time</span>
-              <input
-                autoFocus
-                value={estStart}
-                onChange={(e) => setEstStart(e.target.value)}
-                placeholder="08:00"
-                className="mt-1 w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral tabular-nums"
-              />
-            </label>
-            <div className="flex gap-3">
-              <label className="flex-1">
-                <span className="flex items-center gap-1 text-xs font-semibold text-dark-brown">
-                  Dwell / stop (sec)
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="text-warm-gray shrink-0"
-                    aria-hidden
-                  >
-                    <title>Seconds the vehicle waits at each stop for boarding. Added to the driving time between stops when filling in the schedule.</title>
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="16" x2="12" y2="12" />
-                    <line x1="12" y1="8" x2="12.01" y2="8" />
-                  </svg>
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  value={estDwell}
-                  onChange={(e) => setEstDwell(Math.max(0, Number(e.target.value)))}
-                  className="mt-1 w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral tabular-nums"
-                />
-              </label>
-              <label className="flex-1">
-                <span className="flex items-center gap-1 text-xs font-semibold text-dark-brown">
-                  Speed factor
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="text-warm-gray shrink-0"
-                    aria-hidden
-                  >
-                    <title>Multiplier on the road-network driving time, to account for traffic, signals, and acceleration. e.g. 1.1 adds 10% to the free-flow estimate; higher = slower.</title>
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="16" x2="12" y2="12" />
-                    <line x1="12" y1="8" x2="12.01" y2="8" />
-                  </svg>
-                </span>
-                <input
-                  type="number"
-                  min={0.1}
-                  step={0.1}
-                  value={estSpeed}
-                  onChange={(e) => setEstSpeed(Math.max(0.1, Number(e.target.value)))}
-                  className="mt-1 w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral tabular-nums"
-                />
-              </label>
-            </div>
-            {estError && <p className="text-xs text-red-500">{estError}</p>}
+          <div className="flex items-center gap-2 text-sm text-brown flex-wrap">
+            <span>Dwell</span>
+            <input type="number" min={0} value={estDwell} onChange={(e) => setEstDwell(Math.max(0, Number(e.target.value)))} title="Seconds added at each stop for boarding/alighting" className="w-[54px] px-2 py-1 border-2 border-sand rounded-md text-sm bg-cream focus:outline-none focus:border-coral tabular-nums" />
+            <span>sec per stop · bus runs</span>
+            <input type="number" min={1} step={0.1} value={estSpeed} onChange={(e) => setEstSpeed(Math.max(0.1, Number(e.target.value)))} title="A bus is slower than a car — driving time is multiplied by this factor" className="w-[54px] px-2 py-1 border-2 border-sand rounded-md text-sm bg-cream focus:outline-none focus:border-coral tabular-nums" />
+            <span>× slower than a car</span>
           </div>
         </Modal>
       )}
 
-      {/* B1 Generate service — modal. Opened by the toolbar control and by the
-          empty-state button. GenerateServiceForm is a self-contained card; we
-          drop it into the shared Modal with a bare container (the card carries
-          its own chrome + heading). On generate it closes and the grid renders. */}
-      {showGenerate && hasStops && activeServiceId && (
-        <Modal
-          open
-          onClose={() => setShowGenerate(false)}
-          title="Generate service"
-          hideTitle
-          showClose={false}
-          className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md mx-4"
-        >
-          <GenerateServiceForm
-            routeId={selectedRouteId!}
-            directionId={directionId}
-            shapeId={noShapeBucket ? undefined : (effectiveShapeId ?? undefined)}
-            serviceId={activeServiceId}
-            headsign={route?.route_short_name || undefined}
-            variant="card"
-            onGenerated={() => setShowGenerate(false)}
-            onCancel={() => setShowGenerate(false)}
-          />
-        </Modal>
+      {modal?.type === 'applyall' && (
+        <ConfirmDialog
+          title={`Apply ${modal.tripId} to all trips?`}
+          body={<>Pushes <b>{modal.tripId}</b>&rsquo;s stop pattern and relative timing to the other <b>{applyTargets.length} trip{applyTargets.length === 1 ? '' : 's'}</b>. Each keeps its own start time.</>}
+          confirmLabel={`Apply to ${applyTargets.length}`}
+          confirmDisabled={applyTargets.length === 0}
+          onConfirm={confirmApplyAll}
+          onCancel={() => setModal(null)}
+        />
+      )}
+
+      {modal?.type === 'removeall' && (
+        <ConfirmDialog
+          danger
+          title="Remove all trips?"
+          body={<>Deletes all <b>{routeTrips.length} trip{routeTrips.length === 1 ? '' : 's'}</b> on {ctxLabel}. Stops and shape are kept, so you can add a fresh trip and replicate it.</>}
+          confirmLabel={`Remove ${routeTrips.length} trip${routeTrips.length === 1 ? '' : 's'}`}
+          onConfirm={confirmRemoveAll}
+          onCancel={() => setModal(null)}
+        />
+      )}
+
+      {toast && <Toast toast={toast} />}
+      {cascade && (
+        <div className="fixed bottom-[18px] left-1/2 -translate-x-1/2 z-[210] flex items-center gap-2.5 pl-[18px] pr-2 py-[7px] bg-white border border-sand rounded-full shadow-[0_8px_28px_rgba(61,46,34,0.18)] text-[13px] text-brown whitespace-nowrap">
+          <span>Shift the <b>{cascade.laterIds.length} later trip{cascade.laterIds.length === 1 ? '' : 's'}</b> at {cascade.stopName} by <b>{cascade.deltaMin > 0 ? '+' : ''}{cascade.deltaMin} min</b> too?</span>
+          <Button variant="primary" onClick={applyCascade}>Shift</Button>
+          <Button variant="ghost" onClick={() => setCascade(null)}>Dismiss</Button>
+        </div>
       )}
     </div>
-  );
-}
-
-/** Labels for the GTFS continuous_pickup / continuous_drop_off enum. */
-const CONTINUOUS_LABELS: Record<0 | 1 | 2 | 3, string> = {
-  0: '0 — Continuous',
-  1: '1 — None',
-  2: '2 — Phone agency',
-  3: '3 — Coordinate w/ driver',
-};
-
-/**
- * Per-stop flag-stop override popover. Lets the user override the route-level
- * continuous_pickup / continuous_drop_off for a single stop (applied to every
- * trip's stop_time at that stop). "Inherit route default" clears the override.
- */
-function ContinuousOverridePopover({
-  pickup,
-  dropOff,
-  routePickup,
-  routeDropOff,
-  onSet,
-  onClose,
-}: {
-  pickup?: 0 | 1 | 2 | 3;
-  dropOff?: 0 | 1 | 2 | 3;
-  routePickup?: 0 | 1 | 2 | 3;
-  routeDropOff?: 0 | 1 | 2 | 3;
-  onSet: (field: 'continuous_pickup' | 'continuous_drop_off', value: 0 | 1 | 2 | 3 | undefined) => void;
-  onClose: () => void;
-}) {
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  // Dismiss on outside click or Escape.
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [onClose]);
-
-  const inheritLabel = (routeVal?: 0 | 1 | 2 | 3) =>
-    routeVal === undefined
-      ? 'Inherit route default (none)'
-      : `Inherit route default (${CONTINUOUS_LABELS[routeVal]})`;
-
-  const renderSelect = (
-    label: string,
-    field: 'continuous_pickup' | 'continuous_drop_off',
-    value: 0 | 1 | 2 | 3 | undefined,
-    routeVal: 0 | 1 | 2 | 3 | undefined,
-  ) => (
-    <label className="block">
-      <span className="block text-[10px] text-warm-gray mb-0.5">{label}</span>
-      <select
-        value={value === undefined ? '' : String(value)}
-        onChange={(e) =>
-          onSet(field, e.target.value === '' ? undefined : (Number(e.target.value) as 0 | 1 | 2 | 3))
-        }
-        className="w-full px-2 py-1 border-2 border-sand rounded-lg text-[11px] bg-cream focus:outline-none focus:border-coral font-normal"
-      >
-        <option value="">{inheritLabel(routeVal)}</option>
-        <option value="0">{CONTINUOUS_LABELS[0]}</option>
-        <option value="1">{CONTINUOUS_LABELS[1]}</option>
-        <option value="2">{CONTINUOUS_LABELS[2]}</option>
-        <option value="3">{CONTINUOUS_LABELS[3]}</option>
-      </select>
-    </label>
-  );
-
-  return (
-    <div
-      ref={ref}
-      className="absolute z-30 top-full left-0 mt-1 w-60 p-3 bg-white border-2 border-sand rounded-xl shadow-lg text-left normal-case"
-    >
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] font-semibold text-warm-gray">Flag-stop override</span>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="text-warm-gray/60 hover:text-warm-gray text-xs leading-none"
-        >
-          ×
-        </button>
-      </div>
-      <p className="text-[10px] text-warm-gray/70 mb-2 font-normal leading-snug">
-        Applies to the on-route segment after this stop (flag-stop / hail-and-ride between stops).
-      </p>
-      <div className="space-y-2">
-        {renderSelect('Continuous pickup', 'continuous_pickup', pickup, routePickup)}
-        {renderSelect('Continuous drop-off', 'continuous_drop_off', dropOff, routeDropOff)}
-      </div>
-      <p className="text-[10px] text-warm-gray/80 mt-2 font-normal">
-        Overrides the route default. Applies to every trip on this route. Leave on “Inherit” for normal fixed stops.
-      </p>
-    </div>
-  );
-}
-
-/** Skipped-stop cell: the trip does NOT serve this stop, so there's no
- *  stop_time row. Rendered as a muted, struck "SKIP" chip that's clearly
- *  distinct from a blank-but-served (interpolated) cell. Clicking it restores
- *  the stop as served (a blank, no-time row the user can then time). Width
- *  matches the time inputs so toggling doesn't reflow the column. */
-function SkippedCell({ onRestore, compact }: { onRestore: () => void; compact?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onRestore}
-      title="This trip skips this stop (no stop_times row is exported). Click to serve it again."
-      aria-label="Stop skipped on this trip. Click to serve it again."
-      className={`${compact ? 'w-[6.25rem]' : 'w-20'} py-1 text-[10px] font-semibold tracking-wide rounded border border-dashed border-sand text-warm-gray/45 line-through hover:text-coral hover:border-coral hover:no-underline transition-colors`}
-    >
-      SKIP
-    </button>
-  );
-}
-
-/** Time cell with local editing state — formats on blur, red outline if invalid */
-function TimeCell({
-  value,
-  onCommit,
-  inputRef: externalRef,
-  onKeyDown,
-  timeError,
-  compact,
-}: {
-  value: string; // stored arrival_time (HH:MM:SS or raw)
-  onCommit: (normalized: string) => void;
-  inputRef?: (el: HTMLInputElement | null) => void;
-  onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
-  timeError?: boolean;
-  /** Narrower variant used inside SplitTimeCell where two cells share a column. */
-  compact?: boolean;
-}) {
-  const [localValue, setLocalValue] = useState<string | null>(null);
-  const [invalid, setInvalid] = useState(false);
-  const localValueRef = useRef<string | null>(null);
-  const inputElRef = useRef<HTMLInputElement | null>(null);
-
-  const displayValue = value ? formatTimeShort(value) : '';
-  const isEditing = localValue !== null;
-
-  const commit = useCallback(() => {
-    const raw = localValueRef.current;
-    if (raw === null) return;
-    const trimmed = raw.trim();
-    localValueRef.current = null;
-    if (!trimmed) {
-      onCommit('');
-      setInvalid(false);
-    } else {
-      const normalized = normalizeTimeInput(trimmed);
-      if (normalized) {
-        onCommit(normalized);
-        setInvalid(false);
-      } else {
-        setInvalid(true);
-      }
-    }
-  }, [onCommit]);
-
-  const handleFocus = () => {
-    setLocalValue(displayValue);
-    localValueRef.current = displayValue;
-    setInvalid(false);
-    // Select contents after React re-renders with the local value
-    requestAnimationFrame(() => inputElRef.current?.select());
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalValue(e.target.value);
-    localValueRef.current = e.target.value;
-  };
-
-  const handleBlur = () => {
-    commit();
-    setLocalValue(null);
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    // Commit before Tab/Enter so the value is saved before focus moves
-    if (e.key === 'Tab' || e.key === 'Enter') {
-      commit();
-      setLocalValue(null);
-    }
-    onKeyDown?.(e);
-  };
-
-  return (
-    <input
-      ref={(el) => {
-        inputElRef.current = el;
-        externalRef?.(el);
-      }}
-      value={isEditing ? localValue : displayValue}
-      onChange={handleChange}
-      onFocus={handleFocus}
-      onBlur={handleBlur}
-      onKeyDown={handleKeyDown}
-      placeholder="--:--"
-      className={`${compact ? 'w-12 px-1' : 'w-20 px-1.5'} py-1 text-xs rounded border hover:border-sand focus:border-coral focus:outline-none bg-transparent tabular-nums
-        ${invalid || timeError ? 'border-red-400 bg-red-50' : 'border-transparent'}`}
-    />
-  );
-}
-
-/** Two stacked time inputs (arrival on top, departure below) used when the
- *  Arr / Dep toggle is on. Layout matches TimeCell width so column widths
- *  don't reflow when the toggle flips. */
-function SplitTimeCell({
-  arrival,
-  departure,
-  onCommitArrival,
-  onCommitDeparture,
-  inputRef: externalRef,
-  onKeyDown,
-  timeError,
-}: {
-  arrival: string;
-  departure: string;
-  onCommitArrival: (normalized: string) => void;
-  onCommitDeparture: (normalized: string) => void;
-  inputRef?: (el: HTMLInputElement | null) => void;
-  onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
-  timeError?: boolean;
-}) {
-  return (
-    <div className="flex flex-row items-center gap-0.5">
-      <TimeCell
-        value={arrival}
-        onCommit={onCommitArrival}
-        inputRef={externalRef}
-        onKeyDown={onKeyDown}
-        timeError={timeError}
-        compact
-      />
-      <span className="text-warm-gray text-[9px] shrink-0">→</span>
-      <TimeCell
-        value={departure}
-        onCommit={onCommitDeparture}
-        compact
-      />
-    </div>
-  );
-}
-
-/** Editable trip ID cell with uniqueness validation */
-function TripIdCell({ tripId, allTripIds, onRename }: {
-  tripId: string;
-  allTripIds: string[];
-  onRename: (newId: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [localValue, setLocalValue] = useState(tripId);
-  const isDuplicate = !editing && allTripIds.filter((id) => id === tripId).length > 1;
-
-  const handleFocus = () => {
-    setEditing(true);
-    setLocalValue(tripId);
-  };
-
-  const handleBlur = () => {
-    setEditing(false);
-    const trimmed = localValue.trim();
-    if (!trimmed || trimmed === tripId) return;
-    // Check uniqueness before renaming
-    if (allTripIds.some((id) => id === trimmed && id !== tripId)) return;
-    onRename(trimmed);
-  };
-
-  return (
-    <td className="sticky left-0 bg-white px-1 py-0.5 font-semibold text-dark-brown border-b border-[#F5F0EB] z-10">
-      <input
-        value={editing ? localValue : tripId}
-        onChange={(e) => setLocalValue(e.target.value)}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-        className={`w-full px-1.5 py-1 text-xs rounded border hover:border-sand focus:border-coral focus:outline-none bg-transparent font-semibold
-          ${isDuplicate ? 'border-red-400 bg-red-50' : 'border-transparent'}`}
-        title={isDuplicate ? 'Duplicate trip ID' : tripId}
-      />
-    </td>
-  );
-}
-
-/** Direction dropdown for routes with no shapes yet (in-progress feeds).
- *  Routes that have shapes use the shape-based PatternSelector instead. */
-function RouteSelect({
-  routes,
-  selectedRouteId,
-  onChange,
-}: {
-  routes: Route[];
-  selectedRouteId: string | null;
-  onChange: (routeId: string | null) => void;
-}) {
-  return (
-    <select
-      value={selectedRouteId || ''}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="px-2 py-1 border border-sand rounded-md text-xs font-semibold bg-cream focus:outline-none focus:border-coral"
-    >
-      {routes.map((r) => (
-        <option key={r.route_id} value={r.route_id}>
-          {r.route_short_name || r.route_long_name || r.route_id}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function DirectionSelect({
-  directionId,
-  onChange,
-  route,
-}: {
-  directionId: 0 | 1;
-  onChange: (d: 0 | 1) => void;
-  route?: Route | null;
-}) {
-  return (
-    <select
-      value={directionId}
-      onChange={(e) => onChange(Number(e.target.value) as 0 | 1)}
-      className="px-2 py-1 border border-sand rounded-md text-xs font-semibold bg-cream focus:outline-none focus:border-coral"
-    >
-      <option value={0}>{directionName(route, 0)}</option>
-      <option value={1}>{directionName(route, 1)}</option>
-    </select>
   );
 }
