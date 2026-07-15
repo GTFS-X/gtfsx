@@ -56,6 +56,7 @@ export function ProfilePage() {
   // staff viewers; we also hide the control on the staff member's own profile.
   const showModeration = !!currentUser?.staff && currentUser.id !== userId;
   const bannedUntil = data.bannedUntil ?? null;
+  // eslint-disable-next-line react-hooks/purity -- ban status compares the expiry against the current wall-clock time
   const isBanned = typeof bannedUntil === 'number' && bannedUntil > Date.now();
   const indefinite = bannedUntil != null && bannedUntil >= INDEFINITE_BAN_UNTIL;
 

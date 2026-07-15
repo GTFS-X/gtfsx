@@ -583,6 +583,7 @@ export function PublishPanel() {
                   <input
                     type="datetime-local"
                     value={scheduleAt}
+                    // eslint-disable-next-line react-hooks/purity -- the min bound is the current wall-clock time plus two minutes
                     min={toLocalDatetimeInput(Date.now() + 2 * 60_000)}
                     onChange={(e) => setScheduleAt(e.target.value)}
                     className="w-full px-3 py-2 border-2 border-sand rounded-lg bg-cream text-sm text-dark-brown focus:outline-none focus:border-coral focus:bg-white"
