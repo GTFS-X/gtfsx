@@ -271,7 +271,7 @@ Design rationale is preserved in the decisions appendix of the archived
 
 ## 5. Live environment state
 
-**As of 2026-05-30.** Keep this section current when deployed state changes.
+**As of 2026-07-15.** Keep this section current when deployed state changes.
 
 ### Production — LIVE
 
@@ -312,7 +312,8 @@ Design rationale is preserved in the decisions appendix of the archived
   live-mode Stripe in a coordinated deploy.)
 - D1 `gtfs-builder` (`cfb27d4e-…`), KV (`da2476e5…`), R2 `gtfs-builder-feeds`
   + `gtfs-builder-forum-images`, tiles in `gtfs-builder-tiles`. Migrations
-  **0001–0023 applied** (the line previously said 0001–0018 and had drifted).
+  **0001–0026 applied** (verified against `d1_migrations` 2026-07-15; this line
+  has drifted twice before — check the table, not this doc, before applying).
 - **Demand-dot pipeline rebuilt to ATTRIBUTE DOTS (2026-07-13), PUBLISHED and
   serving.** Archive `us-2026e`. This is a **tile schema change, not
   a reissue**: a dot is now one PERSON carrying a packed flag bitmask in an
@@ -323,19 +324,13 @@ Design rationale is preserved in the decisions appendix of the archived
   - Pipeline (`build_dots.py`, `joint_flags.py`, `puma_union.py`,
     `build_puma_corrections.py`, `verify_tiles.py`, `demand-legend.json`) and the
     frontend consumer (`demandCategories.ts`, `demandLegend.ts`,
-    `DemandDotsLayer.tsx`, `MapLayerControls.tsx`) are rewritten in the working
-    tree and **entirely uncommitted**, on branch
-    `feat/demand-dots-demographic-layers`.
-  - **A nationwide re-tile is in progress.** The prior local artifacts
-    (`tiles/mt-2026d.pmtiles` 17.0 MB, `tiles/ldjson/dots_MT.ldjson` + sidecar)
-    were from the *previous* class-per-segment schema—sidecar `archive:
-    us-2026d`, `config_hash 0aec3e55aff8` against the current `6179fb9f9380`,
-    no `code_dots` key, so `verify_tiles.py` rejects it outright as "a
-    PRE-ATTRIBUTE-DOTS sidecar"—so `build_all_states.sh` is rebuilding all 51
-    states + DC + PR from scratch, as intended. (Montana was built and
-    measured under the new schema during development at **7.3 MB**, a 2.23x
-    shrink against the 17.0 MB `us-2026d` build, but that archive is not on
-    disk.)
+    `DemandDotsLayer.tsx`, `MapLayerControls.tsx`) are **merged to `main` and
+    deployed** (branch `feat/demand-dots-demographic-layers`, landed via the
+    2026-07-13/14 merges).
+  - **The nationwide re-tile is done** — all 51 states + DC + PR rebuilt from
+    scratch under the attribute-dots schema (the prior `us-2026d`-era local
+    artifacts were pre-attribute-dots and were correctly rejected by
+    `verify_tiles.py`); the rebuild fed the `us-2026f` archive below.
   - **`us-2026e` is published** to R2 `gtfs-builder-tiles` as `us-2026e.pmtiles`
     (1,369,832,025 bytes, uploaded 2026-07-13 via rclone — wrangler cannot, see
     Appendix A), and verified serving HTTP 200 from prod at
@@ -344,30 +339,30 @@ Design rationale is preserved in the decisions appendix of the archived
     "1 dot = N people" is true at every zoom. `us-2026b` (the original 3-class
     tileset, 6.6 GB) is left in the bucket as a rollback; `us-2026c` and
     `us-2026d` were never published.
-  - **`us-2026f` — BUILT + VERIFIED LOCALLY, NOT YET UPLOADED (2026-07-14).**
-    Same tile schema as `us-2026e`; the ZOOM LADDER is 4x denser (full density at
-    z13 instead of z15 — see the ladder table above). `us-2026e`'s ladder had been
-    sized against a model of the worst tile that was ~3x too conservative, so the
-    map was far sparser than the tile budget required; the new ladder is sized
-    against the decoded archive and the heaviest tile in the country is 313k
-    features / 1.06 MB (Manhattan) against caps of 400k / 2.0 MB. It passes
-    `verify_tiles.py` — nothing thinned. **`demand-legend.json` in this repo now
-    names `us-2026f`, so prod will 404 every demand tile until the archive is
-    uploaded to R2.** Upload it (rclone — see Appendix A) BEFORE this lands on
-    `main`, or ship the two together. `us-2026e` stays in the bucket as rollback.
+  - **`us-2026f` — PUBLISHED and SERVING (uploaded 2026-07-14, verified from
+    prod 2026-07-15).** Same tile schema as `us-2026e`; the ZOOM LADDER is 4x
+    denser (full density at z13 instead of z15 — see the ladder table above).
+    `us-2026e`'s ladder had been sized against a model of the worst tile that
+    was ~3x too conservative; the new ladder is sized against the decoded
+    archive and the heaviest tile in the country is 313k features / 1.06 MB
+    (Manhattan) against caps of 400k / 2.0 MB. It passes `verify_tiles.py` —
+    nothing thinned. Uploaded via rclone as `us-2026f.pmtiles` (2,334,493,893
+    bytes, confirmed in the bucket listing), and
+    `/_demand-tiles/us-2026f/{z}/{x}/{y}.pbf` returns HTTP 200 from prod.
+    `us-2026e` stays in the bucket as rollback.
   - Publishing still requires the tile build (piped through `--cat-verified`,
     never a bare `cat`—see Appendix A) to pass `verify_tiles.py`, then an
     rclone upload (wrangler hard-fails above 300 MiB; the pmtiles archive is
     ~1.28 GiB—see the Demand-dot regen runbook in Appendix A). Do not consider
     the redesign live until both have happened.
-- **Coverage block layer schema change — BUILT, UPLOADED, VERIFIED
-  (2026-07-13).** The new schema retires `riders` and adds `carless`,
-  `disability`, `prop_all`, `need_all` (PUMS-derived ridership-propensity /
-  transit-need unions). `coverage-pipeline/build_coverage_blocks.py` and the
-  frontend consumers (`blockCoverage.ts`, `walkshedProfile.ts`,
-  `demographics.ts`, `CoveragePanel.tsx`, `WalkshedProfileTable.tsx`) are
-  committed on branch `feat/demand-dots-demographic-layers` (unmerged).
-  Status:
+- **Coverage block layer schema change — LIVE end to end (client merged and
+  deployed; layer verified from prod 2026-07-15).** The new schema retires
+  `riders` and adds `carless`, `disability`, `prop_all`, `need_all`
+  (PUMS-derived ridership-propensity / transit-need unions).
+  `coverage-pipeline/build_coverage_blocks.py` and the frontend consumers
+  (`blockCoverage.ts`, `walkshedProfile.ts`, `demographics.ts`,
+  `CoveragePanel.tsx`, `WalkshedProfileTable.tsx`) are merged to `main`
+  (`COVERAGE_REGION = 'us-v2'` is what prod serves). Status:
   - **The R2 key is versioned, not overwritten in place.** The client reads
     `COVERAGE_REGION` (`src/services/blockCoverage.ts`) = `us-v2`, not a bare
     `us`, so the nationwide rebuild shipped to a **new** object,
@@ -392,21 +387,21 @@ Design rationale is preserved in the decisions appendix of the archived
     the bucket listing (`rclone lsl r2:gtfs-builder-tiles/coverage/`), not
     just the upload command's exit code—a piped `rclone … | tail` reports
     `tail`'s exit status, not rclone's, so that distinction mattered today.
-  - **`coverage/us.fgb` (the old schema) is untouched** and is the rollback:
-    prod's currently-deployed client still reads it exclusively until the
-    client change (`COVERAGE_REGION = 'us-v2'`) merges and deploys.
-    `loadBlocksInBbox()` throws `CoverageLayerSchemaError` if a served `.fgb`
-    ever lacks the union columns, so a stale/old layer degrades to the
-    block-group path (counts only, no propensity/need estimate) rather than
-    rendering `prop_all` as a confident `0`.
+  - **`coverage/us.fgb` (the old schema) is untouched** and remains in the
+    bucket as the rollback for a client rollback. `loadBlocksInBbox()` throws
+    `CoverageLayerSchemaError` if a served `.fgb` ever lacks the union
+    columns, so a stale/old layer degrades to the block-group path (counts
+    only, no propensity/need estimate) rather than rendering `prop_all` as a
+    confident `0`.
   - **The old layer also under-counted.** Independent per-column rounding in
     the apportionment destroyed rare attributes: measured on Montana, the
     live `coverage/us.fgb` is short **-10.2% of zero-vehicle households** (a
     Title VI equity numerator) and **-5.7% of carless residents**. Fixed with
     largest-remainder apportionment; `us-v2.fgb` carries the fix, but it only
     reaches prod once the client redeploys reading the new key.
-  - Once prod is confirmed running the client that reads `us-v2`, the old
-    `coverage/us.fgb` object may be deleted from R2.
+  - Prod is confirmed running the `us-v2` client (2026-07-15), so the old
+    `coverage/us.fgb` object is now eligible for deletion from R2. It has NOT
+    been deleted — that's an operator call, not an automatic step.
 - **GTFS-Realtime Service Alerts (BE-90..93)** live since 2026-05-30 — Agency+
   authoring under `/api/projects/:id/alerts`, public serving at
   `feeds.*/<slug>/alerts.pb` + `/alerts.json`.
@@ -485,6 +480,20 @@ Design rationale is preserved in the decisions appendix of the archived
   is not bound to the Worker: `wrangler` has no command for redirect
   rules/rulesets, so changing it requires the Cloudflare dashboard or a
   direct API call.
+- **NTD-ID alignment live since 2026-07-12/13** (merged from
+  `feat/ntd-id-alignment`; migrations 0024 + 0025 applied to prod D1; a
+  post-merge svt-demo publish on 2026-07-13 succeeded, confirming the path).
+  Adds the agency-level **NTD / External ID** (`agency.external_id`, edited in
+  the Agency panel and always exported as an `external_id` column on
+  `agency.txt`), the feed license (`license_spdx`), the `dmfr.json` route on
+  the feeds origin (one operator per agency, `tags.us_ntd_id` when set), the
+  `agencies[]` array in `feed_info.json`, the `agency_id_churn` publish gate,
+  the NTD `agency_id` validator warnings, the P-50 helper panel, and the
+  scheduled-publish gate-hole fix (schedule endpoint runs the same
+  `rt_breakage`/`agency_id_churn` gates; acks persist on `scheduled_publish`
+  and the cron replays them). **Residual gap:** svt-demo has not been
+  republished with an example `external_id`/license, so no live feed
+  demonstrates the crosswalk yet (the routes serve, with those keys omitted).
 - The project owner's account (`mark@gtfsx.com`) is staff + enterprise.
   Pre-launch D1 backup under `backups/` (gitignored).
 - **Rollback:** `BILLING_ENABLED=false` disables paid checkout/portal but leaves
@@ -497,33 +506,21 @@ Design rationale is preserved in the decisions appendix of the archived
 Work that exists in the repo but is **not** live in production. Delete an entry
 from here when it ships, and fold it into the Production list above.
 
-- **NTD-ID alignment** — branch `feat/ntd-id-alignment`, **not merged, not
-  deployed.** Adds the agency-level **NTD / External ID** (`agency.external_id`,
-  edited in the Agency panel and always exported as an `external_id` column on
-  `agency.txt`), the feed license, the `dmfr.json` route on the feeds origin
-  (one operator per agency), the `agencies[]` array in `feed_info.json`, the
-  `agency_id_churn` publish gate, the NTD `agency_id` validator warnings, and
-  the P-50 helper panel. It also closes the **scheduled-publish gate hole**: the
-  schedule endpoint now runs the same `rt_breakage` / `agency_id_churn` gates
-  and returns the same 409s, so the user acknowledges while present; the acks
-  persist on `scheduled_publish` and the cron replays them (it still re-runs the
-  gates, so churn introduced after scheduling fails the row rather than
-  publishing unacknowledged).
-  **Two migrations are NOT applied to prod D1 — `0024_feed_license.sql` and
-  `0025_scheduled_publish_acks.sql`.** Apply both first, per the §7 pre-push
-  checklist ("migrations applied on prod first"): without 0024 the publish path
-  500s on the missing `license_spdx` column, and without 0025 the schedule
-  endpoint, `GET /publish/history` (it serializes the acks) and the
-  scheduled-publish cron all 500 on the missing `ignore_rt_breakage` /
-  `ignore_agency_churn` columns. (Neither adds an NTD-ID column: the ID lives
-  inside the feed state.)
+- Nothing at the moment (2026-07-15). The NTD-ID alignment entry that lived
+  here shipped and moved to the Production list above.
 
 ### Staging — PARKED (since 2026-05-16)
 
 Infra still exists (`gtfs-builder-staging`, `staging[-feeds].gtfsx.com`, separate
 D1/KV/R2) but is **not auto-deployed**. Use as a manual rehearsal env for risky
 changes: `npm run build && unset CLOUDFLARE_API_TOKEN && npx wrangler deploy --env staging`.
-Staging runs test-mode Stripe and both `*_ENABLED` flags true.
+Staging runs test-mode Stripe and both `*_ENABLED` flags true. Staging D1 is
+migrated through 0026 (checked 2026-07-15). Last manual deploy 2026-07-15:
+current `main` plus an UNTRACKED `public/catalog.json` (the static
+MobilityData catalog-endpoint demo from `feat/catalog-endpoint-demo`, kept
+alive at `staging.gtfsx.com/catalog.json` for the catalog-ingestion
+conversation — issue #47). Any staging redeploy that matters to that URL must
+re-add the file before building, or the demo 404s again.
 
 ### Deploy gotchas (these tripped past deploys)
 
