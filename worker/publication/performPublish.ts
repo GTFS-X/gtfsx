@@ -100,7 +100,7 @@ export async function performPublish(env: Env, input: PerformPublishInput): Prom
 
   // Copy the rendered ZIP into the publication slot in R2.
   const pubKey = publicationZipKey(project.id, snapshot.id);
-  let publishedBytes = 0;
+  let publishedBytes: number;
   if (incomingZip) {
     await putFeedBlob(env, pubKey, incomingZip, { contentType: 'application/zip' });
     publishedBytes = incomingZip.byteLength;

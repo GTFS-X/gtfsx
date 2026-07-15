@@ -355,14 +355,13 @@ export async function uploadPendingConversions(
     const payload = buildConversionPayload(cfg, batch);
 
     let rowErrors = new Map<number, string>();
-    let batchFatalError: string | null = null;
     try {
       const resp = await postBatch(cfg, accessToken, payload, deps);
       rowErrors = extractRowErrors(resp);
     } catch (err) {
       // Fatal (auth, network, malformed response) — treat every row as
       // failed-this-run so attempts increment and we retry next cron.
-      batchFatalError = err instanceof Error ? err.message : String(err);
+      const batchFatalError = err instanceof Error ? err.message : String(err);
       console.error('[oci] batch POST failed:', batchFatalError);
       for (let j = 0; j < batch.length; j++) {
         rowErrors.set(j, batchFatalError.slice(0, 500));

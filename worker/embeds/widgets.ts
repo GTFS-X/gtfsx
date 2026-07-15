@@ -196,7 +196,7 @@ export async function renderWidgetsLoader(request: Request, env: Env): Promise<R
   try {
     origin = env.FEEDS_ORIGIN ? new URL(env.FEEDS_ORIGIN).origin : '';
   } catch {
-    origin = '';
+    // malformed FEEDS_ORIGIN — keep the '' default and fall back to the request origin below
   }
   if (!origin) origin = new URL(request.url).origin;
 
