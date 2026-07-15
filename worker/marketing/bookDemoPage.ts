@@ -65,7 +65,7 @@ body {
   -webkit-font-smoothing: antialiased;
   min-height: 100vh; display: flex; flex-direction: column;
 }
-.wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px 20px; }
+.wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 20px; }
 .card {
   width: 100%; max-width: 520px; background: #fff;
   border: 1px solid var(--border-strong); border-radius: 16px;
