@@ -231,7 +231,9 @@ export function TimetableToolbar(props: ToolbarProps) {
         <Button variant="secondary" icon="↻" title="Add copies of the last trip at a set interval" onClick={() => onTool('repeat')} disabled={tripCount === 0}>
           Repeat last trip…
         </Button>
-        <span className="flex-1 min-w-[12px]" />
+        {/* Danger action sits with the other trip tools (owner reference), not
+            pushed to the far right — a small gap sets it apart. */}
+        <span className="w-3 shrink-0" aria-hidden="true" />
         <Button variant="ghost" danger onClick={() => onTool('removeall')} disabled={tripCount === 0}>
           Remove all trips
         </Button>
