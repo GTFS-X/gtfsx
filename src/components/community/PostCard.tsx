@@ -52,6 +52,7 @@ export function PostCard({ post, thread, isOp, onUpdate, onDelete, onMarkSolved,
   const isAdmin = !!currentUser?.staff;
   const isThreadAuthor = currentUser?.id === thread.author.id;
 
+  // eslint-disable-next-line react-hooks/purity -- the 30-minute edit window is gated against the current wall-clock time
   const canEdit = (isAdmin || (isAuthor && Date.now() - post.createdAt < 30 * 60 * 1000)) && !post.deletedAt;
   const canDelete = (isAdmin || isAuthor) && !post.deletedAt && !isOp;
   const canMarkSolved = !isOp && !post.deletedAt && (isAdmin || isThreadAuthor);

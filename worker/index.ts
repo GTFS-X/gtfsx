@@ -175,7 +175,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     try {
       feedsHost = env.FEEDS_ORIGIN ? new URL(env.FEEDS_ORIGIN).hostname : null;
     } catch {
-      feedsHost = null;
+      // malformed FEEDS_ORIGIN — keep the null default (no dedicated feeds host)
     }
     if (
       (feedsHost && url.hostname === feedsHost) ||
@@ -201,7 +201,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     try {
       imagesHost = env.IMAGES_ORIGIN ? new URL(env.IMAGES_ORIGIN).hostname : null;
     } catch {
-      imagesHost = null;
+      // malformed IMAGES_ORIGIN — keep the null default (no dedicated image host)
     }
     if (
       (imagesHost && url.hostname === imagesHost) ||

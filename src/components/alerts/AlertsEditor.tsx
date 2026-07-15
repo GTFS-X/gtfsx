@@ -132,6 +132,7 @@ export function AlertsEditor() {
     );
   }
 
+  // eslint-disable-next-line react-hooks/purity -- the current wall-clock time is the intended reference for the alert active-period defaults
   const nowSec = Math.floor(Date.now() / 1000);
 
   async function handleSave(input: AlertInput) {

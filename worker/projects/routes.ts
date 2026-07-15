@@ -129,7 +129,7 @@ function shapeSnapshot(row: SnapshotRow) {
   try {
     summary = JSON.parse(row.summary_json);
   } catch {
-    summary = null;
+    // malformed summary_json — leave summary null
   }
   return {
     id: row.id,
@@ -1609,9 +1609,9 @@ projectsRouter.post('/:id/publish', async (c) => {
 
   const contentType = c.req.header('Content-Type') ?? '';
   let snapshotId: string;
-  let ignoreWarnings = false;
-  let ignoreRtBreakage = false;
-  let ignoreAgencyChurn = false;
+  let ignoreWarnings: boolean;
+  let ignoreRtBreakage: boolean;
+  let ignoreAgencyChurn: boolean;
   // `undefined` = not supplied (leave the recorded license alone);
   // `null` = explicitly cleared.
   let licenseSpdx: string | null | undefined;
@@ -1830,9 +1830,9 @@ projectsRouter.post('/:id/publish/schedule', async (c) => {
   const contentType = c.req.header('Content-Type') ?? '';
   let snapshotId: string;
   let scheduledFor: number;
-  let ignoreWarnings = false;
-  let ignoreRtBreakage = false;
-  let ignoreAgencyChurn = false;
+  let ignoreWarnings: boolean;
+  let ignoreRtBreakage: boolean;
+  let ignoreAgencyChurn: boolean;
   let incomingZip: ArrayBuffer | null = null;
   if (contentType.includes('multipart/form-data')) {
     const parsed = (await c.req.parseBody({ all: false })) as Record<string, string | File>;
@@ -1987,7 +1987,7 @@ projectsRouter.post('/:id/draft-links', async (c) => {
 
   const contentType = c.req.header('Content-Type') ?? '';
   let snapshotId: string;
-  let ttlDays = 30;
+  let ttlDays: number;
   let incomingZip: ArrayBuffer | null = null;
 
   if (contentType.includes('multipart/form-data')) {
