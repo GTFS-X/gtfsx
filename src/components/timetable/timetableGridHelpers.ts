@@ -6,7 +6,6 @@ import { normalizeTimeInput } from '../../utils/time';
    ========================================================================== */
 
 export const TRIP_COL_MIN = 58;
-export const TRIP_COL_MAX = 220;
 export const TRIP_COL_DEFAULT = 78;
 export const COL_MIN = 58;
 export const COL_MAX = 300;
@@ -118,7 +117,10 @@ function focusCell(table: HTMLTableElement, t: number, s: number, part?: string)
 function domProbe(table: HTMLTableElement, part?: string): GridProbe {
   return {
     hasInput: (t, s) => !!table.querySelector(`input[data-ti="${t}"][data-si="${s}"]` + (part ? `[data-part="${part}"]` : '')),
-    rowExists: (t) => !!table.querySelector(`input[data-ti="${t}"]`),
+    // Match the row element (tr[data-ti]), not just inputs, so a read-only
+    // frequency build-out row (item #8) counts as an existing row: keyboard nav
+    // then hops OVER it (no input to land on) instead of halting at it.
+    rowExists: (t) => !!table.querySelector(`[data-ti="${t}"]`),
   };
 }
 
@@ -204,23 +206,33 @@ export function planCascade(params: {
   return { deltaMin, laterIds };
 }
 
-/* ============================================================================
-   Direction / split control state machine (HANDOFF §3)
-   ========================================================================== */
-
-export type DirectionSegmentAction = { type: 'both' } | { type: 'select'; index: number };
-
-/** Which segment of the [pattern | pattern │ ⇄ Both] control is active: the
- *  Both segment (index = patternCount) when the split is open, else the selected
- *  pattern's index. */
-export function directionSegmentValue(oppositeOpen: boolean, selectedIndex: number, patternCount: number): number {
-  return oppositeOpen ? patternCount : Math.max(0, selectedIndex);
+/** Resolve the companion (right) pane's pattern after the main (left) pane's
+ *  pattern changes in Both view: keep the user's EXPLICIT right choice unless it
+ *  now collides with the new left pattern or is no longer a valid pattern — then
+ *  fall back to derived-opposite (null). `prev === null` means already derived.
+ *  Pure state-machine step for the pane direction control (item #7). */
+export function nextCompanionShapeId(
+  prev: string | null,
+  leftShapeId: string | null,
+  patternShapeIds: readonly string[],
+): string | null {
+  if (prev && prev !== leftShapeId && patternShapeIds.includes(prev)) return prev;
+  return null;
 }
 
-/** What clicking segment `index` does: the trailing segment opens the split,
- *  the others select that pattern (and close the split). */
-export function directionSegmentAction(index: number, patternCount: number): DirectionSegmentAction {
-  return index >= patternCount ? { type: 'both' } : { type: 'select', index };
+/** Trip ids a freshly generated batch must avoid colliding with, for minting
+ *  pithy names (item #9). "Add alongside" keeps every existing trip, so new
+ *  names take the next-highest numbers. "Replace" first drops the scope's own
+ *  trips, freeing their numbers for reuse while still dodging trips kept in
+ *  other directions/services. Pure. */
+export function generateExistingIds(
+  allTripIds: readonly string[],
+  scopeTripIds: readonly string[],
+  replace: boolean,
+): Set<string> {
+  if (!replace) return new Set(allTripIds);
+  const doomed = new Set(scopeTripIds);
+  return new Set(allTripIds.filter((id) => !doomed.has(id)));
 }
 
 /* ============================================================================

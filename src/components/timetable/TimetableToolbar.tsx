@@ -6,7 +6,7 @@ import { PatternSelector } from '../ui/ShapePatternSelector';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
 import { Segmented } from '../ui/Segmented';
-import { useDismiss, directionSegmentValue, directionSegmentAction } from './timetableGridHelpers';
+import { useDismiss } from './timetableGridHelpers';
 
 export type ToolId = 'generate' | 'runtime' | 'repeat' | 'removeall';
 
@@ -21,6 +21,12 @@ interface ToolbarProps {
   effectiveShapeId: string | null;
   directionId: 0 | 1;
   tripCount: number;
+  /** Honest departure build-out note ("· K freq → M departures") shown after the
+   *  trip count when a frequency template is in scope; null otherwise (item #8). */
+  departureNote?: string | null;
+  /** Trips the danger "Remove all trips" would clear — both directions when the
+   *  Both split is open, so a companion-only direction isn't trapped. */
+  removeAllCount: number;
   oppositeOpen: boolean;
   onSelectRoute: (id: string | null) => void;
   onSelectService: (id: string) => void;
@@ -87,40 +93,26 @@ function HintPopover() {
   );
 }
 
-/** Direction / trip-pattern control that doubles as the split-view control
- *  (HANDOFF §3): 2 patterns → segmented with a ⇄ Both option; 3+ → dropdown with
- *  an attached ⇄ toggle; 1 → static label; 0 → the shapeless direction toggle. */
+/** Direction / trip-pattern control — pure SELECTION now that split is its own
+ *  button (HANDOFF §3, revised): 3+ patterns → dropdown; 2 → segmented
+ *  [dir | dir]; 1 → static label; 0 → the shapeless direction toggle. Choosing a
+ *  direction never touches the split. */
 function DirectionControl({
-  route, shapes, patterns, effectiveShapeId, directionId, oppositeOpen,
-  onSelectPattern, onSelectDirection, onSetOpposite,
+  route, shapes, patterns, effectiveShapeId, directionId,
+  onSelectPattern, onSelectDirection,
 }: Pick<ToolbarProps,
-  'route' | 'shapes' | 'patterns' | 'effectiveShapeId' | 'directionId' | 'oppositeOpen' |
-  'onSelectPattern' | 'onSelectDirection' | 'onSetOpposite'>) {
-  const canOpposite = patterns.length >= 2;
-
+  'route' | 'shapes' | 'patterns' | 'effectiveShapeId' | 'directionId' |
+  'onSelectPattern' | 'onSelectDirection'>) {
   if (patterns.length >= 3) {
     return (
-      <span className="inline-flex items-stretch shrink-0">
-        <PatternSelector
-          patterns={patterns}
-          selectedShapeId={effectiveShapeId}
-          route={route}
-          shapes={shapes}
-          onChange={onSelectPattern}
-          className="appearance-none h-[30px] pl-2.5 pr-7 rounded-l-md border border-sand bg-white shadow-sm font-heading font-bold text-xs text-dark-brown cursor-pointer hover:border-coral focus:outline-none focus:border-coral max-w-[200px]"
-        />
-        <button
-          type="button"
-          onClick={() => onSetOpposite(!oppositeOpen)}
-          title="Split view — compare another pattern side-by-side"
-          aria-pressed={oppositeOpen}
-          className={`-ml-px h-[30px] px-2.5 rounded-r-md border font-heading font-bold text-[13px] ${
-            oppositeOpen ? 'bg-coral-light border-coral text-[#d4603a]' : 'bg-white border-sand text-warm-gray hover:border-coral hover:text-[#d4603a]'
-          }`}
-        >
-          ⇄
-        </button>
-      </span>
+      <PatternSelector
+        patterns={patterns}
+        selectedShapeId={effectiveShapeId}
+        route={route}
+        shapes={shapes}
+        onChange={onSelectPattern}
+        className="appearance-none h-[30px] pl-2.5 pr-7 rounded-md border border-sand bg-white shadow-sm font-heading font-bold text-xs text-dark-brown cursor-pointer hover:border-coral focus:outline-none focus:border-coral max-w-[200px] shrink-0"
+      />
     );
   }
 
@@ -129,15 +121,10 @@ function DirectionControl({
     const labels = patterns.map((p) => directionName(route, p.directionId));
     return (
       <Segmented
-        value={directionSegmentValue(oppositeOpen, selectedIdx, patterns.length)}
-        options={[...labels, '⇄ Both']}
-        dividerBefore={patterns.length}
-        aria-label="Direction / split view"
-        onChange={(i) => {
-          const action = directionSegmentAction(i, patterns.length);
-          if (action.type === 'both') onSetOpposite(true);
-          else { onSetOpposite(false); onSelectPattern(patterns[action.index]); }
-        }}
+        value={selectedIdx}
+        options={labels}
+        aria-label="Direction"
+        onChange={(i) => onSelectPattern(patterns[i])}
       />
     );
   }
@@ -150,8 +137,7 @@ function DirectionControl({
     );
   }
 
-  // Shapeless in-progress route (0 patterns) — direction-only toggle, no split.
-  void canOpposite;
+  // Shapeless in-progress route (0 patterns) — direction-only toggle.
   return (
     <Select
       value={String(directionId)}
@@ -165,6 +151,39 @@ function DirectionControl({
   );
 }
 
+/** Standalone split-view toggle (HANDOFF §3, revised): opens/closes the
+ *  side-by-side companion pane. Enabled only when the route has ≥2 patterns to
+ *  compare; otherwise shown DISABLED (not hidden) with a teaching tooltip. */
+function SplitViewButton({
+  patterns, oppositeOpen, onSetOpposite,
+}: Pick<ToolbarProps, 'patterns' | 'oppositeOpen' | 'onSetOpposite'>) {
+  const canSplit = patterns.length >= 2;
+  return (
+    <button
+      type="button"
+      disabled={!canSplit}
+      onClick={() => onSetOpposite(!oppositeOpen)}
+      aria-pressed={canSplit && oppositeOpen}
+      title={canSplit
+        ? 'Split view — compare two directions side by side'
+        : 'This route has only one direction — add another to compare'}
+      className={`shrink-0 inline-flex items-center gap-1.5 h-[30px] px-2.5 rounded-md border font-heading font-bold text-xs ${
+        !canSplit
+          ? 'bg-white border-sand text-warm-gray/40 cursor-not-allowed'
+          : oppositeOpen
+            ? 'bg-coral-light border-coral text-[#d4603a]'
+            : 'bg-white border-sand text-warm-gray hover:border-coral hover:text-[#d4603a]'
+      }`}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="1.5" />
+        <line x1="12" y1="4" x2="12" y2="20" />
+      </svg>
+      Split View
+    </button>
+  );
+}
+
 /** Two-row timetable header (HANDOFF §1): row 1 is context + view (route,
  *  service, direction/split, trip count + "?", Edit Stops); row 2 is "Trip
  *  tools" (Generate / Set run time / Repeat, and a right-aligned danger Remove
@@ -173,7 +192,7 @@ function DirectionControl({
 export function TimetableToolbar(props: ToolbarProps) {
   const {
     route, routes, shapes, calendars, activeServiceId, patterns, effectiveShapeId,
-    directionId, tripCount, oppositeOpen,
+    directionId, tripCount, departureNote, removeAllCount, oppositeOpen,
     onSelectRoute, onSelectService, onSelectPattern, onSelectDirection, onSetOpposite,
     onEditStops, onTool,
   } = props;
@@ -202,18 +221,35 @@ export function TimetableToolbar(props: ToolbarProps) {
           patterns={patterns}
           effectiveShapeId={effectiveShapeId}
           directionId={directionId}
-          oppositeOpen={oppositeOpen}
           onSelectPattern={onSelectPattern}
           onSelectDirection={onSelectDirection}
+        />
+        <SplitViewButton
+          patterns={patterns}
+          oppositeOpen={oppositeOpen}
           onSetOpposite={onSetOpposite}
         />
         <span className="inline-flex items-center gap-1.5 text-[12.5px] text-warm-gray whitespace-nowrap">
-          {tripCount} trips
+          {tripCount} trips{departureNote ? ` ${departureNote}` : ''}
           <HintPopover />
         </span>
         <span className="flex-1 min-w-[12px]" />
         <Button variant="ghost" onClick={onEditStops} title="Add or reorder this route's stops">
-          Edit Stops ↗
+          <span>Edit Stops</span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={3.25}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M6 6h12v12" />
+            <path d="M6 18 18 6" />
+          </svg>
         </Button>
       </div>
 
@@ -234,7 +270,7 @@ export function TimetableToolbar(props: ToolbarProps) {
         {/* Danger action sits with the other trip tools (owner reference), not
             pushed to the far right — a small gap sets it apart. */}
         <span className="w-3 shrink-0" aria-hidden="true" />
-        <Button variant="ghost" danger onClick={() => onTool('removeall')} disabled={tripCount === 0}>
+        <Button variant="ghost" danger onClick={() => onTool('removeall')} disabled={removeAllCount === 0}>
           Remove all trips
         </Button>
       </div>

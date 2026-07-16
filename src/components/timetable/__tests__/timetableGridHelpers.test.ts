@@ -3,10 +3,10 @@ import {
   actColWidth,
   computeRowErrors,
   defaultColWidth,
-  directionSegmentAction,
-  directionSegmentValue,
+  generateExistingIds,
   nextCell,
   nextTabCell,
+  nextCompanionShapeId,
   planCascade,
   type GridProbe,
 } from '../timetableGridHelpers';
@@ -83,9 +83,19 @@ const GRID = probe([
   [true, true, true],
 ]);
 
+// A grid whose middle row exists but has NO inputs — a read-only frequency
+// build-out row (item #8). Nav must hop over it, not stop at it.
+const GRID_WITH_VIRTUAL: GridProbe = {
+  hasInput: (t, s) => (t === 0 || t === 2) && s >= 0 && s < 3, // rows 0 and 2 are real
+  rowExists: (t) => t >= 0 && t <= 2,                          // row 1 exists (the tr) but has no inputs
+};
+
 describe('nextCell (↑↓ / ←→)', () => {
   it('moves down within a column', () => {
     expect(nextCell(GRID, { t: 0, s: 0 }, 1, 0)).toEqual({ t: 1, s: 0 });
+  });
+  it('hops over a read-only (input-less) build-out row when moving down', () => {
+    expect(nextCell(GRID_WITH_VIRTUAL, { t: 0, s: 1 }, 1, 0)).toEqual({ t: 2, s: 1 });
   });
   it('hops over a SKIP cell when moving down a column', () => {
     // From trip 0 stop 1, down: trip 1 stop 1 is skipped → land on trip 2 stop 1.
@@ -146,19 +156,51 @@ describe('planCascade', () => {
   });
 });
 
-// ── Direction / split control state machine ──────────────────────────────────
-describe('direction segment control', () => {
-  it('lights the Both segment (index = patternCount) when the split is open', () => {
-    expect(directionSegmentValue(true, 0, 2)).toBe(2);
+// ── Companion (right) pane pattern preservation in Both view (item #7) ────────
+describe('nextCompanionShapeId', () => {
+  const patterns = ['out', 'in', 'branch'];
+
+  it('stays derived (null) when already derived and the left changes', () => {
+    expect(nextCompanionShapeId(null, 'in', patterns)).toBeNull();
   });
-  it('lights the selected pattern when the split is closed', () => {
-    expect(directionSegmentValue(false, 1, 2)).toBe(1);
+
+  it('keeps an explicit right choice when the left moves to a different pattern', () => {
+    // left → 'out', right explicitly 'branch' (≠ left, valid) → preserved.
+    expect(nextCompanionShapeId('branch', 'out', patterns)).toBe('branch');
   });
-  it('opens the split when the trailing Both segment is clicked', () => {
-    expect(directionSegmentAction(2, 2)).toEqual({ type: 'both' });
+
+  it('falls back to derived when the left collides with the right choice', () => {
+    // user drives the left onto the right pane's pattern → right re-derives.
+    expect(nextCompanionShapeId('in', 'in', patterns)).toBeNull();
   });
-  it('selects a pattern (and closes the split) for the other segments', () => {
-    expect(directionSegmentAction(0, 2)).toEqual({ type: 'select', index: 0 });
-    expect(directionSegmentAction(1, 2)).toEqual({ type: 'select', index: 1 });
+
+  it('falls back to derived when the explicit choice is no longer a valid pattern', () => {
+    expect(nextCompanionShapeId('gone', 'out', patterns)).toBeNull();
+  });
+
+  it('models a swap: old-left becomes the explicit right and survives the left change', () => {
+    // Swap sets left='in', right=old-left='out'. After the left-change effect,
+    // 'out' ≠ 'in' and valid → the right keeps the swapped pattern.
+    expect(nextCompanionShapeId('out', 'in', patterns)).toBe('out');
+  });
+});
+
+// ── Generate: which existing ids new trips must dodge (item #9) ───────────────
+describe('generateExistingIds', () => {
+  const all = ['Blue-1', 'Blue-2', 'Blue-3', 'Blue-4-in']; // -in kept in the other direction
+  const scope = ['Blue-1', 'Blue-2', 'Blue-3'];
+
+  it('Add alongside keeps every existing id (new names take next-highest)', () => {
+    expect(generateExistingIds(all, scope, false)).toEqual(new Set(all));
+  });
+
+  it('Replace frees the scope ids for reuse but still dodges kept trips', () => {
+    // The three scope trips go away → only the other-direction trip is left, so
+    // the fresh batch can re-mint Blue-1..3.
+    expect(generateExistingIds(all, scope, true)).toEqual(new Set(['Blue-4-in']));
+  });
+
+  it('Replace with nothing else in the feed frees all numbers', () => {
+    expect(generateExistingIds(scope, scope, true)).toEqual(new Set());
   });
 });
