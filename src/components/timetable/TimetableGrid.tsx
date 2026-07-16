@@ -727,6 +727,15 @@ export function TimetableGrid() {
 
       <div className="flex-1 min-h-0 flex">
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
+          {/* In split view the main pane gets its own static direction header
+              (HANDOFF §3), matching the companion header's height/style so both
+              grids' column rows line up for the outbound/inbound compare. */}
+          {oppositeOpen && (
+            <div className="shrink-0 flex items-center gap-2 px-3.5 h-[47px] border-b border-sand bg-cream font-heading font-extrabold text-xs text-dark-brown">
+              <span>Direction {directionId} · {directionName(route, directionId)}</span>
+              <span className="font-body font-normal text-[12.5px] text-warm-gray">{routeTrips.length} trips</span>
+            </div>
+          )}
           {renderMainPane()}
         </div>
         {oppositeOpen && (
