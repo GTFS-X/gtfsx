@@ -39,15 +39,16 @@
       section { padding: 56px 24px; }
       section > .inner { max-width: 880px; margin: 0 auto; }
       @media (max-width: 640px) { section { padding: 36px 20px; } }
-      .crumbs { color: var(--muted); font-size: 14px; margin-bottom: 16px; }
-      .crumbs a { color: var(--muted); text-decoration: none; }
-      .crumbs a:hover { color: var(--ink); }
-      .hero { padding-top: 56px; padding-bottom: 32px; }
-      .hero h1 { font-size: clamp(26px, 5vw, 46px); line-height: 1.15; letter-spacing: -0.015em; margin: 0 0 16px; text-wrap: balance; }
-      .hero .subhead { font-size: clamp(17px, 2.2vw, 21px); color: var(--muted); margin: 0 0 28px; max-width: 760px; }
+      .hero { padding-top: 36px; padding-bottom: 24px; }
+      .hero h1 { font-size: clamp(26px, 5vw, 44px); line-height: 1.15; letter-spacing: -0.015em; margin: 0 0 14px; text-wrap: balance; }
+      .hero .subhead { font-size: clamp(17px, 2.2vw, 21px); color: var(--ink); margin: 0 0 10px; max-width: 760px; }
+      .hero .subhead-support { font-size: clamp(15px, 1.9vw, 17px); color: var(--muted); margin: 0 0 22px; }
+      .price-strip { color: var(--muted); font-size: 14px; font-weight: 600; margin: 14px 0 0; }
       .cta-row { display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
       .btn-primary { background:var(--accent); color:var(--accent-ink); padding:14px 24px; border-radius:8px; text-decoration:none; font-weight:700; font-size:17px; display:inline-flex; align-items:center; min-height:48px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
       .btn-primary:hover { filter: brightness(0.96); }
+      .btn-trial { color:var(--muted); text-decoration:underline; font-weight:500; font-size:14px; padding:10px 4px; }
+      .btn-trial:hover { color:var(--ink); }
       .btn-secondary { color:var(--muted); text-decoration:none; font-weight:600; padding:10px 8px; }
       .btn-secondary:hover { color:var(--ink); }
       .tools { background:#fff; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
@@ -139,16 +140,6 @@
     <script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": "BreadcrumbList",
-  "itemListElement": [
-    { "@type": "ListItem", "position": 1, "name": "GTFS·X", "item": "https://www.gtfsx.com/" },
-    { "@type": "ListItem", "position": 2, "name": "Planner", "item": "https://www.gtfsx.com/planning/" }
-  ]
-}
-    </script>
-    <script type="application/ld+json">
-{
-  "@context": "https://schema.org",
   "@type": "FAQPage",
   "mainEntity": [
     { "@type": "Question", "name": "How does GTFS·X Planner compare to Remix?", "acceptedAnswer": { "@type": "Answer", "text": "Same core map-based planning, demographics, and Title VI, at roughly 1/6 the annual cost ($2,988 vs. $20K+). The trade-off: GTFS·X is leaner, with fewer enterprise features (multi-user permissioning, white-label, professional services), but the planning fundamentals are equivalent. See /compare/remix/ for details." } },
@@ -166,10 +157,6 @@
       <a href="/" class="brand" aria-label="GTFS·X home">
         <img src="/gtfsx-lockup.svg" alt="GTFS·X" />
       </a>
-      <nav>
-        <a href="/pricing/">Pricing</a>
-        <a href="/docs/">Docs</a>
-      </nav>
       <div class="actions">
         <a href="/book-demo?src=planning_header" class="cta" data-cta="planning_header_demo">Book a demo</a>
       </div>
@@ -178,69 +165,66 @@
     <main>
       <section class="hero">
         <div class="inner">
-          <nav class="crumbs"><a href="/">GTFS·X</a> · Planner</nav>
-          <h1>GTFS·X Planner: the service-planning suite for transit agencies</h1>
-          <p class="subhead">The same feed you edit is the feed you analyze. Cost, coverage, equity, stop spacing, and demand—computed straight from your GTFS, with no GIS to set up and nothing uploaded anywhere. Methodology you can put in a board memo or a grant narrative, at a fraction of what a planning platform costs.</p>
+          <h1>Transit planning software that runs on the feed you already have</h1>
+          <p class="subhead">Coverage, cost, and Title VI equity analysis in one click—at a fraction of the cost of Remix or Optibus.</p>
+          <p class="subhead subhead-support">No GIS to set up, nothing uploaded anywhere: every number is computed in your browser, straight from your GTFS.</p>
           <div class="cta-row">
             <a href="/book-demo?src=planning_hero" class="btn-primary" data-cta="planning_hero_demo">Book a 30-min demo</a>
-            <a href="/pricing/#agency" class="btn-secondary" data-cta="planning_hero_trial">or start a 14-day free trial</a>
+            <a href="/pricing?plan=agency&amp;interval=year" class="btn-trial" data-cta="planning_hero_trial">or start a 14-day free trial</a>
           </div>
+          <p class="price-strip">$2,988/yr — about 1/6 the cost of Remix. Small enough for a P-card, no RFP.</p>
         </div>
       </section>
 
       <section class="demo">
         <div class="inner">
           <div class="video-wrap">
-            <video controls preload="metadata" poster="/assets/docs/demographic-coverage-hero.png" playsinline>
+            <video controls preload="metadata" poster="/assets/planning/video-poster.png" playsinline>
               <source src="https://videos.gtfsx.com/lp_planning_demo-v2.mp4" type="video/mp4" />
               <track kind="captions" src="/planning/captions.vtt" srclang="en" label="English" default />
               Your browser can&#39;t play HTML5 video. <a href="https://videos.gtfsx.com/lp_planning_demo-v2.mp4">Download the demo (MP4)</a>.
             </video>
           </div>
-          <p class="video-note">2-minute demo: laying out a route, overlaying ACS demographics, and running a Title VI report.</p>
+          <p class="video-note">Watch the demo: laying out a route, overlaying demographics, and running a Title VI report.</p>
         </div>
       </section>
 
       <section class="tools">
         <div class="inner">
           <div class="tool">
-            <img class="shot" src="/assets/planning/operating-cost-estimates.png" width="1280" height="792" loading="lazy" decoding="async" alt="GTFS·X Costs panel showing weekly revenue hours, peak vehicle count, and weekly and annual operating cost, with a per-route cost-per-hour breakdown." />
+            <img class="shot" src="/assets/planning/operating-cost-estimates.png" width="1280" height="792" loading="eager" decoding="async" alt="GTFS·X Costs panel showing weekly revenue hours, peak vehicle count, and weekly and annual operating cost, with a per-route cost-per-hour breakdown." />
             <h2>Operating cost estimates</h2>
             <p>Answer "what does this service cost?" directly from the schedule. GTFS·X reads every revenue hour in the feed, computes the peak vehicle count, and multiplies by a cost-per-revenue-hour you control: per-route and system-wide weekly and annual figures, with one-click CSV export. Set your own loaded labor rate (NTD operating expense per vehicle-revenue-hour is a defensible starting point) and a deadhead factor for platform time. Compare a proposed alternative against today's service with a saved snapshot.</p>
-            <p class="doclink"><a href="/docs/cost-estimation/">Read the cost-estimation docs →</a></p>
           </div>
 
           <div class="tool">
             <img class="shot" src="/assets/planning/demographic-coverage.png" width="1280" height="792" loading="lazy" decoding="async" alt="GTFS·X Coverage panel showing population, households, and workers within walking distance of stops, with a demographic profile table sourced from US Census ACS data." />
             <h2>Demographic coverage</h2>
             <p>Population, households, and workers within walking distance of your stops, from US Census ACS five-year data, apportioned by buffering each stop (quarter-mile bus, half-mile rail) and overlapping the Census block groups it touches. Per-route and system-wide totals, the kind of number FTA discretionary programs ask for.</p>
-            <p class="doclink"><a href="/docs/demographic-coverage/">Read the demographic-coverage docs →</a></p>
           </div>
 
           <div class="tool">
             <img class="shot" src="/assets/planning/title-vi.png" width="1280" height="792" loading="lazy" decoding="async" alt="GTFS·X Title VI panel comparing average daily trips in minority versus non-minority block groups, reporting an equity ratio against the FTA four-fifths standard." />
             <h2>Title VI equity analysis</h2>
             <p>Run an equity check while you're still designing the change. GTFS·X compares trips-per-capita in minority vs non-minority block groups (ACS B03002) and reports an equity ratio against the four-fifths (0.80) convention from FTA Circular 4702.1B, with green/amber/red banding. Run it on the current feed and the proposed feed and compare.</p>
-            <p class="doclink"><a href="/docs/title-vi-analysis/">Read the Title VI docs →</a></p>
           </div>
 
           <div class="tool">
             <img class="shot" src="/assets/planning/stop-analysis.png" width="1280" height="792" loading="lazy" decoding="async" alt="GTFS·X Stop Analysis panel showing a stop-spacing distribution histogram with median and mean spacing, too-close and too-far counts, and a per-route tightest-spacing table." />
             <h2>Stop analysis</h2>
             <p>Four stop-level diagnostics most agencies never pull from their feed: stop-spacing distribution (against APTA / TransitWiki benchmarks), consolidation candidates with a time-saving estimate each, service intensity per stop, and wheelchair-accessibility completeness. Every table exports to CSV; findings highlight on the map.</p>
-            <p class="doclink"><a href="/docs/stop-analysis/">Read the stop-analysis docs →</a></p>
           </div>
 
           <div class="tool">
             <img class="shot" src="/assets/planning/demand-dots.png" width="1280" height="792" loading="lazy" decoding="async" alt="GTFS·X editor map with the Demand Dots layer enabled, showing blue dots for high-propensity adults and orange dots for jobs across the region, overlaid on the drawn route network." />
             <h2>Rider propensity: Demand Dots <span class="free-tag">Free</span></h2>
             <p>A nationwide map layer showing where transit demand concentrates: blue dots for high-propensity adults (renters, zero-vehicle households, ages 18–24), orange dots for jobs (LEHD LODES), one dot per five people or jobs. Toggle it on while sketching an alignment or sizing a flex zone. Free on every plan.</p>
-            <p class="doclink"><a href="/docs/rider-propensity/">Read the Demand Dots docs →</a></p>
           </div>
 
           <div class="tool">
             <h2>Defensible by design</h2>
             <p>Built for planners who have to defend a number: real Census vintages cited on every result (ACS 2022 5-year for coverage/Title VI; ACS 2020–2024 + LEHD LODES 2023 for Demand Dots); standards not guesses (FTA Circular 4702.1B four-fifths, conventional walk buffers, APTA stop spacing, NTD cost reference); and documentation that states plainly what each tool doesn't capture.</p>
+            <p class="doclink"><a href="/docs/">Read the methodology docs →</a></p>
           </div>
         </div>
       </section>
@@ -363,78 +347,19 @@
           <h2>Plan your next service change from the feed you already have.</h2>
           <div class="cta-row" style="justify-content:center">
             <a href="/book-demo?src=planning_footer" class="btn-primary" data-cta="planning_footer_demo">Book a 30-min demo</a>
-            <a href="/pricing/#agency" class="btn-secondary" data-cta="planning_footer_trial">or start a 14-day free trial</a>
+            <a href="/pricing?plan=agency&amp;interval=year" class="btn-trial" data-cta="planning_footer_trial">or start a 14-day free trial</a>
           </div>
         </div>
       </section>
     </main>
 
-    <style>
-footer.gx-footer { max-width: none; width: 100%; margin: 0; padding: 0; background: #3D2E22; color: #FFF8F0; font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif; box-sizing: border-box; }
-footer.gx-footer * { box-sizing: border-box; }
-footer.gx-footer a { text-decoration: none; }
-footer.gx-footer .gx-wrap { max-width: 1180px; margin: 0 auto; padding: 64px 28px 36px; }
-footer.gx-footer .gx-top { display: grid; grid-template-columns: 1.4fr repeat(4, 1fr); gap: 36px; }
-footer.gx-footer .gx-lockup { height: 28px; width: auto; display: block; margin-bottom: 16px; }
-footer.gx-footer .gx-blurb { font-size: 13.5px; color: rgba(255,248,240,0.6); line-height: 1.55; max-width: 240px; margin: 0; }
-footer.gx-footer .gx-social { display: flex; gap: 10px; margin-top: 18px; }
-footer.gx-footer .gx-social a { width: 34px; height: 34px; border-radius: 9px; background: rgba(255,248,240,0.08); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #FFF8F0; transition: background 0.12s; }
-footer.gx-footer .gx-social a:hover { background: #E8734A; }
-footer.gx-footer .gx-col h4 { font-family: "Nunito", ui-rounded, system-ui, sans-serif; font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,248,240,0.5); margin: 0 0 16px; }
-footer.gx-footer .gx-col a { display: block; font-size: 14px; color: rgba(255,248,240,0.82); margin-bottom: 11px; transition: color 0.12s; }
-footer.gx-footer .gx-col a:hover { color: #E8734A; }
-footer.gx-footer .gx-bottom { max-width: 1180px; margin: 48px auto 0; padding: 24px 28px 0; border-top: 1px solid rgba(255,248,240,0.12); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13px; color: rgba(255,248,240,0.5); }
-footer.gx-footer .gx-mono { font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
-@media (max-width: 780px) { footer.gx-footer .gx-top { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 480px) { footer.gx-footer .gx-top { grid-template-columns: 1fr; } }
-</style>
-<footer class="gx-footer">
-  <div class="gx-wrap">
-    <div class="gx-top">
-      <div>
-        <img class="gx-lockup" src="/gtfsx-lockup-on-dark.svg" alt="GTFS·X" width="100" height="28">
-        <p class="gx-blurb">The fast, easy GTFS editor and service planner. Built for transit agencies, planners, and consultants.</p>
-        <div class="gx-social">
-          <a href="https://twitter.com/gtfsxapp" aria-label="GTFS·X on X">X</a>
-          <a href="https://www.linkedin.com/company/gtfsx" aria-label="GTFS·X on LinkedIn">in</a>
-          <a href="https://github.com/GTFS-X/gtfsx" aria-label="GTFS·X on GitHub">gh</a>
-        </div>
+    <footer class="lp-footer">
+      <div class="inner">
+        <span>© 2026 GTFS·X · Vector &amp; Vertex</span>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="mailto:hello@gtfsx.com">hello@gtfsx.com</a>
       </div>
-      <div class="gx-col">
-        <h4>Product</h4>
-        <a href="/editor">Editor</a>
-        <a href="/pricing">Pricing</a>
-        <a href="/planning">Planning</a>
-        <a href="/docs/hosted-publishing/">Publishing</a>
-      </div>
-      <div class="gx-col">
-        <h4>Learn</h4>
-        <a href="/learn/gtfs/">What is GTFS</a>
-        <a href="/learn/gtfs-flex/">What is GTFS-Flex</a>
-        <a href="/learn/publish-gtfs-feed/">Publish a GTFS feed</a>
-        <a href="/docs/">Docs</a>
-      </div>
-      <div class="gx-col">
-        <h4>Compare</h4>
-        <a href="/compare/trillium/">vs Trillium</a>
-        <a href="/compare/remix/">vs Remix</a>
-        <a href="/compare/gtfs-builder-rtap/">vs RTAP</a>
-      </div>
-      <div class="gx-col">
-        <h4>Company</h4>
-        <a href="/about/">About</a>
-        <a href="/feed-health/">GTFS Dashboard</a>
-        <a href="/community/announcements">Announcements</a>
-        <a href="mailto:hello@gtfsx.com">Contact</a>
-        <a href="/use-cases/state-dot/">State DOTs</a>
-      </div>
-    </div>
-    <div class="gx-bottom">
-      <span>© 2026 GTFS·X · Vector &amp; Vertex</span>
-      <span class="gx-mono">hello@gtfsx.com</span>
-    </div>
-  </div>
-</footer>
+    </footer>
 
     <div class="sticky-cta">
       <a href="/book-demo?src=planning_sticky" class="btn-primary" data-cta="planning_sticky_demo">Book a 30-min demo →</a>
