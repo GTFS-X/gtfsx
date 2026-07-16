@@ -19,31 +19,15 @@ import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
 import { Toast, type ToastState } from '../ui/Toast';
 import { type PaneScope, useTimetableData } from './useTimetableData';
-import { planCascade } from './timetableGridHelpers';
+import { planCascade, nextCompanionShapeId, generateExistingIds } from './timetableGridHelpers';
 import { TimetableGridPane } from './TimetableGridPane';
 import { TimetableToolbar, type ToolId } from './TimetableToolbar';
 import { GenerateDrawer, RuntimeDrawer, RepeatDrawer, type GenerateInput } from './TimetableDrawers';
 import { FlexTimetablePanel } from './FlexTimetablePanel';
 import { findFlexZoneForRoute, isFlexRoute } from './flexRouteMatch';
 import type { ShapePattern } from '../ui/shapePatterns';
-
-/* ---------- trip-id helpers (unchanged from the previous grid) ---------- */
-function generateTripName(routeName: string, departureTime: string, serviceIndex: number): string {
-  const prefix = (routeName || 'trip').replace(/\s+/g, '').slice(0, 4).toLowerCase();
-  if (!departureTime) return `${serviceIndex}${prefix}`;
-  const [h = 0, m = 0] = departureTime.split(':').map(Number);
-  return `${serviceIndex}${prefix}${h}${String(m).padStart(2, '0')}`;
-}
-function getServiceIndex(serviceId: string, calendars: { service_id: string }[]): number {
-  const idx = calendars.findIndex((c) => c.service_id === serviceId);
-  return idx >= 0 ? idx + 1 : 1;
-}
-function uniqueTripId(baseId: string, existingIds: Set<string>): string {
-  if (!existingIds.has(baseId)) return baseId;
-  let suffix = 2;
-  while (existingIds.has(`${baseId}-${suffix}`)) suffix++;
-  return `${baseId}-${suffix}`;
-}
+import { mintTripId, tripIdPrefixForRoute } from '../../services/tripNaming';
+import { windowDepartureCount, type FrequencyWindow } from '../../services/frequencyExpansion';
 
 /** Feed arrays captured before a bulk op, for snapshot-based undo. Immer keeps
  *  replaced arrays immutable, so holding a reference is a valid point-in-time
@@ -61,6 +45,7 @@ type ModalState =
   | { type: 'estimate'; paneId: PaneId; tripId: string }
   | { type: 'applyall'; paneId: PaneId; tripId: string }
   | { type: 'removeall' }
+  | { type: 'generate-confirm'; input: GenerateInput; existingCount: number }
   | null;
 type CascadeState = { paneId: PaneId; seq: number; stopId: string; stopName: string; deltaMin: number; laterIds: string[] } | null;
 
@@ -104,6 +89,20 @@ export function TimetableGrid() {
   const demandResponseOn = useStore((s) => featureEnabled(s, 'demandResponse'));
   const flexZones = useStore((s) => s.flexZones);
 
+  // frequencies.txt windows grouped by their template trip_id — drives the
+  // read-only build-out rows in both panes (item #8). One map for the whole feed;
+  // each pane only looks up the trip_ids it actually renders.
+  const frequencies = useStore((s) => s.frequencies);
+  const frequenciesByTrip = useMemo(() => {
+    const m = new Map<string, FrequencyWindow[]>();
+    for (const f of frequencies) {
+      const w: FrequencyWindow = { start_time: f.start_time, end_time: f.end_time, headway_secs: f.headway_secs, exact_times: f.exact_times };
+      const arr = m.get(f.trip_id);
+      if (arr) arr.push(w); else m.set(f.trip_id, [w]);
+    }
+    return m;
+  }, [frequencies]);
+
   /* ---------- pane data ---------- */
   const mainScope: PaneScope = { routeId: selectedRouteId, directionId, serviceId: selectedServiceId, shapeId: selectedShapeId };
   const mainData = useTimetableData(mainScope, true);
@@ -115,8 +114,15 @@ export function TimetableGrid() {
   // opposite direction. `hasOpposite` gates rendering so a stale shape can't leak
   // the main direction into the companion.
   const oppDir: 0 | 1 = directionId === 0 ? 1 : 0;
+  // The companion (right) pane's pattern. null = auto-derived (opposite of the
+  // left); a shapeId = the user's explicit pick. A new route drops any choice; a
+  // left-pattern change keeps an explicit right choice unless it now collides
+  // with the left or is stale (item #7).
   const [companionShapeId, setCompanionShapeId] = useState<string | null>(null);
-  useEffect(() => { setCompanionShapeId(null); }, [selectedRouteId, effectiveShapeId]);
+  useEffect(() => { setCompanionShapeId(null); }, [selectedRouteId]);
+  useEffect(() => {
+    setCompanionShapeId((prev) => nextCompanionShapeId(prev, effectiveShapeId, patterns.map((p) => p.shapeId)));
+  }, [effectiveShapeId, patterns]);
 
   const companionPattern: ShapePattern | null = useMemo(() => {
     const chosen = companionShapeId && companionShapeId !== effectiveShapeId
@@ -238,15 +244,6 @@ export function TimetableGrid() {
       setStopTime(tripId, stopId, seq, { arrival_time: st?.arrival_time || normalized, departure_time: normalized });
     }
 
-    // Auto-name a freshly-added `_new` trip from its first committed time.
-    if (normalized && tripId.includes('_new')) {
-      const rName = route?.route_short_name || route?.route_long_name || '';
-      const trip = data.routeTrips.find((t) => t.trip_id === tripId);
-      const sIdx = getServiceIndex(trip?.service_id || activeServiceId || '', calendars);
-      const existingIds = new Set(useStore.getState().trips.map((t) => t.trip_id));
-      renameTripId(tripId, uniqueTripId(generateTripName(rName, normalized, sIdx), existingIds));
-    }
-
     // Cascade offer: an edited (previously-set) time changed by Δ, and later
     // trips have a time in this column → offer to shift them too.
     if (normalized) {
@@ -306,10 +303,7 @@ export function TimetableGrid() {
     const data = paneData(paneId);
     const scope = paneScopeOf(paneId);
     if (!scope.routeId) return;
-    const routeName = route?.route_short_name || route?.route_long_name || '';
-    const svcIdx = getServiceIndex(data.activeServiceId || '', calendars);
-    const existingIds = new Set(trips.map((t) => t.trip_id));
-    const tripId = uniqueTripId(generateTripName(routeName, '', svcIdx) + '_new', existingIds);
+    const tripId = mintTripId(tripIdPrefixForRoute(route), new Set(trips.map((t) => t.trip_id)));
     addTrip({
       trip_id: tripId,
       route_id: scope.routeId,
@@ -374,26 +368,51 @@ export function TimetableGrid() {
     return secs ? Math.round(secs / 60) : 20;
   }, [selectedRouteId, directionId, mainGenShapeId]);
 
-  const applyGenerate = (input: GenerateInput) => {
+  // Generate lays out a fresh day of service, so when the pane already has trips
+  // the usual intent is to REPLACE them, not stack a second set on top. Apply
+  // therefore asks (Replace / Add / Cancel) whenever the scope is non-empty; an
+  // empty scope generates straight through. A frequency template counts as an
+  // existing trip, so re-generating over one prompts too.
+  const runGenerate = (input: GenerateInput, replace: boolean) => {
     if (!selectedRouteId || !activeServiceId) return;
+    const doomed = replace ? routeTrips.map((t) => t.trip_id) : [];
+    const doomedSet = new Set(doomed);
+    // Mint new IDs against everything that will SURVIVE the replace, so names
+    // never collide with kept trips (other directions/services) yet still reuse
+    // the numbers freed up by the trips we're about to drop.
     const params: GenerateTripsParams = {
       routeId: selectedRouteId, directionId, shapeId: mainGenShapeId, serviceId: activeServiceId,
       startTime: input.startTime, endTime: input.endTime, headwaySecs: input.headwaySecs, runSecs: input.runSecs,
       mode: input.mode, routeStops: mainPatternRouteStops, stops, shape, headsign: route?.route_short_name || undefined,
-      existingTripIds: new Set(trips.map((t) => t.trip_id)),
+      tripIdPrefix: tripIdPrefixForRoute(route),
+      existingTripIds: generateExistingIds(trips.map((t) => t.trip_id), doomed, replace),
     };
     const result = generateTrips(params);
     if (result.trips.length === 0) { say('Nothing to generate — check the inputs.'); return; }
     setDrawer(null);
+    setModal(null);
     withUndo(() => {
+      if (replace) {
+        for (const id of doomed) removeTrip(id); // drops the trip + its stop_times
+        const s = useStore.getState();
+        s.setFrequencies(s.frequencies.filter((f) => !doomedSet.has(f.trip_id))); // removeTrip leaves frequencies behind
+      }
       const st = useStore.getState();
       st.setTrips([...st.trips, ...result.trips]);
       st.setStopTimes([...st.stopTimes, ...result.stopTimes]);
       result.frequencies.forEach((f) => st.addFrequency(f));
-      return input.mode === 'frequency'
-        ? 'Created a reference trip + frequency window'
-        : `Generated ${result.trips.length} trip${result.trips.length === 1 ? '' : 's'}`;
+      const made = input.mode === 'frequency'
+        ? 'a reference trip + frequency window'
+        : `${result.trips.length} trip${result.trips.length === 1 ? '' : 's'}`;
+      if (replace) return `Replaced ${doomed.length} trip${doomed.length === 1 ? '' : 's'} with ${made}`;
+      return input.mode === 'frequency' ? 'Created a reference trip + frequency window' : `Generated ${made}`;
     });
+  };
+
+  const applyGenerate = (input: GenerateInput) => {
+    if (!selectedRouteId || !activeServiceId) return;
+    if (routeTrips.length > 0) { setModal({ type: 'generate-confirm', input, existingCount: routeTrips.length }); return; }
+    runGenerate(input, false);
   };
 
   const applyRuntime = ({ runMin, scoped }: { runMin: number; scoped: boolean }) => {
@@ -413,19 +432,11 @@ export function TimetableGrid() {
     setDrawer(null);
     withUndo(() => {
       const lastTrip = routeTrips[routeTrips.length - 1];
-      const routeName = route?.route_short_name || route?.route_long_name || '';
-      const svcIdx = getServiceIndex(lastTrip.service_id || activeServiceId || '', calendars);
-      const firstTime = mainData.getFirstDisplayedTime(lastTrip.trip_id);
+      const prefix = tripIdPrefixForRoute(route);
       const existingIds = new Set(trips.map((t) => t.trip_id));
       for (let i = 0; i < copies; i++) {
         const offsetMinutes = headway * (i + 1);
-        let newId: string;
-        if (firstTime) {
-          const newTimeStr = secondsToGtfsTime(gtfsTimeToSeconds(firstTime) + offsetMinutes * 60);
-          newId = uniqueTripId(generateTripName(routeName, newTimeStr, svcIdx), existingIds);
-        } else {
-          newId = uniqueTripId(generateTripName(routeName, '', svcIdx), existingIds);
-        }
+        const newId = mintTripId(prefix, existingIds);
         existingIds.add(newId);
         duplicateTrip(lastTrip.trip_id, newId, offsetMinutes);
       }
@@ -440,13 +451,11 @@ export function TimetableGrid() {
 
   const handleCopyFromService = (sourceServiceId: string) => {
     if (!selectedRouteId || !activeServiceId) return;
-    const routeName = route?.route_short_name || route?.route_long_name || '';
-    const svcIdx = getServiceIndex(activeServiceId, calendars);
+    const prefix = tripIdPrefixForRoute(route);
     const existingIds = new Set(trips.map((t) => t.trip_id));
     const sourceTrips = trips.filter((t) => t.route_id === selectedRouteId && t.direction_id === directionId && t.service_id === sourceServiceId);
     for (const trip of sourceTrips) {
-      const firstTime = mainData.getFirstDisplayedTime(trip.trip_id);
-      const newId = uniqueTripId(generateTripName(routeName, firstTime, svcIdx), existingIds);
+      const newId = mintTripId(prefix, existingIds);
       existingIds.add(newId);
       duplicateTrip(trip.trip_id, newId, 0);
       updateTrip(newId, { service_id: activeServiceId });
@@ -493,10 +502,7 @@ export function TimetableGrid() {
     const d = paneData(modal.paneId);
     const firstTime = d.getFirstDisplayedTime(modal.tripId);
     const offsetMinutes = Math.round((gtfsTimeToSeconds(normalized) - gtfsTimeToSeconds(firstTime)) / 60);
-    const routeName = route?.route_short_name || route?.route_long_name || '';
-    const srcTrip = trips.find((t) => t.trip_id === modal.tripId);
-    const svcIdx = getServiceIndex(srcTrip?.service_id || activeServiceId || '', calendars);
-    const newId = uniqueTripId(generateTripName(routeName, normalized, svcIdx), new Set(trips.map((t) => t.trip_id)));
+    const newId = mintTripId(tripIdPrefixForRoute(route), new Set(trips.map((t) => t.trip_id)));
     duplicateTrip(modal.tripId, newId, offsetMinutes);
     setModal(null);
     say(`Duplicated ${modal.tripId} at ${normalized}`);
@@ -550,12 +556,22 @@ export function TimetableGrid() {
     });
   };
 
+  // In Both view, "Remove all trips" clears BOTH visible directions — otherwise
+  // the companion (second) direction's trips are trapped with no way to remove
+  // them. Single view is unchanged (the current direction only). The other bulk
+  // tools stay main-pane-only by design (the companion is derived), which is
+  // fine because they CREATE/retime trips rather than trapping existing ones.
+  const removeAllAcrossBoth = oppositeOpen && hasOpposite && oppData.routeTrips.length > 0;
+  const removeAllIds = removeAllAcrossBoth
+    ? [...new Set([...routeTrips.map((t) => t.trip_id), ...oppData.routeTrips.map((t) => t.trip_id)])]
+    : routeTrips.map((t) => t.trip_id);
+
   const confirmRemoveAll = () => {
-    const doomed = routeTrips.map((t) => t.trip_id);
+    const doomed = removeAllIds;
     setModal(null);
     withUndo(() => {
       for (const id of doomed) removeTrip(id);
-      return `Removed all ${doomed.length} trip${doomed.length === 1 ? '' : 's'}`;
+      return `Removed all ${doomed.length} trip${doomed.length === 1 ? '' : 's'}${removeAllAcrossBoth ? ' across both directions' : ''}`;
     });
   };
 
@@ -627,6 +643,7 @@ export function TimetableGrid() {
         timepointStopIds={mainData.timepointStopIds}
         continuousOverrides={mainData.continuousOverrides}
         findStopTime={mainData.findStopTime}
+        frequenciesByTrip={frequenciesByTrip}
         arrDepStops={arrDepStops}
         rowActions={rowActions}
         showHeadways={headwayHints}
@@ -664,6 +681,7 @@ export function TimetableGrid() {
         timepointStopIds={oppData.timepointStopIds}
         continuousOverrides={oppData.continuousOverrides}
         findStopTime={oppData.findStopTime}
+        frequenciesByTrip={frequenciesByTrip}
         arrDepStops={arrDepStops}
         rowActions={rowActions}
         showHeadways={headwayHints}
@@ -687,6 +705,39 @@ export function TimetableGrid() {
 
   const companionOtherPatterns = patterns.filter((p) => p.shapeId !== effectiveShapeId);
 
+  // Move the LEFT (main) pane onto a pattern — the shared action for the toolbar
+  // direction control AND the left split header, so they stay in lockstep.
+  const handleSelectPattern = (p: ShapePattern) => {
+    setSelectedShapeId(p.shapeId);
+    if (p.directionId !== directionId) setDirectionId(p.directionId);
+  };
+  // ⇄ Swap the left and right pane selections in one click. The old left becomes
+  // the explicit right pick; the old right becomes the left.
+  const handleSwapPanes = () => {
+    const oldLeft = effectiveShapeId;
+    const target = companionPattern;
+    if (!target) return;
+    handleSelectPattern(target);
+    setCompanionShapeId(oldLeft);
+  };
+
+  // Honest per-pane accounting when a frequency template is in scope: how many
+  // template trips, and the true rider-facing departures they build out to
+  // (item #8). null when there are no frequency-based trips.
+  const departureSummary = (tripsArr: Trip[]) => {
+    let templates = 0, departures = 0;
+    for (const t of tripsArr) {
+      const w = frequenciesByTrip.get(t.trip_id);
+      if (w && w.length) { templates += 1; departures += windowDepartureCount(w); }
+      else departures += 1;
+    }
+    return templates > 0 ? { templates, departures } : null;
+  };
+  const mainSummary = departureSummary(routeTrips);
+  const oppSummary = departureSummary(oppData.routeTrips);
+  const summaryNote = (s: { templates: number; departures: number } | null) =>
+    s ? `· ${s.templates} freq → ${s.departures} departures` : null;
+
   return (
     <div className="flex flex-col min-h-0 flex-1">
       <TimetableToolbar
@@ -700,10 +751,12 @@ export function TimetableGrid() {
         effectiveShapeId={effectiveShapeId}
         directionId={directionId}
         tripCount={routeTrips.length}
+        departureNote={oppositeOpen ? null : summaryNote(mainSummary)}
+        removeAllCount={removeAllIds.length}
         oppositeOpen={oppositeOpen}
         onSelectRoute={(id) => selectRoute(id)}
         onSelectService={(id) => setSelectedServiceId(id)}
-        onSelectPattern={(p) => { setSelectedShapeId(p.shapeId); if (p.directionId !== directionId) setDirectionId(p.directionId); }}
+        onSelectPattern={handleSelectPattern}
         onSelectDirection={(d) => setDirectionId(d)}
         onSetOpposite={(v) => setOppositeOpen(v)}
         onEditStops={onEditStops}
@@ -727,6 +780,25 @@ export function TimetableGrid() {
 
       <div className="flex-1 min-h-0 flex">
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
+          {/* In split view the main (left) pane gets its own header — a pattern
+              dropdown in lockstep with the toolbar direction control (item #7),
+              or a static label for a single-pattern route. Same 47px container as
+              the companion header so both grids' column rows line up. */}
+          {oppositeOpen && (
+            <div className="shrink-0 flex items-center gap-2 px-3.5 h-[47px] border-b border-sand bg-cream font-heading font-extrabold text-xs text-dark-brown">
+              {patterns.length >= 2 ? (
+                <Select
+                  value={effectiveShapeId ?? patterns[0].shapeId}
+                  onChange={(v) => { const p = patterns.find((pp) => pp.shapeId === v); if (p) handleSelectPattern(p); }}
+                  options={patterns.map((p) => ({ id: p.shapeId, name: directionName(route, p.directionId) }))}
+                  aria-label="Left pane pattern"
+                />
+              ) : (
+                <span>Direction {directionId} · {directionName(route, directionId)}</span>
+              )}
+              <span className="font-body font-normal text-[12.5px] text-warm-gray">{routeTrips.length} trips {summaryNote(mainSummary)}</span>
+            </div>
+          )}
           {renderMainPane()}
         </div>
         {oppositeOpen && (
@@ -742,18 +814,33 @@ export function TimetableGrid() {
               ) : (
                 <span>Direction {companionDir} · {directionName(route, companionDir)}</span>
               )}
-              <span className="font-body font-normal text-[12.5px] text-warm-gray">{oppData.routeTrips.length} trips</span>
-              <button
-                type="button"
-                onClick={() => setSyncScroll((v) => !v)}
-                title="Keep both panes' vertical scroll aligned, trip-for-trip"
-                className={`h-[22px] px-2.5 rounded-md border font-heading font-bold text-[11px] ${
-                  syncScroll ? 'bg-coral-light border-coral text-[#d4603a]' : 'bg-white border-sand text-warm-gray'
-                }`}
-              >
-                ⇅ Synced
-              </button>
-              <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-warm-gray bg-white border border-sand px-1.5 py-0.5 rounded" title="No toolbar of its own — same route & service; re-derives when the main pane changes">derived</span>
+              <span className="font-body font-normal text-[12.5px] text-warm-gray">{oppData.routeTrips.length} trips {summaryNote(oppSummary)}</span>
+              <div className="ml-auto flex items-center gap-2">
+                {companionPattern && patterns.length >= 2 && (
+                  <button
+                    type="button"
+                    onClick={handleSwapPanes}
+                    title="Swap the left and right panes"
+                    aria-label="Swap panes"
+                    className="h-[22px] px-1.5 rounded-md border bg-white border-sand text-warm-gray hover:border-coral hover:text-[#d4603a] flex items-center justify-center"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 4L3 8l4 4M3 8h13M17 20l4-4-4-4M21 16H8" /></svg>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSyncScroll((v) => !v)}
+                  title="Keep both panes' vertical scroll aligned, trip-for-trip"
+                  className={`h-[22px] px-2.5 rounded-md border font-heading font-bold text-[11px] ${
+                    syncScroll ? 'bg-coral-light border-coral text-[#d4603a]' : 'bg-white border-sand text-warm-gray'
+                  }`}
+                >
+                  ⇅ Synced
+                </button>
+                {companionShapeId === null && (
+                  <span className="font-mono text-[10px] uppercase tracking-wide text-warm-gray bg-white border border-sand px-1.5 py-0.5 rounded" title="Auto-derived — the opposite of the left pane; pick a pattern here to choose it explicitly">derived</span>
+                )}
+              </div>
             </div>
             {renderCompanionPane()}
           </div>
@@ -823,12 +910,37 @@ export function TimetableGrid() {
       {modal?.type === 'removeall' && (
         <ConfirmDialog
           danger
-          title="Remove all trips?"
-          body={<>Deletes all <b>{routeTrips.length} trip{routeTrips.length === 1 ? '' : 's'}</b> on {ctxLabel}. Stops and shape are kept, so you can add a fresh trip and replicate it.</>}
-          confirmLabel={`Remove ${routeTrips.length} trip${routeTrips.length === 1 ? '' : 's'}`}
+          title={removeAllAcrossBoth ? 'Remove all trips across both directions?' : 'Remove all trips?'}
+          body={removeAllAcrossBoth
+            ? <>Deletes all <b>{removeAllIds.length} trip{removeAllIds.length === 1 ? '' : 's'}</b> on {route.route_short_name || route.route_long_name || route.route_id} — both {directionName(route, directionId).toLowerCase()} and {directionName(route, companionDir).toLowerCase()}. Stops and shapes are kept, so you can add fresh trips and replicate them.</>
+            : <>Deletes all <b>{removeAllIds.length} trip{removeAllIds.length === 1 ? '' : 's'}</b> on {ctxLabel}. Stops and shape are kept, so you can add a fresh trip and replicate it.</>}
+          confirmLabel={`Remove ${removeAllIds.length} trip${removeAllIds.length === 1 ? '' : 's'}`}
           onConfirm={confirmRemoveAll}
           onCancel={() => setModal(null)}
         />
+      )}
+
+      {modal?.type === 'generate-confirm' && (
+        <Modal
+          open
+          onClose={() => setModal(null)}
+          title="Replace the existing trips?"
+          showClose={false}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setModal(null)}>Cancel</Button>
+              <Button variant="secondary" onClick={() => runGenerate(modal.input, false)}>Add alongside</Button>
+              <Button variant="primary" onClick={() => runGenerate(modal.input, true)}>
+                Replace {modal.existingCount} trip{modal.existingCount === 1 ? '' : 's'}
+              </Button>
+            </>
+          }
+        >
+          <div className="text-sm text-warm-gray">
+            {ctxLabel} already has <b>{modal.existingCount} trip{modal.existingCount === 1 ? '' : 's'}</b>. Replace
+            them with the freshly generated service, or add the new trips alongside what&rsquo;s already there?
+          </div>
+        </Modal>
       )}
 
       {toast && <Toast toast={toast} />}

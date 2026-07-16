@@ -18,6 +18,7 @@
  */
 import type { Trip, StopTime, Frequency, RouteStop, Shape, Stop } from '../types/gtfs';
 import { gtfsTimeToSeconds, secondsToGtfsTime } from '../utils/time';
+import { mintTripId } from './tripNaming';
 
 export type TimetableGenMode = 'explicit' | 'frequency';
 
@@ -63,12 +64,6 @@ export interface GenerateValidation {
   /** How many trips explicit mode would produce (0 when invalid). */
   tripCount: number;
 }
-
-const HHMM = (sec: number): string => {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  return `${String(h).padStart(2, '0')}${String(m).padStart(2, '0')}`;
-};
 
 /** Haversine distance in km between two [lon,lat]-ish stop points. */
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -210,7 +205,8 @@ export function generateTrips(params: GenerateTripsParams): GenerateTripsResult 
   const offsets = relativeOffsets(params, ordered);
   const startSec = gtfsTimeToSeconds(params.startTime);
   const endSec = gtfsTimeToSeconds(params.endTime);
-  const prefix = params.tripIdPrefix || `${params.routeId}-d${params.directionId}-${params.serviceId}`;
+  // Pithy prefix — the UI passes the route's short name; fall back to routeId.
+  const prefix = params.tripIdPrefix || params.routeId;
 
   const trips: Trip[] = [];
   const stopTimes: StopTime[] = [];
@@ -245,8 +241,7 @@ export function generateTrips(params: GenerateTripsParams): GenerateTripsResult 
   const existing = new Set<string>(params.existingTripIds ?? []);
 
   if (params.mode === 'frequency') {
-    let tripId = `${prefix}-freq`;
-    while (existing.has(tripId)) tripId = `${tripId}b`;
+    const tripId = mintTripId(prefix, existing);
     trips.push(makeTrip(tripId));
     layStopTimes(tripId, startSec);
     frequencies.push({
@@ -263,10 +258,7 @@ export function generateTrips(params: GenerateTripsParams): GenerateTripsResult 
 
   // explicit mode — one trip per departure
   for (let depSec = startSec, i = 0; depSec <= endSec; depSec += params.headwaySecs, i++) {
-    let tripId = `${prefix}-${HHMM(depSec)}`;
-    // Sub-minute headways (collide on HHMM) or an existing same-named trip get a
-    // deterministic suffix.
-    while (existing.has(tripId)) tripId = `${tripId}b`;
+    const tripId = mintTripId(prefix, existing);
     existing.add(tripId);
     trips.push(makeTrip(tripId));
     layStopTimes(tripId, depSec);
