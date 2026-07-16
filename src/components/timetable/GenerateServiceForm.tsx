@@ -8,6 +8,7 @@ import {
   type GenerateTripsParams,
   type TimetableGenMode,
 } from '../../services/timetableGen';
+import { tripIdPrefixForRoute } from '../../services/tripNaming';
 
 interface Props {
   routeId: string;
@@ -78,7 +79,8 @@ export function GenerateServiceForm({
     stops,
     shape,
     headsign,
-  }), [routeId, directionId, shapeId, serviceId, start, end, headwayMin, runMin, mode, routeStops, stops, shape, headsign]);
+    tripIdPrefix: tripIdPrefixForRoute(route),
+  }), [routeId, directionId, shapeId, serviceId, start, end, headwayMin, runMin, mode, routeStops, stops, shape, headsign, route]);
 
   const validation = useMemo(() => validateGenerateParams(params), [params]);
 

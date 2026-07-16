@@ -26,24 +26,7 @@ import { GenerateDrawer, RuntimeDrawer, RepeatDrawer, type GenerateInput } from 
 import { FlexTimetablePanel } from './FlexTimetablePanel';
 import { findFlexZoneForRoute, isFlexRoute } from './flexRouteMatch';
 import type { ShapePattern } from '../ui/shapePatterns';
-
-/* ---------- trip-id helpers (unchanged from the previous grid) ---------- */
-function generateTripName(routeName: string, departureTime: string, serviceIndex: number): string {
-  const prefix = (routeName || 'trip').replace(/\s+/g, '').slice(0, 4).toLowerCase();
-  if (!departureTime) return `${serviceIndex}${prefix}`;
-  const [h = 0, m = 0] = departureTime.split(':').map(Number);
-  return `${serviceIndex}${prefix}${h}${String(m).padStart(2, '0')}`;
-}
-function getServiceIndex(serviceId: string, calendars: { service_id: string }[]): number {
-  const idx = calendars.findIndex((c) => c.service_id === serviceId);
-  return idx >= 0 ? idx + 1 : 1;
-}
-function uniqueTripId(baseId: string, existingIds: Set<string>): string {
-  if (!existingIds.has(baseId)) return baseId;
-  let suffix = 2;
-  while (existingIds.has(`${baseId}-${suffix}`)) suffix++;
-  return `${baseId}-${suffix}`;
-}
+import { mintTripId, tripIdPrefixForRoute } from '../../services/tripNaming';
 
 /** Feed arrays captured before a bulk op, for snapshot-based undo. Immer keeps
  *  replaced arrays immutable, so holding a reference is a valid point-in-time
@@ -238,15 +221,6 @@ export function TimetableGrid() {
       setStopTime(tripId, stopId, seq, { arrival_time: st?.arrival_time || normalized, departure_time: normalized });
     }
 
-    // Auto-name a freshly-added `_new` trip from its first committed time.
-    if (normalized && tripId.includes('_new')) {
-      const rName = route?.route_short_name || route?.route_long_name || '';
-      const trip = data.routeTrips.find((t) => t.trip_id === tripId);
-      const sIdx = getServiceIndex(trip?.service_id || activeServiceId || '', calendars);
-      const existingIds = new Set(useStore.getState().trips.map((t) => t.trip_id));
-      renameTripId(tripId, uniqueTripId(generateTripName(rName, normalized, sIdx), existingIds));
-    }
-
     // Cascade offer: an edited (previously-set) time changed by Δ, and later
     // trips have a time in this column → offer to shift them too.
     if (normalized) {
@@ -306,10 +280,7 @@ export function TimetableGrid() {
     const data = paneData(paneId);
     const scope = paneScopeOf(paneId);
     if (!scope.routeId) return;
-    const routeName = route?.route_short_name || route?.route_long_name || '';
-    const svcIdx = getServiceIndex(data.activeServiceId || '', calendars);
-    const existingIds = new Set(trips.map((t) => t.trip_id));
-    const tripId = uniqueTripId(generateTripName(routeName, '', svcIdx) + '_new', existingIds);
+    const tripId = mintTripId(tripIdPrefixForRoute(route), new Set(trips.map((t) => t.trip_id)));
     addTrip({
       trip_id: tripId,
       route_id: scope.routeId,
@@ -380,6 +351,7 @@ export function TimetableGrid() {
       routeId: selectedRouteId, directionId, shapeId: mainGenShapeId, serviceId: activeServiceId,
       startTime: input.startTime, endTime: input.endTime, headwaySecs: input.headwaySecs, runSecs: input.runSecs,
       mode: input.mode, routeStops: mainPatternRouteStops, stops, shape, headsign: route?.route_short_name || undefined,
+      tripIdPrefix: tripIdPrefixForRoute(route),
       existingTripIds: new Set(trips.map((t) => t.trip_id)),
     };
     const result = generateTrips(params);
@@ -413,19 +385,11 @@ export function TimetableGrid() {
     setDrawer(null);
     withUndo(() => {
       const lastTrip = routeTrips[routeTrips.length - 1];
-      const routeName = route?.route_short_name || route?.route_long_name || '';
-      const svcIdx = getServiceIndex(lastTrip.service_id || activeServiceId || '', calendars);
-      const firstTime = mainData.getFirstDisplayedTime(lastTrip.trip_id);
+      const prefix = tripIdPrefixForRoute(route);
       const existingIds = new Set(trips.map((t) => t.trip_id));
       for (let i = 0; i < copies; i++) {
         const offsetMinutes = headway * (i + 1);
-        let newId: string;
-        if (firstTime) {
-          const newTimeStr = secondsToGtfsTime(gtfsTimeToSeconds(firstTime) + offsetMinutes * 60);
-          newId = uniqueTripId(generateTripName(routeName, newTimeStr, svcIdx), existingIds);
-        } else {
-          newId = uniqueTripId(generateTripName(routeName, '', svcIdx), existingIds);
-        }
+        const newId = mintTripId(prefix, existingIds);
         existingIds.add(newId);
         duplicateTrip(lastTrip.trip_id, newId, offsetMinutes);
       }
@@ -440,13 +404,11 @@ export function TimetableGrid() {
 
   const handleCopyFromService = (sourceServiceId: string) => {
     if (!selectedRouteId || !activeServiceId) return;
-    const routeName = route?.route_short_name || route?.route_long_name || '';
-    const svcIdx = getServiceIndex(activeServiceId, calendars);
+    const prefix = tripIdPrefixForRoute(route);
     const existingIds = new Set(trips.map((t) => t.trip_id));
     const sourceTrips = trips.filter((t) => t.route_id === selectedRouteId && t.direction_id === directionId && t.service_id === sourceServiceId);
     for (const trip of sourceTrips) {
-      const firstTime = mainData.getFirstDisplayedTime(trip.trip_id);
-      const newId = uniqueTripId(generateTripName(routeName, firstTime, svcIdx), existingIds);
+      const newId = mintTripId(prefix, existingIds);
       existingIds.add(newId);
       duplicateTrip(trip.trip_id, newId, 0);
       updateTrip(newId, { service_id: activeServiceId });
@@ -493,10 +455,7 @@ export function TimetableGrid() {
     const d = paneData(modal.paneId);
     const firstTime = d.getFirstDisplayedTime(modal.tripId);
     const offsetMinutes = Math.round((gtfsTimeToSeconds(normalized) - gtfsTimeToSeconds(firstTime)) / 60);
-    const routeName = route?.route_short_name || route?.route_long_name || '';
-    const srcTrip = trips.find((t) => t.trip_id === modal.tripId);
-    const svcIdx = getServiceIndex(srcTrip?.service_id || activeServiceId || '', calendars);
-    const newId = uniqueTripId(generateTripName(routeName, normalized, svcIdx), new Set(trips.map((t) => t.trip_id)));
+    const newId = mintTripId(tripIdPrefixForRoute(route), new Set(trips.map((t) => t.trip_id)));
     duplicateTrip(modal.tripId, newId, offsetMinutes);
     setModal(null);
     say(`Duplicated ${modal.tripId} at ${normalized}`);

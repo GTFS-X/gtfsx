@@ -51,12 +51,18 @@ describe('generateTrips — explicit mode', () => {
     expect(t0.map((st) => st.timepoint)).toEqual([1, 0, 1]);
   });
 
-  it('produces deterministic, collision-free trip ids', () => {
+  it('produces deterministic, collision-free, pithy sequential trip ids', () => {
     const a = generateTrips(base).trips.map((t) => t.trip_id);
     const b = generateTrips(base).trips.map((t) => t.trip_id);
     expect(a).toEqual(b);
     expect(new Set(a).size).toBe(a.length);
-    expect(a[0]).toBe('R-d0-weekday-0600');
+    // Default prefix is the routeId; the UI passes the route short name instead.
+    expect(a.slice(0, 3)).toEqual(['R-1', 'R-2', 'R-3']);
+  });
+
+  it('uses the pithy short-name prefix and skips existing numbers (next-highest)', () => {
+    const withPrefix = generateTrips({ ...base, tripIdPrefix: 'Blue', existingTripIds: new Set(['Blue-1', 'Blue-2', 'Blue-3']) });
+    expect(withPrefix.trips.map((t) => t.trip_id).slice(0, 2)).toEqual(['Blue-4', 'Blue-5']);
   });
 
   it('carries headsign, route, service, direction, shape onto each trip', () => {
@@ -135,6 +141,6 @@ describe('round-trips through exportGtfsZip', () => {
     expect(stRows).toBe(21);
     // a known departure survives the round-trip
     expect(stCsv).toContain('06:00:00');
-    expect(tripsCsv).toContain('R-d0-weekday-0600');
+    expect(tripsCsv).toContain('R-1');
   });
 });
