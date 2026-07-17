@@ -7,6 +7,11 @@ import {
 import { db } from './dexie';
 import { backfillRouteStopShapeIds } from '../services/routeStopMigration';
 import { loadingFeed } from '../store/history';
+import {
+  buildVariantsEnvelope,
+  parseVariantsEnvelope,
+  VARIANTS_ENVELOPE_KEY,
+} from '../services/variantPersistence';
 
 // Editor state that round-trips through the server snapshot. Notably excludes
 // projectId and projectName: those are project-level metadata served by
@@ -70,6 +75,44 @@ export function buildSnapshot(): Record<string, unknown> {
     snapshot[key] = state[key];
   }
   return snapshot;
+}
+
+/** Pick just the feed DATA_KEYS out of an arbitrary snapshot object (drops the
+ *  `__variants` envelope and any other non-feed keys) — the flat baseline feed. */
+function pickDataKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of DATA_KEYS) out[key] = obj[key];
+  return out;
+}
+
+/**
+ * Build the full working-state snapshot to persist (#66 redesign).
+ *
+ * With no variants this is just buildSnapshot() — a flat, backward-compatible
+ * blob. With variants active it makes the BASELINE canonical: the flat
+ * top-level keys are always the baseline feed (never the live experiment), and
+ * the variant layer rides in a `__variants` envelope (non-baseline variants
+ * stored as diffs from baseline). The live store's edits to the active variant
+ * are flushed into it first so nothing in-flight is dropped.
+ */
+export function buildWorkingStateSnapshot(): Record<string, unknown> {
+  const st = useStore.getState();
+  if (st.variants.length === 0) return buildSnapshot();
+
+  // Flush the live store (the active variant's working copy) into its entry.
+  if (st.activeVariantId) st.updateVariantSnapshot(st.activeVariantId, buildSnapshot());
+
+  const variants = useStore.getState().variants;
+  const baseline = variants.find((v) => v.baseline);
+  // A variant set always carries a baseline; fall back to the live store only
+  // defensively so we never write a broken (baseline-less) envelope.
+  const baseSnap = baseline ? baseline.snapshot : buildSnapshot();
+  const envelope = buildVariantsEnvelope(
+    variants,
+    useStore.getState().activeVariantId,
+    baseSnap,
+  );
+  return { ...baseSnap, [VARIANTS_ENVELOPE_KEY]: envelope };
 }
 
 /**
@@ -157,19 +200,51 @@ export function resetEditorState() {
   state.setIsProfilingWalksheds(false);
   state.setWalkshedProfileError(null);
   state.setStopAnalysisOverlay(null);
+  // Session variant layer belongs to the OUTGOING feed — clear it at every feed
+  // boundary so a variant set can't bleed onto the next feed (#66). The load
+  // path rehydrates it right after (loadProjectFromServer), and the
+  // variant-management callers that run through this reset mid-operation
+  // (switchToVariant / deleteVariant / discardVariants, and the publish-preview
+  // swap) pass { preserveVariants: true } to applySnapshotToStore, which
+  // captures and restores the layer around this reset.
+  state.setVariants([]);
+  state.setActiveVariantId(null);
   // Feed entities last.
   resetStoreEntities();
 }
 
-export function applySnapshotToStore(snapshot: Record<string, unknown>) {
+export interface ApplySnapshotOptions {
+  /**
+   * Keep the in-memory variant layer across the apply. resetEditorState()
+   * clears it as a feed boundary (#66); callers switching WITHIN a variant set
+   * (switchToVariant / deleteVariant / discardVariants), the publish-preview
+   * swap, and the load path's re-apply of the active variant set this so the
+   * layer is captured before the reset and restored after.
+   */
+  preserveVariants?: boolean;
+}
+
+export function applySnapshotToStore(
+  snapshot: Record<string, unknown>,
+  opts?: ApplySnapshotOptions,
+) {
   // Loading a snapshot (server load, snapshot restore, variant switch) replaces
   // the whole feed — suppress undo capture and reset history so undo/redo can't
   // cross the boundary (#49).
-  loadingFeed(() => applySnapshotToStoreInner(snapshot));
+  loadingFeed(() => applySnapshotToStoreInner(snapshot, opts));
 }
 
-function applySnapshotToStoreInner(snapshot: Record<string, unknown>) {
+function applySnapshotToStoreInner(
+  snapshot: Record<string, unknown>,
+  opts?: ApplySnapshotOptions,
+) {
   const state = useStore.getState();
+
+  // Snapshot the variant layer before the reset when the caller is switching
+  // WITHIN a variant set rather than crossing a feed boundary (#66).
+  const preservedVariants = opts?.preserveVariants
+    ? { variants: state.variants, activeVariantId: state.activeVariantId }
+    : null;
 
   // Clean-slate the editor first: selection, in-progress editing, map mode,
   // visibility filters, derived overlays, AND every entity slice. A partial
@@ -229,7 +304,16 @@ function applySnapshotToStoreInner(snapshot: Record<string, unknown>) {
   if (typeof g('licenseSpdx') === 'string') state.setLicenseSpdx(g('licenseSpdx') as string);
   // Older saved blobs may still carry a `visibilitySets` key (the removed
   // "Scenarios" feature). It's intentionally ignored here — unknown keys are
-  // harmless and never re-applied.
+  // harmless and never re-applied. The `__variants` envelope key is likewise
+  // not a DATA_KEY, so it's ignored here and rehydrated by loadProjectFromServer.
+
+  // Restore the variant layer for within-set callers (see preserveVariants):
+  // the reset above cleared it, but a variant switch / the load path's active
+  // re-apply must keep the set intact.
+  if (preservedVariants) {
+    state.setVariants(preservedVariants.variants);
+    state.setActiveVariantId(preservedVariants.activeVariantId);
+  }
 
   state.markSaved();
 }
@@ -259,12 +343,38 @@ export async function wipeLocalProject(projectId: string): Promise<void> {
 export async function loadProjectFromServer(projectId: string): Promise<void> {
   const { snapshot, version } = await fetchWorkingState(projectId);
   setCurrentWorkingStateVersion(projectId, version);
-  // Apply whatever the server returned, or an empty object for brand-new
-  // projects with no working state yet. Going through applySnapshotToStore
-  // either way means the new project always gets the full reset — selection
-  // state, validation messages, coverage data, hidden-route filters — not
-  // just the entity slices.
-  applySnapshotToStore(snapshot ?? {});
+  const snap = snapshot ?? {};
+  // Apply the flat top-level feed (the baseline), or an empty object for
+  // brand-new projects. Going through applySnapshotToStore means the new
+  // project always gets the full reset — selection, validation, coverage,
+  // hidden-route filters, AND the variant layer (cleared here, rehydrated next).
+  applySnapshotToStore(snap);
+
+  // #66 redesign — rehydrate the variant layer from the `__variants` envelope.
+  // Non-baseline variants are rebuilt as FULL independent snapshots by
+  // overlaying their stored diff onto the baseline feed. Baseline-moved
+  // semantics: because they're reconstructed as full, independent snapshots and
+  // re-diffed against the then-current baseline on every save, editing the
+  // baseline later never silently rewrites an existing variant — a variant
+  // keeps the feed state it forked from (snapshot-fallback, not live-rebase).
+  // This also means we never apply a diff against a baseline it wasn't computed
+  // against: the stored diff and its baseline always travel together in the blob.
+  const baseFlat = pickDataKeys(snap);
+  const parsed = parseVariantsEnvelope(snap, baseFlat);
+  if (parsed) {
+    const st = useStore.getState();
+    st.setVariants(parsed.variants);
+    st.setActiveVariantId(parsed.activeVariantId);
+    // Restore the live store to whatever variant was active at save time. The
+    // baseline is already live from the apply above, so only re-apply when a
+    // non-baseline variant was active. preserveVariants keeps the layer we just
+    // set from being cleared by this apply's reset.
+    const active = parsed.variants.find((v) => v.id === parsed.activeVariantId);
+    if (active && !active.baseline) {
+      applySnapshotToStore(active.snapshot, { preserveVariants: true });
+    }
+    useStore.getState().markSaved();
+  }
 }
 
 /**
@@ -274,7 +384,9 @@ export async function loadProjectFromServer(projectId: string): Promise<void> {
  * resolution) and resolves without throwing.
  */
 export async function saveProjectNow(projectId: string): Promise<void> {
-  const snapshot = buildSnapshot();
+  // #66 redesign: persist the BASELINE feed at top level plus the variant layer
+  // (as diffs) in the envelope — never the active experiment into the feed slot.
+  const snapshot = buildWorkingStateSnapshot();
   const ifMatch = getCurrentWorkingStateVersion(projectId);
   try {
     const { workingStateVersion } = await saveWorkingState(projectId, snapshot, ifMatch);

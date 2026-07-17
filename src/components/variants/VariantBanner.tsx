@@ -6,9 +6,11 @@ import { useCanUseVariants } from './useCanUseVariants';
 
 /**
  * Slim banner shown while a NON-baseline variant is active, so it's always
- * obvious you're editing a fork (not your baseline / saved feed) — and a Save
- * here saves the variant. Mirrors WelcomeBanner / PartnerBanner placement.
- * Agency+ only (mirrors VariantSwitcher's useCanUseVariants gate).
+ * obvious you're editing a fork (not your baseline / saved feed). Save persists
+ * your baseline as the canonical feed and keeps every variant alongside it, so
+ * the copy makes clear edits here land in this variant, not the baseline.
+ * Mirrors WelcomeBanner / PartnerBanner placement. Agency+ only (mirrors
+ * VariantSwitcher's useCanUseVariants gate).
  */
 export function VariantBanner() {
   const canUse = useCanUseVariants();
@@ -29,7 +31,7 @@ export function VariantBanner() {
         </svg>
         Editing variant: {active.name}
       </span>
-      <span className="text-warm-gray hidden sm:inline">Changes here stay in this variant, separate from your baseline.</span>
+      <span className="text-warm-gray hidden sm:inline">Changes here stay in this variant. Save keeps your baseline as the feed and all variants alongside it.</span>
       <span className="flex-1" />
       <button onClick={() => setShowCompare(true)} className="font-semibold text-coral hover:underline">Compare</button>
       <button

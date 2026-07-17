@@ -79,6 +79,8 @@ export function createVariantFromCurrent(name?: string): string {
   // The new variant's content == current live feed, so no reload needed — just
   // route future edits to it.
   st.setActiveVariantId(id);
+  // The variant layer is persisted state now (#66), so forking is unsaved work.
+  useStore.getState().markDirty();
   return id;
 }
 
@@ -89,8 +91,12 @@ export function switchToVariant(id: string): void {
   if (st.activeVariantId) st.updateVariantSnapshot(st.activeVariantId, buildSnapshot());
   const target = useStore.getState().variants.find((v) => v.id === id);
   if (!target) return;
-  applySnapshotToStore(target.snapshot);
+  // Within-set switch — keep the variant layer across the feed reset (#66).
+  applySnapshotToStore(target.snapshot, { preserveVariants: true });
   useStore.getState().setActiveVariantId(id);
+  // applySnapshotToStore marked the store clean; the active-pointer change is
+  // itself unsaved variant state, so re-mark dirty.
+  useStore.getState().markDirty();
 }
 
 /** Delete a variant. Can't delete the baseline. Collapses the layer when only
@@ -104,7 +110,7 @@ export function deleteVariant(id: string): void {
   if (wasActive) {
     const baseline = useStore.getState().variants.find((x) => x.baseline);
     if (baseline) {
-      applySnapshotToStore(baseline.snapshot);
+      applySnapshotToStore(baseline.snapshot, { preserveVariants: true });
       useStore.getState().setActiveVariantId(baseline.id);
     }
   }
@@ -115,15 +121,19 @@ export function deleteVariant(id: string): void {
     useStore.getState().setVariants([]);
     useStore.getState().setActiveVariantId(null);
   }
+  // Deleting/collapsing is an unsaved change to the persisted variant layer.
+  useStore.getState().markDirty();
 }
 
 /** Discard the variant layer entirely, returning the feed to the baseline. */
 export function discardVariants(): void {
   const baseline = baselineVariant();
+  // Feed boundary back to a variant-free feed — let the reset clear the layer.
   if (baseline) applySnapshotToStore(baseline.snapshot);
   const st = useStore.getState();
   st.setVariants([]);
   st.setActiveVariantId(null);
+  useStore.getState().markDirty();
 }
 
 /**

@@ -18,6 +18,7 @@ export function VariantSwitcher() {
   const variants = useStore((s) => s.variants);
   const activeVariantId = useStore((s) => s.activeVariantId);
   const setBaselineVariant = useStore((s) => s.setBaselineVariant);
+  const markDirty = useStore((s) => s.markDirty);
   const canUse = useCanUseVariants();
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState('');
@@ -79,7 +80,7 @@ export function VariantSwitcher() {
                     {!v.baseline && (
                       <>
                         <button
-                          onClick={() => setBaselineVariant(v.id)}
+                          onClick={() => { setBaselineVariant(v.id); markDirty(); }}
                           title="Make this the baseline"
                           className="px-1.5 py-1.5 text-warm-gray hover:text-teal transition-colors shrink-0 opacity-0 group-hover:opacity-100 text-xs"
                         >
