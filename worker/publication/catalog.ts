@@ -288,10 +288,18 @@ const CATALOG_FEATURE_RULES: ReadonlyArray<{ key: string; feature: string }> = [
   // Base.
   { key: 'shapes', feature: 'Shapes' },
   { key: 'frequencies', feature: 'Frequencies' },
-  // Flexible services. The editor models GTFS-Flex as GeoJSON service areas
-  // (`flexZones`), which is exactly the validator's zone-based DRT feature.
-  { key: 'flexZones', feature: 'Zone-Based Demand Responsive Services' },
+  // GTFS-Flex is NOT a simple key→feature: see deriveCatalogFeatures, where a
+  // flex zone's shape decides between two different validator feature strings.
 ];
+
+/** MobilityData feature name for a flex zone that exports a polygon service
+ *  area (locations.geojson → stop_times.location_id). */
+const FLEX_ZONE_BASED = 'Zone-Based Demand Responsive Services';
+/** MobilityData feature name for a flex zone that exports a stop group
+ *  (location_groups.txt → stop_times.location_group_id). Note the trailing word
+ *  is "Transit" here vs. "Services" above — verified against FeedMetadata.java,
+ *  not gtfs.org (which disagrees). */
+const FLEX_FIXED_STOPS = 'Fixed-Stops Demand Responsive Transit';
 
 /**
  * Derive the GTFS spec features present in a parsed feed-state blob at publish
@@ -305,6 +313,33 @@ export function deriveCatalogFeatures(state: unknown): string[] {
   for (const { key, feature } of CATALOG_FEATURE_RULES) {
     const arr = s[key];
     if (Array.isArray(arr) && arr.length > 0) features.push(feature);
+  }
+
+  // GTFS-Flex. The editor's `flexZones` collapse two distinct MobilityData
+  // features that the validator emits under DIFFERENT strings, so we inspect
+  // each zone's shape rather than emit one blanket name (which would mislabel a
+  // stop-group-only feed): a polygon zone (`geojson.features`) exports a
+  // location_id reference → zone-based DRT; a stop-group zone (`stopIds`)
+  // exports location_groups.txt + a location_group_id reference → fixed-stops
+  // DRT. A "mixed" zone has both and contributes both. A zone with neither
+  // (a placeholder) contributes nothing. We do NOT try to detect the validator's
+  // third flex feature, "Predefined Routes with Deviation" — it needs stop_times
+  // analysis (flex refs mixed with regular timed stops), not just the zone list.
+  const flexZones = s.flexZones;
+  if (Array.isArray(flexZones)) {
+    let hasPolygonZone = false;
+    let hasStopGroupZone = false;
+    for (const z of flexZones) {
+      if (!z || typeof z !== 'object') continue;
+      const geojson = (z as { geojson?: unknown }).geojson;
+      const geoFeatures =
+        geojson && typeof geojson === 'object' ? (geojson as { features?: unknown }).features : undefined;
+      if (Array.isArray(geoFeatures) && geoFeatures.length > 0) hasPolygonZone = true;
+      const stopIds = (z as { stopIds?: unknown }).stopIds;
+      if (Array.isArray(stopIds) && stopIds.length > 0) hasStopGroupZone = true;
+    }
+    if (hasPolygonZone) features.push(FLEX_ZONE_BASED);
+    if (hasStopGroupZone) features.push(FLEX_FIXED_STOPS);
   }
   return features;
 }

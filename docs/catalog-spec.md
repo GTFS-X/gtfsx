@@ -181,18 +181,22 @@ documented here so consumers can rely on their semantics when they appear:
   | `Levels` | `levels.txt` |
   | `Shapes` | `shapes.txt` |
   | `Frequencies` | `frequencies.txt` |
-  | `Zone-Based Demand Responsive Services` | GTFS-Flex service areas (`locations.geojson`) |
+  | `Zone-Based Demand Responsive Services` | a GTFS-Flex polygon zone (`locations.geojson` → `location_id`) |
+  | `Fixed-Stops Demand Responsive Transit` | a GTFS-Flex stop-group zone (`location_groups.txt` → `location_group_id`) |
 
-  Only features whose validator trigger is *presence of records in a file the
-  editor persists* are emitted, matching the validator's file-presence pass. We
-  deliberately do **not** emit features the validator derives from cross-file
-  references (`Zone-Based Fares`, `Route-Based Fares`, `Time-Based Fares`) or by
-  scanning field values (`Continuous Stops`): inferring them from file presence
-  alone would emit a name the validator itself would withhold, and a wrong name
-  is worse than a missing one. `Transfers`, `Translations`, and `Attributions`
-  are validator features the editor does not persist in its snapshot, so they
-  are not detectable here. Existing publications gain features on their next
-  republish (no backfill), like `bounding_box`.
+  Emitted only where the editor's persisted snapshot carries the same evidence
+  the validator keys on: record presence for the file-based features above, and,
+  for the two flex features, the zone's shape (a polygon service area vs. a stop
+  group — a "mixed" zone emits both). We deliberately do **not** emit features
+  the validator derives from cross-file references (`Zone-Based Fares`,
+  `Route-Based Fares`, `Time-Based Fares`), by scanning field values
+  (`Continuous Stops`), or from trip/stop-time structure the zone list alone
+  can't establish (`Predefined Routes with Deviation`): inferring them would emit
+  a name the validator itself would withhold, and a wrong name is worse than a
+  missing one. `Transfers`, `Translations`, and `Attributions` are validator
+  features the editor does not persist in its snapshot, so they are not
+  detectable here. Existing publications gain features on their next republish
+  (no backfill), like `bounding_box`.
 - **`country_code` / `subdivision_name` / `municipality`.** Not captured by
   GTFS-X today; consumers can geolocate from `bounding_box`.
 

@@ -152,7 +152,6 @@ describe('catalog builder (pure)', () => {
       ['levels', 'Levels'],
       ['shapes', 'Shapes'],
       ['frequencies', 'Frequencies'],
-      ['flexZones', 'Zone-Based Demand Responsive Services'],
     ];
     for (const [key, feature] of cases) {
       expect(deriveCatalogFeatures({ [key]: [{ id: 'x' }] })).toEqual([feature]);
@@ -161,11 +160,29 @@ describe('catalog builder (pure)', () => {
     }
   });
 
+  it('deriveCatalogFeatures maps flex zones to the right DRT feature by zone shape', () => {
+    // A polygon zone → location_id → zone-based DRT.
+    expect(
+      deriveCatalogFeatures({ flexZones: [{ id: 'z', geojson: { features: [{ type: 'Feature' }] } }] }),
+    ).toEqual(['Zone-Based Demand Responsive Services']);
+    // A stop-group zone → location_group_id → fixed-stops DRT (note: "Transit").
+    expect(
+      deriveCatalogFeatures({ flexZones: [{ id: 'z', geojson: { features: [] }, stopIds: ['S1', 'S2'] }] }),
+    ).toEqual(['Fixed-Stops Demand Responsive Transit']);
+    // A mixed zone contributes both.
+    expect(
+      deriveCatalogFeatures({ flexZones: [{ id: 'z', geojson: { features: [{}] }, stopIds: ['S1'] }] }),
+    ).toEqual(['Zone-Based Demand Responsive Services', 'Fixed-Stops Demand Responsive Transit']);
+    // A placeholder zone with neither polygon nor group contributes nothing.
+    expect(deriveCatalogFeatures({ flexZones: [{ id: 'z' }] })).toEqual([]);
+    expect(deriveCatalogFeatures({ flexZones: [] })).toEqual([]);
+  });
+
   it('deriveCatalogFeatures emits multiple features in a stable order and ignores unknown keys', () => {
     const features = deriveCatalogFeatures({
       shapes: [{ id: 's1' }],
       fareProducts: [{ id: 'p1' }],
-      flexZones: [{ id: 'z1' }],
+      flexZones: [{ id: 'z1', geojson: { features: [{}] } }],
       // Not persisted / not a detectable feature — must never leak in.
       transfers: [{ from: 'a', to: 'b' }],
       routes: [{ route_id: 'r1' }],
@@ -363,7 +380,12 @@ describe('/catalog.json (open catalog endpoint)', () => {
   it('persists bbox + publisher name + contact email + features from the snapshot state', async () => {
     const client = await loggedInClient('cat-meta@example.com');
     const proj = await createProject(client, 'Meta Feed');
-    await optInAndPublish(client, proj.id, 'official', sampleState({ flexZones: [{ id: 'z1' }] }));
+    await optInAndPublish(
+      client,
+      proj.id,
+      'official',
+      sampleState({ flexZones: [{ id: 'z1', geojson: { features: [{ type: 'Feature' }] } }] }),
+    );
 
     // catalog_meta is computed in a background (waitUntil) task — poll for it.
     let entry: CatalogDoc['feeds'][number] | undefined;
