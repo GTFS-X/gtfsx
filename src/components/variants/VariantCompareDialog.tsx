@@ -7,7 +7,7 @@ import {
   type SpatialInput,
   type SpatialMetrics,
 } from '../../services/variantSpatialMetrics';
-import type { FeedDiff, RouteChange } from '../../services/feedDiff';
+import type { FeedDiff } from '../../services/feedDiff';
 
 interface Props {
   onClose: () => void;
@@ -105,29 +105,6 @@ function MetricRowView({ r }: { r: MetricRow }) {
         {deltaFmt(delta, r.fmt)}
       </td>
     </tr>
-  );
-}
-
-/* ──────────────────────────── per-route changeset ──────────────────────────── */
-
-function RouteRow({ c }: { c: RouteChange }) {
-  const tag = c.kind === 'added'
-    ? { t: 'NEW', cls: 'bg-teal/15 text-teal' }
-    : c.kind === 'removed'
-      ? { t: 'REMOVED', cls: 'bg-red-100 text-red-600' }
-      : { t: 'CHANGED', cls: 'bg-sand text-warm-gray' };
-  const parts: string[] = [];
-  if (c.tripsPerWeekDelta) parts.push(`${dInt(c.tripsPerWeekDelta)} trips/wk`);
-  if (Math.abs(c.revHoursWeeklyDelta) >= 0.1) parts.push(`${dHours(c.revHoursWeeklyDelta)} rev-hr/wk`);
-  if (c.peakVehiclesDelta) parts.push(`${dInt(c.peakVehiclesDelta)} veh`);
-  if (Math.abs(c.annualCostDelta) >= 1) parts.push(`${dMoney(c.annualCostDelta)}/yr`);
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 border-t border-sand">
-      <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${tag.cls}`}>{tag.t}</span>
-      <span className="font-semibold text-dark-brown text-sm truncate max-w-[10rem]">{c.label}</span>
-      <span className="flex-1" />
-      <span className="text-xs text-warm-gray tabular-nums text-right">{parts.join(' · ') || 'no service change'}</span>
-    </div>
   );
 }
 
@@ -369,19 +346,13 @@ export function VariantCompareDialog({ onClose }: Props) {
                   <span><b className="text-dark-brown">{diff.patterns.added + diff.patterns.removed}</b> pattern changes</span>}
               </div>
 
-              {/* Per-route changeset */}
-              {diff.routeChanges.length > 0 ? (
-                <div className="rounded-lg border border-sand overflow-hidden">
-                  <div className="px-3 py-2 bg-cream text-[11px] font-bold uppercase tracking-wide text-warm-gray">
-                    By route
-                  </div>
-                  {diff.routeChanges.map((c) => <RouteRow key={c.routeId} c={c} />)}
-                </div>
-              ) : !sameVariant && diff.identical ? (
+              {/* Comparison stays at the topline metric level — no per-route
+                  breakdown (removed per owner request). */}
+              {!sameVariant && diff.identical && (
                 <div className="rounded-lg bg-cream border border-sand p-4 text-center text-xs text-warm-gray">
                   No service differences between these two variants.
                 </div>
-              ) : null}
+              )}
             </>
           )}
         </div>
