@@ -472,10 +472,13 @@ Design rationale is preserved in the decisions appendix of the archived
   business logo was replaced 2026-07-12 with the full-lockup
   `docs/brand-kit/assets/google-ads/logo-coral-on-white-1200.png` (pending
   Google review). Bidding stays Maximize Clicks until ≥30 conversions/30 days.
-- **Marketing videos (2026-07-12):** /planning serves the re-recorded demo
-  (`lp_planning_demo-v2.mp4` on the `gtfsx-videos` R2 bucket behind
-  videos.gtfsx.com; versioned key to dodge edge caching; captions regenerated
-  via Whisper — the "$2,500 agency tier" close is gone, ends on book-a-demo).
+- **Marketing videos (2026-07-17):** `lp_planning_demo-v3.mp4` uploaded to the
+  `gtfsx-videos` R2 bucket behind videos.gtfsx.com (versioned key to dodge edge
+  caching) — a tighter ~52s cut from the v3 script (Title VI one-click open,
+  cost/coverage, scenario compare, demo + free-trial close); captions
+  regenerated via Whisper. The /planning page reference moves v2 → v3 on
+  `feat/planning-lp-conversion`; **prod still serves v2 until that branch
+  ships**, so don't delete the v2 object.
   The editor LP `/lp/gtfs-editor/` was **retired** instead of re-recording its
   stale video: page deleted, path 301s to `/`, editor-campaign ads land on the
   homepage, `lp-editor-demo.mp4` removed from R2. No paid editor tier exists

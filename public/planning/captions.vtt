@@ -1,70 +1,31 @@
 WEBVTT
 
-00:00:00.000 --> 00:00:05.000
-Smaller transit agencies are stuck with a stack of tools that don't talk to each other.
+00:00:00.000 --> 00:00:08.480
+This is a one-click Title VI equity analysis of a transit network, and this is a one-click
 
-00:00:05.000 --> 00:00:08.000
-Census data lives in one place, your routes in another.
+00:00:08.480 --> 00:00:13.560
+report based on real walktimes of the riders and jobs this system covers.
 
-00:00:08.000 --> 00:00:12.000
-Title VI compliance gets cobbled together every year from scratch.
+00:00:13.560 --> 00:00:20.120
+GTFS·X Planner makes it easy to plan new routes and stops, with jobs and potential
 
-00:00:12.000 --> 00:00:16.000
-GTFS·X consolidates this into one browser-based tool.
+00:00:20.120 --> 00:00:22.680
+riders shown on the map.
 
-00:00:16.000 --> 00:00:20.000
-You can analyze operating costs for your system or by route,
+00:00:22.680 --> 00:00:28.360
+Build a schedule based on real-world travel times between stops, and then, in one click,
 
-00:00:20.000 --> 00:00:27.000
-or analyze stop spacing and identify closely spaced stops that are reducing vehicle operating speeds,
+00:00:28.360 --> 00:00:34.080
+estimate the operating costs, and determine who the route would serve.
 
-00:00:27.000 --> 00:00:31.000
-and even identify candidate stops to optimize your route.
+00:00:34.080 --> 00:00:40.160
+Compare service alternatives side-by-side, and see, in minutes, which alternative wins
 
-00:00:31.000 --> 00:00:34.000
-You can quantify your system coverage.
+00:00:40.160 --> 00:00:43.760
+on cost, coverage, or equity.
 
-00:00:34.000 --> 00:00:38.000
-How many people does your system serve, and what are their demographics?
+00:00:43.760 --> 00:00:48.720
+It's a fraction of the cost of the big platforms, so skip the RFP and book a demo or enroll in
 
-00:00:38.000 --> 00:00:44.000
-And Title VI analysis is now as easy as a click of a button.
-
-00:00:44.000 --> 00:00:50.000
-To plan your service, demand dots show where there may be unmet demand for service.
-
-00:00:50.000 --> 00:00:53.000
-Creating new routes is quick and easy.
-
-00:00:53.000 --> 00:00:57.000
-You draw your route, and then add stops.
-
-00:00:57.000 --> 00:01:06.000
-You can use the timetable panel to automatically estimate vehicle run times between stops.
-
-00:01:06.000 --> 00:01:12.000
-Then use this to build a complete trip table based on your headways.
-
-00:01:12.000 --> 00:01:18.000
-With your trip table built, you can analyze service costs,
-
-00:01:18.000 --> 00:01:25.000
-or even estimate the demographics of the riders it covers.
-
-00:01:25.000 --> 00:01:30.000
-The tool also supports scenario analysis to compare alternatives side by side.
-
-00:01:30.000 --> 00:01:33.000
-Choose your route alternatives to define a scenario,
-
-00:01:33.000 --> 00:01:38.000
-then switch between scenarios using the scenario dropdown.
-
-00:01:38.000 --> 00:01:43.000
-You can compare your scenarios and pick the one that wins on cost,
-
-00:01:43.000 --> 00:01:47.000
-or perhaps pick the one that wins on equity.
-
-00:01:47.000 --> 00:01:53.000
-Book a demo today to see how GTFS·X can simplify your planning and feed management.
+00:00:48.720 --> 00:00:50.480
+a free trial to start planning today.
