@@ -17,6 +17,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthLayout } from '../auth/AuthLayout';
 import { AuthButton } from '../auth/AuthButton';
 import { FormField } from '../ui/FormField';
+import { Modal } from '../ui/Modal';
 import { useStore } from '../../store';
 import {
   fetchPlanCatalog,
@@ -29,7 +30,13 @@ import { createOrg, roleAtLeast, type OrgSummary } from '../../services/orgsApi'
 import { ApiError } from '../../services/authApi';
 import { trackCtaClick } from '../../services/trackBeacon';
 import { planDisplayName, cheapestPlanFor, FEATURE_COPY, type FeatureKey } from './planConfig';
-import { annualToMonthlyEquivalent, annualSavings } from './pricingUtils';
+import {
+  annualToMonthlyEquivalent,
+  annualSavings,
+  redirectModalState,
+  redirectModalCopy,
+  type AutoCheckoutPhase,
+} from './pricingUtils';
 import { TestModeBanner } from './TestModeBanner';
 import { TalkToSalesModal } from './TalkToSalesModal';
 
@@ -174,6 +181,11 @@ export function PricingPage() {
   const [pendingPlan, setPendingPlan] = useState<Plan | null>(null);
   const [autoTriggered, setAutoTriggered] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Drives the redirect modal that covers the page while a deep-linked
+  // (auto-triggered) checkout is creating its Stripe session. Only the auto
+  // path sets this — manual card clicks keep their in-button "Redirecting…"
+  // state so the manual flow is left unchanged.
+  const [autoCheckoutPhase, setAutoCheckoutPhase] = useState<AutoCheckoutPhase>('idle');
   // Agency-without-org sub-form. Activated when the user picks Agency and has
   // no admin org to attach the subscription to. Carries the chosen interval.
   const [teamOrgPrompt, setTeamOrgPrompt] = useState<
@@ -256,8 +268,16 @@ export function PricingPage() {
   }
 
   // Kick off Stripe Checkout. Owner mapping is enforced server-side too, but we
-  // resolve it here so the redirect happens in a single round-trip.
-  async function startPaidCheckout(plan: 'agency', interval: 'month' | 'year', orgId?: string) {
+  // resolve it here so the redirect happens in a single round-trip. `viaAuto`
+  // marks the deep-link / post-verify auto-trigger path so we cover the page
+  // with the redirect modal (and surface a create failure in it) instead of
+  // only flipping the card button to "Redirecting…".
+  async function startPaidCheckout(
+    plan: 'agency',
+    interval: 'month' | 'year',
+    orgId?: string,
+    viaAuto = false,
+  ) {
     if (!currentUser) {
       // Logged-out users go straight to sign-up, carrying the plan so they land
       // back here for checkout after verifying their email.
@@ -266,6 +286,7 @@ export function PricingPage() {
     }
     setError(null);
     setPendingPlan(plan);
+    if (viaAuto) setAutoCheckoutPhase('starting');
     try {
       // Planner (internal id 'agency') is always billed to an organization.
       const ownerId = orgId ?? '';
@@ -277,11 +298,19 @@ export function PricingPage() {
     } catch (e) {
       setError(e instanceof ApiError ? e.message : (e as Error)?.message ?? 'Could not start checkout.');
       setPendingPlan(null);
+      if (viaAuto) setAutoCheckoutPhase('error');
     }
   }
 
-  // Top-level click handler for a paid/free/enterprise tier card.
-  async function handlePick(plan: Plan, interval: 'month' | 'year') {
+  // Top-level click handler for a paid/free/enterprise tier card. `viaAuto`
+  // (set only by the deep-link auto-trigger) flows through to Planner checkout
+  // so the redirect modal covers the hand-off; when Planner has no org yet we
+  // fall through to the org-create form instead, where no modal is wanted.
+  async function handlePick(
+    plan: Plan,
+    interval: 'month' | 'year',
+    opts?: { viaAuto?: boolean },
+  ) {
     if (plan === 'free') {
       // "Switch to Free" from an active paid subscription is a cancellation,
       // not a navigation — route through the Customer Portal. An org context
@@ -331,8 +360,10 @@ export function PricingPage() {
     // existing admin org, else prompt to create one.
     const orgId = presetOrg?.id ?? adminOrgs[0]?.id;
     if (orgId) {
-      void startPaidCheckout('agency', interval, orgId);
+      void startPaidCheckout('agency', interval, orgId, opts?.viaAuto);
     } else {
+      // No org to bill yet: show the create-org form. This is an expected input
+      // step, not a surprise redirect, so we don't raise the redirect modal.
       const defaultName = `${currentUser?.displayName ?? 'My'} Transit`;
       setTeamOrgPrompt({ name: defaultName, slug: slugifyOrgName(defaultName), interval });
     }
@@ -356,10 +387,29 @@ export function PricingPage() {
       return;
     }
     setAutoTriggered(true);
-    handlePick(directPlanParam as Plan, directIntervalParam ?? intervalFor(directPlanParam));
+    handlePick(directPlanParam as Plan, directIntervalParam ?? intervalFor(directPlanParam), {
+      viaAuto: true,
+    });
     // handlePick is recreated each render; the autoTriggered guard fires once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoTriggered, authChecked, currentUser, orgsLoaded, directPlanParam, currentPlan]);
+
+  // Re-run the deep-linked checkout after a create failure (Retry in the
+  // redirect modal). Mirrors the auto-trigger effect's call, minus the run-once
+  // guard, so it re-enters startPaidCheckout via the same viaAuto path.
+  function retryAutoCheckout() {
+    if (directPlanParam !== 'agency') return;
+    setError(null);
+    setAutoCheckoutPhase('idle');
+    handlePick('agency', directIntervalParam ?? intervalFor('agency'), { viaAuto: true });
+  }
+
+  // Dismiss the redirect modal after a failure and clear the error so the user
+  // lands back on the normal pricing page to choose manually.
+  function dismissAutoCheckout() {
+    setAutoCheckoutPhase('idle');
+    setError(null);
+  }
 
   // Submit handler for the inline "Create your organization" form. Creates the
   // org first (plan stays 'free' until the Stripe webhook flips it to 'agency'
@@ -473,12 +523,24 @@ export function PricingPage() {
     return 'The Editor is free forever. Planner adds hosted publishing and the service-planning suite for transit agencies.';
   })();
 
+  // Redirect modal that covers the page during a deep-linked auto-checkout. The
+  // plan being sent to Stripe drives the copy — pendingPlan while creating,
+  // falling back to the deep-link param once it clears on failure.
+  const redirectModal = redirectModalState(autoCheckoutPhase);
+  const redirectPlan: Plan | null = pendingPlan ?? (directPlanParam as Plan | null);
+  const redirectCopy = redirectModalCopy(
+    redirectPlan,
+    redirectPlan ? planDisplayName(redirectPlan) : 'your plan',
+  );
+
   return (
     <AuthLayout title={pageTitle} subtitle={pageSubtitle} wide>
       <div className="space-y-8">
         <TestModeBanner />
 
-        {error && (
+        {/* Auto-checkout failures are surfaced inside the redirect modal, so
+            suppress the inline banner then to avoid showing the error twice. */}
+        {error && autoCheckoutPhase !== 'error' && (
           <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
             {error}
           </div>
@@ -829,6 +891,41 @@ export function PricingPage() {
         scheduleUrl={SCHEDULE_CALL_URL}
         mailto={talkToSalesContext === 'services' ? FIX_FEED_MAIL : ENTERPRISE_MAIL}
       />
+
+      {/* Deep-link auto-checkout: cover the page so the hand-off to Stripe is
+          explained, not a surprise. Locked (non-dismissable) while creating the
+          session; on failure it swaps to an error state with Retry/Close rather
+          than stranding the spinner. */}
+      <Modal
+        open={redirectModal.open}
+        onClose={dismissAutoCheckout}
+        dismissable={false}
+        showClose={redirectModal.variant === 'error'}
+        title={redirectModal.variant === 'error' ? "We couldn't start your checkout" : redirectCopy.title}
+        footer={
+          redirectModal.variant === 'error' ? (
+            <>
+              <AuthButton variant="secondary" type="button" onClick={dismissAutoCheckout}>
+                Close
+              </AuthButton>
+              <AuthButton type="button" onClick={retryAutoCheckout}>
+                Try again
+              </AuthButton>
+            </>
+          ) : undefined
+        }
+      >
+        {redirectModal.variant === 'error' ? (
+          <p className="text-sm text-warm-gray">
+            {error ?? 'Something went wrong starting your checkout. Please try again.'}
+          </p>
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-2 text-center">
+            <div className="inline-block h-8 w-8 rounded-full border-2 border-teal border-t-transparent animate-spin" />
+            <p className="text-sm text-warm-gray">{redirectCopy.body}</p>
+          </div>
+        )}
+      </Modal>
     </AuthLayout>
   );
 }
