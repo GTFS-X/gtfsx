@@ -4,6 +4,8 @@
  * independently of React (no non-component exports in .tsx).
  */
 
+import type { Plan } from '../../services/billingApi';
+
 /**
  * Per-month-equivalent price for an annual plan.
  * Rounds to the nearest whole dollar (matches the design aesthetic
@@ -25,4 +27,49 @@ export function annualToMonthlyEquivalent(annualTotal: number): number {
  */
 export function annualSavings(monthlyPrice: number, annualTotal: number): number {
   return Math.max(0, monthlyPrice * 12 - annualTotal);
+}
+
+/**
+ * Lifecycle of the auto-checkout redirect modal. When the pricing page is
+ * reached with a `?plan=` deep-link (the /planning trial CTA, or the
+ * post-signup resume) it auto-fires Stripe Checkout; this modal covers the page
+ * so the redirect never feels like an unexplained yank to stripe.com.
+ *   'idle'     — no auto-checkout in flight; modal hidden.
+ *   'starting' — creating the Checkout session, about to hand off to Stripe.
+ *   'error'    — the create failed; show the message + Retry/Close.
+ */
+export type AutoCheckoutPhase = 'idle' | 'starting' | 'error';
+
+export interface RedirectModalState {
+  /** Whether the covering modal is mounted at all. */
+  open: boolean;
+  /** Spinner while redirecting; error card once the create fails. */
+  variant: 'spinner' | 'error';
+}
+
+/** Pure view-state for the auto-checkout redirect modal (the tested seam). */
+export function redirectModalState(phase: AutoCheckoutPhase): RedirectModalState {
+  return {
+    open: phase !== 'idle',
+    variant: phase === 'error' ? 'error' : 'spinner',
+  };
+}
+
+export interface RedirectModalCopy {
+  title: string;
+  body: string;
+}
+
+/**
+ * Spinner-state copy, framed for the plan being checked out. Planner (internal
+ * id 'agency') ships a 14-day trial, so the redirect reads as "starting your
+ * trial"; any other self-serve plan reads as setting that plan up. `planName`
+ * is the display name (e.g. from planDisplayName).
+ */
+export function redirectModalCopy(plan: Plan | null, planName: string): RedirectModalCopy {
+  const isTrialPlan = plan === 'agency';
+  return {
+    title: isTrialPlan ? 'Starting your 14-day trial' : `Setting up ${planName}`,
+    body: "Redirecting you to Stripe's secure checkout…",
+  };
 }
