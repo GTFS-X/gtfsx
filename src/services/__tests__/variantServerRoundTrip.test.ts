@@ -44,6 +44,9 @@ function seedBaseline() {
   s.setCalendars([{ service_id: 'wk', monday: 1, tuesday: 1, wednesday: 1, thursday: 1, friday: 1, saturday: 0, sunday: 0, start_date: '20260101', end_date: '20261231' } as never]);
   s.setTrips([{ trip_id: 't1', route_id: 'R1', service_id: 'wk', direction_id: 0 } as Trip]);
   s.setStopTimes([{ trip_id: 't1', stop_id: 's1', stop_sequence: 1, arrival_time: '08:00:00', departure_time: '08:00:00' } as StopTime]);
+  // #67: the baseline carries a transfer so we can prove transfers ride the
+  // variant envelope through save→reload.
+  s.setTransfers([{ from_stop_id: 's1', to_stop_id: 's1', transfer_type: 0 }] as never);
 }
 
 const addTrip = (id: string) => {
@@ -102,6 +105,36 @@ describe('variant persistence save → reload round-trip', () => {
     switchToVariant(baselineVariant()!.id);
     expect(useStore.getState().routes.map((r) => r.route_id)).toEqual(['R1']);
     expect(useStore.getState().trips.map((t) => t.trip_id)).toEqual(['t1']);
+  });
+
+  it('transfers ride the variant envelope: baseline canonical, variant edit preserved (#67)', async () => {
+    // Baseline has one transfer (from seed). Fork V1 and give it a 2nd transfer.
+    const v1 = createVariantFromCurrent('V1');
+    useStore.getState().setTransfers([
+      { from_stop_id: 's1', to_stop_id: 's1', transfer_type: 0 },
+      { from_stop_id: 's1', to_stop_id: 's2', transfer_type: 2, min_transfer_time: 120 },
+    ] as never);
+
+    await saveProjectNow(PID);
+    // The flat top-level feed keeps only the BASELINE transfer.
+    expect((h.saved.snapshot!.transfers as unknown[])).toHaveLength(1);
+
+    // Hard reload.
+    resetEditorState();
+    useStore.getState().setVariants([]);
+    useStore.getState().setActiveVariantId(null);
+    await loadProjectFromServer(PID);
+
+    const st = useStore.getState();
+    // Active variant (V1) restored to the live store with BOTH transfers.
+    expect(st.activeVariantId).toBe(v1);
+    expect(st.transfers).toHaveLength(2);
+    // Baseline reconstructed with only its single transfer (not clobbered).
+    const baseSnap = st.variants.find((v) => v.baseline)!.snapshot;
+    expect((baseSnap.transfers as unknown[])).toHaveLength(1);
+    // Switching to baseline reverts the live transfers to the single one.
+    switchToVariant(baselineVariant()!.id);
+    expect(useStore.getState().transfers).toHaveLength(1);
   });
 
   it('a feed with no variants saves a flat, envelope-free blob (backward compatible)', async () => {

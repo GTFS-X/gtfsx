@@ -45,6 +45,13 @@ const DATA_KEYS = [
   'levels',
   'pathways',
   'flexZones',
+  // transfers.txt — transfer rules between routes/stops (timed connections,
+  // minimum transfer times), edited from the Fares panel. A real feed entity
+  // that the exporter writes but that was never wired into persistence, so it
+  // was silently dropped on save/reload and leaked across feeds in-session
+  // (#67). Persisting it here fixes both; it also rides the variant envelope
+  // now, since variant snapshots are built from these DATA_KEYS.
+  'transfers',
   'featureSettings',
   'dismissedValidations',
   // The feed's declared license (SPDX short identifier). Feed-state: the D1
@@ -158,6 +165,9 @@ export function resetStoreEntities() {
   state.setLevels([] as never);
   state.setPathways([] as never);
   state.setFlexZones([] as never);
+  // transfers.txt entities — cleared here so feed A's transfers can't survive
+  // onto feed B opened in the same session (#67).
+  state.setTransfers([] as never);
   state.setFeatureSettings({});
   state.setDismissedValidations([]);
   state.setLicenseSpdx(null);
@@ -296,6 +306,10 @@ function applySnapshotToStoreInner(
   if (Array.isArray(g('levels'))) state.setLevels(g('levels') as never);
   if (Array.isArray(g('pathways'))) state.setPathways(g('pathways') as never);
   if (Array.isArray(g('flexZones'))) state.setFlexZones(g('flexZones') as never);
+  // transfers.txt (#67). resetEditorState() above already cleared this to [], so
+  // an old snapshot without the key correctly loads as empty transfers rather
+  // than undefined-crashing or leaking the previous feed's transfers.
+  if (Array.isArray(g('transfers'))) state.setTransfers(g('transfers') as never);
   if (g('featureSettings') && typeof g('featureSettings') === 'object') {
     state.setFeatureSettings(g('featureSettings') as never);
   }
