@@ -256,8 +256,9 @@ export function VariantCompareDialog({ onClose, initialAId, initialBId }: Props)
         : null;
 
   return (
-    // z-[60] so it stacks above the variants panel modal (z-50) when opened from
-    // a per-row compare shortcut; still fine standalone (e.g. the VariantBanner).
+    // z-[60] so it stacks above the RightRail variants panel and any confirm
+    // dialog (Radix z-50) when opened from a per-row compare shortcut; also fine
+    // standalone (the VariantBanner / dropdown "Compare to baseline").
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">

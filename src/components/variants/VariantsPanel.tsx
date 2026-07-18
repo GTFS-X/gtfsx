@@ -1,8 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
-import { Modal } from '../ui/Modal';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { AuthButton } from '../auth/AuthButton';
 import { VariantCompareDialog } from './VariantCompareDialog';
 import { useCanUseVariants } from './useCanUseVariants';
 import { relativeTime } from '../community/time';
@@ -22,26 +20,24 @@ import { summarizeDiff, rowActions } from './variantPanelHelpers';
 import type { FeedVariant } from '../../store/variantSlice';
 import type { FeedDiff } from '../../services/feedDiff';
 
-interface Props {
-  onClose: () => void;
-}
-
 /**
- * A2 — the variants management panel. Lists baseline + every variant with a
- * compact change summary and full CRUD: switch, rename (inline), duplicate (from
- * any variant), delete (baseline protected), promote-to-baseline (the headline
- * action), and a per-row compare shortcut. Agency+ (inherits the variants gate).
+ * A2 — the variants management panel, living in the RightRail (opened from the
+ * TopBar variants dropdown's "Manage variants…"). Lists baseline + every variant
+ * with a compact change summary and full CRUD: switch, rename (inline), duplicate
+ * (from any variant), delete (baseline protected), promote-to-baseline (headline),
+ * and a per-row compare shortcut. Agency+ (inherits the variants gate).
  *
- * Spatial stats are shown ONLY when already cached (peekVariantSpatialMetrics —
- * a sync read); the panel never triggers a compute. Entity deltas come from the
- * cheap feedDiff counts, computed once per open (the modal blocks editing).
+ * Spatial stats show ONLY when already cached (peekVariantSpatialMetrics — a sync
+ * read); the panel never triggers a compute. Entity deltas come from the cheap
+ * feedDiff counts, recomputed only when the variant set / active pointer changes.
  */
-export function VariantsPanel({ onClose }: Props) {
+export function VariantsPanel() {
   const canUse = useCanUseVariants();
   const variants = useStore((s) => s.variants);
   const activeVariantId = useStore((s) => s.activeVariantId);
   const renameVariant = useStore((s) => s.renameVariant);
   const markDirty = useStore((s) => s.markDirty);
+  const setSidebarSection = useStore((s) => s.setSidebarSection);
 
   const [newName, setNewName] = useState('');
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -54,8 +50,7 @@ export function VariantsPanel({ onClose }: Props) {
   const baseline = variants.find((v) => v.baseline) ?? null;
   const baselineId = baseline?.id ?? '';
 
-  // Per-variant entity delta vs baseline (cheap counts). Computed once per open;
-  // the modal blocks editing, so the active variant's live state is stable here.
+  // Per-variant entity delta vs baseline (cheap counts).
   const diffs = useMemo(() => {
     const m = new Map<string, FeedDiff | null>();
     for (const v of variants) {
@@ -65,13 +60,14 @@ export function VariantsPanel({ onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variants, baselineId, activeVariantId]);
 
-  if (!canUse) return null;
+  if (!canUse) {
+    return <p className="text-sm text-warm-gray">Variants are an Agency-plan feature.</p>;
+  }
 
   const handleNew = () => {
     createVariantFromCurrent(newName);
     setNewName('');
   };
-
   const startRename = (v: FeedVariant) => {
     setRenamingId(v.id);
     setRenameValue(v.name);
@@ -84,82 +80,67 @@ export function VariantsPanel({ onClose }: Props) {
     setRenamingId(null);
   };
 
-  const doSwitch = (id: string) => {
-    switchToVariant(id);
-  };
-
   return (
-    <>
-      <Modal
-        // Hide (don't unmount) the panel while the compare dialog is open, so
-        // the two modals don't fight over Radix's focus trap / pointer lock.
-        open={!compareBId}
-        onClose={() => { if (!compareBId) onClose(); }}
-        title="Variants"
-        description="Fork the feed to compare and plan service alternatives. Saved with your project."
-        maxWidthClassName="max-w-2xl"
-      >
-        <div className="flex flex-col gap-2 max-h-[52vh] overflow-y-auto pr-1 -mr-1">
-          {variants.length === 0 ? (
-            <div className="rounded-lg border border-sand bg-cream/50 p-5 text-center">
-              <p className="text-sm text-warm-gray mb-3">
-                No variants yet. Fork the current feed to explore a service change without touching your baseline.
-              </p>
-            </div>
-          ) : (
-            variants.map((v) => (
-              <VariantRow
-                key={v.id}
-                variant={v}
-                isActive={v.id === activeVariantId}
-                diff={diffs.get(v.id) ?? null}
-                baselineId={baselineId}
-                renaming={renamingId === v.id}
-                renameValue={renameValue}
-                onRenameValue={setRenameValue}
-                onStartRename={() => startRename(v)}
-                onCommitRename={commitRename}
-                onSwitch={() => doSwitch(v.id)}
-                onDuplicate={() => duplicateVariant(v.id)}
-                onDelete={() => setConfirmDelete(v)}
-                onPromote={() => setConfirmPromote(v)}
-                onCompare={() => setCompareBId(v.id)}
-              />
-            ))
-          )}
+    <div className="space-y-4">
+      <p className="text-sm text-warm-gray">
+        Fork the feed to compare and plan service alternatives. Variants are saved with your
+        project; Save keeps your baseline as the feed and all variants alongside it.
+      </p>
 
-          {/* Create a new variant from the current feed. */}
-          <div className="flex items-center gap-2 mt-1 pt-2 border-t border-sand">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleNew()}
-              placeholder={variants.length ? 'New variant name…' : 'Name your first variant…'}
-              className="flex-1 min-w-0 px-2.5 py-1.5 text-sm border border-sand rounded-lg bg-cream focus:border-coral focus:bg-white focus:outline-none"
+      {variants.length === 0 ? (
+        <div className="rounded-lg border border-sand bg-cream/50 p-4 text-center text-sm text-warm-gray">
+          No variants yet. Name one below to fork the current feed without touching your baseline.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {variants.map((v) => (
+            <VariantRow
+              key={v.id}
+              variant={v}
+              isActive={v.id === activeVariantId}
+              diff={diffs.get(v.id) ?? null}
+              baselineId={baselineId}
+              renaming={renamingId === v.id}
+              renameValue={renameValue}
+              onRenameValue={setRenameValue}
+              onStartRename={() => startRename(v)}
+              onCommitRename={commitRename}
+              onSwitch={() => switchToVariant(v.id)}
+              onDuplicate={() => duplicateVariant(v.id)}
+              onDelete={() => setConfirmDelete(v)}
+              onPromote={() => setConfirmPromote(v)}
+              onCompare={() => setCompareBId(v.id)}
             />
-            <button
-              onClick={handleNew}
-              title="Fork a new variant from the current feed"
-              className="px-3 py-1.5 rounded-lg bg-coral text-white text-sm font-heading font-bold hover:bg-[#d4603a] transition-colors shrink-0"
-            >
-              ＋ New
-            </button>
-          </div>
+          ))}
         </div>
+      )}
 
-        <div className="flex items-center gap-2 mt-5">
-          {variants.length > 0 && (
-            <button
-              onClick={() => setConfirmDiscard(true)}
-              className="text-xs font-semibold text-warm-gray hover:text-red-600 transition-colors"
-            >
-              Discard all variants
-            </button>
-          )}
-          <span className="flex-1" />
-          <AuthButton variant="secondary" onClick={onClose}>Done</AuthButton>
-        </div>
-      </Modal>
+      {/* Create a new variant from the current feed. */}
+      <div className="flex items-center gap-2">
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleNew()}
+          placeholder={variants.length ? 'New variant name…' : 'Name your first variant…'}
+          className="flex-1 min-w-0 px-2.5 py-1.5 text-sm border border-sand rounded-lg bg-cream focus:border-coral focus:bg-white focus:outline-none"
+        />
+        <button
+          onClick={handleNew}
+          title="Fork a new variant from the current feed"
+          className="px-3 py-1.5 rounded-lg bg-coral text-white text-sm font-heading font-bold hover:bg-[#d4603a] transition-colors shrink-0"
+        >
+          ＋ New
+        </button>
+      </div>
+
+      {variants.length > 0 && (
+        <button
+          onClick={() => setConfirmDiscard(true)}
+          className="text-xs font-semibold text-warm-gray hover:text-red-600 transition-colors"
+        >
+          Discard all variants
+        </button>
+      )}
 
       {confirmDelete && (
         <ConfirmDialog
@@ -216,7 +197,7 @@ export function VariantsPanel({ onClose }: Props) {
           onConfirm={() => {
             discardVariants();
             setConfirmDiscard(false);
-            onClose();
+            setSidebarSection(null);
           }}
         />
       )}
@@ -228,13 +209,13 @@ export function VariantsPanel({ onClose }: Props) {
           onClose={() => setCompareBId(null)}
         />
       )}
-    </>
+    </div>
   );
 }
 
 /* ──────────────────────────── row ──────────────────────────── */
 
-function spatialChip(id: string): { residents: number; jobs: number } | null {
+function spatialChip(id: string): { residents: number } | null {
   const feed = variantFeedState(id);
   if (!feed) return null;
   const m: SpatialMetrics | null = peekVariantSpatialMetrics(id, {
@@ -242,7 +223,7 @@ function spatialChip(id: string): { residents: number; jobs: number } | null {
     routes: feed.routes,
     routeStops: feed.routeStops,
   });
-  return m ? { residents: m.population, jobs: m.jobs } : null;
+  return m ? { residents: m.population } : null;
 }
 
 function VariantRow({
@@ -279,7 +260,6 @@ function VariantRow({
   const actions = rowActions(variant, isActive);
   const chips = variant.baseline ? [] : summarizeDiff(diff);
   const spatial = spatialChip(variant.id);
-  // Only show a delta vs baseline when the baseline is ALSO cached (both sync).
   const baseSpatial = variant.baseline ? null : spatialChip(baselineId);
 
   return (
@@ -326,7 +306,6 @@ function VariantRow({
         )}
         <span className="flex-1" />
 
-        {/* Action buttons */}
         {actions.canPromote && (
           <button
             onClick={onPromote}
@@ -336,14 +315,10 @@ function VariantRow({
             Make baseline
           </button>
         )}
-        {actions.canCompare && (
-          <IconBtn label="Compare to baseline" onClick={onCompare}>📊</IconBtn>
-        )}
+        {actions.canCompare && <IconBtn label="Compare to baseline" onClick={onCompare}>📊</IconBtn>}
         <IconBtn label="Rename" onClick={onStartRename}>✎</IconBtn>
         <IconBtn label="Duplicate" onClick={onDuplicate}>⧉</IconBtn>
-        {actions.canDelete && (
-          <IconBtn label="Delete" onClick={onDelete} danger>×</IconBtn>
-        )}
+        {actions.canDelete && <IconBtn label="Delete" onClick={onDelete} danger>×</IconBtn>}
       </div>
 
       {/* Line 2: timestamps + change + spatial (muted) */}
