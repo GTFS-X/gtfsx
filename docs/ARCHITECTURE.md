@@ -445,6 +445,25 @@ Design rationale is preserved in the decisions appendix of the archived
   `TURNSTILE_SECRET_KEY`, `STRIPE_SECRET_KEY` (live), `STRIPE_WEBHOOK_SIGNING_SECRET` (live),
   `GOOGLE_ADS_CONVERSION_ACTION_DEMO_REQUEST` (set on prod 2026-07-12 —
   demo_request OCI uploads are live; see `worker/marketing/ads/README.md` §4).
+- **Ask GTFS·X assistant secret (`ANTHROPIC_API_KEY`), shipped 2026-07-20.** Set
+  on both `gtfs-builder` (prod) and `gtfs-builder-staging`; consumed by the Ask
+  GTFS·X assistant (`worker/assistant/`). The key is a dedicated Anthropic
+  Console workspace key for this assistant, isolated from other projects' keys.
+  It **never expires**, but the workspace carries a **$25/month spend cap** —
+  if the assistant starts returning upstream auth/quota errors near month end,
+  check the cap first (raise it in the Anthropic Console). Local copy lives in
+  gtfsx `.dev.vars` under the var name `ASK_GTFSX_ANTRHOPIC_API_KEY` (sic — note
+  the transposed "RH", as it exists today).
+  **Rotation runbook:**
+  1. Validate the new key with a minimal 1-token curl to
+     `api.anthropic.com/v1/messages` before installing it anywhere.
+  2. From a gtfsx checkout: `unset CLOUDFLARE_API_TOKEN`, then pipe the value
+     into `npx wrangler secret put ANTHROPIC_API_KEY` (prod) and
+     `npx wrangler secret put ANTHROPIC_API_KEY --env staging`.
+  3. Gotcha: a plain `secret put` fails with `"latest version isn't deployed"`
+     if the worker has an undeployed newer version — in that case use
+     `npx wrangler versions secret put ANTHROPIC_API_KEY` instead (stores the
+     secret without deploying; the next deploy inherits it).
 - Stripe: live-mode Price IDs (`STRIPE_PRICE_TEAM_*` only; `STRIPE_PRICE_PRO_*`
   removed from `wrangler.jsonc` in pricing v4), portal config, webhook
   `→ /api/billing/webhooks/stripe`. Post-v4 Stripe cleanup done 2026-07-12:
