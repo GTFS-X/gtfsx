@@ -8,6 +8,7 @@ import { FormField } from '../ui/FormField';
 import { Modal } from '../ui/Modal';
 import { AuthButton } from '../auth/AuthButton';
 import { PlanBadge } from '../billing/PlanBadge';
+import { blockedFromAdditionalOrg } from '../billing/planConfig';
 import { shouldShowUpgradeEntry } from '../../services/proIntent';
 
 const ROLE_COLORS: Record<OrgRole, string> = {
@@ -92,6 +93,20 @@ export function UserMenuItems({ onClose }: { onClose?: () => void } = {}) {
     );
   }
 
+  // Org-creation gating. Ownership-based (not personal-plan-based) so a Planner
+  // TRIAL user — whose personal plan is free but who owns an agency-trial org —
+  // is correctly routed to the Enterprise upsell for a SECOND org rather than a
+  // stale Planner pitch. `multiOrgBlocked` = owns ≥1 org, none enterprise, not
+  // staff (mirrors the server gate). `canCreateOrg` preserves the existing
+  // first-org Planner gate (org_workspace).
+  const ownedOrgPlans = userOrgs.filter((o) => o.role === 'owner').map((o) => o.plan);
+  const multiOrgBlocked = !currentUser.staff && blockedFromAdditionalOrg(ownedOrgPlans);
+  const canCreateOrg =
+    currentUser.staff ||
+    ownedOrgPlans.some((p) => p === 'enterprise') ||
+    currentUser.plan === 'agency' ||
+    currentUser.plan === 'enterprise';
+
   return (
     <>
       <div className="px-3 py-2 border-b border-sand mb-1">
@@ -152,7 +167,19 @@ export function UserMenuItems({ onClose }: { onClose?: () => void } = {}) {
           </button>
         );
       })}
-      {currentUser.plan === 'agency' || currentUser.plan === 'enterprise' ? (
+      {multiOrgBlocked ? (
+        // Already owns an org (non-enterprise): additional orgs are Enterprise.
+        <button
+          onClick={() => go('/pricing?feature=multi_org')}
+          className="w-full text-left px-3 py-1.5 rounded-md text-sm text-coral hover:bg-cream transition-colors flex items-center justify-between gap-2"
+          title="Additional organizations are an Enterprise feature"
+        >
+          <span>+ Create organization…</span>
+          <span className="text-[10px] font-bold uppercase tracking-wide bg-cream text-warm-gray px-1.5 py-0.5 rounded border border-sand">
+            Enterprise
+          </span>
+        </button>
+      ) : canCreateOrg ? (
         <button
           onClick={() => setShowCreateOrg(true)}
           className="w-full text-left px-3 py-1.5 rounded-md text-sm text-coral hover:bg-cream transition-colors"
@@ -160,6 +187,7 @@ export function UserMenuItems({ onClose }: { onClose?: () => void } = {}) {
           + Create organization…
         </button>
       ) : (
+        // No org yet and no Planner access: creating the first org needs Planner.
         <button
           onClick={() => go('/pricing?feature=org_workspace')}
           className="w-full text-left px-3 py-1.5 rounded-md text-sm text-coral hover:bg-cream transition-colors flex items-center justify-between gap-2"

@@ -16,6 +16,7 @@ export type FeatureKey =
   | 'network_walksheds'
   | 'org_workspace'
   | 'cross_org_member'
+  | 'multi_org'
   | 'org_logo'
   | 'brand_color'
   | 'service_alerts'
@@ -42,6 +43,7 @@ export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   network_walksheds:   ['agency', 'enterprise'],
   org_workspace:       ['agency', 'enterprise'],
   cross_org_member:    ['agency', 'enterprise'],
+  multi_org:           ['enterprise'],
   org_logo:            ['agency', 'enterprise'],
   brand_color:         ['agency', 'enterprise'],
   service_alerts:      ['agency', 'enterprise'],
@@ -66,6 +68,17 @@ export function cheapestPlanFor(feature: FeatureKey): Plan {
     if (planHasFeature(plan, feature)) return plan;
   }
   return 'enterprise';
+}
+
+// The multi-org gate (feature 'multi_org'): a user may OWN at most one
+// organization unless they own an enterprise-plan org, which unlocks additional
+// orgs. Given the plans of the orgs the user already owns, returns whether
+// creating ANOTHER is blocked. The first org (empty list) is always allowed.
+// Best-effort client mirror of worker/billing/plans.ts blockedFromAdditionalOrg
+// — the server is authoritative; keep the two in parity.
+export function blockedFromAdditionalOrg(ownedOrgPlans: readonly (Plan | null | undefined)[]): boolean {
+  if (ownedOrgPlans.length === 0) return false;
+  return !ownedOrgPlans.some((p) => p === 'enterprise');
 }
 
 export function planDisplayName(plan: Plan): string {
@@ -130,6 +143,10 @@ export const FEATURE_COPY: Record<FeatureKey, { title: string; description: stri
   cross_org_member: {
     title: 'Cross-org membership',
     description: 'Built for consultants: work in multiple client orgs from one Planner subscription, without the client orgs paying for your seat.',
+  },
+  multi_org: {
+    title: 'Additional organizations',
+    description: 'Own and manage more than one organization workspace. Enterprise unlocks multi-agency portfolios for consultants and state DOTs.',
   },
   org_logo: {
     title: 'Custom organization logo',

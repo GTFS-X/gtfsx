@@ -6,6 +6,7 @@ import { makeClient, type TestClient } from './_client';
 import {
   applyMigrations,
   dbGet,
+  dbRun,
   resetDb,
   seedUser,
   setupEmailCapture,
@@ -15,6 +16,18 @@ import {
 async function loggedInClient(email: string): Promise<{ client: TestClient; userId: string }> {
   const normalized = email.toLowerCase();
   const user = await seedUser({ email: normalized });
+  const client = makeClient();
+  const res = await client.post('/auth/login', { email: user.email, password: user.password });
+  if (res.status !== 200) throw new Error(`login failed: ${res.status}`);
+  return { client, userId: user.id };
+}
+
+async function loginAs(opts: {
+  email: string;
+  plan?: 'free' | 'agency' | 'enterprise';
+  staff?: boolean;
+}): Promise<{ client: TestClient; userId: string }> {
+  const user = await seedUser({ email: opts.email.toLowerCase(), plan: opts.plan, staff: opts.staff });
   const client = makeClient();
   const res = await client.post('/auth/login', { email: user.email, password: user.password });
   if (res.status !== 200) throw new Error(`login failed: ${res.status}`);
@@ -71,7 +84,9 @@ describe('/api/orgs CRUD', () => {
   });
 
   it('GET /api/orgs lists orgs the caller belongs to with role, memberCount, projectCount', async () => {
-    const { client } = await loggedInClient('lister@example.com');
+    // Owning multiple orgs now requires staff/enterprise (the multi_org gate),
+    // so use a staff user to exercise the multi-org listing shape.
+    const { client } = await loginAs({ email: 'lister@example.com', staff: true });
     await client.post('/api/orgs', { slug: 'one', name: 'One' });
     await client.post('/api/orgs', { slug: 'two', name: 'Two' });
 
@@ -216,5 +231,53 @@ describe('/api/orgs CRUD', () => {
 
     // Owner still there.
     expect(ownerId).toBeTruthy();
+  });
+});
+
+describe('/api/orgs multi-org gate (multi_org → Enterprise)', () => {
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+  });
+
+  it('allows the FIRST org for a zero-org user (no-card trial auto-create stays open)', async () => {
+    // A brand-new free user — the exact shape the trial auto-creates a workspace for.
+    const { client } = await loginAs({ email: 'first@example.com', plan: 'free' });
+    const res = await client.post('/api/orgs', { slug: 'first-org', name: 'First Org' });
+    expect(res.status).toBe(201);
+  });
+
+  it('blocks a SECOND org with a 402 multi_org paywall when the user already owns a non-enterprise org', async () => {
+    const { client } = await loginAs({ email: 'twice@example.com', plan: 'free' });
+    expect((await client.post('/api/orgs', { slug: 'org-one', name: 'Org One' })).status).toBe(201);
+
+    const res = await client.post('/api/orgs', { slug: 'org-two', name: 'Org Two' });
+    expect(res.status).toBe(402);
+    // client.json() throws on non-2xx, so read the paywall body from the raw response.
+    const body = (await res.json()) as { error: string; feature: string; currentPlan: string; upgradeTo: string };
+    expect(body.error).toBe('payment_required');
+    expect(body.feature).toBe('multi_org');
+    expect(body.upgradeTo).toBe('enterprise');
+    // The second org was not created.
+    const two = await dbGet<{ id: string }>(`SELECT id FROM organization WHERE slug = ?`, 'org-two');
+    expect(two).toBeNull();
+  });
+
+  it('lets a user who OWNS an enterprise org create additional orgs', async () => {
+    const { client } = await loginAs({ email: 'ent@example.com', plan: 'free' });
+    const first = await client.post('/api/orgs', { slug: 'ent-one', name: 'Ent One' });
+    expect(first.status).toBe(201);
+    const orgId = (await client.json<{ organization: { id: string } }>(first)).organization.id;
+    // Enterprise ownership unlocks additional orgs.
+    await dbRun(`UPDATE organization SET plan = 'enterprise' WHERE id = ?`, orgId);
+
+    const second = await client.post('/api/orgs', { slug: 'ent-two', name: 'Ent Two' });
+    expect(second.status).toBe(201);
+  });
+
+  it('staff bypass the gate entirely', async () => {
+    const { client } = await loginAs({ email: 'staff@example.com', staff: true });
+    expect((await client.post('/api/orgs', { slug: 'staff-one', name: 'Staff One' })).status).toBe(201);
+    expect((await client.post('/api/orgs', { slug: 'staff-two', name: 'Staff Two' })).status).toBe(201);
   });
 });

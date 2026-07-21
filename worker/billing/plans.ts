@@ -18,6 +18,7 @@ export type FeatureKey =
   | 'network_walksheds'    // street-network (Mapbox isochrone) coverage walksheds
   | 'org_workspace'        // create or be a member of an org
   | 'cross_org_member'     // member of orgs you don't own (e.g. consultants in client orgs)
+  | 'multi_org'            // own MORE THAN ONE org (create additional orgs beyond the first)
   | 'org_logo'             // upload a custom org logo
   | 'brand_color'          // custom brand primary color
   | 'service_alerts'       // author GTFS-Realtime Service Alerts
@@ -46,6 +47,9 @@ export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   network_walksheds:   ['agency', 'enterprise'],
   org_workspace:       ['agency', 'enterprise'],
   cross_org_member:    ['agency', 'enterprise'],
+  // Owning MORE THAN ONE org is Enterprise-only; the first org is available to
+  // Planner (and to the no-card trial). Enforced in the org-creation route.
+  multi_org:           ['enterprise'],
   org_logo:            ['agency', 'enterprise'],
   brand_color:         ['agency', 'enterprise'],
   service_alerts:      ['agency', 'enterprise'],
@@ -76,6 +80,19 @@ export function cheapestPlanFor(feature: FeatureKey): Plan {
 // Whether a plan represents a billable subscription (vs. free / staff-granted enterprise).
 export function isPaidPlan(plan: Plan): boolean {
   return plan !== 'free';
+}
+
+// The multi-org gate (feature 'multi_org'): a user may OWN at most one
+// organization unless they own an enterprise-plan org, which unlocks creating
+// additional orgs. Given the plans of the orgs the user already owns, returns
+// whether creating ANOTHER org is blocked. The first org (empty list) is always
+// allowed — that's what lets the no-card trial auto-create a workspace for a
+// brand-new user. Staff bypass is handled by the caller.
+// NOTE: mirrored client-side in src/components/billing/planConfig.ts
+// (blockedFromAdditionalOrg) — keep the two in parity.
+export function blockedFromAdditionalOrg(ownedOrgPlans: readonly (string | null | undefined)[]): boolean {
+  if (ownedOrgPlans.length === 0) return false;
+  return !ownedOrgPlans.some((p) => p === 'enterprise');
 }
 
 // Public copy used by the pricing page and paywall overlays. Kept in sync with

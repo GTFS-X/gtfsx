@@ -7,9 +7,12 @@ import {
   conflict,
   forbidden,
   notFound,
+  paymentRequired,
   validationFailed,
   ApiError,
 } from '../util/errors';
+import { blockedFromAdditionalOrg } from '../billing/plans';
+import type { Plan } from '../projects/quotas';
 import { logAudit } from '../util/audit';
 import { clientIp, rateLimit } from '../util/rateLimit';
 import {
@@ -196,6 +199,31 @@ orgsRouter.post('/', async (c) => {
     throw validationFailed(
       'Invalid slug — lowercase ASCII letters/digits/dashes, 3-63 chars, must start with letter or digit',
     );
+  }
+
+  // Multi-org gate (authoritative): a user may own at most one organization
+  // unless they own an enterprise-plan org, which unlocks additional orgs. The
+  // FIRST org is always allowed — this is what lets the no-card Planner trial
+  // auto-create a workspace for a brand-new (zero-org) user. Staff bypass so
+  // internal demo / support orgs aren't blocked. Enforcement is on NEW creation
+  // only; existing multi-org owners are grandfathered.
+  if (!user.staff) {
+    const owned = await c.env.DB.prepare(
+      `SELECT o.plan FROM organization o
+         JOIN organization_membership m ON m.org_id = o.id
+        WHERE m.user_id = ? AND m.role = 'owner' AND o.deleted_at IS NULL`,
+    )
+      .bind(user.id)
+      .all<{ plan: string | null }>();
+    const ownedPlans = (owned.results ?? []).map((r) => r.plan);
+    if (blockedFromAdditionalOrg(ownedPlans)) {
+      const currentPlan: Plan = ownedPlans.includes('agency') ? 'agency' : 'free';
+      throw paymentRequired('Additional organizations are an Enterprise feature.', {
+        feature: 'multi_org',
+        currentPlan,
+        upgradeTo: 'enterprise',
+      });
+    }
   }
 
   // Rate-limit: 10 org creations per day per user.
