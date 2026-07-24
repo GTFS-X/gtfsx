@@ -18,6 +18,17 @@ import {
 } from './_setup';
 import { reapExpiredTwofaChallenges } from '../auth/twofa';
 
+// This file asserts the SMS-unconfigured state throughout. The test runner
+// loads the developer's .dev.vars, which may carry real TWILIO_* values —
+// clear them so results don't depend on local credentials.
+beforeEach(() => {
+  const mutable = env as Record<string, string | undefined>;
+  mutable.TWILIO_ACCOUNT_SID = undefined;
+  mutable.TWILIO_API_KEY_SID = undefined;
+  mutable.TWILIO_API_KEY_SECRET = undefined;
+  mutable.TWILIO_VERIFY_SERVICE_SID = undefined;
+});
+
 // Pull the 6-digit code out of the most recent captured verification email.
 function latestCode(capture: EmailCapture, to?: string): string {
   const list = to ? capture.emails.filter((e) => e.to === to) : capture.emails;
