@@ -154,7 +154,9 @@ origin. This list is the source of truth.
 | Method & Path | Purpose |
 |---|---|
 | `POST /auth/signup` · `/auth/verify` · `/auth/login` | Signup (Turnstile-gated) / verify email / password login |
-| `POST /auth/magic-link/request` · `GET /auth/magic-link/consume` | Magic-link request / consume |
+| `POST /auth/magic-link/request` · `GET /auth/magic-link/consume` | Magic-link request / consume (magic link skips 2FA — it already proves the email factor; must gain an SMS challenge when SMS 2FA ships) |
+| `POST /auth/2fa/verify` · `/auth/2fa/resend` | Login 2FA: password login (and Google OAuth, via `/login#twofa=…` redirect) returns 403 `twofa_required` + a challenge token instead of a cookie when 2FA applies; `verify` consumes the 6-digit emailed code (10 min TTL, 5 attempts, hashed at rest in D1 `twofa_challenge`) and issues the session; `resend` is 60s-cooldown-limited (max 3 sends) |
+| `GET /api/me/twofa`, `POST /api/me/twofa/enable` · `/disable` · `/confirm`, `POST /api/me/phone[/verify]` | Per-user 2FA settings (off by default; enable/disable each round-trip a code). SMS method + phone enrollment run via Twilio Verify (`worker/sms/`) and return `sms_unavailable` until the three `TWILIO_*` secrets are set. Org-side: `PATCH /api/orgs/:id` accepts `require_2fa` (admin+) — members of a requiring org get an email challenge at login even if not enrolled, and can't disable 2FA |
 | `POST /auth/logout` · `/auth/logout-all` | End current / all sessions |
 | `POST /auth/password-reset/request` · `/auth/password-reset/confirm` | Forgot-password flow |
 | `GET/PATCH /api/me`, `POST /api/me/email/change`, `POST /api/me/password`, `DELETE /api/me`, `GET /api/me/export` | Profile, email/password change, soft-delete, data export |
@@ -288,9 +290,21 @@ Design rationale is preserved in the decisions appendix of the archived
 
 ## 5. Live environment state
 
-**As of 2026-07-15.** Keep this section current when deployed state changes.
+**As of 2026-07-24.** Keep this section current when deployed state changes.
 
 ### Production — LIVE
+
+- **Two-factor authentication live (2026-07-24):** optional, off by default; email
+  codes + SMS via Twilio Verify (service `VA270f18dc…`, friendly name "GTFS-X");
+  org-level `require_2fa`. D1 migration `0031_twofa.sql` applied `--remote`
+  2026-07-24. Worker secrets: `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`,
+  `TWILIO_API_KEY_SECRET` (API-key auth — no auth token), and
+  `TWILIO_VERIFY_SERVICE_SID`; if any is unset SMS degrades to
+  `sms_unavailable` and the UI shows "coming soon" (email 2FA unaffected).
+  Both channels live-verified end-to-end 2026-07-23 (email in-browser; SMS
+  against real Twilio incl. login challenge). A2P/TCR context (brand approved,
+  campaign `CMbcadfe…` resubmission pending) is operator state, not code —
+  tracked outside the repo.
 
 - **Repo transferred to the GTFS-X GitHub org (2026-07-12):** moved from
   `markegge/gtfsx` to `GTFS-X/gtfsx` (https://github.com/GTFS-X/gtfsx), same

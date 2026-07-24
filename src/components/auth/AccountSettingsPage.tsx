@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { FormField } from '../ui/FormField';
+import { FormField, CheckboxField } from '../ui/FormField';
 import { Badge } from '../ui/Badge';
 import { AuthLayout } from './AuthLayout';
 import { AuthButton } from './AuthButton';
 import {
   ApiError,
+  addPhone,
   changeEmail,
   changePassword,
+  confirmTwofa,
   deleteAccount,
+  disableTwofa,
+  enableTwofa,
+  getTwofa,
   logout,
   logoutAll,
   updateProfile,
+  verifyPhone,
+  type TwofaStatus,
 } from '../../services/authApi';
 import {
   downloadMyExport,
@@ -103,6 +110,8 @@ export function AccountSettingsPage() {
       <ChangeEmailSection />
       <Divider />
       <ChangePasswordSection />
+      <Divider />
+      <TwoFactorSection email={currentUser.email} />
       <Divider />
       <SessionsSection onSignedOut={() => {
         clearAuth();
@@ -300,6 +309,492 @@ function ChangePasswordSection() {
       </form>
     </section>
   );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Two-factor authentication — optional, off by default. Email codes always;
+// text-message (SMS) codes when Twilio is enabled on the account
+// (`sms_available`). SMS needs a verified phone first (add + confirm a code),
+// then the same enable/confirm round trip as email switches the method over.
+// ───────────────────────────────────────────────────────────────────────────
+
+function methodLabel(method: 'email' | 'sms', phoneMasked: string | null): string {
+  if (method === 'sms') return phoneMasked ? `Text message to ${phoneMasked}` : 'Text message';
+  return 'Email code';
+}
+
+function TwoFactorSection({ email }: { email: string }) {
+  const [status, setStatus] = useState<TwofaStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // The enable/disable code-confirm step (shared by email + SMS). `pendingDest`
+  // is the masked address/number the code went to, for the confirm copy.
+  const [pending, setPending] = useState<'enroll' | 'disable' | null>(null);
+  const [pendingDest, setPendingDest] = useState<string>('');
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [working, setWorking] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Which method the user is choosing to turn on (only meaningful while 2FA is
+  // off). Plus the SMS phone-enrollment sub-flow state.
+  const [selectedMethod, setSelectedMethod] = useState<'email' | 'sms'>('email');
+  const [smsStep, setSmsStep] = useState<'idle' | 'phone' | 'phone-code'>('idle');
+  const [phone, setPhone] = useState('');
+  const [phoneCode, setPhoneCode] = useState('');
+  // Explicit SMS consent, captured at the phone-enrollment step. Off by default;
+  // the user must check it before we'll text a verification code.
+  const [smsConsent, setSmsConsent] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setStatus(await getTwofa());
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : 'Could not load two-factor status');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const resetSms = () => {
+    setSmsStep('idle');
+    setPhone('');
+    setPhoneCode('');
+    setSmsConsent(false);
+  };
+
+  const startEnableEmail = async () => {
+    setActionError(null);
+    setNotice(null);
+    setWorking(true);
+    try {
+      const res = await enableTwofa({ method: 'email' });
+      setChallenge(res.challenge);
+      setPendingDest(email);
+      setPending('enroll');
+      setCode('');
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Could not start enrollment');
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  // SMS: step 1 — text a code to a (new) number.
+  const handleAddPhone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionError(null);
+    setNotice(null);
+    setWorking(true);
+    try {
+      await addPhone({ phone: phone.trim() });
+      setSmsStep('phone-code');
+      setPhoneCode('');
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Could not send a code');
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  // SMS: step 2 — confirm the number, then return to the enable step.
+  const handleVerifyPhone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionError(null);
+    setWorking(true);
+    try {
+      await verifyPhone({ code: phoneCode.trim() });
+      resetSms();
+      setNotice('Phone number verified. Turn on text-message codes to finish.');
+      await load();
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'twofa_invalid_code') {
+        const attemptsLeft = typeof err.extra.attempts_left === 'number' ? err.extra.attempts_left : undefined;
+        setActionError(
+          attemptsLeft !== undefined
+            ? `Incorrect code. ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left.`
+            : 'Incorrect code.',
+        );
+        setPhoneCode('');
+      } else if (err instanceof ApiError && err.code === 'twofa_expired') {
+        setActionError('That code expired. Send a new one.');
+        setSmsStep('phone');
+      } else {
+        setActionError(err instanceof ApiError ? err.message : 'Could not verify the code');
+      }
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  // SMS: step 3 — switch the method to SMS (sends a code to the verified phone).
+  const startEnableSms = async () => {
+    setActionError(null);
+    setNotice(null);
+    setWorking(true);
+    try {
+      const res = await enableTwofa({ method: 'sms' });
+      setChallenge(res.challenge);
+      setPendingDest(status?.phone_masked ?? '');
+      setPending('enroll');
+      setCode('');
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Could not start enrollment');
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const startDisable = async () => {
+    setActionError(null);
+    setNotice(null);
+    setWorking(true);
+    try {
+      const res = await disableTwofa();
+      setChallenge(res.challenge);
+      setPendingDest(status?.method === 'sms' ? (status.phone_masked ?? '') : email);
+      setPending('disable');
+      setCode('');
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'twofa_org_required') {
+        setActionError("Your organization requires two-factor authentication, so it can't be turned off here.");
+      } else {
+        setActionError(err instanceof ApiError ? err.message : 'Could not start');
+      }
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const cancelPending = () => {
+    setPending(null);
+    setChallenge(null);
+    setCode('');
+    setActionError(null);
+  };
+
+  const handleConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pending || !challenge) return;
+    setActionError(null);
+    setWorking(true);
+    try {
+      await confirmTwofa({ challenge, code: code.trim() });
+      setNotice(pending === 'enroll' ? 'Two-factor authentication is on.' : 'Two-factor authentication is off.');
+      setPending(null);
+      setChallenge(null);
+      setCode('');
+      resetSms();
+      setSelectedMethod('email');
+      await load();
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'twofa_invalid_code') {
+        const attemptsLeft = typeof err.extra.attempts_left === 'number' ? err.extra.attempts_left : undefined;
+        setActionError(
+          attemptsLeft !== undefined
+            ? `Incorrect code. ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left.`
+            : 'Incorrect code.',
+        );
+        setCode('');
+      } else if (err instanceof ApiError && err.code === 'twofa_expired') {
+        setActionError('That code expired. Start again.');
+        setPending(null);
+        setChallenge(null);
+      } else {
+        setActionError(err instanceof ApiError ? err.message : 'Could not confirm');
+      }
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const codeInputClass =
+    'w-full px-3 py-2 border-2 rounded-lg text-lg font-mono tracking-[0.4em] text-center text-dark-brown bg-cream transition-colors border-sand focus:outline-none focus:border-coral focus:bg-white';
+
+  return (
+    <section>
+      <SectionHeader
+        title="Two-factor authentication"
+        description="Add a one-time code to your sign-in, sent by email or text message. Optional, and off by default."
+      />
+      {loading && <p className="text-sm text-warm-gray">Loading…</p>}
+      {loadError && (
+        <div className="px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">{loadError}</div>
+      )}
+      {!loading && !loadError && status && (
+        <>
+          {status.org_required && (
+            <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+              Your organization requires two-factor authentication for all members.
+              {status.method === 'none' && " You'll be emailed a code the next time you sign in."}
+            </div>
+          )}
+          {notice && !pending && (
+            <div className="mb-3 px-3 py-2 rounded-lg bg-teal-light text-teal text-sm">{notice}</div>
+          )}
+          {actionError && !pending && smsStep === 'idle' && (
+            <div className="mb-3 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
+              {actionError}
+            </div>
+          )}
+
+          {pending ? (
+            <form onSubmit={handleConfirm} className="border border-sand rounded-lg p-4 bg-cream">
+              <p className="text-sm text-dark-brown mb-3">
+                Enter the 6-digit code we sent to <span className="font-mono">{pendingDest || email}</span>.
+              </p>
+              <FormField label="Verification code" error={actionError ?? undefined}>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  className={codeInputClass}
+                />
+              </FormField>
+              <div className="flex items-center gap-3">
+                <AuthButton type="submit" disabled={working || code.length !== 6}>
+                  {working ? 'Confirming…' : pending === 'enroll' ? 'Turn on' : 'Turn off'}
+                </AuthButton>
+                <AuthButton type="button" variant="secondary" onClick={cancelPending} disabled={working}>
+                  Cancel
+                </AuthButton>
+              </div>
+            </form>
+          ) : status.method === 'none' ? (
+            <div>
+              <div className="space-y-2 mb-3">
+                <label className="flex items-center gap-2 text-sm text-dark-brown cursor-pointer">
+                  <input
+                    type="radio"
+                    name="twofa-method"
+                    checked={selectedMethod === 'email'}
+                    onChange={() => {
+                      setSelectedMethod('email');
+                      resetSms();
+                      setActionError(null);
+                    }}
+                  />
+                  Email code
+                </label>
+                {status.sms_available ? (
+                  <label className="flex items-center gap-2 text-sm text-dark-brown cursor-pointer">
+                    <input
+                      type="radio"
+                      name="twofa-method"
+                      checked={selectedMethod === 'sms'}
+                      onChange={() => {
+                        setSelectedMethod('sms');
+                        setSmsStep('idle');
+                        setActionError(null);
+                      }}
+                    />
+                    Text message
+                  </label>
+                ) : (
+                  <label className="flex items-center gap-2 text-sm text-warm-gray cursor-not-allowed">
+                    <input type="radio" name="twofa-method" disabled />
+                    Text message (coming soon)
+                  </label>
+                )}
+              </div>
+
+              {selectedMethod === 'email' && (
+                <AuthButton onClick={startEnableEmail} disabled={working}>
+                  {working ? 'Starting…' : 'Enable two-factor authentication'}
+                </AuthButton>
+              )}
+
+              {selectedMethod === 'sms' && (
+                <SmsEnroll
+                  status={status}
+                  smsStep={smsStep}
+                  phone={phone}
+                  phoneCode={phoneCode}
+                  consent={smsConsent}
+                  working={working}
+                  actionError={actionError}
+                  codeInputClass={codeInputClass}
+                  onPhoneChange={setPhone}
+                  onPhoneCodeChange={setPhoneCode}
+                  onConsentChange={setSmsConsent}
+                  onAddPhone={handleAddPhone}
+                  onVerifyPhone={handleVerifyPhone}
+                  onEnable={startEnableSms}
+                  onEditNumber={() => {
+                    setSmsStep('phone');
+                    setActionError(null);
+                  }}
+                  onBackToPhone={() => {
+                    setSmsStep('phone');
+                    setActionError(null);
+                  }}
+                />
+              )}
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Badge variant="success">On</Badge>
+                <span className="text-sm text-dark-brown">
+                  {methodLabel(status.method === 'sms' ? 'sms' : 'email', status.phone_masked)}
+                </span>
+              </div>
+              <AuthButton variant="secondary" onClick={startDisable} disabled={working || status.org_required}>
+                {working ? 'Starting…' : 'Disable'}
+              </AuthButton>
+              {status.org_required && (
+                <p className="mt-2 text-xs text-warm-gray">
+                  Your organization requires 2FA, so it can't be turned off here.
+                </p>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// The SMS enrollment sub-flow shown when a user picks "Text message" while 2FA
+// is off: add a phone number (with the SMS consent checkbox), confirm the
+// texted code, then turn on SMS as the method. When a verified number already
+// exists we skip straight to the enable step and offer to change it.
+function SmsEnroll({
+  status,
+  smsStep,
+  phone,
+  phoneCode,
+  consent,
+  working,
+  actionError,
+  codeInputClass,
+  onPhoneChange,
+  onPhoneCodeChange,
+  onConsentChange,
+  onAddPhone,
+  onVerifyPhone,
+  onEnable,
+  onEditNumber,
+  onBackToPhone,
+}: {
+  status: TwofaStatus;
+  smsStep: 'idle' | 'phone' | 'phone-code';
+  phone: string;
+  phoneCode: string;
+  consent: boolean;
+  working: boolean;
+  actionError: string | null;
+  codeInputClass: string;
+  onPhoneChange: (v: string) => void;
+  onPhoneCodeChange: (v: string) => void;
+  onConsentChange: (v: boolean) => void;
+  onAddPhone: (e: React.FormEvent) => void;
+  onVerifyPhone: (e: React.FormEvent) => void;
+  onEnable: () => void;
+  onEditNumber: () => void;
+  onBackToPhone: () => void;
+}) {
+  const hasVerifiedPhone = !!status.phone_masked;
+  const showPhoneInput = smsStep === 'phone' || (smsStep === 'idle' && !hasVerifiedPhone);
+  const showPhoneCode = smsStep === 'phone-code';
+  const showEnable = smsStep === 'idle' && hasVerifiedPhone;
+
+  if (showPhoneCode) {
+    return (
+      <form onSubmit={onVerifyPhone} className="border border-sand rounded-lg p-4 bg-cream">
+        <p className="text-sm text-dark-brown mb-3">Enter the 6-digit code we texted to your phone.</p>
+        <FormField label="Verification code" error={actionError ?? undefined}>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            maxLength={6}
+            value={phoneCode}
+            onChange={(e) => onPhoneCodeChange(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="123456"
+            className={codeInputClass}
+          />
+        </FormField>
+        <div className="flex items-center gap-3">
+          <AuthButton type="submit" disabled={working || phoneCode.length !== 6}>
+            {working ? 'Verifying…' : 'Verify number'}
+          </AuthButton>
+          <AuthButton type="button" variant="secondary" onClick={onBackToPhone} disabled={working}>
+            Use a different number
+          </AuthButton>
+        </div>
+      </form>
+    );
+  }
+
+  if (showPhoneInput) {
+    return (
+      <form onSubmit={onAddPhone} className="border border-sand rounded-lg p-4 bg-cream">
+        <FormField label="Phone number" error={actionError ?? undefined}>
+          <input
+            type="tel"
+            autoComplete="tel"
+            autoFocus
+            value={phone}
+            onChange={(e) => onPhoneChange(e.target.value)}
+            placeholder="+1 406 555 1234"
+            className="w-full px-3 py-2 border-2 rounded-lg text-dark-brown bg-cream transition-colors border-sand focus:outline-none focus:border-coral focus:bg-white"
+          />
+        </FormField>
+        <p className="text-xs text-warm-gray mb-3">
+          Use international format, starting with <span className="font-mono">+</span> and your country code.
+        </p>
+        <CheckboxField
+          label="I agree to receive SMS verification codes and account/security alerts from GTFS·X. Msg & data rates may apply. Msg frequency varies. Reply STOP to opt out, HELP for help."
+          checked={consent}
+          onChange={onConsentChange}
+          containerClassName="mb-1"
+        />
+        <p className="text-xs text-warm-gray mb-3 ml-6">
+          See our{' '}
+          <a href="/sms-terms/" className="text-coral hover:underline">SMS terms</a> and{' '}
+          <a href="/privacy-policy/" className="text-coral hover:underline">privacy policy</a>.
+        </p>
+        <AuthButton type="submit" disabled={working || phone.trim().length < 8 || !consent}>
+          {working ? 'Sending…' : 'Send code'}
+        </AuthButton>
+      </form>
+    );
+  }
+
+  if (showEnable) {
+    return (
+      <div>
+        <p className="text-sm text-dark-brown mb-3">
+          We'll text your codes to <span className="font-mono">{status.phone_masked}</span>.
+        </p>
+        <div className="flex items-center gap-3">
+          <AuthButton onClick={onEnable} disabled={working}>
+            {working ? 'Starting…' : 'Enable text-message codes'}
+          </AuthButton>
+          <AuthButton type="button" variant="secondary" onClick={onEditNumber} disabled={working}>
+            Use a different number
+          </AuthButton>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function SessionsSection({ onSignedOut }: { onSignedOut: () => void }) {

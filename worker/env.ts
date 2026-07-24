@@ -69,6 +69,18 @@ export interface Env {
   // via `wrangler secret put ANTHROPIC_API_KEY [--env staging]`.
   ANTHROPIC_API_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
+  // Twilio Verify for SMS two-factor (phase 2). All optional — when any is
+  // missing, `sms_available` is false, SMS enrollment returns sms_unavailable,
+  // and 2FA falls back to email codes. Set per-environment via
+  // `wrangler secret put TWILIO_* [--env staging]` once Mark's Twilio account +
+  // Trust Hub profile + Verify Service exist.
+  TWILIO_ACCOUNT_SID?: string;
+  // Twilio API key auth (recommended over the Account SID + Auth Token pair):
+  // REST calls authenticate as Basic base64(API_KEY_SID:API_KEY_SECRET), with
+  // the key SID (starts "SK") distinct from the Account SID.
+  TWILIO_API_KEY_SID?: string;
+  TWILIO_API_KEY_SECRET?: string;
+  TWILIO_VERIFY_SERVICE_SID?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SIGNING_SECRET?: string;
 
