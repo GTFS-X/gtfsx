@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { getStoredClickIds } from '../../services/trackBeacon';
 
 interface GoogleSignInButtonProps {
   /** "Continue with Google" (default) or a custom label, e.g. "Sign up with Google". */
@@ -9,6 +10,20 @@ interface GoogleSignInButtonProps {
    * Only honored if it's a relative path starting with "/".
    */
   next?: string | null;
+}
+
+// Forward any Google Ads click id captured for this session (sessionStorage,
+// first-touch — see trackBeacon.captureGclidFromUrl) as query params on
+// /auth/google/start, the same way `next` already rides along. The server
+// folds them into the signed state cookie (worker/auth/google.ts) so the
+// callback can stamp the `sign_up` conversion on a brand-new account —
+// mirrors how the password-signup form forwards them in its POST body
+// (src/components/auth/SignupPage.tsx).
+function appendClickIds(params: URLSearchParams): void {
+  const { gclid, gbraid, wbraid } = getStoredClickIds();
+  if (gclid) params.set('gclid', gclid);
+  if (gbraid) params.set('gbraid', gbraid);
+  if (wbraid) params.set('wbraid', wbraid);
 }
 
 // The Google "G" mark (official four-color logo), inline so it ships without a
@@ -38,11 +53,13 @@ function GoogleG() {
 
 export function GoogleSignInButton({ label = 'Continue with Google', next }: GoogleSignInButtonProps) {
   const href = useMemo(() => {
-    const base = '/auth/google/start';
+    const params = new URLSearchParams();
     if (next && next.startsWith('/')) {
-      return `${base}?next=${encodeURIComponent(next)}`;
+      params.set('next', next);
     }
-    return base;
+    appendClickIds(params);
+    const qs = params.toString();
+    return qs ? `/auth/google/start?${qs}` : '/auth/google/start';
   }, [next]);
 
   // Full-page navigation (not fetch): the OAuth redirect flow needs a real
