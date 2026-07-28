@@ -7,6 +7,7 @@ import { logAudit } from '../util/audit';
 import { createSession, sessionCookie } from './session';
 import { twofaRequirement, startChallenge } from './twofa';
 import { sendWelcomeEmail } from '../email';
+import { insertEvent } from '../events/insert';
 
 // ─── Google OAuth: server-side authorization-code flow (issue #20) ───────────
 //
@@ -18,10 +19,14 @@ import { sendWelcomeEmail } from '../email';
 // CSRF: /start mints a random `state`, stores it in a short-lived httpOnly +
 // Secure + SameSite=Lax cookie, and includes it in the Google URL. /callback
 // requires the query `state` to equal the cookie before doing anything else; a
-// mismatch (or missing cookie) is rejected. The `next` post-login path is
-// folded into the state cookie value (state + '.' + base64url(next)) so a
-// tampered query string can't redirect the user off to an attacker path — the
-// only `next` we honor is the one we ourselves signed into the cookie.
+// mismatch (or missing cookie) is rejected. The `next` post-login path — and
+// any Google Ads click id (gclid/gbraid/wbraid) captured before the redirect —
+// is folded into the state cookie value (state + '.' + base64url(JSON)) so a
+// tampered query string can't redirect the user off to an attacker path or
+// forge a fake ad attribution. Google's callback only ever gives us `code`
+// and `state` back, so this cookie is the only channel these values can ride
+// back on — the only `next`/click-id values we honor are the ones we
+// ourselves signed into the cookie at /start.
 //
 // Identity: we exchange the code for tokens at Google's token endpoint, then
 // read the verified identity from the userinfo endpoint using the returned
@@ -79,17 +84,57 @@ function b64urlDecode(s: string): string {
   }
 }
 
-// The cookie payload binds the CSRF token to the (already-validated) next path
-// so the callback can't be tricked into honoring an attacker-supplied next.
-function packState(token: string, next: string | undefined): string {
-  return next ? `${token}.${b64urlEncode(next)}` : token;
+// Trim + cap a forwarded click identifier → undefined when empty. Mirrors
+// the identical helper in auth/routes.ts (kept local; that file's returns
+// `null` for a DB bind, this one `undefined` to match the state payload's
+// optional fields — not worth sharing for one line).
+function clickId(value: string | undefined): string | undefined {
+  const trimmed = value?.trim().slice(0, 256);
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
-function unpackState(value: string): { token: string; next: string | undefined } {
+
+interface StatePayload {
+  next?: string;
+  gclid?: string;
+  gbraid?: string;
+  wbraid?: string;
+}
+
+// The cookie payload binds the CSRF token to the (already-validated) next
+// path and click ids so the callback can't be tricked into honoring
+// attacker-supplied values for any of them.
+function packState(token: string, payload: StatePayload): string {
+  const hasPayload = payload.next || payload.gclid || payload.gbraid || payload.wbraid;
+  return hasPayload ? `${token}.${b64urlEncode(JSON.stringify(payload))}` : token;
+}
+function unpackState(value: string): { token: string } & StatePayload {
   const dot = value.indexOf('.');
-  if (dot === -1) return { token: value, next: undefined };
+  if (dot === -1) return { token: value };
   const token = value.slice(0, dot);
-  const next = safeNext(b64urlDecode(value.slice(dot + 1)));
-  return { token, next };
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(b64urlDecode(value.slice(dot + 1)));
+    if (parsed && typeof parsed === 'object') payload = parsed as Record<string, unknown>;
+  } catch {
+    // Malformed payload — proceed with an empty one; the CSRF token check
+    // below still gates the request regardless.
+  }
+  return {
+    token,
+    next: safeNext(typeof payload.next === 'string' ? payload.next : undefined),
+    gclid: clickId(typeof payload.gclid === 'string' ? payload.gclid : undefined),
+    gbraid: clickId(typeof payload.gbraid === 'string' ? payload.gbraid : undefined),
+    wbraid: clickId(typeof payload.wbraid === 'string' ? payload.wbraid : undefined),
+  };
+}
+
+// `event.session_id` is NOT NULL and this OAuth callback has no client beacon
+// session — mint a random id per event (same shape as the client's and the
+// signup/demo-lead server paths, see worker/auth/routes.ts / worker/marketing/demoLead.ts).
+function randomSessionId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function stateCookie(value: string): string {
@@ -130,8 +175,16 @@ googleRouter.get('/start', (c) => {
   }
 
   const next = safeNext(c.req.query('next'));
+  // Ad click ids captured client-side (GoogleSignInButton reads sessionStorage
+  // via getStoredClickIds and forwards them here as query params, same as
+  // `next`) so the callback can attribute the `sign_up` conversion — see the
+  // state-cookie comment above for why these can't just ride the callback's
+  // own query string.
+  const gclid = clickId(c.req.query('gclid'));
+  const gbraid = clickId(c.req.query('gbraid'));
+  const wbraid = clickId(c.req.query('wbraid'));
   const token = generateToken();
-  const cookieValue = packState(token, next);
+  const cookieValue = packState(token, { next, gclid, gbraid, wbraid });
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -186,7 +239,7 @@ googleRouter.get('/callback', async (c) => {
   // CSRF: the query state must match the token we stored in the cookie.
   const cookieRaw = readStateCookie(c.req.raw);
   if (!cookieRaw) return fail();
-  const { token: expectedToken, next } = unpackState(cookieRaw);
+  const { token: expectedToken, next, gclid, gbraid, wbraid } = unpackState(cookieRaw);
   if (!timingSafeEqual(stateParam, expectedToken)) return fail();
 
   // ─── Exchange the code for tokens ──────────────────────────────────────────
@@ -335,6 +388,31 @@ googleRouter.get('/callback', async (c) => {
         await sendWelcomeEmail(c.env, email);
       } catch (err) {
         console.error('[google-oauth] welcome email send failed', err);
+      }
+      // Google Ads `sign_up` conversion — mirrors the password-signup
+      // emission in auth/routes.ts: fires only on a genuinely fresh account
+      // (this branch never runs for a returning sign-in or an existing-email
+      // link — see cases 1/2 above) and only when the OAuth round-trip
+      // carried an ad click id. Organic signups (no click id) write nothing —
+      // there's nothing to attribute, same gating the password path uses.
+      // Best-effort: an analytics write must never fail a signup that
+      // already succeeded.
+      if (gclid || gbraid || wbraid) {
+        try {
+          await insertEvent(c.env.DB, {
+            kind: 'sign_up',
+            path: '/auth/google/callback',
+            ref: null,
+            sessionId: randomSessionId(),
+            country: c.req.header('CF-IPCountry') ?? null,
+            label: null,
+            gclid: gclid ?? null,
+            gbraid: gbraid ?? null,
+            wbraid: wbraid ?? null,
+          });
+        } catch (err) {
+          console.error('[google-oauth] sign_up conversion event insert failed', err);
+        }
       }
       auditAction = 'user.oauth_created';
     }

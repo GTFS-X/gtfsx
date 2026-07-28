@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { makeClient, locationPath, locationQuery } from './_client';
-import { applyMigrations, dbAll, dbGet, resetDb, seedUser, type CapturedEmail } from './_setup';
+import { applyMigrations, dbAll, dbGet, dbRun, resetDb, seedUser, type CapturedEmail } from './_setup';
 
 const AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN = 'https://oauth2.googleapis.com/token';
@@ -98,8 +98,20 @@ function sessionCookieFrom(res: Response): string | null {
 }
 
 // Drive /start, capture the state token + cookie, then build the callback URL.
-async function startFlow(client: ReturnType<typeof makeClient>, next?: string) {
-  const startPath = next ? `/auth/google/start?next=${encodeURIComponent(next)}` : '/auth/google/start';
+// `clickIds` mirrors what GoogleSignInButton forwards from sessionStorage
+// (worker/auth/google.ts /start reads the same query params `next` uses).
+async function startFlow(
+  client: ReturnType<typeof makeClient>,
+  next?: string,
+  clickIds?: { gclid?: string; gbraid?: string; wbraid?: string },
+) {
+  const params = new URLSearchParams();
+  if (next) params.set('next', next);
+  if (clickIds?.gclid) params.set('gclid', clickIds.gclid);
+  if (clickIds?.gbraid) params.set('gbraid', clickIds.gbraid);
+  if (clickIds?.wbraid) params.set('wbraid', clickIds.wbraid);
+  const qs = params.toString();
+  const startPath = qs ? `/auth/google/start?${qs}` : '/auth/google/start';
   const start = await client.get(startPath);
   expect(start.status).toBe(302);
   const loc = start.headers.get('Location')!;
@@ -115,6 +127,9 @@ describe('auth /google', () => {
   beforeEach(async () => {
     await applyMigrations();
     await resetDb();
+    // resetDb doesn't truncate `event` — clear it so the sign_up conversion
+    // assertions below start from a clean slate (mirrors auth.signup.test.ts).
+    await dbRun(`DELETE FROM event`);
   });
 
   afterEach(() => {
@@ -396,5 +411,105 @@ describe('auth /google', () => {
     const cb = await client.get(`/auth/google/callback?code=abc&state=${state}`);
     expect(cb.status).toBe(302);
     expect(locationQuery(cb, 'error')).toBe('google');
+  });
+
+  // ─── Google Ads `sign_up` conversion event ────────────────────────────────
+  // Mirrors the password-signup coverage in auth.signup.test.ts: a brand-new
+  // OAuth account carrying an ad click id writes a click-ID-stamped `sign_up`
+  // row into the cookieless `event` table (the OCI cron uploads it). Fires
+  // only on the genuinely-new-user branch — never on a returning sign-in or
+  // an existing-email link — and only when the click id survived the
+  // round-trip. An organic new signup (no click id) writes nothing, same
+  // gating the password path uses: there's nothing to attribute.
+
+  it('new OAuth user with a gclid writes a click-ID-stamped sign_up event', async () => {
+    g = mockGoogle({ sub: 'g-conv-1', email: 'oconvert@example.com', email_verified: true });
+    const client = makeClient();
+    const { state } = await startFlow(client, undefined, { gclid: 'GCLID-oauth-1' });
+
+    const cb = await client.get(`/auth/google/callback?code=abc&state=${state}`);
+    expect(cb.status).toBe(302);
+
+    const ev = await dbGet<{ kind: string; gclid: string | null; path: string }>(
+      `SELECT kind, gclid, path FROM event WHERE kind = 'sign_up'`,
+    );
+    expect(ev).not.toBeNull();
+    expect(ev!.gclid).toBe('GCLID-oauth-1');
+    expect(ev!.path).toBe('/auth/google/callback');
+  });
+
+  it('new OAuth user forwards wbraid when no gclid is present', async () => {
+    g = mockGoogle({ sub: 'g-conv-2', email: 'obraid@example.com', email_verified: true });
+    const client = makeClient();
+    const { state } = await startFlow(client, undefined, { wbraid: 'WBRAID-oauth-1' });
+
+    const cb = await client.get(`/auth/google/callback?code=abc&state=${state}`);
+    expect(cb.status).toBe(302);
+
+    const ev = await dbGet<{ gclid: string | null; wbraid: string | null }>(
+      `SELECT gclid, wbraid FROM event WHERE kind = 'sign_up'`,
+    );
+    expect(ev).not.toBeNull();
+    expect(ev!.wbraid).toBe('WBRAID-oauth-1');
+    expect(ev!.gclid).toBeNull();
+  });
+
+  it('new OAuth user WITHOUT any click id writes no sign_up event', async () => {
+    g = mockGoogle({ sub: 'g-conv-3', email: 'oorganic@example.com', email_verified: true });
+    const client = makeClient();
+    const { state } = await startFlow(client);
+
+    const cb = await client.get(`/auth/google/callback?code=abc&state=${state}`);
+    expect(cb.status).toBe(302);
+
+    const ev = await dbGet(`SELECT id FROM event WHERE kind = 'sign_up'`);
+    expect(ev).toBeNull();
+  });
+
+  it('returning OAuth user (known sub) writes NO sign_up event, even with a gclid present', async () => {
+    g = mockGoogle({ sub: 'g-conv-4', email: 'oreturn@example.com', email_verified: true });
+    const first = makeClient();
+    const { state: s1 } = await startFlow(first, undefined, { gclid: 'GCLID-first-touch' });
+    await first.get(`/auth/google/callback?code=abc&state=${s1}`);
+    // First sign-in is the brand-new user → exactly one event.
+    let count = await dbGet<{ n: number }>(`SELECT COUNT(*) AS n FROM event WHERE kind = 'sign_up'`);
+    expect(count!.n).toBe(1);
+
+    const second = makeClient();
+    const { state: s2 } = await startFlow(second, undefined, { gclid: 'GCLID-second-visit' });
+    const cb = await second.get(`/auth/google/callback?code=abc&state=${s2}`);
+    expect(cb.status).toBe(302);
+
+    // Still just the one event from the first sign-in — no double-count.
+    count = await dbGet<{ n: number }>(`SELECT COUNT(*) AS n FROM event WHERE kind = 'sign_up'`);
+    expect(count!.n).toBe(1);
+  });
+
+  it('linking Google to an existing account writes NO sign_up event, even with a gclid present', async () => {
+    await seedUser({ email: 'olink@example.com', status: 'active' });
+    g = mockGoogle({ sub: 'g-conv-5', email: 'olink@example.com', email_verified: true });
+    const client = makeClient();
+    const { state } = await startFlow(client, undefined, { gclid: 'GCLID-link-attempt' });
+
+    const cb = await client.get(`/auth/google/callback?code=abc&state=${state}`);
+    expect(cb.status).toBe(302);
+
+    const ev = await dbGet(`SELECT id FROM event WHERE kind = 'sign_up'`);
+    expect(ev).toBeNull();
+  });
+
+  it('carries next and a click id through the OAuth round-trip together', async () => {
+    g = mockGoogle({ sub: 'g-conv-6', email: 'oboth@example.com', email_verified: true });
+    const client = makeClient();
+    const { state } = await startFlow(client, '/feeds', { gclid: 'GCLID-both' });
+
+    const cb = await client.get(`/auth/google/callback?code=abc&state=${state}`);
+    expect(cb.status).toBe(302);
+    // `next` still lands correctly with the JSON state payload.
+    expect(locationPath(cb)).toBe('/feeds');
+
+    const ev = await dbGet<{ gclid: string | null }>(`SELECT gclid FROM event WHERE kind = 'sign_up'`);
+    expect(ev).not.toBeNull();
+    expect(ev!.gclid).toBe('GCLID-both');
   });
 });
