@@ -383,6 +383,18 @@ h3.sub { font-weight: 800; font-size: 20px; line-height: 1.2; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 940px) {
+  /* Mobile content reorder: the product video is the highest-value thing to
+     show a phone visitor early, so pull it up to right after the hero + trust
+     strip instead of making them scroll past four sections to find it.
+     Desktop keeps natural DOM order (no `order` set there). Only the hero,
+     trust strip, and video band get explicit order — everything else is left
+     at the default `order: 0` and simply falls in after them, in its
+     original relative order, so this doesn't need to be kept in sync with
+     every section added later. */
+  main { display: flex; flex-direction: column; }
+  .hero { order: -3; }
+  .trust { order: -2; }
+  #video-band { order: -1; }
   .hero-grid, .hero-panels, .split, .split.reverse .split-visual { grid-template-columns: 1fr; }
   .split.reverse .split-visual { order: 0; }
   .hero-grid { gap: 40px; }
