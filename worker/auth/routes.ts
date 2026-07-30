@@ -36,6 +36,7 @@ import {
   resendChallenge,
 } from './twofa';
 import { sendVerifyEmail, sendMagicLink, sendPasswordReset, sendWelcomeEmail } from '../email';
+import { maybeSendNewSigninAlert } from '../sms/alerts';
 import { verifyTurnstile } from '../util/turnstile';
 import { insertEvent } from '../events/insert';
 
@@ -644,6 +645,10 @@ authRouter.post('/login', async (c) => {
     });
   }
 
+  // Best-effort new-device security alert (before createSession so the just-
+  // minted session doesn't mask the device as already-seen). Never throws.
+  await maybeSendNewSigninAlert(c.env, user.id, c.req.header('User-Agent') ?? null, ip);
+
   const session = await createSession(c.env, {
     userId: user.id,
     ip,
@@ -693,6 +698,10 @@ authRouter.post('/2fa/verify', async (c) => {
   if (!userRow || userRow.status !== 'active') {
     throw forbidden('Account unavailable');
   }
+
+  // Best-effort new-device security alert (before createSession so the just-
+  // minted session doesn't mask the device as already-seen). Never throws.
+  await maybeSendNewSigninAlert(c.env, userId, c.req.header('User-Agent') ?? null, ip);
 
   const session = await createSession(c.env, {
     userId,
@@ -794,6 +803,10 @@ authRouter.get('/magic-link/consume', async (c) => {
     const frag = `twofa=${challenge.token}&method=${challenge.method}&dest=${encodeURIComponent(challenge.destination)}`;
     return c.redirect(`${c.env.APP_ORIGIN}/login#${frag}`, 302);
   }
+
+  // Best-effort new-device security alert (before createSession so the just-
+  // minted session doesn't mask the device as already-seen). Never throws.
+  await maybeSendNewSigninAlert(c.env, userRow.id, c.req.header('User-Agent') ?? null, ip);
 
   const session = await createSession(c.env, {
     userId: userRow.id,

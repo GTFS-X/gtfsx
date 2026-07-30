@@ -25,6 +25,7 @@ import {
   type TwofaMethod,
 } from './auth/twofa';
 import { TwilioVerifyError } from './sms';
+import { sendTwofaDisabledAlert } from './sms/alerts';
 import { hashPassword, verifyPassword } from './util/crypto';
 import { logAudit } from './util/audit';
 import { clientIp } from './util/rateLimit';
@@ -463,6 +464,10 @@ apiRouter.post('/me/twofa/confirm', requireAuth, async (c) => {
     action: 'user.twofa_disabled',
     ip: clientIp(c.req.raw),
   });
+  // Best-effort security alert: 2FA was just turned off. Gated on SMS opt-in
+  // inside the helper (the user's verified phone + consent survive a method
+  // change); never blocks the disable.
+  await sendTwofaDisabledAlert(c.env, user.id, clientIp(c.req.raw));
   return c.json({ method: 'none' });
 });
 

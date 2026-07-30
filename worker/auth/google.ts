@@ -6,6 +6,7 @@ import { clientIp } from '../util/rateLimit';
 import { logAudit } from '../util/audit';
 import { createSession, sessionCookie } from './session';
 import { twofaRequirement, startChallenge } from './twofa';
+import { maybeSendNewSigninAlert } from '../sms/alerts';
 import { sendWelcomeEmail } from '../email';
 import { insertEvent } from '../events/insert';
 
@@ -453,6 +454,10 @@ googleRouter.get('/callback', async (c) => {
   }
 
   // ─── Establish the session ─────────────────────────────────────────────────
+  // Best-effort new-device security alert (before createSession so the just-
+  // minted session doesn't mask the device as already-seen). Never throws.
+  await maybeSendNewSigninAlert(c.env, userId, c.req.header('User-Agent') ?? null, ip);
+
   const session = await createSession(c.env, {
     userId,
     ip,
