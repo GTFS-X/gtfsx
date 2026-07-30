@@ -81,6 +81,14 @@ export interface Env {
   TWILIO_API_KEY_SID?: string;
   TWILIO_API_KEY_SECRET?: string;
   TWILIO_VERIFY_SERVICE_SID?: string;
+  // Twilio Messaging Service SID (A2P 10DLC) for outbound transactional SMS
+  // security alerts (new-sign-in / 2FA-disabled). Separate from Verify above:
+  // alerts are sent only when this AND the API-key trio (TWILIO_ACCOUNT_SID +
+  // TWILIO_API_KEY_SID + TWILIO_API_KEY_SECRET) are set, and only to users who
+  // opted in (phone + phone_verified_at + sms_consent_at). Optional — when
+  // unset, alerts are inert and the rest of auth is unaffected. Prod value is
+  // the approved Messaging Service (MG…). See worker/sms/alerts.ts.
+  TWILIO_MESSAGING_SERVICE_SID?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SIGNING_SECRET?: string;
 
