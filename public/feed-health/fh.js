@@ -1404,20 +1404,29 @@
       );
     }
 
+    // flexCount is FEED-centric (Mobility Database's distinct Flex feeds covering this
+    // state — see FLEX_AVAILABLE comment near the top of this file), not a count of the
+    // agencies listed above. The two can legitimately diverge (a covering feed may not
+    // match any NTD-listed agency, or may match a different one), so the copy below is
+    // deliberately worded to never claim "N agencies" — that reads as contradicted by
+    // the per-agency Flex badges (or lack of them) in the table above, when it isn't.
     const flexCount = stateMeta.flex || 0;
     let headline, body;
     if (flexCount > 0) {
       const verb = flexCount === 1 ? "feed publishes" : "feeds publish";
-      headline = name + " agencies are publishing GTFS-Flex";
+      headline = "GTFS-Flex feeds serve " + name;
       body = h("p", { className: "state-flex-body" },
-        flexCount + " " + name + " " + verb + " GTFS-Flex, which makes their " +
-        "demand-response service findable in mainstream trip planners. ",
+        flexCount + " " + verb + " GTFS-Flex in Mobility Database's catalog covering " + name +
+        " — a count of distinct Flex feeds, not of the NTD-listed agencies above (a covering " +
+        "feed doesn't always match to one, so this can be nonzero even when no agency below " +
+        "carries a Flex badge). Where it's published, GTFS-Flex makes demand-response " +
+        "service findable in mainstream trip planners. ",
         learnLink
       );
     } else {
       headline = "Demand-response service is invisible without GTFS-Flex";
       body = h("p", { className: "state-flex-body" },
-        "No " + name + " agencies currently report GTFS-Flex. Demand-response " +
+        "No GTFS-Flex feeds currently cover " + name + ". Demand-response " +
         "service (dial-a-ride, route deviation, on-demand microtransit) stays " +
         "invisible in mainstream trip planners until an agency publishes it as " +
         "GTFS-Flex. ",

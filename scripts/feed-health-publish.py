@@ -193,24 +193,42 @@ CANONICAL = {
 # badge shows (previously the two could silently disagree). See EXPIRY_LIVE_CHECK_DESIGN.md
 # in GTFS-X/gtfs-feed-health for the full methodology.
 
-# GTFS-Flex per-state/national counts — RETIRED as of the 2026-07-31 rewiring, degraded
-# to 0 (see write_fhdata_js / compute_state_stats). The old flex_coverage.csv (loaded by
-# this script pre-rewiring) counted DISTINCT GTFS-Flex FEEDS per state (feed-centric,
-# multi-state feeds counted in every state they cover: CO=41, VA=16, national=77
-# distinct feeds) via a separate Mobility Database catalog query the old in-repo
-# pipeline made. The new export instead carries `is_flex` — a per-AGENCY boolean, no
-# equivalent feed-centric catalog data. Empirically aggregating `is_flex==true` NTD-
-# agency rows by state from the 2026-07-31 export gives CO=12, VA=0, national=14 total
-# — nowhere close to a proxy for the old feed-centric counts (VA in particular drops
-# from 16 to 0), so per this rewiring's instructions we do NOT fabricate a flex number:
-# per-state `flex` is set to 0 for every state, the FLEX leaderboard and `flexStates`
-# count both come out empty/0 (both derived from the per-state field), and the
-# HEADLINE.flexFeeds count is also zeroed for internal consistency (rather than show a
-# "14 US feeds" headline stat next to a leaderboard with nothing in it). The per-agency
-# `isFlex` badge (sourced directly from the export's `is_flex` field) is UNAFFECTED and
-# still accurate — only the aggregate/leaderboard reporting is degraded. Follow-up
-# needed: GTFS-X/gtfs-feed-health should publish a proper per-state GTFS-Flex feed
-# breakdown in a future export if this section is to be restored.
+# GTFS-Flex per-state/national counts — history in one place, since this flipped twice
+# in one day:
+#
+# 1. RETIRED (first 2026-07-31 rewiring pass): the initial export (schemaVersion 1.0.0)
+#    only carried the per-agency `is_flex` boolean, no feed-centric catalog data. The old
+#    flex_coverage.csv this script used to load pre-rewiring counted DISTINCT GTFS-Flex
+#    FEEDS per state (feed-centric, multi-state feeds counted in every state they cover:
+#    CO=41, VA=16, national=77) via a separate Mobility Database catalog query the old
+#    in-repo pipeline made. Aggregating `is_flex==true` agency rows by state instead gave
+#    CO=12, VA=0, national=14 — not a valid proxy (agency-centric: true only when the ONE
+#    feed matched to THAT agency is Flex; a Flex feed with no NTD-agency match, or one
+#    matched to a different agency, doesn't count). So this script zeroed the aggregate
+#    (HEADLINE.flexFeeds/flexStates, every STATES[].flex) rather than fabricate a number,
+#    and fh.js's HEADLINE.flexAvailable flag hid the aggregate Flex UI while leaving the
+#    per-agency `isFlex` badge (still sourced from `is_flex` directly) untouched.
+# 2. RESTORED (same day, follow-up): GTFS-X/gtfs-feed-health shipped schemaVersion 1.1.0,
+#    adding an envelope-level `flexCoverage: {total, byState}` block — the SAME
+#    feed-centric breakdown flex_coverage.csv always had (phase_d_mdb.py computed it every
+#    run, from MDB's locations[].subdivision_name; it just wasn't surfaced in the export
+#    before). Confirmed CO=41/VA=16/national=77 again, matching the pre-retirement
+#    numbers exactly. This script now reads `flexCoverage` for every aggregate (see
+#    get_flex_coverage()) and flips HEADLINE.flexAvailable back to true when present.
+#
+# `flexCoverage` and the per-row `is_flex` field answer DIFFERENT questions and will
+# legitimately disagree per state (e.g. VA: 16 feeds, 0 agencies with is_flex=true) — see
+# docs/SCHEMA.md "flexCoverage vs. the per-row is_flex field" in GTFS-X/gtfs-feed-health.
+# NEVER derive a per-state Flex aggregate by summing/counting `is_flex` rows — that is
+# precisely the bug this file shipped and un-shipped in the same day. `is_flex` stays
+# reserved for the per-agency badge only (write_agency_jsons()); every aggregate (state
+# `flex`, HEADLINE.flexFeeds/flexStates, the leaderboard, the closing plank) must come
+# from `flexCoverage` via get_flex_coverage(), never from counting rows.
+#
+# `flexCoverage` is documented as present "when flex_coverage.csv was available" — i.e.
+# it can legitimately be absent from a future export (upstream skip flag, an older pinned
+# --ref, etc). get_flex_coverage() degrades to (available=False, 0, {}) in that case,
+# same "don't fabricate a number" policy as before, rather than assuming it's always there.
 
 
 # ── Fetch ───────────────────────────────────────────────────────────────────────
@@ -356,6 +374,23 @@ def validate_national(export):
     print(f"  Validation passed against fetched nationalAggregates: {na}", file=sys.stderr)
 
 
+def get_flex_coverage(export):
+    """Extract the export's envelope-level, FEED-centric `flexCoverage` block (added
+    schemaVersion 1.1.0): distinct GTFS-Flex feeds per state, from Mobility Database's
+    own catalog — NOT derived from the per-row `is_flex` field. See the GTFS-Flex
+    comment block above main()'s definitions for why that distinction is load-bearing.
+
+    Returns (available: bool, total: int, by_state: dict[str, int]). Degrades to
+    (False, 0, {}) if the block is absent from the fetched export (documented as
+    present "when flex_coverage.csv was available" — so a future export, or an older
+    pinned --ref, may legitimately not have it) — same don't-fabricate-a-number policy
+    as the rest of this script."""
+    fc = export.get("flexCoverage")
+    if not fc or "total" not in fc or "byState" not in fc:
+        return False, 0, {}
+    return True, fc["total"], fc["byState"]
+
+
 # ── Local aggregation (from the export's per-agency rows) ─────────────────────
 
 def is_matched(r):
@@ -365,8 +400,12 @@ def is_matched(r):
     return r["mdb_id"] is not None and r["mdb_total_error"] is not None
 
 
-def compute_state_stats(rows_by_state):
-    """Per-state metrics for the 50 states + DC, in FIPS order."""
+def compute_state_stats(rows_by_state, flex_by_state):
+    """Per-state metrics for the 50 states + DC, in FIPS order.
+
+    `flex_by_state` is the FEED-centric dict from get_flex_coverage() (empty if
+    flexCoverage was unavailable) — never derive `flex` from counting `is_flex` rows
+    (see the GTFS-Flex comment block above)."""
     states = []
     for abbr in STATES_FIPS_ORDER:
         fips, name, region = STATES_META[abbr]
@@ -390,7 +429,7 @@ def compute_state_stats(rows_by_state):
             "agencies": total,
             "cov": cov, "noFeed": 100 - cov,
             "exp": exp, "val": val,
-            "flex": 0,  # GTFS-Flex per-state accounting retired — see CANONICAL comment block
+            "flex": flex_by_state.get(abbr, 0),  # feed-centric — from flexCoverage.byState, NOT is_flex
         })
     return states
 
@@ -494,7 +533,8 @@ def fmt_state_row(s):
     )
 
 
-def write_fhdata_js(state_stats, gradient, nat, as_of_iso, dr_agencies, provenance):
+def write_fhdata_js(state_stats, gradient, nat, as_of_iso, dr_agencies, provenance,
+                     flex_available, flex_total):
     """Regenerate public/feed-health/fh-data.js wholesale. Same window.FH_DATA =
     {HEADLINE, GRADIENT, STATES, FLEX, CTAS} shape as before this rewiring — only
     the header comment gains provenance (resolved SHA / schemaVersion / export
@@ -504,6 +544,12 @@ def write_fhdata_js(state_stats, gradient, nat, as_of_iso, dr_agencies, provenan
     no_feed_pct = round(100 * nat["none_n"]    / nat["N"]) if nat["N"] else 0
     expired_pct = round(100 * nat["expired_n"] / nat["M"]) if nat["M"] else 0
     val_pct     = nat["val_pct"]  # keep 1dp
+
+    # flex_states_count: number of states with at least one feed-centric Flex feed
+    # (state_stats[].flex is already sourced from flexCoverage.byState — see
+    # compute_state_stats() — never from counting is_flex rows).
+    flex_states_count = sum(1 for s in state_stats if s["flex"] > 0) if flex_available else 0
+    flex_feeds_js = flex_total if flex_available else 0
 
     gradient_js = ",\n".join(
         f'    {{ key: "{g["key"]}",  label: "{g["label"]}", '
@@ -535,17 +581,18 @@ def write_fhdata_js(state_stats, gradient, nat, as_of_iso, dr_agencies, provenan
     agencies: {nat["N"]},          // NTD agency roster (full universe incl. territories)
     expiredPct: {expired_pct},           // % of MDB-matched feeds describing service that already ended
     validatorFailPct: {val_pct}, // % of MDB-matched feeds failing the canonical validator
-    // GTFS-Flex aggregate reporting retired 2026-07-31 — see CANONICAL comment block in
-    // scripts/feed-health-publish.py for why (feed-centric vs. agency-centric data, not
-    // a reasonable proxy). flexAvailable is the explicit gate fh.js reads to HIDE the
-    // aggregate Flex band/leaderboard/stat-card/closing-plank entirely (rather than
-    // show a "0" a visitor could see visibly contradicted by real per-agency Flex
-    // badges on the same page) — flip back to true once a real per-state breakdown
-    // exists upstream. flexFeeds/flexStates are kept at 0 only for any code that reads
-    // them before checking the flag; fh.js is expected to check flexAvailable first.
-    flexAvailable: false,
-    flexFeeds: 0,
-    flexStates: 0,
+    // GTFS-Flex aggregate reporting — sourced from the export's envelope-level
+    // flexCoverage block (FEED-centric — distinct Mobility Database Flex feeds per
+    // state), never from counting the per-agency `is_flex` field (agency-centric —
+    // see the GTFS-Flex comment block in scripts/feed-health-publish.py for why
+    // conflating the two is a real bug, not a style nit). flexAvailable is the
+    // explicit gate fh.js reads before rendering any aggregate Flex UI — it degrades
+    // to false (hiding the aggregate band/leaderboard/stat-card/closing-plank, while
+    // leaving the per-agency Flex badge untouched) if a fetched export ever lacks the
+    // flexCoverage block, rather than show a fabricated or stale number.
+    flexAvailable: {"true" if flex_available else "false"},
+    flexFeeds: {flex_feeds_js},
+    flexStates: {flex_states_count},
     // Agencies reporting Demand Response (mode DR; DT absorbed since report_year 2019),
     // computed live from the fetched export's per-agency demand_response booleans
     // (previously a hardcoded constant from a separate NTD Service-by-Mode extract).
@@ -565,7 +612,9 @@ def write_fhdata_js(state_stats, gradient, nat, as_of_iso, dr_agencies, provenan
   // cov  = % of the state's NTD agencies with a findable GTFS feed (FTA weblink OR Mobility Database)
   // exp  = % of MDB-matched feeds in that state whose service period has already ended
   // val  = % of MDB-matched feeds in that state with at least one ERROR-severity validator notice
-  // flex = RETIRED, always 0 — see HEADLINE.flexFeeds comment above
+  // flex = distinct GTFS-Flex feeds covering this state (flexCoverage.byState — FEED-
+  //        centric, so this can be nonzero even in a state with zero is_flex agencies;
+  //        see HEADLINE.flexFeeds comment above), 0 if flexCoverage was unavailable
   const S = (fips, abbr, name, region, agencies, cov, exp, val, flex) =>
     ({{ fips, abbr, name, region, agencies, cov, noFeed: 100 - cov, exp, val, flex }});
 
@@ -573,9 +622,8 @@ def write_fhdata_js(state_stats, gradient, nat, as_of_iso, dr_agencies, provenan
 {states_js},
   ];
 
-  // Flex leaderboard — states publishing GTFS-Flex, ranked. Naturally empty while
-  // every state's flex=0 (see above); the render code already degrades cleanly when
-  // this is [].
+  // Flex leaderboard — states publishing GTFS-Flex, ranked. Empty (and the render code
+  // degrades cleanly) if flexCoverage was unavailable and every state's flex is 0.
   const FLEX = STATES.filter((s) => s.flex > 0).sort((a, b) => b.flex - a.flex);
 
   // CTA variants keyed to feed condition — RESERVED for per-agency drill-down phase.
@@ -709,8 +757,12 @@ def main():
         if st in STATES_META:
             rows_by_state.setdefault(st, []).append(r)
 
+    flex_available, flex_total, flex_by_state = get_flex_coverage(export)
+    print(f"  flexCoverage: {'available, total=' + str(flex_total) if flex_available else 'NOT present in this export — aggregate Flex UI will be hidden'}",
+          file=sys.stderr)
+
     print("Computing per-state stats...", file=sys.stderr)
-    state_stats = compute_state_stats(rows_by_state)
+    state_stats = compute_state_stats(rows_by_state, flex_by_state)
     gradient    = compute_gradient(all_rows)
     nat         = compute_national(all_rows)
     dr_agencies = sum(1 for r in all_rows if r["demand_response"])
@@ -727,7 +779,8 @@ def main():
               file=sys.stderr)
 
     print("Regenerating fh-data.js...", file=sys.stderr)
-    write_fhdata_js(state_stats, gradient, nat, as_of_iso, dr_agencies, provenance)
+    write_fhdata_js(state_stats, gradient, nat, as_of_iso, dr_agencies, provenance,
+                     flex_available, flex_total)
     print(f"  Written: {OUT_FHDATA}", file=sys.stderr)
 
     write_provenance_json(provenance)
@@ -736,13 +789,28 @@ def main():
     # Sanity checks
     total_all = sum(r["agencies"] for r in state_stats)
     assert total_all == expected_50dc, f"State total mismatch: {total_all} vs {expected_50dc}"
-    assert all(s["flex"] == 0 for s in state_stats), (
-        "GTFS-Flex per-state accounting was intentionally retired 2026-07-31 pending an "
-        "upstream per-state breakdown (see CANONICAL comment block) — a nonzero value "
-        "here means someone re-wired flex without updating that decision; revisit the "
-        "comment before removing this assert."
-    )
-    print("  Sanity checks passed (agency sum matches, flex intentionally all-zero)", file=sys.stderr)
+    if flex_available:
+        assert flex_total >= 0, f"flexCoverage.total should be >= 0, got {flex_total}"
+        state_flex_sum = sum(s["flex"] for s in state_stats)
+        # A multi-state Flex feed is counted once per state it covers (see docs/SCHEMA.md
+        # "flexCoverage vs. is_flex" in GTFS-X/gtfs-feed-health), so summing STATES[].flex
+        # is expected to meet or exceed flexCoverage.total, never fall short of it — a
+        # shortfall means a byState entry didn't make it into STATES (e.g. it names a
+        # territory or an abbreviation outside STATES_META).
+        assert state_flex_sum >= flex_total, (
+            f"flexCoverage sanity check failed: sum(STATES[].flex)={state_flex_sum} < "
+            f"flexCoverage.total={flex_total}"
+        )
+        flex_msg = f"flex available, total={flex_total}, sum-by-state={state_flex_sum}"
+    else:
+        assert all(s["flex"] == 0 for s in state_stats), (
+            "flexCoverage was unavailable this run, so every STATES[].flex should be 0 — a "
+            "nonzero value here means compute_state_stats() populated `flex` from something "
+            "other than get_flex_coverage()'s flex_by_state. Never derive it from is_flex "
+            "(see the GTFS-Flex comment block above)."
+        )
+        flex_msg = "flex unavailable, all-zero as expected"
+    print(f"  Sanity checks passed (agency sum matches, {flex_msg})", file=sys.stderr)
 
     print_diff(state_stats)
 
