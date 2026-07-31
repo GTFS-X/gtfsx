@@ -147,14 +147,29 @@ REPORTER_MAP = {
 #   expired   172  -> 175  (20958/40038/40208 have stale service_end) -> 175/799 = 21.9%.
 #   fail      100  -> 104  (40038/40208 expired-with-errors + 91018/91041 invalid) ->
 #             104/799 = 13.0%.
+# Updated 2026-07-31 (feed-health dashboard audit + refresh): the scheduled 2026-07-05
+# monthly run aborted here (expired_pct computed=22.6% vs canonical=21.9%, delta 0.71pp >
+# 0.5pp limit), which is why the live site was still serving 2026-06-07-vintage data for
+# nearly two months. A full fresh Phase A-D run today found NO methodology regression —
+# the 15-agency no-feed stratified sample and the two named test agencies (Gastonia
+# Transit, Transp. Administration of Cleveland County, both NC) still correctly show
+# no findable feed via either FTA Weblinks or MDB; two other named agencies (High Point
+# Transit, GoTriangle) flipped ok -> expired / ok -> invalid for genuine reasons (a
+# feed's calendar lapsing, a routine MDB re-validation surfacing 7 new errors) rather
+# than a matching bug. National movement was small and roughly symmetric (47/2194
+# agencies, 2.1%, changed status; expired/invalid transitions balanced both directions),
+# consistent with ordinary month-to-month churn. Bumping the baseline to today's
+# validated numbers so the next scheduled run isn't immediately re-tripped by the same
+# order of noise that failed on 07-05 (expired_pct alone moved 21.9 -> 22.6 -> 21.7
+# across three data pulls seven weeks apart — comfortably inside the guard's intended
+# tolerance for a REAL run, but each pairwise jump alone exceeds the 0.5pp band).
 # NOTE: this constant is a +/-0.5pp drift guard, not the rendered headline; the displayed
-# fh-data.js HEADLINE (noFeedPct 45, expiredPct 22, validatorFailPct 12.7) is left frozen
-# by this surgical edit and is re-derived on the next full pipeline run.
+# fh-data.js HEADLINE values are re-derived on every full pipeline run.
 CANONICAL = {
     "N_roster":              2238,    # full NTD 2024 universe incl. territories
-    "no_feed_anywhere_pct":  44.8,    # 1002 / 2238 = 44.77% (post 2026-06-17 audit)
-    "fail_validation_pct":   13.0,    # 104  / 799 matched
-    "expired_pct_of_matched": 21.9,   # 175  / 799 matched
+    "no_feed_anywhere_pct":  44.7,    # 1001 / 2238 = 44.73% (2026-07-31 refresh)
+    "fail_validation_pct":   12.9,    # 103  / 796 matched
+    "expired_pct_of_matched": 21.7,   # 173  / 796 matched
 }
 
 # Constant from NTD Annual Data — Service by Mode and Time Period (wwdp-t4re),
@@ -165,7 +180,8 @@ DR_AGENCIES = 1925
 # Total distinct US GTFS-Flex feeds from Mobility Database (stats_phaseD.json).
 # Kept as a constant because the per-feed flex count comes from the MDB catalog,
 # not from the per-agency CSV (mdb_is_flex is per-agency-match, not per-feed).
-FLEX_FEEDS_TOTAL = 75
+# Updated 2026-07-31 refresh: flex_feeds_total was 77 in stats_phaseD.json.
+FLEX_FEEDS_TOTAL = 77
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

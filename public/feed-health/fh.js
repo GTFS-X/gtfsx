@@ -1067,6 +1067,14 @@
                 )
               ),
               h("div", null,
+                h("dt", null, "Reading validator and expiry flags"),
+                h("dd", null,
+                  "A feed with one or more validator errors is not necessarily unusable to riders — some of the largest US agencies publish feeds with non-zero canonical-validator errors while remaining fully served by major trip planners; treat the per-agency error count as a data-quality signal, not proof a feed is broken. Similarly, ",
+                  h("em", null, "expired"),
+                  " reflects the calendar dates in the most recent feed version MobilityData has captured — an agency that has quietly republished since that capture may show as expired here until the next monthly refresh catches up."
+                )
+              ),
+              h("div", null,
                 h("dt", null, "Refresh cadence"),
                 h("dd", null, "Monthly. Last refreshed " + HEADLINE.draftDate + ". Owner: Mark Egge.")
               )
