@@ -175,16 +175,23 @@ REPORTER_MAP = {
 # underneath (get_status() priority is expired > invalid): 3 of the 5 (Okanogan
 # County, Casco Bay Lines, Marin Transit) had nonzero validator-error counts from that
 # same superseded capture, so "invalid" would have been just as unreliable as
-# "expired" was. See phase_d_mdb.py STALE_CAPTURE_DISCARD_ERROR_COUNT — those 3 error
-# counts are discarded (not asserted as zero, just not counted), dropping
-# matched_for_validation 796 -> 793 and fail_validation_n 103 -> 100.
+# "expired" was. Both one-off overrides were RETIRED later the same day (see below).
+# RETIRED same day, superseded by scripts/feed-health/phase_c2_expiry_check.py: the
+# manual per-agency override tables above are gone. validate_national() below checks
+# the RAW mdb_expired/mdb_total_error aggregates (it always did — it's a sanity check
+# on the MDB-derived data itself, independent of get_status()'s live-check overlay),
+# so CANONICAL tracks the raw baseline again, not the override-adjusted one from
+# earlier today: expired_n 173 (matches the pre-override number above), matched 796,
+# fail_validation_n 103. The actual published "expired"/"invalid" statuses now come
+# from get_status()'s own_expired preference chain, computed separately in
+# phase_c2_expiry_check.py — see EXPIRY_LIVE_CHECK_DESIGN.md.
 # NOTE: this constant is a +/-0.5pp drift guard, not the rendered headline; the displayed
 # fh-data.js HEADLINE values are re-derived on every full pipeline run.
 CANONICAL = {
     "N_roster":              2238,    # full NTD 2024 universe incl. territories
     "no_feed_anywhere_pct":  44.7,    # 1001 / 2238 = 44.73% (2026-07-31 refresh)
-    "fail_validation_pct":   12.6,    # 100  / 793 matched (post error-count override)
-    "expired_pct_of_matched": 21.2,   # 168  / 793 matched (post expiry override)
+    "fail_validation_pct":   12.9,    # 103  / 796 matched (raw MDB data)
+    "expired_pct_of_matched": 21.7,   # 173  / 796 matched (raw MDB data)
 }
 
 # Constant from NTD Annual Data — Service by Mode and Time Period (wwdp-t4re),
@@ -198,23 +205,15 @@ DR_AGENCIES = 1925
 # Updated 2026-07-31 refresh: flex_feeds_total was 77 in stats_phaseD.json.
 FLEX_FEEDS_TOTAL = 77
 
-# CONFIRMED_SERVICE_END_OVERRIDES — companion to phase_d_mdb.py's
-# CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB. That override fixes the CSV's
-# mdb_expired (and therefore get_status()'s ok/expired bucketing), but the
-# displayed "Service ends <date>" sub-line below is read straight from
-# mdb_us_feeds.json's service_end (via mdb_by_id, keyed by mdb_id) — a
-# different source that the expiry override does NOT touch. Without this,
-# an agency correctly shown as status "ok" would still display last year's
-# stale MDB-captured end date. Keyed by mdb_id; value is the corrected date
-# (YYYY-MM-DD) read directly from the agency's live calendar.txt /
-# calendar_dates.txt on the date noted, same 2026-07-31 audit.
-CONFIRMED_SERVICE_END_OVERRIDES = {
-    "tld-4135": "2026-12-31",  # High Point Transit (NC) — live calendar.txt
-    "mdb-1872": "2026-12-31",  # Santa Barbara Clean Air Express (CA)
-    "ntd-332":  "2026-12-31",  # Okanogan County Transportation & Nutrition (WA)
-    "mdb-1":    "2026-09-07",  # Casco Bay Island Transit District / Casco Bay Lines (ME)
-    "mdb-71":   "2026-09-13",  # Marin County Transit District / Marin Transit (CA)
-}
+# CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB / CONFIRMED_SERVICE_END_OVERRIDES /
+# STALE_CAPTURE_DISCARD_ERROR_COUNT — the 2026-07-31 one-off manual audit overrides
+# — are RETIRED as of the phase_c2_expiry_check.py live check (same day). Confirmed
+# the live check independently reproduces the same corrected values for all 5
+# agencies those tables covered (High Point Transit, Santa Barbara Clean Air
+# Express, Okanogan County, Casco Bay Lines, Marin Transit) before removing them —
+# see EXPIRY_LIVE_CHECK_DESIGN.md for the full history. Do not resurrect a manual
+# override table for a new stale-capture agency; that pattern is exactly what the
+# live check exists to make unnecessary.
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -223,12 +222,31 @@ def get_status(r):
     """
     Map a CSV row to one of: none | expired | invalid | ok.
 
-    Definitions mirror phase_d_mdb.py exactly:
+    Expiry preference chain (see EXPIRY_LIVE_CHECK_DESIGN.md): our OWN live read of
+    the agency's calendar.txt / calendar_dates.txt / feed_info.txt (own_expired,
+    from phase_c2_expiry_check.py) is authoritative whenever we have one. MDB's
+    mdb_expired — sourced from MDB's own capture, which can be stale by months to
+    years for infrequently-recrawled agencies — is only a fallback for rows we
+    couldn't fetch or parse live (own_expired left blank: unreachable, timed out,
+    oversized, corrupt zip, or simply not yet checked).
+
       none    — has_fta_weblink != "True"  AND  in_mdb != "True"
-      expired — mdb_expired == "True"
-      invalid — in_mdb == "True"  AND  mdb_total_error > 0
+      expired — own_expired == "True", OR (no live read AND mdb_expired == "True")
+      invalid — in_mdb == "True"  AND  mdb_total_error > 0 AND MDB's capture wasn't
+                just caught being stale (see "superseded capture" below). Error
+                counts stay MDB-sourced — reimplementing the canonical GTFS
+                validator ourselves is out of scope.
       ok      — at least one findable feed, no expiry/validator issue
     Priority: none > expired > invalid > ok.
+
+    Superseded-capture rule: if our live read says NOT expired but MDB's capture
+    said expired, that capture is proven stale for THIS agency — and mdb_total_error
+    comes from that exact same superseded capture, so it's no more trustworthy than
+    the expiry call was. Rather than hand-list agencies where this happened (the
+    2026-07-31 audit did that for 3 agencies as a one-off; this supersedes it and
+    covers the whole roster automatically), skip the error check whenever this
+    contradiction is detected and fall through to "ok" — asserting no current error
+    count beats asserting a wrong one.
     """
     has_weblink = r["has_fta_weblink"] == "True"
     in_mdb      = r["in_mdb"] == "True"
@@ -236,9 +254,20 @@ def get_status(r):
     if not has_weblink and not in_mdb:
         return "none"
 
-    if in_mdb:
-        if r.get("mdb_expired") == "True":
-            return "expired"
+    own_expired      = r.get("own_expired", "")
+    mdb_says_expired = r.get("mdb_expired") == "True"
+
+    if own_expired == "True":
+        return "expired"
+    if own_expired == "" and in_mdb and mdb_says_expired:
+        # No live read for this row — fall back to MDB's (possibly stale) call.
+        return "expired"
+    # own_expired == "False": confirmed live, not expired. Falls through without
+    # trusting mdb_expired's "True" — our own read supersedes MDB's here.
+
+    mdb_capture_superseded = own_expired == "False" and mdb_says_expired
+
+    if in_mdb and not mdb_capture_superseded:
         err = r.get("mdb_total_error", "")
         if err not in ("", None, "None"):
             try:
@@ -440,32 +469,45 @@ def write_agency_jsons(rows_by_state, mdb_by_id, as_of_iso):
 
             # ── Phase 1 enrichment — fields already produced by the pipeline ──
             # All sourced from the same CSV / MDB cache the script already loads;
-            # no feed parsing and no new external calls.
+            # no feed parsing and no new external calls here (the parsing itself
+            # happened earlier, in phase_c2_expiry_check.py).
             #   modes      ← weblink_modes (FTA Weblinks crosswalk descriptive string)
             #   orgType    ← organization_type (NTD; ~100% coverage)
             #   isFlex     ← mdb_is_flex (MDB feature flag; True only when matched + flex)
-            #   serviceEnd ← service_end of the matched MDB feed (date portion of the
-            #                ISO timestamp in mdb_us_feeds.json), None when unmatched
-            #   expired    ← mdb_expired (service period already ended)
+            #   serviceEnd ← own_service_end (our own live read of the agency's
+            #                calendar.txt/calendar_dates.txt/feed_info.txt) when
+            #                available, else the matched MDB feed's service_end
+            #                (date portion of the ISO timestamp in
+            #                mdb_us_feeds.json) as a fallback, None when neither.
+            #   expired    ← derived from status (see get_status()), not re-read
+            #                from mdb_expired directly — see below.
             #   mdbId      ← mdb_id (Mobility Database feed id, e.g. "mdb-223"),
             #                None when the agency has no MDB match. Together with
             #                ntdId this is the NTD↔MDB crosswalk users need for
             #                FTA's P-50 form; both stay STRINGS (NTD ids carry
             #                leading zeros — never coerce an id to a number).
             mdb_id = r.get("mdb_id", "").strip()
-            service_end = None
             last_feed_update = None
             if mdb_id and mdb_id in mdb_by_id:
-                if mdb_id in CONFIRMED_SERVICE_END_OVERRIDES:
-                    service_end = CONFIRMED_SERVICE_END_OVERRIDES[mdb_id]
-                else:
-                    se = (mdb_by_id[mdb_id].get("service_end") or "").strip()
-                    if se:
-                        service_end = se[:10]  # YYYY-MM-DD from the ISO timestamp
                 # lastFeedUpdate ← MDB downloaded_at (date the feed's latest dataset
                 # was last captured by the Mobility Database) — proxy for "feed last
                 # published/updated". Distinct from serviceEnd (service-period end).
                 last_feed_update = feed_last_updated(mdb_by_id[mdb_id])
+
+            # serviceEnd: prefer our OWN live-computed service end (own_service_end,
+            # from phase_c2_expiry_check.py — reads the agency's actual calendar.txt /
+            # calendar_dates.txt / feed_info.txt) over MDB's captured value, which can
+            # be stale by months to years. Falls back to MDB only for rows we
+            # couldn't fetch/parse live (own_service_end blank).
+            own_se = (r.get("own_service_end") or "").strip()
+            if own_se:
+                service_end = own_se
+            else:
+                service_end = None
+                if mdb_id and mdb_id in mdb_by_id:
+                    se = (mdb_by_id[mdb_id].get("service_end") or "").strip()
+                    if se:
+                        service_end = se[:10]  # YYYY-MM-DD from the ISO timestamp
 
             agencies.append({
                 "name":         r["agency_name"],
@@ -485,7 +527,15 @@ def write_agency_jsons(rows_by_state, mdb_by_id, as_of_iso):
                 "isFlex":       r.get("mdb_is_flex") == "True",
                 "serviceEnd":   service_end,
                 "lastFeedUpdate": last_feed_update,
-                "expired":      r.get("mdb_expired") == "True",
+                # expired ← derived from the SAME status computed above (not re-read
+                # from mdb_expired directly), so the "Service ended"/"Service ends"
+                # phrasing in fh.js can never disagree with the status badge.
+                "expired":      status == "expired",
+                # feedInfoContradictsCalendar ← phase_c2_expiry_check.py: True when a
+                # feed's feed_info.txt feed_end_date disagrees with its own
+                # calendar.txt/calendar_dates.txt by >7 days. Feed-hygiene signal,
+                # independent of which value won for expiry purposes.
+                "feedInfoContradictsCalendar": r.get("feed_info_contradicts_calendar") == "True",
             })
         payload = {"asOf": as_of_iso, "agencies": agencies}
         out_path = os.path.join(OUT_AGENCIES, f"{abbr}.json")

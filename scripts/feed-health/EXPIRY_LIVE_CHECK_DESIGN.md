@@ -1,12 +1,34 @@
-# Expiry live-check — design notes (not built)
+# Expiry live-check — design notes and outcome
+
+**Status: BUILT and run, same day (2026-07-31)**, after Mark authorized it —
+`scripts/feed-health/phase_c2_expiry_check.py` implements the design below exactly
+as specified (calendar.txt primary, feed_info.txt fallback,
+`feed_info_contradicts_calendar` flag, size/timeout caps, per-host politeness). It
+ran against all 1,221 agencies with a reachable feed URL (not just the 272 on stale
+captures), and `get_status()` in `feed-health-publish.py` now consumes its output as
+described in "Recommended design" below. The manual override tables mentioned
+throughout this doc as a "stopgap" (`CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB`,
+`CONFIRMED_SERVICE_END_OVERRIDES`, `STALE_CAPTURE_DISCARD_ERROR_COUNT`) have been
+**deleted** — confirmed the live check independently reproduces the same corrected
+values for all 5 agencies they covered before removing them. Results: 95
+agencies flipped expired→ok, **60 flipped ok→expired** (the invisible-error count —
+see chat history / commit message for the full breakdown), 2 flipped invalid→expired,
+172 agencies have a `feed_info_contradicts_calendar` flag, and 40 feeds
+(3.3% of candidates) failed to fetch and fall back to MDB's value untouched. The
+rest of this document is the original design reasoning — still accurate, kept as
+the historical record of *why* it was built this way, since a future maintainer
+tempted to "simplify" the fallback chain back toward feed_info.txt should find the
+argument already made.
+
+---
 
 Written 2026-07-31, during a feed-health dashboard audit triggered by a false-negative
 bug found in a sibling outreach pipeline (`gtfsx-marketing/campaign_c_outreach/verify.py` —
 a hardcoded Transit.land `adm1_iso` state filter + poor name-matching on garbled NTD
 legal names). This dashboard's pipeline was cleared of that specific bug — it never
 calls Transit.land — but the audit surfaced a separate, real correctness problem in how
-`mdb_expired` is computed, described below. This doc is the reasoning a future session
-needs before building the fix; the code changes so far are a stopgap (see bottom).
+`mdb_expired` is computed, described below. This doc is the reasoning that led to the
+build above.
 
 ## The problem
 
@@ -138,36 +160,47 @@ report it as "roughly half wrong in a 9-agency sample," not as a measured ~50% r
 across the whole population. It's a strong enough signal to justify building the live
 check; it is not a precise estimate of how many of the 272 are actually wrong.
 
-## Current stopgap — retire when the live check ships
+## Former stopgap — retired, deleted from the code
 
-`phase_d_mdb.py` has two manual override tables applied as a one-time fix during this
-audit, both keyed by `(ntd_id_normalized, mdb_id)`:
+Before the live check was built, `phase_d_mdb.py` carried two manual override
+tables applied as a one-time fix, both keyed by `(ntd_id_normalized, mdb_id)`:
 
-- `CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB` — forces `mdb_expired=False` for the 5
+- `CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB` — forced `mdb_expired=False` for the 5
   agencies above confirmed current by live download. Paired with
-  `CONFIRMED_SERVICE_END_OVERRIDES` in `feed-health-publish.py`, which corrects the
+  `CONFIRMED_SERVICE_END_OVERRIDES` in `feed-health-publish.py`, which corrected the
   *displayed* "Service ends &lt;date&gt;" line (a separate code path, reading
   `mdb_us_feeds.json` directly rather than the CSV) to the real date found on each
   agency's live calendar.
-- `STALE_CAPTURE_DISCARD_ERROR_COUNT` — clears `mdb_total_error` for 3 of those 5
+- `STALE_CAPTURE_DISCARD_ERROR_COUNT` — cleared `mdb_total_error` for 3 of those 5
   (Okanogan, Casco Bay, Marin) whose nonzero validator-error counts came from that same
   superseded MDB capture and had been silently masked by `get_status()`'s
   `expired > invalid` priority order once the wrong "expired" was cleared.
 
-**These tables are a stopgap covering only the specific agencies actually spot-checked
-during this audit — not a general fix.** They exist because a one-off manual audit was
-the fastest way to correct known-wrong public records *today*, not because hand-curated
-overrides are the intended long-term mechanism. Once the live check above ships, both
-tables (and the 91-"ok" blind spot, and the rest of the 272 currently un-verified rows)
-become unnecessary — the pipeline would compute its own current answer directly instead
-of needing a human to catch each wrong one individually. Don't let this override
-pattern quietly become permanent infrastructure that grows every audit cycle instead of
-being retired.
+**Both are now deleted.** They covered only the specific agencies spot-checked during
+the audit, not a general fix — hand-curated overrides were never the intended
+long-term mechanism, just the fastest way to correct known-wrong public records before
+the real fix existed. They're replaced by two things that apply to the whole roster
+automatically instead of needing a human to list which agencies were affected:
 
-## Cost estimate
+1. `phase_c2_expiry_check.py` computing `own_expired` directly, superseding
+   `CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB` and `CONFIRMED_SERVICE_END_OVERRIDES`
+   entirely (`get_status()` and `serviceEnd` both prefer the live-computed value).
+2. `get_status()`'s "superseded-capture" rule — if `own_expired == "False"` but
+   `mdb_expired == "True"`, that disagreement itself proves MDB's capture is stale
+   for this agency, so `mdb_total_error` from that same capture is treated as
+   equally untrustworthy and the row falls through to "ok" rather than "invalid".
+   This generalizes `STALE_CAPTURE_DISCARD_ERROR_COUNT` to every agency where the
+   same pattern occurs, not just the 3 found by hand.
 
-Same-day to one-day for a first working version: extend Phase C's existing
-per-URL fetch (currently a partial read to confirm zip magic bytes) to a full,
-size/timeout-bounded download + `zipfile` open + the parse logic above, for the ~1,150
-URLs that currently pass reachability. Not attempted in this audit, per instruction —
-scoped only.
+Confirmed before deleting: re-running the pipeline with both retired produced the
+exact same result for High Point Transit, Santa Barbara Clean Air Express, Okanogan
+County, Casco Bay Lines, and Marin Transit as the manual overrides had.
+
+## Cost estimate (as scoped, before building)
+
+Estimated same-day to one-day for a first working version — extend Phase C's existing
+per-URL fetch (a partial read to confirm zip magic bytes) to a full, size/timeout-bounded
+download + `zipfile` open + the parse logic above, for the ~1,150-1,220 URLs that pass
+reachability. **Actual: built and run same day**, ~1 hour including validation against
+the known test cases and the full ~1,220-feed crawl (which itself took ~3 minutes at
+8-way bounded concurrency with per-host politeness).

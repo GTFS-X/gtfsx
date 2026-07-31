@@ -6,8 +6,8 @@
   const HEADLINE = {
     noFeedPct: 45,         // % of US federally funded agencies w/ no findable GTFS feed
     agencies: 2238,          // FY2024 NTD agency roster (full universe incl. territories)
-    expiredPct: 21,           // % of MDB-matched feeds describing service that already ended
-    validatorFailPct: 12.6, // % of MDB-matched feeds failing the canonical validator
+    expiredPct: 22,           // % of MDB-matched feeds describing service that already ended
+    validatorFailPct: 12.9, // % of MDB-matched feeds failing the canonical validator
     flexFeeds: 77,          // distinct US feeds publishing GTFS-Flex (from Mobility Database)
     flexStates: 11,         // states with at least one GTFS-Flex feed
     // Agencies reporting Demand Response (mode DR; DT absorbed since report_year 2019) in FY2024 NTD
@@ -41,7 +41,7 @@
     S("02","AK","Alaska","West",26,58,50,0,0),
     S("04","AZ","Arizona","West",45,67,47,6,0),
     S("05","AR","Arkansas","South",15,53,25,0,0),
-    S("06","CA","California","West",209,80,23,20,7),
+    S("06","CA","California","West",209,80,24,20,7),
     S("08","CO","Colorado","West",48,85,13,13,41),
     S("09","CT","Connecticut","Northeast",20,85,0,0,0),
     S("10","DE","Delaware","Northeast",2,100,50,100,0),
@@ -56,7 +56,7 @@
     S("20","KS","Kansas","Midwest",85,18,12,12,0),
     S("21","KY","Kentucky","South",33,52,0,0,0),
     S("22","LA","Louisiana","South",50,24,0,0,0),
-    S("23","ME","Maine","Northeast",22,64,33,11,0),
+    S("23","ME","Maine","Northeast",22,64,40,20,0),
     S("24","MD","Maryland","Northeast",22,95,44,38,0),
     S("25","MA","Massachusetts","Northeast",24,92,25,5,1),
     S("26","MI","Michigan","Midwest",86,40,11,5,0),
@@ -70,7 +70,7 @@
     S("34","NJ","New Jersey","Northeast",28,75,10,10,0),
     S("35","NM","New Mexico","West",26,58,38,15,0),
     S("36","NY","New York","Northeast",77,91,14,12,0),
-    S("37","NC","North Carolina","South",103,44,11,6,0),
+    S("37","NC","North Carolina","South",103,44,17,6,0),
     S("38","ND","North Dakota","Midwest",28,14,0,33,0),
     S("39","OH","Ohio","Midwest",66,50,26,16,0),
     S("40","OK","Oklahoma","South",36,28,20,0,0),
@@ -84,7 +84,7 @@
     S("49","UT","Utah","West",8,100,0,25,0),
     S("50","VT","Vermont","Northeast",9,78,0,0,3),
     S("51","VA","Virginia","South",39,95,3,7,16),
-    S("53","WA","Washington","West",57,86,2,7,0),
+    S("53","WA","Washington","West",57,86,5,9,0),
     S("54","WV","West Virginia","South",19,95,29,14,1),
     S("55","WI","Wisconsin","Midwest",79,33,36,14,0),
     S("56","WY","Wyoming","West",27,22,50,0,0),

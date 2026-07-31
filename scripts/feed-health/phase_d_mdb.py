@@ -127,43 +127,19 @@ CONFIRMED_GOOD_MATCHES = {
     ("91041", "mdb-1818"),  # City of Dixon, dba: Readi-Ride (Dixon CA) — invalid (calitp feed; ERROR notices)
 }
 
-# CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB — audit-reviewed (ntd_id_normalized, mdb_id)
-# pairs where MDB's mdb_expired=True is WRONG: the agency's registered feed URL was
-# downloaded live and its own calendar.txt / calendar_dates.txt describe service well
-# past today, while MDB's last capture (and therefore its service_date_range_end) is
-# stale (weeks to a year old — MDB simply hasn't re-crawled the URL since the agency
-# last regenerated it). Confirmed by hash-comparing the live download against MDB's
-# captured hash: they differ, i.e. the file at the URL has genuinely changed since
-# MDB's capture, not just an appearance of staleness.
-#
-# 2026-07-31 feed-health audit (triggered by a false-negative bug found in a sibling
-# outreach pipeline — this pipeline itself was cleared of that specific bug, but this
-# separate expiry-staleness issue was found while checking it): a 9-agency spot check
-# of the "expired" bucket whose MDB capture predates 2026-01-31 found 5/9 were actually
-# current when downloaded live (this set), and 4/9 were genuinely still expired
-# (Benson Area Transit AZ, Big Bend Transit FL, City of Cleburne TX, Santa Fe Trails NM
-# — left as-is, not overridden). 162 of 173 total "expired" rows rest on an MDB capture
-# more than 6 months old and have NOT been individually verified — this override list
-# covers only the specific pairs actually checked, not the whole stale-evidence set.
-# See handoffs/done/ (or the audit thread) for the live-recompute proposal that would
-# make this whole override list unnecessary by reading calendar.txt directly in Phase C.
-CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB = {
-    ("40011", "tld-4135"): "2026-07-31: High Point Transit (NC) — live download's calendar.txt "
-        "runs service_id 'Effective_2025-0825-Weekday'/'-Sa' through 2026-12-31; MDB's Aug-2025 "
-        "capture (hash 74ce9c85...) differs from the live file (hash a48cd6ae...) and its "
-        "service_date_range_end (2026-07-01) reflects only feed_info.txt's stale feed_end_date.",
-    ("90303", "mdb-1872"): "2026-07-31: Santa Barbara Clean Air Express (CA) — live calendar.txt "
-        "runs through 2026-12-31; MDB capture is from 2024-06-07.",
-    ("332",   "ntd-332"):  "2026-07-31: Okanogan County Transportation & Nutrition (WA) — live "
-        "calendar.txt runs through 2026-12-31; MDB capture is from 2024-12-09.",
-    ("10088", "mdb-1"):    "2026-07-31: Casco Bay Island Transit District / Casco Bay Lines (ME) — "
-        "live calendar.txt + calendar_dates.txt run through 2026-09-07; MDB capture is from "
-        "2025-04-10.",
-    ("90234", "mdb-71"):   "2026-07-31: Marin County Transit District / Marin Transit (CA) — live "
-        "calendar.txt + calendar_dates.txt run through 2026-09-13; MDB capture is from 2025-09-28 "
-        "(matches the known catalog-lag precedent already noted in "
-        "handoffs/done/feed-health-audit-notes.md).",
-}
+# RETIRED 2026-07-31, same day: CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB and
+# STALE_CAPTURE_DISCARD_ERROR_COUNT were a one-off manual audit patch for 5 named
+# agencies (High Point Transit NC, Santa Barbara Clean Air Express CA, Okanogan
+# County WA, Casco Bay Lines ME, Marin Transit CA) whose MDB-reported expiry was
+# wrong because MDB's own capture was stale (weeks to years old) relative to the
+# agency's actual, live-republished feed. They're gone now that
+# scripts/feed-health/phase_c2_expiry_check.py reads each agency's own
+# calendar.txt/calendar_dates.txt/feed_info.txt directly (see
+# EXPIRY_LIVE_CHECK_DESIGN.md) — confirmed it independently reproduces the same
+# corrected values for all 5 before these tables were deleted. Do not add a new
+# manual override table for the next stale-capture agency found; that pattern is
+# exactly what the live check exists to make unnecessary. History is in git log /
+# EXPIRY_LIVE_CHECK_DESIGN.md, not worth carrying as dead code.
 
 
 def access_token():
@@ -448,54 +424,18 @@ def main():
     flex_feeds = [f for f in feeds if is_flex(f["features"])]
     unmatched  = [f for f in feeds if f["mdb_id"] not in matched_feed_ids]
 
-    apply_expiry_overrides(spine)
-
     write_outputs(spine, feeds, flex_feeds, unmatched, feat, workdir, review_queue)
 
-
-# Once a (ntd_id, mdb_id) pair is confirmed to have a superseded MDB capture (the
-# live file's hash/calendar differs from what MDB has on file), EVERY MDB-derived
-# signal for that row is suspect, not just mdb_expired — a get_status() priority of
-# none > expired > invalid > ok means clearing "expired" alone can just promote a
-# stale, equally-superseded "invalid" (mdb_total_error > 0) verdict underneath it.
-# Found 2026-07-31: after overriding expiry, Okanogan County (144 errors) and Casco
-# Bay Lines (567 errors) and Marin Transit (164 errors) all surfaced as "invalid" —
-# all three error counts come from the exact same superseded capture as the wrong
-# expiry call, so there's no more reason to trust them than the expiry flag. (High
-# Point and Santa Barbara already carried 0 errors, so no discrepancy there.) Rather
-# than assert a specific current error count we haven't verified, clear it — these
-# rows fall through to "ok" until a live validator re-run (see the design-question
-# cost note) gives a real current count.
-STALE_CAPTURE_DISCARD_ERROR_COUNT = {
-    ("332",   "ntd-332"),  # Okanogan County Transportation & Nutrition (WA) — was 144, stale capture
-    ("10088", "mdb-1"),    # Casco Bay Island Transit District / Casco Bay Lines (ME) — was 567, stale capture
-    ("90234", "mdb-71"),   # Marin County Transit District / Marin Transit (CA) — was 164, stale capture
-}
-
-
-def apply_expiry_overrides(spine):
-    """Apply CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB / STALE_CAPTURE_DISCARD_ERROR_COUNT.
-
-    These are agencies MDB's own stale capture calls "expired" (or "invalid", off the
-    same stale capture) but whose live, audit-downloaded feed proves otherwise (see
-    the dicts' docstrings above). Applied last, after all join passes, so it
-    overrides whatever Pass 1-3 attached."""
-    expiry_overridden = 0
-    error_overridden = 0
-    for r in spine:
-        key = (r.get("_ntd_norm", ""), r.get("mdb_id", ""))
-        if key in CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB and r.get("mdb_expired") is True:
-            r["mdb_expired"] = False
-            expiry_overridden += 1
-        if key in STALE_CAPTURE_DISCARD_ERROR_COUNT and r.get("mdb_total_error") not in ("", None):
-            r["mdb_total_error"] = ""
-            error_overridden += 1
-    if expiry_overridden:
-        print(f"  expiry override: {expiry_overridden} agenc{'y' if expiry_overridden==1 else 'ies'} "
-              f"confirmed NOT expired despite a stale MDB capture", file=sys.stderr)
-    if error_overridden:
-        print(f"  error-count override: {error_overridden} agenc{'y' if error_overridden==1 else 'ies'} "
-              f"had a stale-capture validator error count discarded", file=sys.stderr)
+# No manual expiry/error overrides here (see feed-health-publish.py get_status()):
+# a one-off audit patch for 5 specifically-checked agencies + a hand-list of 3
+# whose error counts came from the same stale capture were retired 2026-07-31 in
+# favor of two general rules that apply to the whole roster automatically — (1)
+# scripts/feed-health/phase_c2_expiry_check.py reads each agency's OWN feed
+# directly instead of trusting MDB's capture cadence, and (2) get_status() treats
+# an own_expired=False vs. mdb_expired=True disagreement as proof that MDB's
+# capture (and therefore its error count too) is superseded, and stops trusting it
+# rather than needing a human to list which specific agencies that happened for.
+# See EXPIRY_LIVE_CHECK_DESIGN.md for the full history.
 
 
 def write_outputs(spine, feeds, flex_feeds, unmatched, feat, workdir, review_queue=None):
