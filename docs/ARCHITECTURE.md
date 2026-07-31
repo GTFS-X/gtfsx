@@ -291,9 +291,31 @@ Design rationale is preserved in the decisions appendix of the archived
 
 ## 5. Live environment state
 
-**As of 2026-07-24.** Keep this section current when deployed state changes.
+**As of 2026-07-31.** Keep this section current when deployed state changes.
 
 ### Production — LIVE
+
+- **Feed Health dashboard data now sourced from an external canonical export
+  (2026-07-31).** The NTD/FTA-Weblinks/Mobility-Database pipeline that used to
+  live in this repo (`scripts/feed-health/*`) has been extracted to a
+  standalone public repo, `GTFS-X/gtfs-feed-health`, which now owns it and
+  publishes a versioned `exports/feed_health.json` (schema documented there in
+  `docs/SCHEMA.md`), refreshed automatically on the 5th of each month.
+  `scripts/feed-health-publish.py` (still in this repo — the presentation-layer
+  transform into `public/feed-health/data/agencies/*.json` + `fh-data.js`) now
+  resolves that repo's `main` to a commit SHA, fetches the export from the
+  content-addressed raw URL at that SHA, checks it against a local drift-guard
+  baseline, and writes the dashboard assets — no local pipeline run anymore.
+  `.github/workflows/feed-health-refresh.yml` was slimmed down to match (fetch
+  → publish → commit-if-changed; the old Phase A-D steps, the
+  `MOBILITY_DATABASE_REFRESH_TOKEN` secret, and the reachability-cache
+  seed/commit are gone). One notable data/behavior change: the new export has
+  no per-state GTFS-Flex feed count (only a per-agency `is_flex` boolean, not
+  a reasonable proxy for the old feed-centric count — CO 41→12, VA 16→0
+  checked empirically), so the dashboard's per-state Flex column, leaderboard,
+  and headline Flex count are zeroed pending an upstream per-state breakdown;
+  the per-agency Flex badge is unaffected. See `scripts/feed-health-publish.py`'s
+  `CANONICAL` comment block for the full account.
 
 - **Two-factor authentication live (2026-07-24):** optional, off by default; email
   codes + SMS via Twilio Verify (service `VA270f18dc…`, friendly name "GTFS-X");

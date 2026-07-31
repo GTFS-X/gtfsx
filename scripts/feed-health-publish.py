@@ -1,55 +1,57 @@
 #!/usr/bin/env python3
 """
-GTFS Feed Health publish script — Phases A-D data → public assets.
+GTFS Feed Health publish script — canonical export → public assets.
 
-Reads ntd_feed_health.csv (pipeline output) + flex_coverage.csv and writes:
+Fetches the canonical, versioned Feed Health export published by
+https://github.com/GTFS-X/gtfs-feed-health (exports/feed_health.json, schema
+documented in that repo's docs/SCHEMA.md, current schemaVersion "1.0.0") and
+transforms it into this site's dashboard assets:
   1. public/feed-health/data/agencies/<ABBR>.json  (51 files: 50 states + DC)
-  2. public/feed-health/fh-data.js                 (regenerated, real per-state values)
+  2. public/feed-health/fh-data.js                 (aggregated national/state stats)
 
-Status mapping mirrors the pipeline's OWN definitions (phase_d_mdb.py):
-  none    = has_fta_weblink != "True" AND in_mdb != "True"
-            (Phase D: no_anywhere — no feed registered with FTA AND not in Mobility Database)
-  expired = mdb_expired == "True"
-            (MDB-matched feed whose service_date_range_end is already in the past)
-  invalid = in_mdb == "True" AND mdb_total_error > 0
-            (at least one ERROR-severity notice from the canonical GTFS validator, via MDB)
-  ok      = everything else with at least one findable feed
-  Priority when multiple conditions apply: none > expired > invalid > ok
+This script no longer runs any NTD/FTA-Weblinks/Mobility-Database pipeline
+itself — that pipeline (formerly scripts/feed-health/*.py in this repo) has
+been extracted into GTFS-X/gtfs-feed-health, which now owns it and refreshes
+its export automatically on the 5th of each month. This script is
+presentation-layer only: fetch the export, map field names, aggregate, write.
+Every row already carries a fully computed `status` (see SCHEMA.md) — this
+script does not reimplement that logic, it just reads the field.
+
+Fetch design — pinned + verifiable, but still tracks upstream automatically:
+  1. Resolve a ref (default "main") to a commit SHA via the GitHub API
+     (`gh api` when available — dodges the low unauthenticated rate limit,
+     and GitHub Actions has `gh`/GITHUB_TOKEN pre-wired; falls back to an
+     unauthenticated api.github.com call otherwise).
+  2. Fetch exports/feed_health.json from the CONTENT-ADDRESSED raw URL at
+     that resolved SHA (raw.githubusercontent.com/.../<sha>/exports/...),
+     never from a mutable branch-name URL directly. This is what makes the
+     fetch "pinned and verifiable" (immutable content) while still
+     auto-tracking upstream's latest each run, since main->SHA is re-resolved
+     fresh every run.
+  3. The resolved SHA, the export's schemaVersion, and its generatedAt are
+     recorded in the header comment of the regenerated fh-data.js (and in
+     public/feed-health/data/provenance.json) — not as new keys on the
+     existing JS objects, to keep the emitted artifacts' *structure*
+     unchanged from before this rewiring.
 
 Usage:
-  python3 scripts/feed-health-publish.py [path/to/ntd_feed_health.csv]
-  uv run scripts/feed-health-publish.py [path/to/ntd_feed_health.csv]
+  python3 scripts/feed-health-publish.py                        # fetch live export, resolve main fresh
+  python3 scripts/feed-health-publish.py --ref <sha-or-branch>   # pin to a specific commit/branch
+  python3 scripts/feed-health-publish.py --export-json path.json # offline/local file, no network fetch
+  uv run scripts/feed-health-publish.py [same flags]
 """
 
-import argparse, csv, json, os, re, sys
-from datetime import date, datetime
+import argparse, json, os, re, shutil, subprocess, sys
+import urllib.error, urllib.request
+from datetime import date, datetime, timezone
 
-# MDB hosted-dataset filenames embed the capture timestamp, e.g.
-# files.mobilitydatabase.org/mdb-195/mdb-195-202604250036/mdb-195-202604250036.zip
-# → 2026-04-25. Used as a fallback for lastFeedUpdate when a cache entry predates
-# the last_updated (downloaded_at) field added 2026-06.
-_MDB_DATE_TOKEN = re.compile(r"/(?:mdb|tld|ntd)-[^/]*-(\d{12})/")
-
-
-def feed_last_updated(feed):
-    """Date (YYYY-MM-DD) the matched MDB feed's latest dataset was last captured.
-    Prefers the explicit last_updated (MDB downloaded_at); falls back to the
-    timestamp embedded in the hosted_url. Returns None when neither is available."""
-    if not feed:
-        return None
-    lu = (feed.get("last_updated") or "").strip()
-    if lu:
-        return lu[:10]
-    m = _MDB_DATE_TOKEN.search(feed.get("hosted_url") or "")
-    if m:
-        t = m.group(1)
-        return f"{t[0:4]}-{t[4:6]}-{t[6:8]}"
-    return None
+SOURCE_REPO = "GTFS-X/gtfs-feed-health"
+SUPPORTED_SCHEMA_MAJOR = 1  # this script is written against schemaVersion "1.x"
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_CSV = os.path.join(REPO_ROOT, "handoffs", "Feed Health Data", "ntd_feed_health.csv")
-OUT_AGENCIES = os.path.join(REPO_ROOT, "public", "feed-health", "data", "agencies")
-OUT_FHDATA   = os.path.join(REPO_ROOT, "public", "feed-health", "fh-data.js")
+OUT_AGENCIES   = os.path.join(REPO_ROOT, "public", "feed-health", "data", "agencies")
+OUT_FHDATA     = os.path.join(REPO_ROOT, "public", "feed-health", "fh-data.js")
+OUT_PROVENANCE = os.path.join(REPO_ROOT, "public", "feed-health", "data", "provenance.json")
 
 # ── State metadata: abbr → (fips, full_name, region) ──────────────────────────
 STATES_META = {
@@ -108,21 +110,18 @@ STATES_META = {
 # FIPS order (used to order STATES in fh-data.js)
 STATES_FIPS_ORDER = sorted(STATES_META.keys(), key=lambda a: STATES_META[a][0])
 
-# Full state name → abbr (for flex_coverage.csv which uses full names)
-NAME_TO_ABBR = {v[1]: k for k, v in STATES_META.items()}
-
-# Territories in the CSV that are excluded from state outputs
+# Territories present in the export that are excluded from state outputs
 TERRITORIES = {"AS", "GU", "MP", "PR", "VI"}
 
-# Reporter type mapping (pipeline CSV values → JSON contract values)
-REPORTER_MAP = {
-    "Full Reporter":    "full",
-    "Reduced Reporter": "reduced",
-    "Rural Reporter":   "rural",
-}
-
-# ── Canonical validation targets (from stats_phaseD.json / headline_stats.md) ──
-# Used to assert the publish script's aggregates haven't drifted more than 0.5 pp.
+# ── Canonical validation targets ───────────────────────────────────────────────
+# Checked against the FETCHED EXPORT'S OWN `nationalAggregates` envelope (it already
+# ran its own equivalent drift guard before publishing, in gtfs-feed-health's
+# scripts/export.py — see that repo's docs/SCHEMA.md "Drift guard"). We are no
+# longer recomputing these from raw MDB fields ourselves: the new export doesn't
+# expose the pre-live-check raw `mdb_expired` field the old CSV pipeline used for
+# this same check (only the final, live-check-overlaid `status` per row) — see
+# "Retired: recompute-from-raw-CSV validation" below for why that's fine.
+#
 # Updated 2026-06-12: removed four confirmed-false MDB matches (Ludington MTA/mdb-926
 # was the only pair with no FTA weblink; no_feed count 1017 -> 1018, pct 45.4 -> 45.5).
 # Updated 2026-06-12 (fuzzy-fix): three-tier fuzzy policy added. 11 audit-reviewed correct
@@ -150,392 +149,333 @@ REPORTER_MAP = {
 # Updated 2026-07-31 (feed-health dashboard audit + refresh): the scheduled 2026-07-05
 # monthly run aborted here (expired_pct computed=22.6% vs canonical=21.9%, delta 0.71pp >
 # 0.5pp limit), which is why the live site was still serving 2026-06-07-vintage data for
-# nearly two months. A full fresh Phase A-D run today found NO methodology regression —
-# the 15-agency no-feed stratified sample and the two named test agencies (Gastonia
-# Transit, Transp. Administration of Cleveland County, both NC) still correctly show
-# no findable feed via either FTA Weblinks or MDB; two other named agencies (High Point
-# Transit, GoTriangle) flipped ok -> expired / ok -> invalid for genuine reasons (a
-# feed's calendar lapsing, a routine MDB re-validation surfacing 7 new errors) rather
-# than a matching bug. National movement was small and roughly symmetric (47/2194
-# agencies, 2.1%, changed status; expired/invalid transitions balanced both directions),
-# consistent with ordinary month-to-month churn. Bumping the baseline to today's
-# validated numbers so the next scheduled run isn't immediately re-tripped by the same
-# order of noise that failed on 07-05 (expired_pct alone moved 21.9 -> 22.6 -> 21.7
-# across three data pulls seven weeks apart — comfortably inside the guard's intended
-# tolerance for a REAL run, but each pairwise jump alone exceeds the 0.5pp band).
-# Updated again same day (2026-07-31): a follow-up live spot-check of the "expired"
-# bucket (see phase_d_mdb.py CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB) found 5 agencies
-# MDB's stale capture wrongly called expired — their live feeds' own calendar.txt /
-# calendar_dates.txt run well past today. Overriding those 5 moves expired_n 173 -> 168.
-# 162 of the original 173 "expired" rows rest on an MDB capture older than 6 months and
-# were NOT individually verified — only the 5 actually spot-checked were overridden.
-# Read this as "the expired bucket is lower-confidence than it looks," not "the
-# remaining 168 are all confirmed correct."
-# Clearing those 5 agencies' expiry flag surfaced a SECOND stale-capture symptom
-# underneath (get_status() priority is expired > invalid): 3 of the 5 (Okanogan
-# County, Casco Bay Lines, Marin Transit) had nonzero validator-error counts from that
-# same superseded capture, so "invalid" would have been just as unreliable as
-# "expired" was. Both one-off overrides were RETIRED later the same day (see below).
-# RETIRED same day, superseded by scripts/feed-health/phase_c2_expiry_check.py: the
-# manual per-agency override tables above are gone. validate_national() below checks
-# the RAW mdb_expired/mdb_total_error aggregates (it always did — it's a sanity check
-# on the MDB-derived data itself, independent of get_status()'s live-check overlay),
-# so CANONICAL tracks the raw baseline again, not the override-adjusted one from
-# earlier today: expired_n 173 (matches the pre-override number above), matched 796,
-# fail_validation_n 103. The actual published "expired"/"invalid" statuses now come
-# from get_status()'s own_expired preference chain, computed separately in
-# phase_c2_expiry_check.py — see EXPIRY_LIVE_CHECK_DESIGN.md.
-# NOTE: this constant is a +/-0.5pp drift guard, not the rendered headline; the displayed
-# fh-data.js HEADLINE values are re-derived on every full pipeline run.
+# nearly two months. A full fresh Phase A-D run that day found NO methodology regression;
+# baseline bumped to that day's validated numbers (N=2238, no_feed=44.7%, expired=21.7%,
+# fail_validation=12.9%) — see git history for the full account of that in-repo pipeline
+# run, since retired (below).
+# Updated 2026-07-31 (dashboard rewiring — SAME DAY, follow-up): this repo's own copy of
+# the pipeline (scripts/feed-health/*) is retired. The dashboard now consumes the
+# canonical export published by GTFS-X/gtfs-feed-health, which runs the equivalent Phase
+# A-D + live-expiry-check logic (including the fuzzy-match/CONFIRMED_GOOD_MATCHES/
+# live-check work summarized above) and already ran its own drift guard before
+# publishing. Fetched exports/manifest.json today: schemaVersion "1.0.0",
+# nationalAggregates {noFeedAnywherePct: 44.7, expiredPctOfMatched: 21.7,
+# failValidationPct: 12.9}, rowCount 2238 — IDENTICAL to the baseline below (both
+# repos' baselines were refreshed the same day during the extraction), so CANONICAL's
+# *values* did not need to change, only what this guard compares them against: the
+# fetched export's own `nationalAggregates` envelope, not a local recomputation from
+# raw CSV columns (see validate_national() below).
 CANONICAL = {
     "N_roster":              2238,    # full NTD 2024 universe incl. territories
-    "no_feed_anywhere_pct":  44.7,    # 1001 / 2238 = 44.73% (2026-07-31 refresh)
-    "fail_validation_pct":   12.9,    # 103  / 796 matched (raw MDB data)
-    "expired_pct_of_matched": 21.7,   # 173  / 796 matched (raw MDB data)
+    "no_feed_anywhere_pct":  44.7,    # export nationalAggregates.noFeedAnywherePct
+    "fail_validation_pct":   12.9,    # export nationalAggregates.failValidationPct
+    "expired_pct_of_matched": 21.7,   # export nationalAggregates.expiredPctOfMatched
 }
 
-# Constant from NTD Annual Data — Service by Mode and Time Period (wwdp-t4re),
-# report_year 2024: agencies reporting Demand Response (mode DR, incl. retired DT
-# code absorbed since 2019). Source separate from the 2238-agency NTD annual roster.
-DR_AGENCIES = 1925
+# Retired: recompute-from-raw-CSV validation (validate_national() used to independently
+# recompute no_feed/expired/fail percentages from raw ntd_feed_health.csv columns,
+# including the pre-live-check raw `mdb_expired` field, as a sanity check on the
+# PIPELINE's raw output). The new export doesn't expose that raw pre-live-check field
+# at all (only the final, already-live-check-corrected `status` per SCHEMA.md) — nor
+# does it need to, since the pipeline itself (now upstream) already runs this exact
+# guard before publishing. We instead check the fetched export's own precomputed
+# `nationalAggregates` against CANONICAL — same tolerance, same spirit, different
+# data source. See validate_national().
+#
+# Note this also means the rendered "% expired" shown in HEADLINE and per-state STATES
+# below is now computed from `status == "expired"` (the live-check-corrected, badge-
+# consistent field) rather than the old raw `mdb_expired` (pre-live-check, MDB-capture-
+# only) field the CSV pipeline used for that same rendered number. This is a real,
+# expected DROP in the displayed expired percentage (roughly 22% -> ~10%) — not a bug.
+# This repo's own prior audit (see git history, June-July 2026) already found MDB's raw
+# captures overstate "expired" for infrequently-recrawled agencies; the new number is
+# the more accurate one and is now consistent with what each individual agency's own
+# badge shows (previously the two could silently disagree). See EXPIRY_LIVE_CHECK_DESIGN.md
+# in GTFS-X/gtfs-feed-health for the full methodology.
 
-# Total distinct US GTFS-Flex feeds from Mobility Database (stats_phaseD.json).
-# Kept as a constant because the per-feed flex count comes from the MDB catalog,
-# not from the per-agency CSV (mdb_is_flex is per-agency-match, not per-feed).
-# Updated 2026-07-31 refresh: flex_feeds_total was 77 in stats_phaseD.json.
-FLEX_FEEDS_TOTAL = 77
-
-# CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB / CONFIRMED_SERVICE_END_OVERRIDES /
-# STALE_CAPTURE_DISCARD_ERROR_COUNT — the 2026-07-31 one-off manual audit overrides
-# — are RETIRED as of the phase_c2_expiry_check.py live check (same day). Confirmed
-# the live check independently reproduces the same corrected values for all 5
-# agencies those tables covered (High Point Transit, Santa Barbara Clean Air
-# Express, Okanogan County, Casco Bay Lines, Marin Transit) before removing them —
-# see EXPIRY_LIVE_CHECK_DESIGN.md for the full history. Do not resurrect a manual
-# override table for a new stale-capture agency; that pattern is exactly what the
-# live check exists to make unnecessary.
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def get_status(r):
-    """
-    Map a CSV row to one of: none | expired | invalid | ok.
-
-    Expiry preference chain (see EXPIRY_LIVE_CHECK_DESIGN.md): our OWN live read of
-    the agency's calendar.txt / calendar_dates.txt / feed_info.txt (own_expired,
-    from phase_c2_expiry_check.py) is authoritative whenever we have one. MDB's
-    mdb_expired — sourced from MDB's own capture, which can be stale by months to
-    years for infrequently-recrawled agencies — is only a fallback for rows we
-    couldn't fetch or parse live (own_expired left blank: unreachable, timed out,
-    oversized, corrupt zip, or simply not yet checked).
-
-      none    — has_fta_weblink != "True"  AND  in_mdb != "True"
-      expired — own_expired == "True", OR (no live read AND mdb_expired == "True")
-      invalid — in_mdb == "True"  AND  mdb_total_error > 0 AND MDB's capture wasn't
-                just caught being stale (see "superseded capture" below). Error
-                counts stay MDB-sourced — reimplementing the canonical GTFS
-                validator ourselves is out of scope.
-      ok      — at least one findable feed, no expiry/validator issue
-    Priority: none > expired > invalid > ok.
-
-    Superseded-capture rule: if our live read says NOT expired but MDB's capture
-    said expired, that capture is proven stale for THIS agency — and mdb_total_error
-    comes from that exact same superseded capture, so it's no more trustworthy than
-    the expiry call was. Rather than hand-list agencies where this happened (the
-    2026-07-31 audit did that for 3 agencies as a one-off; this supersedes it and
-    covers the whole roster automatically), skip the error check whenever this
-    contradiction is detected and fall through to "ok" — asserting no current error
-    count beats asserting a wrong one.
-    """
-    has_weblink = r["has_fta_weblink"] == "True"
-    in_mdb      = r["in_mdb"] == "True"
-
-    if not has_weblink and not in_mdb:
-        return "none"
-
-    own_expired      = r.get("own_expired", "")
-    mdb_says_expired = r.get("mdb_expired") == "True"
-
-    if own_expired == "True":
-        return "expired"
-    if own_expired == "" and in_mdb and mdb_says_expired:
-        # No live read for this row — fall back to MDB's (possibly stale) call.
-        return "expired"
-    # own_expired == "False": confirmed live, not expired. Falls through without
-    # trusting mdb_expired's "True" — our own read supersedes MDB's here.
-
-    mdb_capture_superseded = own_expired == "False" and mdb_says_expired
-
-    if in_mdb and not mdb_capture_superseded:
-        err = r.get("mdb_total_error", "")
-        if err not in ("", None, "None"):
-            try:
-                if int(err) > 0:
-                    return "invalid"
-            except (ValueError, TypeError):
-                pass
-
-    return "ok"
+# GTFS-Flex per-state/national counts — RETIRED as of the 2026-07-31 rewiring, degraded
+# to 0 (see write_fhdata_js / compute_state_stats). The old flex_coverage.csv (loaded by
+# this script pre-rewiring) counted DISTINCT GTFS-Flex FEEDS per state (feed-centric,
+# multi-state feeds counted in every state they cover: CO=41, VA=16, national=77
+# distinct feeds) via a separate Mobility Database catalog query the old in-repo
+# pipeline made. The new export instead carries `is_flex` — a per-AGENCY boolean, no
+# equivalent feed-centric catalog data. Empirically aggregating `is_flex==true` NTD-
+# agency rows by state from the 2026-07-31 export gives CO=12, VA=0, national=14 total
+# — nowhere close to a proxy for the old feed-centric counts (VA in particular drops
+# from 16 to 0), so per this rewiring's instructions we do NOT fabricate a flex number:
+# per-state `flex` is set to 0 for every state, the FLEX leaderboard and `flexStates`
+# count both come out empty/0 (both derived from the per-state field), and the
+# HEADLINE.flexFeeds count is also zeroed for internal consistency (rather than show a
+# "14 US feeds" headline stat next to a leaderboard with nothing in it). The per-agency
+# `isFlex` badge (sourced directly from the export's `is_flex` field) is UNAFFECTED and
+# still accurate — only the aggregate/leaderboard reporting is degraded. Follow-up
+# needed: GTFS-X/gtfs-feed-health should publish a proper per-state GTFS-Flex feed
+# breakdown in a future export if this section is to be restored.
 
 
-def best_feed_url(r, mdb_by_id):
-    """
-    Prefer the weblink URL if confirmed working (url_returns_zip=True),
-    fall back to registered weblink even if unconfirmed, then MDB producer_url.
-    Returns None for none-status agencies (no feed to point to).
-    """
-    status = get_status(r)
-    if status == "none":
-        return None
+# ── Fetch ───────────────────────────────────────────────────────────────────────
 
-    wl = r.get("weblink_url", "").strip()
-    if wl and r.get("url_returns_zip") == "True":
-        return wl           # confirmed working zip URL
-    if wl:
-        return wl           # registered FTA URL (may be stale but it's official)
+def resolve_sha(ref):
+    """Resolve a git ref (branch name or SHA) on SOURCE_REPO to a full commit SHA via
+    the GitHub API. Always re-resolved fresh — never trust a cached SHA — so that the
+    default ref ("main") tracks upstream's latest each run; the fetch itself still
+    goes through the resulting content-addressed SHA (see fetch_export())."""
+    gh = shutil.which("gh")
+    if gh:
+        try:
+            proc = subprocess.run(
+                [gh, "api", f"repos/{SOURCE_REPO}/commits/{ref}", "--jq", ".sha"],
+                capture_output=True, text=True, timeout=30, check=True,
+            )
+            sha = proc.stdout.strip()
+            if sha:
+                return sha
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            print(f"  [warn] `gh api` ref resolution failed ({e}); "
+                  f"falling back to unauthenticated GitHub REST API", file=sys.stderr)
 
-    # Fall back to MDB URL for agencies matched via MDB only
-    mdb_id = r.get("mdb_id", "").strip()
-    if mdb_id and mdb_id in mdb_by_id:
-        mf = mdb_by_id[mdb_id]
-        return mf.get("producer_url") or mf.get("hosted_url") or None
-    return None
-
-
-def load_mdb_cache(csv_path):
-    """Load mdb_us_feeds.json from the same directory as the CSV."""
-    cache = os.path.join(os.path.dirname(csv_path), "mdb_us_feeds.json")
-    if os.path.exists(cache):
-        with open(cache) as f:
-            feeds = json.load(f)
-        return {fd["mdb_id"]: fd for fd in feeds}
-    print("  [warn] mdb_us_feeds.json not found — MDB URLs unavailable", file=sys.stderr)
-    return {}
-
-
-def load_flex(csv_path):
-    """Load flex_coverage.csv → {state_abbr: flex_feed_count}."""
-    flex_path = os.path.join(os.path.dirname(csv_path), "flex_coverage.csv")
-    result = {}
-    if not os.path.exists(flex_path):
-        print("  [warn] flex_coverage.csv not found", file=sys.stderr)
-        return result
-    for row in csv.DictReader(open(flex_path)):
-        abbr = NAME_TO_ABBR.get(row["state"])
-        if abbr:
-            result[abbr] = int(row["flex_feed_count"])
-    return result
+    url = f"https://api.github.com/repos/{SOURCE_REPO}/commits/{ref}"
+    req = urllib.request.Request(
+        url, headers={"Accept": "application/vnd.github+json",
+                      "User-Agent": "gtfsx-feed-health-publish"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.load(resp)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as e:
+        sys.exit(f"FETCH FAILED: could not resolve ref '{ref}' on {SOURCE_REPO} "
+                  f"via the GitHub API: {e}")
+    sha = data.get("sha")
+    if not sha:
+        sys.exit(f"FETCH FAILED: GitHub API response for ref '{ref}' on {SOURCE_REPO} "
+                  f"had no 'sha' field: {data!r}")
+    return sha
 
 
-# ── National validation ────────────────────────────────────────────────────────
+def fetch_export(sha):
+    """Fetch exports/feed_health.json from the content-addressed raw URL at `sha` —
+    immutable, never a mutable branch-name URL (see module docstring)."""
+    url = f"https://raw.githubusercontent.com/{SOURCE_REPO}/{sha}/exports/feed_health.json"
+    req = urllib.request.Request(url, headers={"User-Agent": "gtfsx-feed-health-publish"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            if resp.status != 200:
+                sys.exit(f"FETCH FAILED: {url} returned HTTP {resp.status}")
+            raw = resp.read()
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+        sys.exit(f"FETCH FAILED: could not fetch export from {url}: {e}")
+    try:
+        export = json.loads(raw)
+    except json.JSONDecodeError as e:
+        sys.exit(f"FETCH FAILED: export at {url} is not valid JSON: {e}")
+    return export
 
-def validate_national(all_rows):
-    """
-    Assert computed national aggregates match stats_phaseD.json within 0.5 pp.
-    Uses all 2238 rows (including territories) to match the canonical pipeline run.
-    Calls sys.exit on any breach.
-    """
-    N = len(all_rows)
-    none_n   = sum(1 for r in all_rows if get_status(r) == "none")
-    # matched = in_mdb AND has a validation report (mdb_total_error present)
-    matched  = [r for r in all_rows
-                if r["in_mdb"] == "True"
-                and r.get("mdb_total_error", "") not in ("", None, "None")]
-    M = len(matched)
-    expired_n = sum(1 for r in all_rows if r.get("mdb_expired") == "True")
-    fail_n    = sum(1 for r in matched
-                    if r.get("mdb_total_error", "") not in ("", None, "None")
-                    and int(r["mdb_total_error"]) > 0)
 
-    no_feed_pct = 100 * none_n    / N if N else 0
-    exp_pct     = 100 * expired_n / M if M else 0
-    val_pct     = 100 * fail_n    / M if M else 0
+def check_schema_version(export):
+    """Abort loudly on a major-version mismatch rather than guessing field mappings
+    on an unknown-shape payload (see docs/SCHEMA.md 'What counts as a breaking
+    change' in GTFS-X/gtfs-feed-health)."""
+    ver = str(export.get("schemaVersion", ""))
+    m = re.match(r"^(\d+)\.", ver)
+    if not m:
+        sys.exit(f"SCHEMA CHECK FAILED: export has missing/malformed schemaVersion: {ver!r}")
+    major = int(m.group(1))
+    if major != SUPPORTED_SCHEMA_MAJOR:
+        sys.exit(
+            f"SCHEMA MISMATCH: fetched export schemaVersion={ver!r} (major {major}), "
+            f"this script is written against major {SUPPORTED_SCHEMA_MAJOR}. Update the "
+            f"field mapping in scripts/feed-health-publish.py against the new "
+            f"docs/SCHEMA.md in GTFS-X/gtfs-feed-health, then bump SUPPORTED_SCHEMA_MAJOR."
+        )
+    return ver
+
+
+def check_row_count(export):
+    """Implausible row-count guard. NTD's annual roster changes rarely, so an exact
+    match against CANONICAL['N_roster'] (in the same spirit as the old CSV pipeline's
+    equivalent check) is intentional here rather than a tolerance band — a roster-year
+    bump is a deliberate, infrequent, human-noticed event, not routine month-to-month
+    noise like the percentage metrics above."""
+    n = export.get("rowCount")
+    rows = export.get("rows") or []
+    if n is None or n != len(rows):
+        sys.exit(f"FETCH FAILED: export rowCount ({n!r}) does not match len(rows) "
+                  f"({len(rows)}) — malformed export")
+    if n != CANONICAL["N_roster"]:
+        sys.exit(
+            f"ROW COUNT DRIFT: fetched export has {n} rows, CANONICAL['N_roster'] "
+            f"expects {CANONICAL['N_roster']}. If this is a legitimate NTD roster-year "
+            f"update, verify against NTD's published agency count and bump "
+            f"CANONICAL['N_roster'] (with a dated comment, per the convention above)."
+        )
+    return n
+
+
+def validate_national(export):
+    """Check the FETCHED EXPORT'S OWN precomputed `nationalAggregates` envelope
+    against CANONICAL, +/-0.5pp tolerance. This is a guard on the export we just
+    fetched (did upstream's data drift more than expected?), not a from-scratch
+    recomputation — see the CANONICAL comment block for why the old raw-CSV-based
+    recomputation is retired. Calls sys.exit on any breach."""
+    na = export.get("nationalAggregates")
+    if not na:
+        sys.exit(
+            "FETCH FAILED: export has no 'nationalAggregates' envelope — cannot run "
+            "the drift guard. (Per docs/SCHEMA.md, this key is present 'when the drift "
+            "guard ran', i.e. absent only if upstream published with --skip-drift-guard; "
+            "refusing to publish downstream from an unverified upstream build.)"
+        )
 
     LIMIT = 0.5
+    checks = [
+        ("no_feed_anywhere_pct",   "noFeedAnywherePct"),
+        ("expired_pct_of_matched", "expiredPctOfMatched"),
+        ("fail_validation_pct",    "failValidationPct"),
+    ]
     errors = []
-    if abs(no_feed_pct - CANONICAL["no_feed_anywhere_pct"]) > LIMIT:
-        errors.append(
-            f"no_feed_pct  computed={no_feed_pct:.1f}%  canonical={CANONICAL['no_feed_anywhere_pct']}%  "
-            f"delta={abs(no_feed_pct-CANONICAL['no_feed_anywhere_pct']):.2f}pp  (limit {LIMIT}pp)"
-        )
-    if abs(exp_pct - CANONICAL["expired_pct_of_matched"]) > LIMIT:
-        errors.append(
-            f"expired_pct  computed={exp_pct:.1f}%  canonical={CANONICAL['expired_pct_of_matched']}%  "
-            f"delta={abs(exp_pct-CANONICAL['expired_pct_of_matched']):.2f}pp"
-        )
-    if abs(val_pct - CANONICAL["fail_validation_pct"]) > LIMIT:
-        errors.append(
-            f"val_fail_pct computed={val_pct:.1f}%  canonical={CANONICAL['fail_validation_pct']}%  "
-            f"delta={abs(val_pct-CANONICAL['fail_validation_pct']):.2f}pp"
-        )
-    if N != CANONICAL["N_roster"]:
-        errors.append(f"roster N={N} expected {CANONICAL['N_roster']}")
+    for local_key, remote_key in checks:
+        remote_val = na.get(remote_key)
+        if remote_val is None:
+            errors.append(f"{remote_key} missing from nationalAggregates")
+            continue
+        delta = abs(remote_val - CANONICAL[local_key])
+        if delta > LIMIT:
+            errors.append(
+                f"{remote_key}  fetched={remote_val}%  canonical={CANONICAL[local_key]}%  "
+                f"delta={delta:.2f}pp  (limit {LIMIT}pp)"
+            )
 
     if errors:
         print("VALIDATION FAILED:", file=sys.stderr)
         for e in errors:
             print(f"  {e}", file=sys.stderr)
-        sys.exit("Aborting: national aggregate drift exceeds 0.5 pp — check the source CSV")
-
-    print(f"  Validation passed: N={N}, no_feed={no_feed_pct:.1f}%, "
-          f"expired={exp_pct:.1f}%, val_fail={val_pct:.1f}%",
-          file=sys.stderr)
-    return {"N": N, "none_n": none_n, "no_feed_pct": round(no_feed_pct, 1),
-            "M": M, "expired_n": expired_n, "exp_pct": round(exp_pct, 1),
-            "fail_n": fail_n, "val_pct": round(val_pct, 1)}
+        sys.exit(
+            "Aborting: fetched export's nationalAggregates drifted more than 0.5pp from "
+            "CANONICAL — see docs/SCHEMA.md 'Re-baselining after a guard trip' in "
+            "GTFS-X/gtfs-feed-health before touching this script's CANONICAL baseline."
+        )
+    print(f"  Validation passed against fetched nationalAggregates: {na}", file=sys.stderr)
 
 
-# ── Per-state computation ─────────────────────────────────────────────────────
+# ── Local aggregation (from the export's per-agency rows) ─────────────────────
 
-def compute_state_stats(rows_by_state, flex_by_state):
-    """
-    Compute per-state metrics for the 50 states + DC.
-    Returns a list of dicts in FIPS order matching the fh-data.js STATES shape.
-    """
+def is_matched(r):
+    """'Matched' = has an MDB/NTD-crosswalk id AND carries a validator error count.
+    Same population definition the old CSV pipeline used (in_mdb AND mdb_total_error
+    present) — used as the denominator for expired/validator-failure rates."""
+    return r["mdb_id"] is not None and r["mdb_total_error"] is not None
+
+
+def compute_state_stats(rows_by_state):
+    """Per-state metrics for the 50 states + DC, in FIPS order."""
     states = []
     for abbr in STATES_FIPS_ORDER:
-        if abbr not in STATES_META:
-            continue
         fips, name, region = STATES_META[abbr]
         rows = rows_by_state.get(abbr, [])
         total = len(rows)
         if total == 0:
-            # State appears in meta but has no NTD agencies — skip
-            continue
+            continue  # state appears in meta but has no NTD agencies — skip
 
-        none_n   = sum(1 for r in rows if get_status(r) == "none")
-        cov      = round(100 * (total - none_n) / total)
-        no_feed  = 100 - cov
+        none_n = sum(1 for r in rows if r["status"] == "none")
+        cov = round(100 * (total - none_n) / total)
 
-        # exp and val denominators: "matched" (in_mdb AND has validation report)
-        matched  = [r for r in rows
-                    if r["in_mdb"] == "True"
-                    and r.get("mdb_total_error", "") not in ("", None, "None")]
+        matched = [r for r in rows if is_matched(r)]
         M = len(matched)
-
-        expired_n = sum(1 for r in rows if r.get("mdb_expired") == "True")
-        fail_n    = sum(1 for r in matched
-                        if r.get("mdb_total_error", "") not in ("", None, "None")
-                        and int(r["mdb_total_error"]) > 0)
-
+        expired_n = sum(1 for r in matched if r["status"] == "expired")
+        fail_n    = sum(1 for r in matched if (r["mdb_total_error"] or 0) > 0)
         exp = round(100 * expired_n / M) if M else 0
         val = round(100 * fail_n    / M) if M else 0
-
-        flex = flex_by_state.get(abbr, 0)
 
         states.append({
             "fips": fips, "abbr": abbr, "name": name, "region": region,
             "agencies": total,
-            "cov": cov, "noFeed": no_feed,
-            "exp": exp, "val": val, "flex": flex,
+            "cov": cov, "noFeed": 100 - cov,
+            "exp": exp, "val": val,
+            "flex": 0,  # GTFS-Flex per-state accounting retired — see CANONICAL comment block
         })
     return states
 
 
-def compute_gradient(all_rows):
-    """
-    Per-reporter-type no-feed-anywhere rate (Phase D definition: no_weblink AND not in MDB).
-    Matches the headline_stats.md 'size gradient' numbers.
-    """
+def compute_gradient(rows):
+    """Per-reporter-type no-feed-anywhere rate. reporter_type is already the target
+    lowercase enum ('full'/'reduced'/'rural') straight from the export — no mapping
+    needed."""
     rt_order = [
-        ("Full Reporter",    "full",    "Full Reporters",         "Urbanized, full NTD reporting"),
-        ("Reduced Reporter", "reduced", "Reduced Reporters",      "Smaller urbanized + tribal"),
-        ("Rural Reporter",   "rural",   "Rural (5311) Agencies",  "Non-urbanized rural service"),
+        ("full",    "Full Reporters",         "Urbanized, full NTD reporting"),
+        ("reduced", "Reduced Reporters",      "Smaller urbanized + tribal"),
+        ("rural",   "Rural (5311) Agencies",  "Non-urbanized rural service"),
     ]
     gradient = []
-    for rt_csv, rt_key, label, sub in rt_order:
-        rows = [r for r in all_rows if r["reporter_type"] == rt_csv]
-        n = len(rows)
-        none_n = sum(1 for r in rows if get_status(r) == "none")
+    for rt_key, label, sub in rt_order:
+        rt_rows = [r for r in rows if r["reporter_type"] == rt_key]
+        n = len(rt_rows)
+        none_n = sum(1 for r in rt_rows if r["status"] == "none")
         no_feed_pct = round(100 * none_n / n) if n else 0
         gradient.append({"key": rt_key, "label": label, "sub": sub,
                           "noFeedPct": no_feed_pct, "agencies": n})
     return gradient
 
 
+def compute_national(rows):
+    """National rollup used to populate fh-data.js HEADLINE (distinct from — and, per
+    the CANONICAL comment block, now numerically different from — the drift-guard
+    check above, which reads the export's own precomputed envelope instead)."""
+    N = len(rows)
+    none_n = sum(1 for r in rows if r["status"] == "none")
+    matched = [r for r in rows if is_matched(r)]
+    M = len(matched)
+    expired_n = sum(1 for r in matched if r["status"] == "expired")
+    fail_n    = sum(1 for r in matched if (r["mdb_total_error"] or 0) > 0)
+    return {
+        "N": N, "none_n": none_n,
+        "no_feed_pct": round(100 * none_n / N, 1) if N else 0,
+        "M": M, "expired_n": expired_n,
+        "exp_pct": round(100 * expired_n / M, 1) if M else 0,
+        "fail_n": fail_n,
+        "val_pct": round(100 * fail_n / M, 1) if M else 0,
+    }
+
+
 # ── Agency JSON output ────────────────────────────────────────────────────────
 
-def write_agency_jsons(rows_by_state, mdb_by_id, as_of_iso):
-    """Write public/feed-health/data/agencies/<ABBR>.json for all 50 states + DC."""
+def write_agency_jsons(rows_by_state, as_of_iso):
+    """Write public/feed-health/data/agencies/<ABBR>.json for all 50 states + DC.
+    Field-for-field mapping from the export row, per docs/SCHEMA.md in
+    GTFS-X/gtfs-feed-health (all fields already fully computed upstream — no
+    reimplementation of status/feed-URL/expiry logic here)."""
     os.makedirs(OUT_AGENCIES, exist_ok=True)
     written = []
     for abbr in STATES_FIPS_ORDER:
         rows = rows_by_state.get(abbr, [])
         agencies = []
         for r in sorted(rows, key=lambda x: x["agency_name"]):
-            status   = get_status(r)
-            feed_url = best_feed_url(r, mdb_by_id)
-
-            # ── Phase 1 enrichment — fields already produced by the pipeline ──
-            # All sourced from the same CSV / MDB cache the script already loads;
-            # no feed parsing and no new external calls here (the parsing itself
-            # happened earlier, in phase_c2_expiry_check.py).
-            #   modes      ← weblink_modes (FTA Weblinks crosswalk descriptive string)
-            #   orgType    ← organization_type (NTD; ~100% coverage)
-            #   isFlex     ← mdb_is_flex (MDB feature flag; True only when matched + flex)
-            #   serviceEnd ← own_service_end (our own live read of the agency's
-            #                calendar.txt/calendar_dates.txt/feed_info.txt) when
-            #                available, else the matched MDB feed's service_end
-            #                (date portion of the ISO timestamp in
-            #                mdb_us_feeds.json) as a fallback, None when neither.
-            #   expired    ← derived from status (see get_status()), not re-read
-            #                from mdb_expired directly — see below.
-            #   mdbId      ← mdb_id (Mobility Database feed id, e.g. "mdb-223"),
-            #                None when the agency has no MDB match. Together with
-            #                ntdId this is the NTD↔MDB crosswalk users need for
-            #                FTA's P-50 form; both stay STRINGS (NTD ids carry
-            #                leading zeros — never coerce an id to a number).
-            mdb_id = r.get("mdb_id", "").strip()
-            last_feed_update = None
-            if mdb_id and mdb_id in mdb_by_id:
-                # lastFeedUpdate ← MDB downloaded_at (date the feed's latest dataset
-                # was last captured by the Mobility Database) — proxy for "feed last
-                # published/updated". Distinct from serviceEnd (service-period end).
-                last_feed_update = feed_last_updated(mdb_by_id[mdb_id])
-
-            # serviceEnd: prefer our OWN live-computed service end (own_service_end,
-            # from phase_c2_expiry_check.py — reads the agency's actual calendar.txt /
-            # calendar_dates.txt / feed_info.txt) over MDB's captured value, which can
-            # be stale by months to years. Falls back to MDB only for rows we
-            # couldn't fetch/parse live (own_service_end blank).
-            own_se = (r.get("own_service_end") or "").strip()
-            if own_se:
-                service_end = own_se
-            else:
-                service_end = None
-                if mdb_id and mdb_id in mdb_by_id:
-                    se = (mdb_by_id[mdb_id].get("service_end") or "").strip()
-                    if se:
-                        service_end = se[:10]  # YYYY-MM-DD from the ISO timestamp
-
             agencies.append({
                 "name":         r["agency_name"],
-                "ntdId":        r["ntd_id"],
-                "mdbId":        mdb_id or None,
-                "city":         r["city"] or None,
-                "reporterType": REPORTER_MAP.get(r["reporter_type"], r["reporter_type"]),
-                "status":       status,
-                "feedUrl":      feed_url,
-                "lastValidated": None,  # not stored in current CSV pipeline output
-                "orgType":      r.get("organization_type") or None,
-                "modes":        (r.get("weblink_modes") or "").strip() or None,
-                # fixedRoute / demandResponse ← NTD Service-by-Mode classification
-                # (wwdp-t4re), full-roster coverage; an agency can be BOTH.
-                "fixedRoute":     r.get("fixed_route") == "True",
-                "demandResponse": r.get("demand_response") == "True",
-                "isFlex":       r.get("mdb_is_flex") == "True",
-                "serviceEnd":   service_end,
-                "lastFeedUpdate": last_feed_update,
-                # expired ← derived from the SAME status computed above (not re-read
-                # from mdb_expired directly), so the "Service ended"/"Service ends"
-                # phrasing in fh.js can never disagree with the status badge.
-                "expired":      status == "expired",
-                # feedInfoContradictsCalendar ← phase_c2_expiry_check.py: True when a
-                # feed's feed_info.txt feed_end_date disagrees with its own
-                # calendar.txt/calendar_dates.txt by >7 days. Feed-hygiene signal,
-                # independent of which value won for expiry purposes.
-                "feedInfoContradictsCalendar": r.get("feed_info_contradicts_calendar") == "True",
+                "ntdId":        r["ntd_id"],       # string — leading zeros matter, never coerce
+                "mdbId":        r["mdb_id"],        # already nullable string
+                "city":         r["city"],
+                "reporterType": r["reporter_type"], # already the target enum, no mapping needed
+                "status":       r["status"],        # already the final computed status
+                "feedUrl":      r["feed_url"],      # already the best-known URL
+                "lastValidated": None,   # not in the export schema either — unchanged
+                "orgType":      r["organization_type"],
+                # modes: the export has no free-text mode-description field (only the
+                # fixed_route/demand_response booleans below). Confirmed public/feed-health/fh.js
+                # never reads ag.modes (grepped — zero hits); kept as a null key for output
+                # shape-stability only.
+                "modes":        None,
+                "fixedRoute":     r["fixed_route"],
+                "demandResponse": r["demand_response"],
+                "isFlex":       r["is_flex"],
+                "serviceEnd":   r["service_end"],
+                "lastFeedUpdate": r["last_feed_update"],
+                # expired ← derived from the SAME status above (not a separate field), so the
+                # "Service ended"/"Service ends" phrasing in fh.js can never disagree with the
+                # status badge.
+                "expired":      r["status"] == "expired",
+                # Passthrough, including genuine `null` now (the export can report this as
+                # unknown when the live check couldn't run at all — see own_fetch_error in
+                # SCHEMA.md); JS treats null as falsy same as false, no behavior change.
+                "feedInfoContradictsCalendar": r["feed_info_contradicts_calendar"],
             })
         payload = {"asOf": as_of_iso, "agencies": agencies}
         out_path = os.path.join(OUT_AGENCIES, f"{abbr}.json")
@@ -548,72 +488,80 @@ def write_agency_jsons(rows_by_state, mdb_by_id, as_of_iso):
 # ── fh-data.js generation ─────────────────────────────────────────────────────
 
 def fmt_state_row(s):
-    """Format a single state entry for the S() call in fh-data.js."""
     return (
         f'    S("{s["fips"]}","{s["abbr"]}","{s["name"]}","{s["region"]}",'
         f'{s["agencies"]},{s["cov"]},{s["exp"]},{s["val"]},{s["flex"]})'
     )
 
 
-def write_fhdata_js(state_stats, gradient, nat, flex_by_state, as_of_iso, run_month_year):
-    """
-    Regenerate public/feed-health/fh-data.js wholesale.
-    Preserves CTAS verbatim and all non-data HEADLINE fields (drAgencies, refresh, owner).
-    Updates: HEADLINE.draftDate, HEADLINE.asOf, HEADLINE.noFeedPct (real),
-             HEADLINE.expiredPct, HEADLINE.validatorFailPct, HEADLINE.flexStates,
-             GRADIENT (real agency counts), STATES (all real per-state values).
-    """
-    draft_date_str   = date.fromisoformat(as_of_iso).strftime(f"%B {date.fromisoformat(as_of_iso).day}, %Y")
-    flex_states_count = sum(1 for v in flex_by_state.values() if v > 0)
+def write_fhdata_js(state_stats, gradient, nat, as_of_iso, dr_agencies, provenance):
+    """Regenerate public/feed-health/fh-data.js wholesale. Same window.FH_DATA =
+    {HEADLINE, GRADIENT, STATES, FLEX, CTAS} shape as before this rewiring — only
+    the header comment gains provenance (resolved SHA / schemaVersion / export
+    generatedAt), which is not a structural/object-shape change."""
+    draft_date_str = date.fromisoformat(as_of_iso).strftime(f"%B {date.fromisoformat(as_of_iso).day}, %Y")
 
-    # HEADLINE values — recomputed from data.
-    # Compute integer percentages from raw counts to avoid Python banker's rounding on
-    # .5 midpoints (e.g. round(45.5) == 46, not 45, when the true ratio is 45.487%).
-    no_feed_pct      = round(100 * nat["none_n"] / nat["N"])  # 45  (1013/2238 = 45.26%)
-    expired_pct      = round(100 * nat["expired_n"] / nat["M"]) if nat["M"] else 0   # 22
-    val_pct          = nat["val_pct"]                 # keep 1dp (12.6)
+    no_feed_pct = round(100 * nat["none_n"]    / nat["N"]) if nat["N"] else 0
+    expired_pct = round(100 * nat["expired_n"] / nat["M"]) if nat["M"] else 0
+    val_pct     = nat["val_pct"]  # keep 1dp
 
     gradient_js = ",\n".join(
         f'    {{ key: "{g["key"]}",  label: "{g["label"]}", '
         f'sub: "{g["sub"]}",  noFeedPct: {g["noFeedPct"]}, agencies: {g["agencies"]} }}'
         for g in gradient
     )
-
     states_js = ",\n".join(fmt_state_row(s) for s in state_stats)
 
+    src_line = (
+        f'// Source ref: {provenance["ref"]} -> {provenance["sha"]}   '
+        f'Export schemaVersion: {provenance["schema_version"]}   '
+        f'Export generatedAt: {provenance["generated_at"]}'
+        if provenance.get("sha") else
+        f'// Source: local export file ({provenance.get("local_path")})   '
+        f'Export schemaVersion: {provenance["schema_version"]}   '
+        f'Export generatedAt: {provenance["generated_at"]}'
+    )
+
     js = f"""// GENERATED by scripts/feed-health-publish.py — do not hand-edit.
-// Source: ntd_feed_health.csv (NTD FY2024 + FTA Weblinks + URL reachability + Mobility Database).
-// Run date: {as_of_iso}.  Re-run scripts/feed-health-publish.py to refresh.
+// Source: GTFS-X/gtfs-feed-health canonical export (exports/feed_health.json).
+{src_line}
+// Run date: {as_of_iso}.  Re-run scripts/feed-health-publish.py to refresh (fetches
+// upstream's current main fresh each run by default; --ref <sha> pins, --export-json
+// <path> uses a local file offline).
 (function () {{
-  // ---- Headline findings — recomputed from ntd_feed_health.csv ----
+  // ---- Headline findings — recomputed from the fetched export's per-agency rows ----
   const HEADLINE = {{
     noFeedPct: {no_feed_pct},         // % of US federally funded agencies w/ no findable GTFS feed
-    agencies: 2238,          // FY2024 NTD agency roster (full universe incl. territories)
+    agencies: {nat["N"]},          // NTD agency roster (full universe incl. territories)
     expiredPct: {expired_pct},           // % of MDB-matched feeds describing service that already ended
     validatorFailPct: {val_pct}, // % of MDB-matched feeds failing the canonical validator
-    flexFeeds: {FLEX_FEEDS_TOTAL},          // distinct US feeds publishing GTFS-Flex (from Mobility Database)
-    flexStates: {flex_states_count},         // states with at least one GTFS-Flex feed
-    // Agencies reporting Demand Response (mode DR; DT absorbed since report_year 2019) in FY2024 NTD
-    // Annual Data — Service by Mode and Time Period (data.transportation.gov wwdp-t4re).
-    // Derived separately from the 2238-agency roster; kept as a constant between monthly runs.
-    drAgencies: {DR_AGENCIES},
+    // GTFS-Flex aggregate reporting retired 2026-07-31 — see CANONICAL comment block in
+    // scripts/feed-health-publish.py for why (feed-centric vs. agency-centric data, not
+    // a reasonable proxy). Zeroed for internal consistency with the per-state flex=0
+    // below and the (now-empty) FLEX leaderboard, rather than show a stale or
+    // inconsistent number. Follow-up: needs a proper per-state breakdown upstream.
+    flexFeeds: 0,
+    flexStates: 0,
+    // Agencies reporting Demand Response (mode DR; DT absorbed since report_year 2019),
+    // computed live from the fetched export's per-agency demand_response booleans
+    // (previously a hardcoded constant from a separate NTD Service-by-Mode extract).
+    drAgencies: {dr_agencies},
     refresh: "Monthly",
     asOf: "{as_of_iso}",
     draftDate: "{draft_date_str}",
     owner: "Mark Egge",
   }};
 
-  // Size-gradient cut — % of agencies in each NTD reporting class w/ no feed anywhere (Phase D)
+  // Size-gradient cut — % of agencies in each NTD reporting class w/ no feed anywhere
   const GRADIENT = [
 {gradient_js},
   ];
 
-  // ---- Per-state rows (REAL values computed from ntd_feed_health.csv) ----
+  // ---- Per-state rows (REAL values computed from the fetched export) ----
   // cov  = % of the state's NTD agencies with a findable GTFS feed (FTA weblink OR Mobility Database)
   // exp  = % of MDB-matched feeds in that state whose service period has already ended
   // val  = % of MDB-matched feeds in that state with at least one ERROR-severity validator notice
-  // flex = count of GTFS-Flex feeds that include this state (from flex_coverage.csv; multi-state
-  //        feeds counted in each state, so sum > {FLEX_FEEDS_TOTAL} total distinct feeds)
+  // flex = RETIRED, always 0 — see HEADLINE.flexFeeds comment above
   const S = (fips, abbr, name, region, agencies, cov, exp, val, flex) =>
     ({{ fips, abbr, name, region, agencies, cov, noFeed: 100 - cov, exp, val, flex }});
 
@@ -621,7 +569,9 @@ def write_fhdata_js(state_stats, gradient, nat, flex_by_state, as_of_iso, run_mo
 {states_js},
   ];
 
-  // Flex leaderboard — states publishing GTFS-Flex, ranked
+  // Flex leaderboard — states publishing GTFS-Flex, ranked. Naturally empty while
+  // every state's flex=0 (see above); the render code already degrades cleanly when
+  // this is [].
   const FLEX = STATES.filter((s) => s.flex > 0).sort((a, b) => b.flex - a.flex);
 
   // CTA variants keyed to feed condition — RESERVED for per-agency drill-down phase.
@@ -645,9 +595,18 @@ def write_fhdata_js(state_stats, gradient, nat, flex_by_state, as_of_iso, run_mo
         f.write(js)
 
 
+def write_provenance_json(provenance):
+    """Additive sidecar file (new, not a changed shape of an existing artifact) with
+    the full fetch provenance for future tooling / debugging."""
+    with open(OUT_PROVENANCE, "w") as f:
+        json.dump(provenance, f, indent=2)
+        f.write("\n")
+
+
 # ── Summary diff ─────────────────────────────────────────────────────────────
 
-# Illustrative baseline from the original fh-data.js (pre-real-data)
+# Illustrative baseline from the original fh-data.js (pre-real-data), kept only for
+# the top-movers diff printout below — unrelated to the 2026-07-31 export rewiring.
 ILLUSTRATIVE_STATES = {
     "AL": (27, 38, 24, 16, 0), "AK": (34, 31, 27, 18, 1), "AZ": (41, 57, 19, 11, 0),
     "AR": (30, 33, 26, 17, 0), "CA": (214, 71, 16, 9, 2),  "CO": (58, 74, 14, 8, 41),
@@ -669,29 +628,6 @@ ILLUSTRATIVE_STATES = {
 }
 
 
-def detect_data_date(csv_path):
-    """
-    Infer the data vintage date (YYYY-MM-DD string) from the pipeline outputs.
-    Priority:
-      1. stats_phaseD.json "generated" field (most reliable: written by phase_d_mdb.py).
-      2. CSV file mtime (fallback when stats file is absent).
-    The caller may override both by passing --data-date explicitly.
-    """
-    stats_path = os.path.join(os.path.dirname(csv_path), "stats_phaseD.json")
-    if os.path.exists(stats_path):
-        try:
-            with open(stats_path) as f:
-                stats = json.load(f)
-            generated = stats.get("generated", "").strip()
-            if generated:
-                return generated
-        except Exception:
-            pass
-    # Fallback: CSV file mtime
-    mtime = os.path.getmtime(csv_path)
-    return datetime.utcfromtimestamp(mtime).date().isoformat()
-
-
 def print_diff(state_stats):
     """Print top movers: states whose cov changed most vs. the illustrative baseline."""
     print("\n── State-value diff (illustrative vs real) ──────────────────────────────")
@@ -699,7 +635,7 @@ def print_diff(state_stats):
     movers = []
     for s in state_stats:
         abbr = s["abbr"]
-        old  = ILLUSTRATIVE_STATES.get(abbr)
+        old = ILLUSTRATIVE_STATES.get(abbr)
         if not old:
             continue
         old_ag, old_cov, old_exp, old_val, old_flex = old
@@ -716,41 +652,53 @@ def print_diff(state_stats):
 
 def main():
     parser = argparse.ArgumentParser(description="GTFS Feed Health publish script")
-    parser.add_argument("csv", nargs="?", default=DEFAULT_CSV,
-                        help="Path to ntd_feed_health.csv (pipeline output)")
+    parser.add_argument("--ref", default="main",
+                        help="Git ref (branch or SHA) to resolve+fetch from "
+                             f"{SOURCE_REPO}. Re-resolved to a commit SHA fresh on "
+                             "every run. Default: main.")
+    parser.add_argument("--export-json", dest="export_json", default=None,
+                        help="Path to a local feed_health.json — skips the network "
+                             "fetch entirely (offline/dev use).")
     parser.add_argument("--data-date", dest="data_date", default=None,
-                        help="ISO date (YYYY-MM-DD) of the underlying data vintage. "
-                             "Defaults to the 'generated' field in stats_phaseD.json "
-                             "in the same directory as the CSV, or the CSV file mtime. "
-                             "Stamped into HEADLINE.asOf and HEADLINE.draftDate.")
+                        help="ISO date (YYYY-MM-DD) to stamp into HEADLINE.asOf / "
+                             "draftDate. Defaults to the export's generatedAt date.")
     args = parser.parse_args()
-    csv_path = args.csv
 
-    if not os.path.exists(csv_path):
-        sys.exit(f"CSV not found: {csv_path}")
+    if args.export_json:
+        if not os.path.exists(args.export_json):
+            sys.exit(f"--export-json path not found: {args.export_json}")
+        print(f"Reading local export: {args.export_json}", file=sys.stderr)
+        with open(args.export_json) as f:
+            export = json.load(f)
+        provenance = {"ref": None, "sha": None, "local_path": os.path.abspath(args.export_json)}
+    else:
+        print(f"Resolving ref '{args.ref}' on {SOURCE_REPO}...", file=sys.stderr)
+        sha = resolve_sha(args.ref)
+        print(f"  Resolved to {sha}", file=sys.stderr)
+        print(f"Fetching exports/feed_health.json at {sha}...", file=sys.stderr)
+        export = fetch_export(sha)
+        provenance = {"ref": args.ref, "sha": sha}
+
+    schema_version = check_schema_version(export)
+    check_row_count(export)
+    print("Validating fetched export's national aggregates...", file=sys.stderr)
+    validate_national(export)
+
+    provenance["schema_version"] = schema_version
+    provenance["generated_at"] = export.get("generatedAt")
+    provenance["source_repo"] = SOURCE_REPO
+    provenance["published_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    all_rows = export["rows"]
+    print(f"  {len(all_rows)} rows loaded", file=sys.stderr)
 
     if args.data_date:
         as_of_iso = args.data_date
     else:
-        as_of_iso = detect_data_date(csv_path)
-        print(f"  Auto-detected data date: {as_of_iso}", file=sys.stderr)
+        generated_at = export.get("generatedAt") or ""
+        as_of_iso = generated_at[:10] if generated_at else datetime.now(timezone.utc).date().isoformat()
+        print(f"  Auto-detected data date (export generatedAt): {as_of_iso}", file=sys.stderr)
 
-    run_month_year = date.fromisoformat(as_of_iso).strftime("%B %Y")
-
-    print(f"Reading {csv_path}", file=sys.stderr)
-    all_rows = list(csv.DictReader(open(csv_path)))
-    print(f"  {len(all_rows)} rows loaded", file=sys.stderr)
-
-    print("Loading auxiliary data...", file=sys.stderr)
-    mdb_by_id    = load_mdb_cache(csv_path)
-    flex_by_state = load_flex(csv_path)
-    print(f"  MDB cache: {len(mdb_by_id)} feeds | flex states: {sorted(flex_by_state.keys())}",
-          file=sys.stderr)
-
-    print("Validating national aggregates...", file=sys.stderr)
-    nat = validate_national(all_rows)
-
-    # Split rows: 50 states + DC vs territories
     rows_by_state = {}
     for r in all_rows:
         st = r["state"]
@@ -758,15 +706,16 @@ def main():
             rows_by_state.setdefault(st, []).append(r)
 
     print("Computing per-state stats...", file=sys.stderr)
-    state_stats = compute_state_stats(rows_by_state, flex_by_state)
+    state_stats = compute_state_stats(rows_by_state)
     gradient    = compute_gradient(all_rows)
+    nat         = compute_national(all_rows)
+    dr_agencies = sum(1 for r in all_rows if r["demand_response"])
 
     print("Writing agency JSON files...", file=sys.stderr)
-    written = write_agency_jsons(rows_by_state, mdb_by_id, as_of_iso)
+    written = write_agency_jsons(rows_by_state, as_of_iso)
     total_agencies = sum(n for _, n in written)
     print(f"  Wrote {len(written)} state files, {total_agencies} agencies total", file=sys.stderr)
 
-    # Spot-check: sum of all agencies in 50+DC files should equal total - territories
     territory_n = sum(1 for r in all_rows if r["state"] in TERRITORIES)
     expected_50dc = len(all_rows) - territory_n
     if total_agencies != expected_50dc:
@@ -774,27 +723,32 @@ def main():
               file=sys.stderr)
 
     print("Regenerating fh-data.js...", file=sys.stderr)
-    write_fhdata_js(state_stats, gradient, nat, flex_by_state, as_of_iso, run_month_year)
+    write_fhdata_js(state_stats, gradient, nat, as_of_iso, dr_agencies, provenance)
     print(f"  Written: {OUT_FHDATA}", file=sys.stderr)
 
+    write_provenance_json(provenance)
+    print(f"  Written: {OUT_PROVENANCE}", file=sys.stderr)
+
     # Sanity checks
-    co = next((s for s in state_stats if s["abbr"] == "CO"), None)
-    va = next((s for s in state_stats if s["abbr"] == "VA"), None)
-    assert co and co["flex"] == 41, f"CO flex sanity check failed: got {co}"
-    assert va and va["flex"] == 16, f"VA flex sanity check failed: got {va}"
     total_all = sum(r["agencies"] for r in state_stats)
     assert total_all == expected_50dc, f"State total mismatch: {total_all} vs {expected_50dc}"
-    print("  Sanity checks passed (CO flex=41, VA flex=16, agency sum matches)", file=sys.stderr)
+    assert all(s["flex"] == 0 for s in state_stats), (
+        "GTFS-Flex per-state accounting was intentionally retired 2026-07-31 pending an "
+        "upstream per-state breakdown (see CANONICAL comment block) — a nonzero value "
+        "here means someone re-wired flex without updating that decision; revisit the "
+        "comment before removing this assert."
+    )
+    print("  Sanity checks passed (agency sum matches, flex intentionally all-zero)", file=sys.stderr)
 
     print_diff(state_stats)
 
     print("\n── Summary ──────────────────────────────────────────────────────────────")
     print(f"  As of:        {as_of_iso}")
+    print(f"  Source:       {SOURCE_REPO} @ {provenance.get('sha') or provenance.get('local_path')}")
     print(f"  States+DC:    {len(state_stats)} jurisdictions, {total_agencies} agencies")
     print(f"  National:     {nat['none_n']}/{nat['N']} no-feed ({nat['no_feed_pct']}%), "
           f"exp {nat['exp_pct']}%, val_fail {nat['val_pct']}%")
-    print(f"  Flex states:  {sorted(flex_by_state.items(), key=lambda x:-x[1])}")
-    print(f"  Output:       {len(written)} agency JSON files + fh-data.js regenerated")
+    print(f"  Output:       {len(written)} agency JSON files + fh-data.js + provenance.json")
 
 
 if __name__ == "__main__":
