@@ -13,9 +13,13 @@
     validatorFailPct: 12.9, // % of MDB-matched feeds failing the canonical validator
     // GTFS-Flex aggregate reporting retired 2026-07-31 — see CANONICAL comment block in
     // scripts/feed-health-publish.py for why (feed-centric vs. agency-centric data, not
-    // a reasonable proxy). Zeroed for internal consistency with the per-state flex=0
-    // below and the (now-empty) FLEX leaderboard, rather than show a stale or
-    // inconsistent number. Follow-up: needs a proper per-state breakdown upstream.
+    // a reasonable proxy). flexAvailable is the explicit gate fh.js reads to HIDE the
+    // aggregate Flex band/leaderboard/stat-card/closing-plank entirely (rather than
+    // show a "0" a visitor could see visibly contradicted by real per-agency Flex
+    // badges on the same page) — flip back to true once a real per-state breakdown
+    // exists upstream. flexFeeds/flexStates are kept at 0 only for any code that reads
+    // them before checking the flag; fh.js is expected to check flexAvailable first.
+    flexAvailable: false,
     flexFeeds: 0,
     flexStates: 0,
     // Agencies reporting Demand Response (mode DR; DT absorbed since report_year 2019),
