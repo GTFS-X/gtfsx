@@ -163,13 +163,28 @@ REPORTER_MAP = {
 # order of noise that failed on 07-05 (expired_pct alone moved 21.9 -> 22.6 -> 21.7
 # across three data pulls seven weeks apart — comfortably inside the guard's intended
 # tolerance for a REAL run, but each pairwise jump alone exceeds the 0.5pp band).
+# Updated again same day (2026-07-31): a follow-up live spot-check of the "expired"
+# bucket (see phase_d_mdb.py CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB) found 5 agencies
+# MDB's stale capture wrongly called expired — their live feeds' own calendar.txt /
+# calendar_dates.txt run well past today. Overriding those 5 moves expired_n 173 -> 168.
+# 162 of the original 173 "expired" rows rest on an MDB capture older than 6 months and
+# were NOT individually verified — only the 5 actually spot-checked were overridden.
+# Read this as "the expired bucket is lower-confidence than it looks," not "the
+# remaining 168 are all confirmed correct."
+# Clearing those 5 agencies' expiry flag surfaced a SECOND stale-capture symptom
+# underneath (get_status() priority is expired > invalid): 3 of the 5 (Okanogan
+# County, Casco Bay Lines, Marin Transit) had nonzero validator-error counts from that
+# same superseded capture, so "invalid" would have been just as unreliable as
+# "expired" was. See phase_d_mdb.py STALE_CAPTURE_DISCARD_ERROR_COUNT — those 3 error
+# counts are discarded (not asserted as zero, just not counted), dropping
+# matched_for_validation 796 -> 793 and fail_validation_n 103 -> 100.
 # NOTE: this constant is a +/-0.5pp drift guard, not the rendered headline; the displayed
 # fh-data.js HEADLINE values are re-derived on every full pipeline run.
 CANONICAL = {
     "N_roster":              2238,    # full NTD 2024 universe incl. territories
     "no_feed_anywhere_pct":  44.7,    # 1001 / 2238 = 44.73% (2026-07-31 refresh)
-    "fail_validation_pct":   12.9,    # 103  / 796 matched
-    "expired_pct_of_matched": 21.7,   # 173  / 796 matched
+    "fail_validation_pct":   12.6,    # 100  / 793 matched (post error-count override)
+    "expired_pct_of_matched": 21.2,   # 168  / 793 matched (post expiry override)
 }
 
 # Constant from NTD Annual Data — Service by Mode and Time Period (wwdp-t4re),
@@ -182,6 +197,24 @@ DR_AGENCIES = 1925
 # not from the per-agency CSV (mdb_is_flex is per-agency-match, not per-feed).
 # Updated 2026-07-31 refresh: flex_feeds_total was 77 in stats_phaseD.json.
 FLEX_FEEDS_TOTAL = 77
+
+# CONFIRMED_SERVICE_END_OVERRIDES — companion to phase_d_mdb.py's
+# CONFIRMED_NOT_EXPIRED_DESPITE_STALE_MDB. That override fixes the CSV's
+# mdb_expired (and therefore get_status()'s ok/expired bucketing), but the
+# displayed "Service ends <date>" sub-line below is read straight from
+# mdb_us_feeds.json's service_end (via mdb_by_id, keyed by mdb_id) — a
+# different source that the expiry override does NOT touch. Without this,
+# an agency correctly shown as status "ok" would still display last year's
+# stale MDB-captured end date. Keyed by mdb_id; value is the corrected date
+# (YYYY-MM-DD) read directly from the agency's live calendar.txt /
+# calendar_dates.txt on the date noted, same 2026-07-31 audit.
+CONFIRMED_SERVICE_END_OVERRIDES = {
+    "tld-4135": "2026-12-31",  # High Point Transit (NC) — live calendar.txt
+    "mdb-1872": "2026-12-31",  # Santa Barbara Clean Air Express (CA)
+    "ntd-332":  "2026-12-31",  # Okanogan County Transportation & Nutrition (WA)
+    "mdb-1":    "2026-09-07",  # Casco Bay Island Transit District / Casco Bay Lines (ME)
+    "mdb-71":   "2026-09-13",  # Marin County Transit District / Marin Transit (CA)
+}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -423,9 +456,12 @@ def write_agency_jsons(rows_by_state, mdb_by_id, as_of_iso):
             service_end = None
             last_feed_update = None
             if mdb_id and mdb_id in mdb_by_id:
-                se = (mdb_by_id[mdb_id].get("service_end") or "").strip()
-                if se:
-                    service_end = se[:10]  # YYYY-MM-DD from the ISO timestamp
+                if mdb_id in CONFIRMED_SERVICE_END_OVERRIDES:
+                    service_end = CONFIRMED_SERVICE_END_OVERRIDES[mdb_id]
+                else:
+                    se = (mdb_by_id[mdb_id].get("service_end") or "").strip()
+                    if se:
+                        service_end = se[:10]  # YYYY-MM-DD from the ISO timestamp
                 # lastFeedUpdate ← MDB downloaded_at (date the feed's latest dataset
                 # was last captured by the Mobility Database) — proxy for "feed last
                 # published/updated". Distinct from serviceEnd (service-period end).

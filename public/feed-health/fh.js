@@ -1071,7 +1071,7 @@
                 h("dd", null,
                   "A feed with one or more validator errors is not necessarily unusable to riders — some of the largest US agencies publish feeds with non-zero canonical-validator errors while remaining fully served by major trip planners; treat the per-agency error count as a data-quality signal, not proof a feed is broken. Similarly, ",
                   h("em", null, "expired"),
-                  " reflects the calendar dates in the most recent feed version MobilityData has captured — an agency that has quietly republished since that capture may show as expired here until the next monthly refresh catches up."
+                  " reflects the calendar dates in the most recent feed version MobilityData has captured, not a live read of the agency's own feed — MobilityData recrawls smaller agencies' feeds on an irregular cadence (in some cases a year or more between captures), so an agency that has quietly republished a current calendar since MDB's last capture may continue to show as expired here for an extended period. We spot-check and correct individual records when found (see the citation date below for when this snapshot was last reviewed); a systematic fix — reading each feed's calendar directly rather than relying solely on MDB's capture — is on the roadmap."
                 )
               ),
               h("div", null,
