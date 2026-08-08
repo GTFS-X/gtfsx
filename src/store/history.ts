@@ -19,6 +19,7 @@
 
 import { applyPatches, enablePatches, type Patch } from 'immer';
 import { create } from 'zustand';
+import { trackFirstFeedEdit } from '../services/trackBeacon';
 
 enablePatches();
 
@@ -221,6 +222,16 @@ export function recordChange(patches: Patch[], inverse: Patch[]): void {
   const fwd = patches.filter((p) => HISTORY_KEYS.has(String(p.path[0])));
   const inv = inverse.filter((p) => HISTORY_KEYS.has(String(p.path[0])));
   if (inv.length === 0) return; // nothing undoable changed
+
+  // First-run funnel (analytics): this is the single choke point every
+  // undoable feed mutation passes through, so it's the one honest answer to
+  // "did this session edit anything, or just look?". Fires at most ONCE per tab
+  // session (the guard lives in trackBeacon) and carries only the top-level
+  // store key that changed — never a value, id, or name. Bulk feed loads
+  // (import / demo / project open) run inside loadingFeed(), which suppresses
+  // this path entirely, so a load never counts as an edit. Best-effort and
+  // fully swallowed; it must never affect undo/redo.
+  trackFirstFeedEdit(primaryKey(new Set(inv.map((p) => String(p.path[0])))));
 
   const label = deriveLabel(inv);
   const coalesceKey = deriveCoalesceKey(inv);

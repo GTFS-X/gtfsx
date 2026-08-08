@@ -134,13 +134,68 @@ export function getStoredClickIds(): {
 // only and has no client beacon call site. (Until 2026-07-13 it was written by
 // GET /book-demo, i.e. on the redirect click, which is why prod holds a burst
 // of crawler-generated rows from 2026-07-12/13.)
+//
+// ── Conversion kinds vs funnel kinds ───────────────────────────────────────
+// The FIRST SIX kinds below are frozen: `feed_exported`, `paywall_view`,
+// `demo_request` and `sign_up` (server-side) are Google Ads conversion kinds
+// (worker/marketing/ads/oci.ts ALL_UPLOAD_KINDS) and `page_view` /
+// `editor_loaded` / `cta_click` back the /admin/events dashboard. Don't change
+// when they fire or what they mean.
+//
+// The kinds after them are the FIRST-RUN FUNNEL set (added 2026-08-08). They
+// are purely additive telemetry for "what happens between opening the editor
+// and hitting a paywall or exporting". They are deliberately NOT conversion
+// kinds: the uploader only ever selects `kind IN (ALL_UPLOAD_KINDS)`, and
+// events/routes.ts only stamps a hashed email on CONVERSION_KINDS, so nothing
+// here can leak into the Ads upload path.
 type TrackKind =
   | 'page_view'
   | 'editor_loaded'
   | 'feed_exported'
   | 'paywall_view'
   | 'cta_click'
-  | 'demo_request';
+  | 'demo_request'
+  | 'feed_opened'
+  | 'feed_import_failed'
+  | 'feed_edited'
+  | 'export_attempt'
+  | 'export_failed'
+  | 'gate_blocked';
+
+/** Where a feed in the editor came from. Shared vocabulary between
+ *  `feed_opened` (it worked) and `feed_import_failed` (it didn't). */
+export type FeedOrigin =
+  | 'upload'        // .zip dropped or browsed in the Import dialog
+  | 'url'           // pasted GTFS URL ("From URL" tab)
+  | 'catalog'       // Mobility Database pick ("Search Catalog" tab)
+  | 'myfeeds'       // one of the signed-in user's own feeds
+  | 'deeplink'      // /import?url=… landing page
+  | 'demo'          // /demo — the published svt-demo feed
+  | 'merge'         // routes merged into an already-open feed (feed_opened only)
+  | 'saved_project'; // /feeds/<slug> — an existing cloud project (feed_opened only)
+
+/** How far an import got before it stopped producing a feed. */
+export type ImportFailureStage =
+  | 'fetch'           // couldn't retrieve the bytes (network, 4xx/5xx, proxy)
+  | 'parse'           // got bytes, but they weren't a usable GTFS zip
+  | 'empty'           // parsed fine, but there was nothing to import
+  | 'declined_large'; // user backed out at the large-feed confirmation gate
+
+/** State of the feed at the moment the Export dialog opened. */
+export type ExportAttemptState =
+  | 'ready'               // export button is live
+  | 'blocked_validation'; // validation errors block the GTFS export
+
+/** Which export threw. */
+export type ExportFormat = 'gtfs_zip' | 'geojson';
+
+/** A non-paywall wall that stopped the user. Plan paywalls are NOT here — they
+ *  already record their feature key as `paywall_view`'s label. */
+export type BlockedGate =
+  | 'save_signin'       // anonymous clicked Save → bounced to /login
+  | 'feeds_signin'      // anonymous opened /feeds/<slug> → bounced to /login
+  | 'assistant_signin'  // anonymous asked Ask GTFS·X → 401
+  | 'assistant_quota';  // daily Ask GTFS·X message limit reached
 
 function send(kind: TrackKind, opts?: { path?: string; label?: string | null }): void {
   try {
@@ -218,4 +273,81 @@ export function trackPaywallView(feature: string): void {
 // (e.g. 'pricing_fix_my_feed_click'). Lets us measure intent on inquiry flows.
 export function trackCtaClick(name: string): void {
   send('cta_click', { label: name });
+}
+
+// ─── First-run funnel (2026-08-08) ─────────────────────────────────────────
+//
+// Everything below answers "where does a first-run editor session stop?".
+// `editor_loaded` told us a session opened the editor and `paywall_view` /
+// `feed_exported` told us it reached a wall or an export; the stretch between
+// them was blank. Same privacy contract as the rest of this module: no
+// credentials, no user id, no feed contents, no file names, no URLs, no free
+// text — every label is drawn from the fixed enums above.
+
+const EDITED_ONCE_KEY = 'gb_track_edited';
+
+// Fallback for the once-per-session guards when sessionStorage is unavailable
+// (private mode, storage blocked, non-browser test runners).
+const memoryOnce = new Set<string>();
+
+/** True the FIRST time it's called with `key` in this tab session, false
+ *  after. sessionStorage-backed so a page reload — which keeps the beacon's
+ *  session id — doesn't re-fire the event and double-count the session. */
+function firstTimeThisSession(key: string): boolean {
+  try {
+    if (sessionStorage.getItem(key) !== null) return false;
+    sessionStorage.setItem(key, '1');
+    return true;
+  } catch {
+    if (memoryOnce.has(key)) return false;
+    memoryOnce.add(key);
+    return true;
+  }
+}
+
+// Fires when a feed actually lands in the editor store — the "did they get
+// something in front of them at all" signal. An editor session with
+// `editor_loaded` but no `feed_opened` and no `feed_edited` landed and left.
+export function trackFeedOpened(origin: FeedOrigin): void {
+  send('feed_opened', { label: origin });
+}
+
+// Fires when an import attempt did NOT produce a feed. The label is
+// `<origin>:<stage>` (e.g. `url:fetch`, `upload:parse`) so a query can group by
+// either half: `WHERE label LIKE 'url:%'` or `WHERE label LIKE '%:parse'`.
+// `declined_large` is a user choice, not an error — it's here because the
+// funnel question is "did an import produce a feed", and it didn't.
+export function trackFeedImportFailed(origin: FeedOrigin, stage: ImportFailureStage): void {
+  send('feed_import_failed', { label: `${origin}:${stage}` });
+}
+
+// Fires ONCE per tab session, on the first undoable feed-data mutation
+// (src/store/history.ts recordChange — the single choke point every edit goes
+// through). `entity` is the top-level store key the edit touched, e.g. 'stops'.
+// Deliberately once-only: this answers "did they edit or just look", and
+// per-keystroke telemetry is explicitly not wanted.
+export function trackFirstFeedEdit(entity: string): void {
+  if (!firstTimeThisSession(EDITED_ONCE_KEY)) return;
+  send('feed_edited', { label: entity });
+}
+
+// Fires when the Export dialog opens, with the feed's export-readiness at that
+// moment. Paired with `feed_exported` (success) and `export_failed`, this turns
+// "N exports happened" into "N tried, M were blocked by validation, K threw".
+export function trackExportAttempt(state: ExportAttemptState): void {
+  send('export_attempt', { label: state });
+}
+
+// Fires when an export threw. Until now an export that blew up was
+// indistinguishable from one the user never attempted.
+export function trackExportFailed(format: ExportFormat): void {
+  send('export_failed', { label: format });
+}
+
+// Fires when a NON-paywall gate stopped the user. Plan paywalls keep using
+// `paywall_view`, whose label already carries the feature key that triggered
+// it — this covers the walls that fire no paywall at all, chiefly the
+// sign-in wall an anonymous first-run user hits when they try to save.
+export function trackGateBlocked(gate: BlockedGate): void {
+  send('gate_blocked', { label: gate });
 }

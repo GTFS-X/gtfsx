@@ -109,7 +109,8 @@ delivered once.
 | `forum_*` | `forum_category`, `forum_thread`, `forum_post`, `forum_post_upvote`, `forum_subscription`, `forum_user_state`, `forum_image`, FTS5 `forum_search`. |
 | `audit_event` | Append-only log of significant actions. |
 | `demo_leads` | `/book-demo` form submissions: **plaintext** name, email, org, message + `src`/`ref`/click ids. ⚠️ The only table holding PII for people who never had an account. Nothing in the codebase reads or deletes it — the owner learns of a lead from the Resend notification — so retention is indefinite and the account reaper does not reach it. Disclosed in privacy policy §3.10 / §7; keep both in step if that changes. |
-| `event` | Cookieless page-view + funnel log (`kind`, `ref`, `gclid`/`gbraid`/`wbraid`, country, per-tab session id). No IP/UA/user-id. Conversion rows may also carry `oci_email_sha256` — hex(sha256(normalized email)), stamped at insert by the paths that already hold the address (signup, Google OAuth new-user, `/book-demo` lead form) and sent to Google Ads as a `userData` identifier. A one-way digest only: no plaintext address, no user id, no session→account link. |
+| `event` | Cookieless page-view + funnel log (`kind`, `ref`, `gclid`/`gbraid`/`wbraid`, country, per-tab session id). No IP/UA/user-id. Conversion rows may also carry `oci_email_sha256` — hex(sha256(normalized email)), stamped at insert by the paths that already hold the address (signup, Google OAuth new-user, `/book-demo` lead form) and sent to Google Ads as a `userData` identifier. A one-way digest only: no plaintext address, no user id, no session→account link. **`kind` is plain TEXT — new kinds need no migration**; the enum lives in `worker/events/routes.ts` and must stay in sync with `src/services/trackBeacon.ts`. |
+| `event` kinds | Two disjoint groups. **Conversion** (`feed_exported`, `paywall_view`, `demo_request`, `sign_up`) — uploaded to Google Ads, may carry `oci_email_sha256`; frozen, do not change their firing conditions. **Funnel/diagnostic** (`page_view`, `editor_loaded`, `cta_click`, plus the 2026-08-08 first-run set `feed_opened`, `feed_import_failed`, `feed_edited`, `export_attempt`, `export_failed`, `gate_blocked`) — never uploaded, never hashed. `label` carries a short enum token: the paywall's feature key, an import's `<origin>:<stage>`, the gate that fired, the store key of the first edit. See "First-run funnel" below. |
 
 ### Migrations
 
@@ -1636,3 +1637,41 @@ Offline Conversion Import API (`worker/marketing/ads/oci.ts`, dedup-tracked via
 `event.oci_uploaded_at`, migration 0015); `/admin` surfaces ads-attribution
 status. Campaign strategy + the original spec are in the archived
 `GOOGLE_ADS_PLAN.md` (referenced by the 0015 migration comment).
+
+### First-run funnel events (2026-08-08)
+
+`editor_loaded` marked the start of an editor session and `paywall_view` /
+`feed_exported` marked its paid-intent end; **everything between them was
+unrecorded**, so a paid session that opened the editor and never converted was
+indistinguishable from one that bounced, one whose import failed, and one that
+edited happily and left. Six additive kinds close that gap (no migration —
+`event.kind` is plain TEXT):
+
+| Kind | Fires when | `label` |
+|---|---|---|
+| `feed_opened` | a feed lands in the editor store | `upload`, `url`, `catalog`, `myfeeds`, `deeplink`, `demo`, `merge`, `saved_project` |
+| `feed_import_failed` | an import attempt produces no feed | `<origin>:<stage>` — origin as above; stage ∈ `fetch`, `parse`, `empty`, `declined_large` |
+| `feed_edited` | first undoable feed mutation, **once per tab session** | the store key edited (`stops`, `routes`, `trips`, …) |
+| `export_attempt` | the Export dialog opens | `ready`, `blocked_validation` |
+| `export_failed` | an export throws | `gtfs_zip`, `geojson` |
+| `gate_blocked` | a **non-paywall** wall stops the user | `save_signin`, `feeds_signin`, `assistant_signin`, `assistant_quota` |
+
+Design notes worth keeping:
+
+- **Plan paywalls are not in `gate_blocked`.** `paywall_view.label` has always
+  carried the feature key that triggered it (prod: `analysis_basic` 1228,
+  `analysis_title_vi` 196, `access_isochrones` 154, …). `gate_blocked` covers
+  only the walls that render no paywall overlay — chiefly the sign-in wall an
+  anonymous visitor hits on Save.
+- **`feed_edited` hangs off `history.recordChange`** (`src/store/history.ts`),
+  the one choke point every undoable mutation passes through. Bulk loads run
+  inside `loadingFeed()`, which suppresses history, so a load is never counted
+  as an edit. The once-per-session guard is sessionStorage-backed so a reload
+  (which keeps the session id) doesn't double-count.
+- **These are not conversion kinds.** `CONVERSION_KINDS` (`worker/events/
+  routes.ts`) and `ALL_UPLOAD_KINDS` (`worker/marketing/ads/oci.ts`) both stay
+  at four, so a funnel row can never be hashed or uploaded. Asserted directly
+  in `worker/__tests__/events.firstRunFunnel.test.ts`.
+- **Count sessions, not rows.** One session legitimately produces several
+  `editor_loaded` / `paywall_view` rows (each AppShell mount, each gated panel),
+  so funnel queries use `COUNT(DISTINCT session_id)`.
