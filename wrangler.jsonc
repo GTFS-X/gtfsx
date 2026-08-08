@@ -89,6 +89,16 @@
     // recipient defaults to OWNER_NOTIFY_EMAIL (override with OWNER_DIGEST_EMAIL).
     // Fires on the "0 13 * * *" cron. See worker/cron + worker/email/sendOwnerDigest.
     "OWNER_DIGEST_ENABLED": "true",
+    // Offline conversion import: upload a conversion on a hashed email alone,
+    // with no ad click id. Structurally limited to sign_up + demo_request —
+    // paywall_view/feed_exported have no email server-side (the analytics beacon
+    // is deliberately credential-less), so they can never qualify. The cutover is
+    // mandatory and set to the moment this was switched on, so enabling it cannot
+    // reach back over history: in particular the 104 crawler-generated
+    // demo_request rows from 2026-07-12/13, before that event moved to firing on
+    // form submit. Both settings must be present or the capability stays off.
+    "GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS": "sign_up,demo_request",
+    "GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE": "2026-08-08T21:30:00Z",
     "APP_ORIGIN": "https://www.gtfsx.com",
     "FEEDS_ORIGIN": "https://feeds.gtfsx.com",
     // Dedicated host for user-uploaded forum images. New uploads return
