@@ -32,7 +32,17 @@ const TrackSchema = z.object({
   // submit (POST /api/demo-leads, worker/marketing/demoLead.ts); it's listed
   // here for kind parity with src/services/trackBeacon.ts — the client has no
   // beacon call site for it.
-  kind: z.enum(['page_view', 'editor_loaded', 'feed_exported', 'paywall_view', 'cta_click', 'demo_request']),
+  //
+  // The six kinds on the second line are the FIRST-RUN FUNNEL set (2026-08-08):
+  // additive telemetry for the stretch between opening the editor and hitting a
+  // paywall / exporting. They are NOT conversion kinds — CONVERSION_KINDS above
+  // and ALL_UPLOAD_KINDS in worker/marketing/ads/oci.ts both stay at four, so
+  // these never carry a hashed email and are never uploaded to Google Ads.
+  // Their `label` vocabulary is the enum set in src/services/trackBeacon.ts.
+  kind: z.enum([
+    'page_view', 'editor_loaded', 'feed_exported', 'paywall_view', 'cta_click', 'demo_request',
+    'feed_opened', 'feed_import_failed', 'feed_edited', 'export_attempt', 'export_failed', 'gate_blocked',
+  ]),
   path: z.string().min(1).max(512),
   ref: z.string().min(1).max(128).nullable().optional(),
   sessionId: z.string().min(8).max(64),

@@ -11,6 +11,7 @@ import {
   type AssistantStreamHandlers,
 } from '../../services/assistantApi';
 import { isSidebarSection, isBottomPanelTab } from '../../assistant/deepLinkTargets';
+import { trackGateBlocked } from '../../services/trackBeacon';
 import type { AssistantMessage, AssistantFeatureRequestCard } from '../../store/assistantSlice';
 
 const SUGGESTIONS = [
@@ -87,6 +88,13 @@ export function AskGtfsxPanel() {
         onError: (err) => {
           const st = useStore.getState();
           if (err.code === 'quota_exceeded' && err.quota) st.setAssistantQuota(err.quota);
+          // Two walls worth counting. The panel is offered to ANONYMOUS editor
+          // visitors (FloatingHelp renders it unconditionally) but POST
+          // /api/assistant/chat is requireAuth — so asking a question as a
+          // first-run visitor 401s. The other is the per-plan daily message
+          // limit. Neither shows a paywall overlay, so neither was visible.
+          if (err.status === 401) trackGateBlocked('assistant_signin');
+          else if (err.code === 'quota_exceeded') trackGateBlocked('assistant_quota');
           st.setAssistantReplyError(replyId, err.message);
         },
       };

@@ -13,6 +13,7 @@ import { VariantSwitcher } from '../variants/VariantSwitcher';
 import { UndoRedoControls } from './UndoRedoControls';
 import { UserMenu, UserMenuItems } from './UserMenu';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { trackGateBlocked } from '../../services/trackBeacon';
 
 // Re-export RoleBadge for callers that imported it from TopBar previously.
 export { RoleBadge } from './UserMenu';
@@ -73,6 +74,10 @@ export function TopBar() {
   const handleSaveClick = async () => {
     setSaveError(null);
     if (!currentUser) {
+      // THE first-run wall: an anonymous visitor built something and tried to
+      // keep it. It's a sign-in wall, not a plan paywall, so it fires no
+      // paywall_view and was completely absent from the funnel before this.
+      trackGateBlocked('save_signin');
       const next = `${window.location.pathname || '/'}?save=1`;
       navigate(`/login?next=${encodeURIComponent(next)}`);
       return;

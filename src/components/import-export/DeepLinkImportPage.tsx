@@ -5,6 +5,7 @@ import { useStore } from '../../store';
 import { AppBrand } from '../layout/AppBrand';
 import { resolvePartnerLabel } from './partnerAttribution';
 import { parseMdbSourceId } from '../../services/mdbSourceId';
+import { trackFeedImportFailed, trackFeedOpened } from '../../services/trackBeacon';
 
 interface ImportErrorPayload {
   code: string;
@@ -132,6 +133,7 @@ export function DeepLinkImportPage() {
           }
         }
 
+        trackFeedOpened('deeplink');
         setStatus('done');
         // Redirect to the editor. Replace history so back-button doesn't
         // re-trigger the import.
@@ -139,6 +141,13 @@ export function DeepLinkImportPage() {
       } catch (e) {
         if (cancelled) return;
         const code = (e as Error & { code?: string }).code || 'parse_failed';
+        // fetchImport is the only thing that stamps `code`, so its presence is
+        // exactly "we never got usable bytes". Neither the code nor the message
+        // is sent — only the stage, from the fixed enum.
+        trackFeedImportFailed(
+          'deeplink',
+          (e as Error & { code?: string }).code ? 'fetch' : 'parse',
+        );
         const message =
           (e as Error).message || 'Something went wrong importing this feed.';
         // Map raw GTFS-parse failures to the spec's "looks like a ZIP but not GTFS" message.

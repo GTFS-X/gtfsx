@@ -17,7 +17,14 @@ import { ConflictDialog } from './components/snapshots/ConflictDialog';
 import { Banner } from './components/ui/Banner';
 import { ImpersonationBanner } from './components/admin/ImpersonationBanner';
 import { RtBreakageDialog } from './components/distribution/RtBreakageDialog';
-import { captureGclidFromUrl, captureRefFromUrl, trackPageview } from './services/trackBeacon';
+import {
+  captureGclidFromUrl,
+  captureRefFromUrl,
+  trackFeedImportFailed,
+  trackFeedOpened,
+  trackGateBlocked,
+  trackPageview,
+} from './services/trackBeacon';
 
 // Route-level code splitting. The homepage (`/`) renders the editor, so its
 // shell stays eager (imported above); every other route is loaded on demand
@@ -82,16 +89,32 @@ function PageviewTracker() {
 // published Sunny Valley Transit example and matches the slug the embed
 // example site uses, so /demo and /embed-demo always show the same data.
 async function loadDemoFeed() {
-  const res = await fetch('https://feeds.gtfsx.com/svt-demo/gtfs.zip');
-  if (!res.ok) throw new Error('Demo feed not found');
-  const blob = await res.blob();
-  const file = new File([blob], 'svt-demo.zip', { type: 'application/zip' });
-  const data = await importGtfsZip(file);
+  // Split fetch from parse so a failure records WHICH half broke. Until now a
+  // /demo that never loaded was logged to console.error and nowhere else — an
+  // ad click landing on a silently empty editor looked identical to a bounce.
+  let file: File;
+  try {
+    const res = await fetch('https://feeds.gtfsx.com/svt-demo/gtfs.zip');
+    if (!res.ok) throw new Error('Demo feed not found');
+    const blob = await res.blob();
+    file = new File([blob], 'svt-demo.zip', { type: 'application/zip' });
+  } catch (e) {
+    trackFeedImportFailed('demo', 'fetch');
+    throw e;
+  }
+  let data: Awaited<ReturnType<typeof importGtfsZip>>;
+  try {
+    data = await importGtfsZip(file);
+  } catch (e) {
+    trackFeedImportFailed('demo', 'parse');
+    throw e;
+  }
   loadImportIntoStore(data);
   useStore.getState().setProjectName('Sunny Valley Transit');
   // Loading is not "editing" — clear the dirty flag so the beforeunload
   // prompt doesn't fire on refresh until the user actually changes something.
   useStore.getState().markSaved();
+  trackFeedOpened('demo');
 }
 
 function EditorRoute({ demo = false }: { demo?: boolean }) {
@@ -185,6 +208,8 @@ function ServerEditorRoute() {
   useEffect(() => {
     if (!authChecked) return;
     if (!currentUser) {
+      // A sign-in wall, not a paywall — invisible in the funnel until now.
+      trackGateBlocked('feeds_signin');
       navigate(`/login?next=${encodeURIComponent(`/feeds/${slug ?? ''}`)}`, { replace: true });
       return;
     }
@@ -231,6 +256,10 @@ function ServerEditorRoute() {
         useStore.getState().setProjectId(proj.id);
         await loadProjectFromServer(proj.id);
         if (cancelled) return;
+        // Keeps the funnel denominator honest: an editor session that opened a
+        // saved cloud feed did get a feed in front of the user, so it must not
+        // be counted alongside "opened the editor and saw nothing".
+        trackFeedOpened('saved_project');
         localUnsub = setupAutoSave();
       } catch (err) {
         if (cancelled) return;

@@ -1,11 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import { flexZoneHasGroup, flexZoneHasPolygons } from '../../store/flexSlice';
 import { exportGtfsZip, downloadBlob } from '../../services/gtfsExport';
 import { exportFeedGeoJSON, feedHasGeoJSONGeometry } from '../../services/geojsonExport';
 import { runValidation } from '../../services/validation';
-import { trackFeedExported } from '../../services/trackBeacon';
+import { trackExportAttempt, trackExportFailed, trackFeedExported } from '../../services/trackBeacon';
 import { useProNudge } from '../billing/useProNudge';
 import { useEditorPlan } from '../billing/useEditorPlan';
 import { planHasFeature, cheapestPlanFor, planDisplayName } from '../billing/planConfig';
@@ -17,6 +17,7 @@ interface ExportDialogProps {
 
 export function ExportDialog({ onClose }: ExportDialogProps) {
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [warningsExpanded, setWarningsExpanded] = useState(false);
   const fireNudge = useProNudge();
   const navigate = useNavigate();
@@ -36,6 +37,19 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
   const errors = messages.filter((m) => m.severity === 'error');
   const warnings = messages.filter((m) => m.severity === 'warning');
   const hasErrors = errors.length > 0;
+
+  // Record that an export was ATTEMPTED, and whether the feed could actually be
+  // exported at that moment. `feed_exported` only ever fired on success, so a
+  // user who opened this dialog and found the button dead behind "Fix errors
+  // before exporting" was indistinguishable from one who never tried. One event
+  // per dialog open; the ref keeps a re-render (runValidation runs every render)
+  // from re-firing it.
+  const attemptTracked = useRef(false);
+  useEffect(() => {
+    if (attemptTracked.current) return;
+    attemptTracked.current = true;
+    trackExportAttempt(hasErrors ? 'blocked_validation' : 'ready');
+  }, [hasErrors]);
 
   // Check if errors are orphan references that can be auto-fixed
   const hasOrphanErrors = errors.some((e) =>
@@ -87,6 +101,7 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
 
   const handleExport = async () => {
     setExporting(true);
+    setExportError(null);
     try {
       const blob = await exportGtfsZip();
       const name = fileName.trim() || state.projectName.replace(/\s+/g, '_').toLowerCase();
@@ -102,6 +117,12 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
         useStore.getState().setProjectName(fileName.trim());
       }
       onClose();
+    } catch (e) {
+      // Previously uncaught: the zip build blew up, the dialog silently
+      // re-enabled its button, and the funnel showed nothing at all. Record the
+      // failure and tell the user. The thrown message is shown but never sent.
+      trackExportFailed('gtfs_zip');
+      setExportError(e instanceof Error ? e.message : 'Export failed');
     } finally {
       setExporting(false);
     }
@@ -121,7 +142,14 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
       return;
     }
     const name = fileName.trim() || s.projectName.replace(/\s+/g, '_').toLowerCase();
-    exportFeedGeoJSON(s, name);
+    setExportError(null);
+    try {
+      exportFeedGeoJSON(s, name);
+    } catch (e) {
+      trackExportFailed('geojson');
+      setExportError(e instanceof Error ? e.message : 'GeoJSON export failed');
+      return;
+    }
     trackFeedExported();
     if (fileName.trim() && fileName.trim() !== s.projectName.replace(/\s+/g, '_').toLowerCase()) {
       s.setProjectName(fileName.trim());
@@ -267,6 +295,11 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
         </div>
 
         <div className="px-6 py-4 border-t border-sand shrink-0 flex flex-col gap-2">
+          {exportError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
+              {exportError}
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               onClick={onClose}

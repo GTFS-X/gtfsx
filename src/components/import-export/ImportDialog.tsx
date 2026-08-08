@@ -9,6 +9,7 @@ import { feedNeedsShapes } from '../../services/shapesFromStops';
 import { detectRtapFeed } from '../../services/rtapDetect';
 import { parseMdbSourceId } from '../../services/mdbSourceId';
 import { ShapesFromStopsDialog } from '../shapes/ShapesFromStopsDialog';
+import { trackFeedImportFailed, trackFeedOpened, type FeedOrigin } from '../../services/trackBeacon';
 
 type ImportSource = 'upload' | 'url' | 'catalog' | 'myfeeds';
 
@@ -95,7 +96,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
   // (expensive, main-thread-blocking) parse so the user can back out instead
   // of hanging/crashing the tab.
   const [pendingLarge, setPendingLarge] = useState<
-    { file: File; info: Awaited<ReturnType<typeof inspectGtfsZip>>; sourceUrl: string | null; mdbSourceId: number | null } | null
+    { file: File; info: Awaited<ReturnType<typeof inspectGtfsZip>>; sourceUrl: string | null; mdbSourceId: number | null; origin: FeedOrigin } | null
   >(null);
 
   // Success state
@@ -124,6 +125,12 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
   // (issue #47). Threaded as an explicit arg into doReplaceImport as well, so
   // the auto-import-on-empty-project path doesn't read stale state.
   const [importMdbSourceId, setImportMdbSourceId] = useState<number | null>(null);
+  // Which source tab produced the feed now sitting on the options screen.
+  // Stashed like importSourceUrl — it's provenance about THIS import action —
+  // so the deferred "Replace project" / "Import selected routes" buttons can
+  // label their analytics event with the origin the feed actually came from
+  // rather than whichever tab happens to be selected when they're clicked.
+  const [importOrigin, setImportOrigin] = useState<FeedOrigin>('upload');
 
   // Async completion state (only used when onComplete is provided).
   const [completing, setCompleting] = useState(false);
@@ -148,7 +155,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
    * the first-time-import flow: clear all existing state, load the new feed,
    * rename the project, pan/zoom the map to the new routes, and surface the
    * success screen. */
-  const doReplaceImport = useCallback((data: ImportData, name: string, mdbSourceId: number | null = null) => {
+  const doReplaceImport = useCallback((data: ImportData, name: string, mdbSourceId: number | null = null, origin: FeedOrigin = 'upload') => {
     loadImportIntoStore(data);
     useStore.getState().setProjectName(name);
     // Stamp Mobility Database import provenance AFTER loadImportIntoStore, which
@@ -163,6 +170,9 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     // beforeunload prompt only fires once the user actually modifies the
     // freshly imported feed.
     useStore.getState().markSaved();
+    // A feed is now in front of the user — the first-run funnel's "they got
+    // something loaded" signal. Origin only; no file name, URL, or contents.
+    trackFeedOpened(origin);
     setImportedCounts({
       routes: data.routes.length,
       stops: data.stops.length,
@@ -183,13 +193,14 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
    * it's provenance about THIS import action, not a property of the parsed
    * feed itself — it survives untouched whether we replace immediately or the
    * user lands on the mode-selection screen first. */
-  const presentImportData = useCallback((data: ImportData, name: string, sourceUrl: string | null = null, mdbSourceId: number | null = null) => {
+  const presentImportData = useCallback((data: ImportData, name: string, sourceUrl: string | null = null, mdbSourceId: number | null = null, origin: FeedOrigin = 'upload') => {
     setImportWarnings(data.warnings);
     setImportSourceUrl(sourceUrl);
     setImportMdbSourceId(mdbSourceId);
+    setImportOrigin(origin);
     // If the project is empty, skip the options screen and import immediately
     if (useStore.getState().routes.length === 0) {
-      doReplaceImport(data, name, mdbSourceId);
+      doReplaceImport(data, name, mdbSourceId, origin);
       return;
     }
     setParsedData(data);
@@ -200,7 +211,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
 
   // The actual (expensive) parse. Always reached via parseFile so every entry
   // point — upload, URL, catalog — goes through the size pre-flight first.
-  const runParse = useCallback(async (file: File, sourceUrl: string | null = null, mdbSourceId: number | null = null) => {
+  const runParse = useCallback(async (file: File, sourceUrl: string | null = null, mdbSourceId: number | null = null, origin: FeedOrigin = 'upload') => {
     setParsing(true);
     setProgress(null);
     setError(null);
@@ -209,8 +220,12 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
         setProgress(rows ? `${phase} ${rows.toLocaleString()} rows` : phase),
       );
       const name = file.name.replace(/\.zip$/i, '');
-      presentImportData(data, name, sourceUrl, mdbSourceId);
+      presentImportData(data, name, sourceUrl, mdbSourceId, origin);
     } catch (e: unknown) {
+      // We fetched (or were handed) bytes and they weren't a usable GTFS zip.
+      // Only the stage is recorded — never the parser's message, which can
+      // quote file names and row contents.
+      trackFeedImportFailed(origin, 'parse');
       setError(e instanceof Error ? e.message : 'Failed to parse GTFS feed');
     } finally {
       setParsing(false);
@@ -218,7 +233,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     }
   }, [presentImportData]);
 
-  const parseFile = useCallback(async (file: File, sourceUrl: string | null = null, mdbSourceId: number | null = null) => {
+  const parseFile = useCallback(async (file: File, sourceUrl: string | null = null, mdbSourceId: number | null = null, origin: FeedOrigin = 'upload') => {
     setError(null);
     // Cheap pre-flight: if stop_times is large, gate behind a confirmation
     // instead of charging into a parse that can hang or crash the tab. If the
@@ -226,26 +241,29 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     try {
       const info = await inspectGtfsZip(file);
       if (info.isLarge) {
-        setPendingLarge({ file, info, sourceUrl, mdbSourceId });
+        setPendingLarge({ file, info, sourceUrl, mdbSourceId, origin });
         return;
       }
     } catch {
       /* ignore — proceed to the normal parse path */
     }
-    await runParse(file, sourceUrl, mdbSourceId);
+    await runParse(file, sourceUrl, mdbSourceId, origin);
   }, [runParse]);
 
   const proceedWithLarge = useCallback(() => {
     if (!pendingLarge) return;
-    const { file, sourceUrl, mdbSourceId } = pendingLarge;
+    const { file, sourceUrl, mdbSourceId, origin } = pendingLarge;
     setPendingLarge(null);
-    runParse(file, sourceUrl, mdbSourceId);
+    runParse(file, sourceUrl, mdbSourceId, origin);
   }, [pendingLarge, runParse]);
 
   const cancelLarge = useCallback(() => {
+    // Backing out of the size gate isn't an error, but it is an import that
+    // produced no feed — which is the funnel question.
+    if (pendingLarge) trackFeedImportFailed(pendingLarge.origin, 'declined_large');
     setPendingLarge(null);
     setError(null);
-  }, []);
+  }, [pendingLarge]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -261,12 +279,24 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
 
   const handleCatalogSelect = useCallback(async (feed: CatalogFeed, fileNameStem: string) => {
     const url = feed.latest_dataset?.hosted_url;
-    if (!url) throw new Error('Feed has no dataset URL.');
+    // Everything up to (and including) the proxy download is the "fetch" stage;
+    // parse failures are recorded by runParse itself, so this only wraps the
+    // retrieval. Rethrown unchanged — CatalogSearch owns the error UI.
+    if (!url) {
+      trackFeedImportFailed('catalog', 'fetch');
+      throw new Error('Feed has no dataset URL.');
+    }
     const proxied = `${window.location.origin}/_import/proxy?url=${encodeURIComponent(url)}`;
     setError(null);
-    const r = await fetch(proxied);
-    if (!r.ok) throw new Error(`Download failed: ${r.status} ${await r.text()}`);
-    const blob = await r.blob();
+    let blob: Blob;
+    try {
+      const r = await fetch(proxied);
+      if (!r.ok) throw new Error(`Download failed: ${r.status} ${await r.text()}`);
+      blob = await r.blob();
+    } catch (e) {
+      trackFeedImportFailed('catalog', 'fetch');
+      throw e;
+    }
     const file = new File([blob], `${fileNameStem}.zip`, { type: 'application/zip' });
     // Prefer the producer's own URL (where the feed was actually published) for
     // RTAP provenance detection — an RTAP-built feed catalogued by Mobility
@@ -278,7 +308,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     // feed.id is the Mobility Database id (`mdb-<n>`); carry its numeric source
     // id as switcher provenance (issue #47). parseMdbSourceId returns null for
     // anything that isn't a clean MDB id, so we never guess.
-    await parseFile(file, feed.source_info?.producer_url ?? url, parseMdbSourceId(feed.id));
+    await parseFile(file, feed.source_info?.producer_url ?? url, parseMdbSourceId(feed.id), 'catalog');
   }, [parseFile]);
 
   // "My feeds" import: resolve the selected feed — published OR draft — from its
@@ -290,12 +320,19 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
   // Org-scoping is enforced server-side on the /working-state route.
   const handleMyFeedSelect = useCallback(async (feed: MyFeedItem) => {
     setError(null);
-    const data = await resolveMyFeedImportData(feed.id);
+    let data: ImportData;
+    try {
+      data = await resolveMyFeedImportData(feed.id);
+    } catch (e) {
+      trackFeedImportFailed('myfeeds', 'fetch');
+      throw e;
+    }
     if (data.routes.length === 0) {
+      trackFeedImportFailed('myfeeds', 'empty');
       throw new Error('That feed has no routes to import yet.');
     }
     // No external URL for an internal project reference.
-    presentImportData(data, feed.name || feed.slug, null);
+    presentImportData(data, feed.name || feed.slug, null, null, 'myfeeds');
   }, [presentImportData]);
 
   const handleUrlFetch = useCallback(async () => {
@@ -330,8 +367,11 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
       const file = new File([blob], `${stem}.zip`, { type: 'application/zip' });
       // The URL the user pasted IS the feed's actual source — the strongest
       // provenance signal we have.
-      await parseFile(file, trimmed);
+      await parseFile(file, trimmed, null, 'url');
     } catch (e) {
+      // Only retrieval failures reach here — parseFile swallows parse errors
+      // and records them itself. The pasted URL is deliberately NOT logged.
+      trackFeedImportFailed('url', 'fetch');
       setError((e as Error).message || 'Failed to fetch feed.');
     } finally {
       setParsing(false);
@@ -351,10 +391,15 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     if (!parsedData) return;
 
     if (mode === 'replace') {
-      doReplaceImport(parsedData, fileName, importMdbSourceId);
+      doReplaceImport(parsedData, fileName, importMdbSourceId, importOrigin);
     } else {
       if (selectedRouteIds.size === 0) return;
       mergeImportIntoStore(parsedData, selectedRouteIds);
+      // A merge lands routes in an already-open feed. Labelled 'merge' rather
+      // than the source tab so it can't be mistaken for a first-run "the user
+      // finally got a feed loaded" event. Note a merge is undoable, so it also
+      // trips the `feed_edited` beacon via history.recordChange.
+      trackFeedOpened('merge');
       // Count stops/trips for selected routes
       const selTripIds = new Set(
         parsedData.trips
@@ -584,7 +629,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
               onClick={() => {
                 if (!parsedData) return;
                 setMode('replace');
-                doReplaceImport(parsedData, fileName, importMdbSourceId);
+                doReplaceImport(parsedData, fileName, importMdbSourceId, importOrigin);
               }}
               className="flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors bg-white text-warm-gray border-sand hover:border-coral hover:text-dark-brown"
             >
