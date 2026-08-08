@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!--
+      SOURCES — every factual claim on this page traces to one of these. Re-audit
+      against these before editing any number, date, or consequence statement.
+
+      [1] FTA, "National Transit Database 2026 Policy Manual — Full Reporting"
+          (published June 2026; supersedes the 2025 manual; "applicable beginning
+          in NTD Report Year 2026").
+          https://www.transit.dot.gov/sites/fta.dot.gov/files/2026-06/2026-NTD-Full-Policy-Manual_0.pdf
+          · p. 7  "FTA apportions funds using NTD data from two years before the
+                   apportionment year (e.g., Fiscal Year [FY] 2026 data are used
+                   for FTA FY 2028 apportionment)."
+          · p. 7  "To be eligible to receive funding from FTA, transit agencies must
+                   report to the NTD and follow the requirements listed in this manual."
+          · p. 10 "Failure to Report" — FTA may issue one if an agency "Fails to submit
+                   a report / Submits a late report / Submits an incomplete report; or
+                   Fails to respond to validation questions." "If a transit agency
+                   receives a Failure to Report notice, FTA does not include its data in
+                   the apportionment of UZA and rural funding." A report is incomplete if
+                   "The agency did not collect and submit the data in conformance with NTD
+                   requirements." "When FTA issues a Failure to Report notice, it notifies
+                   the CEO of the transit agency and the FTA Regional Administrator."
+          · p. 12 "FTA determines each agency's NTD report due date based on the agency's
+                   fiscal year-end date. Reporters submit their Annual Report four months
+                   after their fiscal year ends."  Exhibit 5 (Annual Reporting Deadlines):
+                   FY end 30 Jun → waiver/special-request 31 Aug → due 31 Oct → last
+                   revisions 1 Mar → closeout 15 Mar; 30 Sep → 30 Nov / 31 Jan / 1 May /
+                   15 May; 31 Dec → 28 Feb / 30 Apr / 1 Jul / 15 Jul.
+          · p. 3  "If a transit provider, local government, State, or Metropolitan Planning
+                   Organization (MPO) receives or benefits from § 5307 or § 5311 Federal
+                   funding, it must report to the NTD."
+          · p. 17 "Beneficiaries and recipients of § 5307 and § 5311 funds must file an
+                   Annual Report."
+          · p. 18 Exhibit 9 (Urban Reporter Types) — Full: >30 vehicles across all modes/TOS,
+                   or ≤30 with Fixed Guideway/High Intensity Busway. Reduced: ≤30 vehicles,
+                   no FG/HIB.
+          · pp. 52–54 Form P-50, "General Transit Feed Specification Data for Fixed Route
+                   Service" (listed in the manual's own RY2026 change table as "Expanded
+                   GTFS Guidance"). "FTA requires NTD reporters with fixed route service to
+                   create and maintain a General Transit Feed Specification (GTFS) feed."
+                   "The GTFS requirements below apply to Full Reporters, Reduced Reporters
+                   (including Tribal Reporters) and Rural Reporters (subrecipients). The
+                   requirements do not apply to Reduced Asset Reporters nor Group Plan
+                   Sponsor Reporters." Seven required files + "shapes.txt (Required for all
+                   GTFS submissions beginning in RY 2026)"; feed_info.txt "Optional but
+                   strongly recommended". "all reporters must provide a value in the
+                   agency_id field on the P-50 form and in the agency.txt,
+                   fare_attributes.txt, and routes.txt files." "GTFS feeds should reflect
+                   active, current operations and should not feature expired service dates
+                   (agencies must ensure the calendar.txt or calendar_dates.txt files
+                   represent service that is current at least through the end of the most
+                   recently completed fiscal year)." Weblink rules: no enterprise storage
+                   links (Google Drive/SharePoint), no safelink wrappers, no password
+                   protection, direct .zip download. Waiver available to submit a zip via
+                   the P-50 form where hosting a link is demonstrably impossible; RTAP
+                   offers free hosting. Annual certification via the D-10 form.
+          · p. 55 Form B-15, "Geospatial Data for Demand Response Modes" — DR modes report
+                   service area (States, counties, census-designated places), days operated,
+                   populations served, and fares. Not GTFS.
+          · p. 248 Waivers. "Transit agencies must request waivers 60 days prior to the
+                   Annual Report due date." "An approved waiver does not affect a transit
+                   agency's funding eligibility for § 5307, § 5311, § 5337, or § 5339
+                   funding, but it may affect the amount of funding the agency's UZA(s)
+                   receive. In a large UZA or a rural area, the amount of funding may
+                   decrease because FTA may not include specific data in formula funding
+                   programs."
+          NOTE: the manual carries FTA's standard guidance disclaimer ("not legally binding
+          in its own right"). The statutory hook is [4]; the manual states how FTA operates
+          the collection. This page attributes each claim accordingly.
+
+      [2] 90 FR 30771 (2025-07-10), "National Transit Database Reporting Changes and
+          Clarifications for Report Years 2025 and 2026" (FR doc 2025-12813) — FINAL.
+          https://www.federalregister.gov/documents/2025/07/10/2025-12813/
+          · shapes.txt: "FTA is adopting this change as proposed... The change will go into
+            effect in RY 2025 for full reporters and RY 2026 for reduced, rural, and tribal
+            reporters."
+          · agency_id as a non-conditional requirement in routes.txt and fare_attributes.txt:
+            "The change will take effect beginning in RY 2025."
+          · FTA declined to require agency_id == NTD ID; it will crosswalk internally via P-50.
+          · "FTA already conducts data validation processes and requires executive-level
+            certification from reporter leadership (i.e. CEO certification on the D-10 form)."
+
+      [3] 88 FR 13497 (2023-03-03), "National Transit Database: Reporting Changes and
+          Clarifications" (FR doc 2023-04379) — FINAL notice adopting GTFS as mandatory.
+          https://www.federalregister.gov/documents/2023/03/03/2023-04379/
+          · "FTA is adopting GTFS reporting as a mandatory requirement."
+          · "FTA proposed that agencies establish and submit 'static' GTFS data beginning in
+            Report Year 2023."
+          · Validation: "The primary validation check will be that all links to public GTFS
+            are viable and current. The Uniform Resource Locators (URLs) provided by agencies
+            will be checked periodically and agencies may be notified if a link they have
+            provided is broken." FTA "will not make this validation step mandatory" but
+            "agencies are encouraged to validate their GTFS feeds before submission."
+            Also: "Validation analysts will also manually inspect files and routes,
+            particularly the shapes.txt file (if provided)... there will be some auditing of
+            individual .txt files, though not necessarily for every submission."
+            → there is NO automated pass/fail validator gate at submission. Do not imply one.
+          · feed_info.txt: "the 'feed_info.txt' file will be optional." FTA proposed making it
+            mandatory and reversed after comment. NOTE: DOT's open-data description of the
+            GTFS Weblinks dataset wrongly lists feed_info.txt as required and shapes.txt as
+            optional — do not source the file list from there.
+          · Predecessor proposal: 87 FR 40581 (2022-07-07), FR doc 2022-14502.
+
+      [4] 49 U.S.C. § 5335 (as amended by the Infrastructure Investment and Jobs Act,
+          Pub. L. 117-58). (a) directs a reporting system "using uniform categories to
+          accumulate public transportation financial, operating, geographic service area
+          coverage, and asset condition information." (b) "The Secretary may award a grant
+          under section 5307 or 5311 only if the applicant, and any person that will
+          receive benefits directly from the grant, are subject to the reporting and
+          uniform systems."
+          https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title49-section5335
+
+      [5] FTA, "2024 Annual Database — Agency Information" (2024 Agency Information_2607007.xlsx,
+          posted 2026-07). https://www.transit.dot.gov/ntd/data-product/2024-annual-database-agency-information
+          Tabulated 2026-08-08 over 2,914 reporter records: "Original Due Date" = 31 Oct for
+          1,742 of the 2,908 records that carry one (59.9%); 20.8% due 31 Jan; 19.2% due 30 Apr.
+          "FY End Date" = 30 June for 1,720 records (59.0%).
+          → this is the ONLY basis for the "about three in five" / 31 October framing on this
+            page. Do not restate it as "most agencies" beyond what this supports.
+
+      [6] FAR 2.101 — micro-purchase threshold means $15,000. Inflation adjustment effective
+          2025-10-01 (FAC 2025-06, FAR Case 2024-001; 90 FR, 2025-08-27).
+          https://www.acquisition.gov/far/2.101 · https://www.acquisition.gov/threshold-changes
+          Recipients of federal awards: 2 CFR 200.320(a)(1)(iii) — "The recipient or
+          subrecipient is responsible for determining and documenting an appropriate
+          micro-purchase threshold based on internal controls, an evaluation of risk, and its
+          documented procurement procedures." An agency's own threshold may be LOWER than
+          $15,000 (and may be self-certified up to $50,000 under (a)(1)(iv)); (a)(1)(ii) still
+          requires a documented price-reasonableness determination. FAR 2.101 also carves out
+          $2,500 for services subject to the Service Contract Labor Standards.
+          → the page therefore says "a micro-purchase rather than a competitive solicitation"
+            and "your own documented threshold governs, and it may be lower". Do NOT weaken
+            that back to "no procurement process required".
+
+      [7] GTFS·X Feed Health dashboard (/feed-health/), export generated 2026-07-31 from
+          GTFS-X/gtfs-feed-health: 2,238 agencies on the FY2024 NTD roster; 45% have no GTFS
+          feed findable via FTA's Weblinks crosswalk or the Mobility Database.
+
+      DELIBERATELY OMITTED for lack of a primary source:
+        · Any claim that a nonconforming submission causes an agency to "lose funding" or
+          lose eligibility. [1] p. 248 says the opposite about eligibility; the real mechanism
+          is exclusion of that agency's data from formula factors. Do not soften this back.
+        · Any count/share of reporters currently in compliance with the P-50 GTFS requirement.
+          FTA's GTFS Weblinks dataset (data.transportation.gov 2u7n-ub22) shows 1,212 distinct
+          agencies with a weblink on file, but the correct denominator — fixed-route reporters
+          only — is not published, so any percentage would be invented. Left out.
+        · Any claim about how often FTA has issued a Failure to Report, or that one has ever
+          been issued over GTFS specifically. No evidence found either way.
+        · Any claim that FTA runs the canonical MobilityData validator against submitted feeds.
+          [1] p. 53 recommends agencies use it; [3] says FTA's primary check is link viability
+          plus discretionary manual inspection.
+        · Any GTFS-Flex / demand-response NTD obligation. There is none; DR geospatial data
+          goes on Form B-15 [1] p. 55.
+    -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>Does NTD Require a GTFS Feed? Requirements and Deadlines</title>
+    <meta name="description" content="Yes, if you operate fixed route service. FTA collects GTFS on Form P-50, shapes.txt is now required, and the Annual Report is due four months after your fiscal year ends — 31 October for about three in five reporters. What's required, who's exempt, and what a nonconforming submission actually means." />
+    <link rel="canonical" href="https://www.gtfsx.com/ntd/" />
+    <meta property="og:title" content="Does NTD Require a GTFS Feed? Requirements and Deadlines" />
+    <meta property="og:description" content="Yes, if you operate fixed route service. FTA collects GTFS on Form P-50, shapes.txt is now required, and the Annual Report is due four months after your fiscal year ends — 31 October for about three in five reporters." />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://www.gtfsx.com/ntd/" />
+    <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="GTFS·X" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@gtfsxapp" />
+    <meta name="twitter:image" content="https://www.gtfsx.com/og-default.png" />
+    <style>
+      :root { --bg:#FFF8F0; --ink:#2A1F18; --muted:#6B5A4D; --accent:#E8734A; --rule:#EADBC8; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Inter", sans-serif; color:var(--ink); background:var(--bg); line-height:1.6; }
+      footer, main { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+      /* ─── site header (matches the editor) ─── */
+      .site-header { position: sticky; top: 0; z-index: 10; background:#fff; border-bottom:1px solid var(--rule); height:56px; display:flex; align-items:center; padding: 0 20px; gap:16px; }
+      .site-header .brand { display:inline-flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+      .site-header .brand img { height:36px; width:auto; }
+      .site-header .brand-name { font-weight:800; font-size:1.5rem; color:var(--accent); letter-spacing:-0.01em; }
+      .site-header nav { display:flex; gap:4px; margin-left:12px; }
+      .site-header nav a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; padding:8px 12px; border-radius:6px; transition:color 0.15s, background 0.15s; }
+      .site-header nav a:hover { color:var(--ink); background:var(--bg); }
+      .site-header nav a.active { color:var(--ink); background:var(--bg); }
+      .site-header .actions { margin-left:auto; display:flex; align-items:center; gap:12px; }
+      .site-header .cta { background:var(--accent); color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .cta:hover { filter:brightness(0.95); }
+      .site-header .user-slot a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .user-slot a:hover { color:var(--ink); }
+      .site-header .user-slot .user-avatar { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; font-weight:800; font-size:13px; text-decoration:none; }
+      .site-header .user-slot .user-avatar:hover { filter:brightness(0.95); }
+      @media (max-width: 720px) {
+        .site-header nav, .site-header .cta { display:none; }
+        .site-header .brand-name { font-size:1.25rem; }
+        .site-header .brand img { height:30px; width:auto; }
+      }
+      main { padding-top: 40px; padding-bottom: 60px; }
+      h1 { font-size: 2.2rem; line-height:1.2; margin: 0 0 12px; }
+      h2 { font-size: 1.4rem; margin-top: 2.2rem; }
+      h3 { font-size: 1.1rem; margin-top: 1.6rem; }
+      .lede { font-size: 1.15rem; color:var(--muted); }
+      a { color: var(--accent); }
+      ul { padding-left: 1.2rem; }
+      li { margin: 0.3rem 0; }
+      code { background:#fff; border:1px solid var(--rule); padding:1px 6px; border-radius:4px; font-size:0.9em; }
+      pre { background:#fff; border:1px solid var(--rule); padding:12px 16px; border-radius:6px; overflow-x:auto; font-size:0.9em; line-height:1.45; }
+      pre code { background:none; border:none; padding:0; }
+      table { border-collapse: collapse; width: 100%; margin: 1.5rem 0; }
+      th, td { border: 1px solid var(--rule); padding: 8px 12px; text-align: left; vertical-align: top; }
+      th { background: rgba(0,0,0,0.03); font-weight: 600; }
+      footer { border-top: 1px solid var(--rule); padding-top:20px; padding-bottom:40px; color:var(--muted); font-size:0.95rem; display:flex; flex-wrap:wrap; gap:18px; }
+      footer a { color: var(--muted); }
+      /* ─── page-specific: answer card, exits, table scroll ─── */
+      .answer { background:#fff; border:1px solid var(--rule); border-radius:10px; padding:20px 22px; margin:22px 0 6px; }
+      .answer dl { margin:0; }
+      .answer dt { font-size:12px; font-weight:800; letter-spacing:0.07em; text-transform:uppercase; color:var(--muted); }
+      .answer dd { margin:4px 0 16px; }
+      .answer dd:last-of-type { margin-bottom:0; }
+      .scroller { overflow-x:auto; }
+      .scroller table { margin:0; min-width:520px; }
+      .exits { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin:22px 0 8px; align-items:stretch; }
+      .exit { background:#fff; border:1px solid var(--rule); border-radius:10px; padding:20px 22px; display:flex; flex-direction:column; }
+      .exit h3 { margin:0 0 8px; font-size:1.05rem; }
+      .exit p { margin:0 0 16px; font-size:0.95rem; color:var(--muted); }
+      .exit p:last-of-type { flex:1 1 auto; }
+      .exit .btn { display:inline-block; align-self:flex-start; background:var(--accent); color:#fff; text-decoration:none; font-weight:600; font-size:14px; padding:9px 16px; border-radius:8px; }
+      .exit .btn:hover { filter:brightness(0.95); }
+      @media (max-width: 640px) { .exits { grid-template-columns:1fr; } }
+      @media (max-width: 480px) {
+        h1 { font-size: 1.85rem; }
+        main { padding-top: 28px; }
+        .answer { padding:16px 18px; margin-top:18px; }
+        .answer dd { margin-bottom:13px; }
+      }
+      .note { border-left:3px solid var(--rule); padding-left:14px; color:var(--muted); font-size:0.95rem; }
+      .sources { font-size:0.9rem; color:var(--muted); }
+      .sources li { margin:0.45rem 0; }
+    </style>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      "headline": "Does NTD Require a GTFS Feed? Requirements and Deadlines",
+      "url": "https://www.gtfsx.com/ntd/",
+      "description": "What the National Transit Database requires regarding GTFS, which reporters it applies to, when the Annual Report is due, and what a nonconforming submission actually means.",
+      "author": { "@type": "Organization", "name": "GTFS·X", "url": "https://www.gtfsx.com/" },
+      "publisher": { "@type": "Organization", "name": "GTFS·X", "url": "https://www.gtfsx.com/" }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Does NTD require a GTFS feed?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes, if you operate fixed route service. The 2026 NTD Policy Manual states that FTA requires NTD reporters with fixed route service to create and maintain a GTFS feed, submitted on Form P-50. FTA adopted GTFS reporting as a mandatory requirement in a March 2023 Federal Register notice, beginning in Report Year 2023."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "When is the NTD Annual Report due?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Four months after your fiscal year ends. A 30 June fiscal year end means 31 October; 30 September means 31 January; 31 December means 30 April. In FTA's 2024 Agency Information file, 1,742 of the 2,908 reporter records with a due date — about three in five — were due 31 October."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is shapes.txt required for NTD reporting?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. FTA finalized the requirement in July 2025 and phased it by reporter type: it took effect in Report Year 2025 for Full Reporters and Report Year 2026 for Reduced, Rural, and Tribal Reporters. The 2026 NTD Policy Manual lists shapes.txt as required for all GTFS submissions beginning in RY 2026."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does NTD require GTFS for demand-response service?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. The GTFS requirement on Form P-50 applies to fixed route service. Agencies reporting Demand Response modes provide geospatial data on Form B-15 instead — service area by state, county, and census-designated place, plus days operated, populations served, and fares. GTFS-Flex is not an NTD requirement."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What happens if my NTD submission does not conform to the requirements?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "FTA may issue a Failure to Report notice, which it sends to the agency CEO and the FTA Regional Administrator. Per the 2026 NTD Policy Manual, if an agency receives a Failure to Report notice, FTA does not include its data in the apportionment of urbanized area and rural funding. That is exclusion of the agency's data from the formula factors, not a loss of funding eligibility — FTA states elsewhere in the same manual that a waiver does not affect eligibility for Section 5307, 5311, 5337, or 5339 funding, though it may affect the amount the agency's urbanized area receives."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can my GTFS feed have expired service dates when I file?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. The 2026 NTD Policy Manual states that GTFS feeds should reflect active, current operations and should not feature expired service dates, and that agencies must ensure calendar.txt or calendar_dates.txt represent service current at least through the end of the most recently completed fiscal year. FTA points agencies at the MobilityData GTFS Validator and its Service Window value to check this."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I upload a GTFS zip instead of hosting a URL?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Only by waiver. FTA expects a publicly accessible link that downloads the zip directly. If an agency demonstrates that hosting a web link is not possible, it can request a waiver for FTA to accept a zip file submission via the P-50 form. National RTAP offers free GTFS hosting to any federally funded agency that cannot host the link itself."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does FTA validate my GTFS feed?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "There is no automated pass/fail validator gate at submission. FTA's stated primary check is that submitted links are viable and current; URLs are re-checked periodically and agencies may be notified when a link breaks. Validation analysts also manually inspect files and routes, particularly shapes.txt, with some auditing of individual .txt files though not necessarily for every submission. FTA encourages but does not require agencies to run a GTFS validator before submitting, and it requires CEO certification on the D-10 form."
+          }
+        }
+      ]
+    }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="brand">
+        <img src="/gtfsx-lockup.svg" alt="GTFS·X" />
+      </a>
+      <nav>
+        <a href="/about/">About</a>
+        <a href="/docs/">Docs</a>
+        <a href="/learn/gtfs/">Learn</a>
+        <a href="/community">Community</a>
+        <a href="/help">Help</a>
+      </nav>
+      <div class="actions">
+        <a href="/" class="cta">Open editor</a>
+        <div id="user-slot" class="user-slot">
+          <a href="/login">Sign in</a>
+        </div>
+      </div>
+    </header>
+    <main>
+      <h1>Does NTD require a GTFS feed?</h1>
+      <div class="answer">
+        <dl>
+          <dt>What</dt>
+          <dd>Yes — if you operate fixed route service. Those reporters must maintain a public GTFS feed and submit the link on <strong>Form P-50</strong> with the Annual Report. <code>shapes.txt</code> is now required too: RY 2025 for Full Reporters, RY 2026 for everyone else.</dd>
+          <dt>Who</dt>
+          <dd>Full, Reduced (including Tribal), and Rural subrecipient reporters — but only where they operate a fixed route mode. Not Reduced Asset or Group Plan Sponsor reporters, and not a demand-response requirement.</dd>
+          <dt>When</dt>
+          <dd>With your Annual Report, due <strong>four months after your fiscal year ends</strong>. For a 30 June fiscal year end — about three in five NTD reporters — that is <strong>31 October</strong>.</dd>
+        </dl>
+      </div>
+      <p class="note">Everything on this page is sourced to FTA and the Federal Register; the citations are <a href="#sources">listed at the bottom</a>. Your NTD validation analyst is the authority on your specific report.</p>
+
+      <h2>The deadline</h2>
+      <p>There is no single national NTD deadline. The 2026 NTD Policy Manual puts it plainly: &ldquo;FTA determines each agency&rsquo;s NTD report due date based on the agency&rsquo;s fiscal year-end date. Reporters submit their Annual Report four months after their fiscal year ends.&rdquo;</p>
+      <p>In practice that produces three dates, and one of them dominates. In FTA&rsquo;s published 2024 Agency Information file, 1,742 of the 2,908 reporter records carrying a due date — 59.9% — were due 31 October, because 59% of reporters run a fiscal year ending 30 June.</p>
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr>
+              <th>Fiscal year end</th>
+              <th>Waiver / special request</th>
+              <th>Annual Report due</th>
+              <th>Last date for revisions</th>
+              <th>Closeout</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>30 June</td><td>31 August</td><td><strong>31 October</strong></td><td>1 March</td><td>15 March</td></tr>
+            <tr><td>30 September</td><td>30 November</td><td>31 January</td><td>1 May</td><td>15 May</td></tr>
+            <tr><td>31 December</td><td>28 February</td><td>30 April</td><td>1 July</td><td>15 July</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Two things about that table are easy to miss.</p>
+      <ul>
+        <li><strong>The waiver deadline comes first.</strong> The manual sets the waiver and special-request deadline two months ahead of the due date — 31 August for a 30 June fiscal year end — and separately states that waivers must be requested 60 days before the Annual Report is due. If you already know you cannot produce a conforming feed in time, that is the date that matters, not the due date. FTA approves waivers case by case and will not approve one on the grounds of cost, staffing, or data-collection difficulty.</li>
+        <li><strong>Revisions are not an extension.</strong> The last two columns are a window for you and your validation analyst to resolve questions about a report you already filed. A report not submitted by the due date is late, and a late report is one of the four things that can draw a Failure to Report notice.</li>
+      </ul>
+
+      <h2>What FTA actually requires</h2>
+      <p>The requirement lives on Form P-50, &ldquo;General Transit Feed Specification Data for Fixed Route Service.&rdquo; FTA collects it under <a href="https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title49-section5335">49 U.S.C. &sect; 5335</a>, which the Infrastructure Investment and Jobs Act amended to add &ldquo;geographic service area coverage&rdquo; to the categories the National Transit Database accumulates. FTA adopted GTFS as the mechanism, and made it mandatory beginning in Report Year 2023.</p>
+
+      <h3>The feed itself</h3>
+      <p>A zip archive containing, at minimum:</p>
+      <ul>
+        <li><code>agency.txt</code>, <code>stops.txt</code>, <code>routes.txt</code>, <code>trips.txt</code>, <code>stop_times.txt</code>, and <code>calendar.txt</code> or <code>calendar_dates.txt</code></li>
+        <li><code>shapes.txt</code> — <strong>now required.</strong> FTA finalized this in July 2025, phased by reporter type: it took effect in <strong>RY 2025 for Full Reporters</strong> and <strong>RY 2026 for Reduced, Rural, and Tribal Reporters</strong>. The 2026 Policy Manual states it flatly, as required for all GTFS submissions beginning in RY 2026. If you are a Full Reporter, the obligation already applied last cycle. If your feed has never carried route geometry, this is the change most likely to catch you out.</li>
+        <li><code>feed_info.txt</code> — optional, but FTA strongly recommends it.</li>
+      </ul>
+      <p>Beyond the file list, two content rules do most of the work:</p>
+      <ul>
+        <li><strong>No expired service dates.</strong> Feeds &ldquo;should reflect active, current operations,&rdquo; and <code>calendar.txt</code> or <code>calendar_dates.txt</code> must represent service current at least through the end of your most recently completed fiscal year. FTA points agencies at the <a href="https://gtfs-validator.mobilitydata.org/">MobilityData GTFS Validator</a> and the &ldquo;Service Window&rdquo; value at the top of its report as the way to check.</li>
+        <li><strong><code>agency_id</code> everywhere.</strong> Every reporter must supply a value for <code>agency_id</code> on the P-50 form <em>and</em> in <code>agency.txt</code>, <code>routes.txt</code>, and <code>fare_attributes.txt</code>. GTFS treats the field as conditionally required; FTA does not, because it uses the value to crosswalk reporters to routes inside shared feeds. This became a non-conditional NTD requirement in RY 2025.</li>
+      </ul>
+
+      <h3>The link</h3>
+      <p>The feed has to be reachable by an automated process, which rules out several things agencies routinely submit:</p>
+      <ul>
+        <li>No enterprise storage links — Google Drive, SharePoint, and similar, because permissions block automated retrieval</li>
+        <li>No links wrapped by email security (Outlook Safe Links and equivalents); submit the direct source URL</li>
+        <li>No password protection; the feed must be publicly accessible</li>
+        <li>The URL must download the zip directly</li>
+      </ul>
+      <p>If hosting a link is genuinely not possible, an agency can request a waiver to submit the zip through the P-50 form instead. National RTAP offers free GTFS hosting to any federally funded agency that cannot host the file itself. You then certify annually on the D-10 form that the feed is accurate and up to date.</p>
+
+      <h3>How FTA checks it</h3>
+      <p>FTA&rsquo;s stated primary check is that the links are viable and current: URLs are re-checked periodically, and agencies may be notified when one breaks. Beyond that, validation analysts &ldquo;manually inspect files and routes, particularly the <code>shapes.txt</code> file,&rdquo; and FTA has said there will be &ldquo;some auditing of individual .txt files, though not necessarily for every submission.&rdquo;</p>
+      <p>So there is no automated pass/fail validator gate at submission — but there is a human who may open your feed, and a CEO signature on the D-10 attesting that it is accurate and current. FTA encourages agencies to run a GTFS validator before submitting and does not require it; running one anyway is the cheapest way to avoid a validation question you have to answer in writing later.</p>
+
+      <h2>Who this applies to — and who it doesn&rsquo;t</h2>
+      <p>NTD reporting itself is broad: if a transit provider, local government, State, or MPO receives or benefits from &sect; 5307 or &sect; 5311 funding, it must report. Since RY 2018 that extends to agencies that receive Chapter 53 funds and own, operate, or manage transit capital assets even without &sect; 5307 or &sect; 5311 money.</p>
+      <p>The GTFS requirement is narrower. It applies to Full Reporters, Reduced Reporters (including Tribal Reporters), and Rural subrecipient reporters. It does not apply to Reduced Asset Reporters or Group Plan Sponsor Reporters. And within those groups it reaches only reporters that operate a fixed route mode.</p>
+      <p><strong>Demand response is a different form.</strong> Agencies reporting Demand Response modes provide geospatial data on Form B-15 — service area by state, county, and census-designated place, together with days operated, populations served, and fares. That is not a GTFS submission, and NTD does not require GTFS-Flex. An agency that operates only demand-response service has no P-50 GTFS obligation. (Publishing <a href="/learn/gtfs-flex/">GTFS-Flex</a> can still be worth doing — it is what makes dial-a-ride and microtransit visible in trip planners — but it is a choice, not a federal requirement.)</p>
+
+      <h2>What a nonconforming submission actually means</h2>
+      <p>This is the part most often overstated, so here is the manual&rsquo;s own language.</p>
+      <p>FTA may issue a <strong>Failure to Report</strong> if an agency fails to submit a report, submits a late report, submits an incomplete report, or fails to respond to validation questions. A report is incomplete if it does not contain all required information, if &ldquo;the agency did not collect and submit the data in conformance with NTD requirements,&rdquo; if the required CEO certification and auditor statements are missing, or if the agency does not properly respond to validation questions. When FTA issues the notice, it goes to the agency&rsquo;s CEO and to the FTA Regional Administrator.</p>
+      <p>The consequence, stated exactly: &ldquo;If a transit agency receives a Failure to Report notice, FTA does not include its data in the apportionment of UZA and rural funding.&rdquo;</p>
+      <p>That is a data-exclusion consequence, not a funding-eligibility one, and the distinction matters. Elsewhere the same manual is explicit that an approved waiver &ldquo;does not affect a transit agency&rsquo;s funding eligibility for &sect; 5307, &sect; 5311, &sect; 5337, or &sect; 5339 funding, but it may affect the amount of funding the agency&rsquo;s UZA(s) receive. In a large UZA or a rural area, the amount of funding may decrease because FTA may not include specific data in formula funding programs.&rdquo;</p>
+      <p>So the honest description of the risk is this: NTD data drives the &sect; 5307 urbanized area formula (and, for urbanized areas under 200,000, the Small Transit Intensive Cities measures), plus &sect; 5337, &sect; 5339, and the &sect; 5311 rural formula. If your service data is excluded, the apportionment to your urbanized area or your state is computed without it. FTA also applies a two-year lag — FY 2026 data are used for FY 2028 apportionment — so the effect is neither immediate nor obvious when it lands.</p>
+      <p class="note">Nobody sends you an invoice for a broken feed. What happens is quieter and slower: the numbers your region is apportioned on stop reflecting the service you run.</p>
+
+      <h2>Two ways to deal with it</h2>
+      <div class="exits">
+        <div class="exit">
+          <h3>Check your own feed</h3>
+          <p>Our Feed Health dashboard tracks all 2,238 agencies on the FY2024 NTD roster against FTA&rsquo;s GTFS Weblinks crosswalk and the Mobility Database. Open your state and find your agency: it shows whether a findable feed exists, whether it clears the canonical validator, and whether its service window has already ended. Free, no signup.</p>
+          <a class="btn" href="/feed-health/" data-cta="ntd_check_feed">Check your state</a>
+        </div>
+        <div class="exit">
+          <h3>Have us fix it</h3>
+          <p>Vector &amp; Vertex, the firm behind GTFS·X, does fixed-fee GTFS remediation: build or repair the feed, add <code>shapes.txt</code>, clear the validator, and publish it at a stable URL you can put on the P-50. Typically $750&ndash;$2,500 for a single agency — well under the $15,000 federal micro-purchase threshold, so for most agencies it is a micro-purchase rather than a competitive solicitation. Your own documented threshold governs, and it may be lower.</p>
+          <a class="btn" href="/book-demo?src=ntd_fix" data-cta="ntd_fix_feed">Talk to us</a>
+        </div>
+      </div>
+      <p class="note">For context on how common the problem is: 45% of the 2,238 federally funded agencies on the NTD roster have no GTFS feed that any trip planner can find — no link registered with FTA and nothing in the Mobility Database. Among the feeds that are catalogued, roughly one in ten describes service that has already ended.</p>
+      <p>If you would rather do the work yourself, the <a href="/">GTFS·X editor</a> is free and needs no signup — it validates continuously, generates <code>shapes.txt</code> from your stop sequences, and exports a zip that passes the canonical validator. <a href="/learn/publish-gtfs-feed/">Publishing it</a> at a stable URL is the other half of the job.</p>
+
+      <h2>Common questions</h2>
+      <p><strong>Does NTD require a GTFS feed?</strong><br />
+      Yes, if you operate fixed route service. The 2026 NTD Policy Manual states that FTA requires NTD reporters with fixed route service to create and maintain a GTFS feed, submitted on Form P-50. FTA adopted GTFS reporting as a mandatory requirement in a March 2023 Federal Register notice, beginning in Report Year 2023.</p>
+      <p><strong>When is the NTD Annual Report due?</strong><br />
+      Four months after your fiscal year ends. A 30 June fiscal year end means 31 October; 30 September means 31 January; 31 December means 30 April. In FTA&rsquo;s 2024 Agency Information file, 1,742 of the 2,908 reporter records with a due date — about three in five — were due 31 October.</p>
+      <p><strong>Is <code>shapes.txt</code> required for NTD reporting?</strong><br />
+      Yes. FTA finalized the requirement in July 2025 and phased it by reporter type: it took effect in Report Year 2025 for Full Reporters and Report Year 2026 for Reduced, Rural, and Tribal Reporters. The 2026 NTD Policy Manual lists <code>shapes.txt</code> as required for all GTFS submissions beginning in RY 2026.</p>
+      <p><strong>Does NTD require GTFS for demand-response service?</strong><br />
+      No. The GTFS requirement on Form P-50 applies to fixed route service. Agencies reporting Demand Response modes provide geospatial data on Form B-15 instead — service area by state, county, and census-designated place, plus days operated, populations served, and fares. GTFS-Flex is not an NTD requirement.</p>
+      <p><strong>What happens if my NTD submission does not conform to the requirements?</strong><br />
+      FTA may issue a Failure to Report notice, which it sends to the agency CEO and the FTA Regional Administrator. Per the 2026 NTD Policy Manual, if an agency receives a Failure to Report notice, FTA does not include its data in the apportionment of urbanized area and rural funding. That is exclusion of the agency&rsquo;s data from the formula factors, not a loss of funding eligibility — FTA states elsewhere in the same manual that a waiver does not affect eligibility for &sect; 5307, &sect; 5311, &sect; 5337, or &sect; 5339 funding, though it may affect the amount the agency&rsquo;s urbanized area receives.</p>
+      <p><strong>Can my GTFS feed have expired service dates when I file?</strong><br />
+      No. The 2026 NTD Policy Manual states that GTFS feeds should reflect active, current operations and should not feature expired service dates, and that agencies must ensure <code>calendar.txt</code> or <code>calendar_dates.txt</code> represent service current at least through the end of the most recently completed fiscal year. FTA points agencies at the MobilityData GTFS Validator and its Service Window value to check this.</p>
+      <p><strong>Can I upload a GTFS zip instead of hosting a URL?</strong><br />
+      Only by waiver. FTA expects a publicly accessible link that downloads the zip directly. If an agency demonstrates that hosting a web link is not possible, it can request a waiver for FTA to accept a zip file submission via the P-50 form. National RTAP offers free GTFS hosting to any federally funded agency that cannot host the link itself.</p>
+      <p><strong>Does FTA validate my GTFS feed?</strong><br />
+      There is no automated pass/fail validator gate at submission. FTA&rsquo;s stated primary check is that submitted links are viable and current; URLs are re-checked periodically and agencies may be notified when a link breaks. Validation analysts also manually inspect files and routes, particularly <code>shapes.txt</code>, with some auditing of individual .txt files though not necessarily for every submission. FTA encourages but does not require agencies to run a GTFS validator before submitting, and it requires CEO certification on the D-10 form.</p>
+
+      <h2 id="sources">Sources</h2>
+      <ul class="sources">
+        <li>FTA, <a href="https://www.transit.dot.gov/sites/fta.dot.gov/files/2026-06/2026-NTD-Full-Policy-Manual_0.pdf">National Transit Database 2026 Policy Manual (Full Reporting)</a> — reporting due dates and Exhibit 5 (p. 12); Failure to Report (p. 10); Form P-50 GTFS requirements (pp. 52&ndash;54); Form B-15 demand-response geospatial data (p. 55); waivers (p. 248). FTA publishes this as guidance; the statutory basis is 49 U.S.C. &sect; 5335.</li>
+        <li>FTA, <a href="https://www.federalregister.gov/documents/2025/07/10/2025-12813/national-transit-database-reporting-changes-and-clarifications-for-report-years-2025-and-2026">National Transit Database Reporting Changes and Clarifications for Report Years 2025 and 2026</a>, 90 FR (10 July 2025) — final notice adopting the <code>shapes.txt</code> requirement and the <code>agency_id</code> change.</li>
+        <li>FTA, <a href="https://www.federalregister.gov/documents/2023/03/03/2023-04379/national-transit-database-reporting-changes-and-clarifications">National Transit Database: Reporting Changes and Clarifications</a>, 88 FR (3 March 2023) — final notice adopting GTFS reporting as a mandatory requirement from Report Year 2023, and describing FTA&rsquo;s validation approach.</li>
+        <li><a href="https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title49-section5335">49 U.S.C. &sect; 5335</a>, as amended by the Infrastructure Investment and Jobs Act — the &ldquo;geographic service area coverage&rdquo; collection.</li>
+        <li>FTA, <a href="https://www.transit.dot.gov/ntd/data-product/2024-annual-database-agency-information">2024 Annual Database — Agency Information</a> — source for the due-date and fiscal-year-end distribution (tabulated 8 August 2026 across 2,914 reporter records).</li>
+        <li><a href="https://www.acquisition.gov/far/2.101">FAR 2.101</a> — micro-purchase threshold of $15,000, effective 1 October 2025. Recipients of federal awards should also read <a href="https://www.ecfr.gov/current/title-2/section-200.320">2 CFR 200.320</a>: you are responsible for determining and documenting your own threshold, which may be lower, and a price-reasonableness determination is still required.</li>
+        <li>GTFS·X, <a href="/feed-health/">Feed Health Dashboard</a> — NTD roster coverage, feed reachability, validation, and expiry.</li>
+      </ul>
+      <hr>
+      <p><em>Build, validate, and publish your GTFS feed at <a href="/">gtfsx.com</a>. No signup required to start.</em></p>
+    </main>
+    <style>
+footer.gx-footer { max-width: none; width: 100%; margin: 0; padding: 0; background: #3D2E22; color: #FFF8F0; font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif; box-sizing: border-box; }
+footer.gx-footer * { box-sizing: border-box; }
+footer.gx-footer a { text-decoration: none; }
+footer.gx-footer .gx-wrap { max-width: 1180px; margin: 0 auto; padding: 64px 28px 36px; }
+footer.gx-footer .gx-top { display: grid; grid-template-columns: 1.4fr repeat(4, 1fr); gap: 36px; }
+footer.gx-footer .gx-lockup { height: 28px; width: auto; display: block; margin-bottom: 16px; }
+footer.gx-footer .gx-blurb { font-size: 13.5px; color: rgba(255,248,240,0.6); line-height: 1.55; max-width: 240px; margin: 0; }
+footer.gx-footer .gx-social { display: flex; gap: 10px; margin-top: 18px; }
+footer.gx-footer .gx-social a { width: 34px; height: 34px; border-radius: 9px; background: rgba(255,248,240,0.08); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #FFF8F0; transition: background 0.12s; }
+footer.gx-footer .gx-social a:hover { background: #E8734A; }
+footer.gx-footer .gx-col h4 { font-family: "Nunito", ui-rounded, system-ui, sans-serif; font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,248,240,0.5); margin: 0 0 16px; }
+footer.gx-footer .gx-col a { display: block; font-size: 14px; color: rgba(255,248,240,0.82); margin-bottom: 11px; transition: color 0.12s; }
+footer.gx-footer .gx-col a:hover { color: #E8734A; }
+footer.gx-footer .gx-bottom { max-width: 1180px; margin: 48px auto 0; padding: 24px 28px 0; border-top: 1px solid rgba(255,248,240,0.12); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13px; color: rgba(255,248,240,0.5); }
+footer.gx-footer .gx-mono { font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+@media (max-width: 780px) { footer.gx-footer .gx-top { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { footer.gx-footer .gx-top { grid-template-columns: 1fr; } }
+</style>
+<footer class="gx-footer">
+  <div class="gx-wrap">
+    <div class="gx-top">
+      <div>
+        <img class="gx-lockup" src="/gtfsx-lockup-on-dark.svg" alt="GTFS·X" width="100" height="28">
+        <p class="gx-blurb">The fast, easy GTFS editor and service planner. Built for transit agencies, planners, and consultants.</p>
+        <div class="gx-social">
+          <a href="https://twitter.com/gtfsxapp" aria-label="GTFS·X on X">X</a>
+          <a href="https://www.linkedin.com/company/gtfsx" aria-label="GTFS·X on LinkedIn">in</a>
+          <a href="https://github.com/GTFS-X/gtfsx" aria-label="GTFS·X on GitHub">gh</a>
+        </div>
+      </div>
+      <div class="gx-col">
+        <h4>Product</h4>
+        <a href="/editor">Editor</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/planning">Planning</a>
+        <a href="/docs/hosted-publishing/">Publishing</a>
+      </div>
+      <div class="gx-col">
+        <h4>Learn</h4>
+        <a href="/learn/gtfs/">What is GTFS</a>
+        <a href="/learn/gtfs-flex/">What is GTFS-Flex</a>
+        <a href="/learn/publish-gtfs-feed/">Publish a GTFS feed</a>
+        <a href="/docs/">Docs</a>
+      </div>
+      <div class="gx-col">
+        <h4>Compare</h4>
+        <a href="/compare/trillium/">vs Trillium</a>
+        <a href="/compare/remix/">vs Remix</a>
+        <a href="/compare/gtfs-builder-rtap/">vs RTAP</a>
+      </div>
+      <div class="gx-col">
+        <h4>Company</h4>
+        <a href="/about/">About</a>
+        <a href="/feed-health/">GTFS Dashboard</a>
+        <a href="/community/announcements">Announcements</a>
+        <a href="mailto:hello@gtfsx.com">Contact</a>
+        <a href="/use-cases/state-dot/">State DOTs</a>
+      </div>
+    </div>
+    <div class="gx-bottom">
+      <span>© 2026 GTFS·X · Vector &amp; Vertex</span>
+      <span class="gx-mono">hello@gtfsx.com</span>
+    </div>
+  </div>
+</footer>
+    <script>
+      (function () {
+        fetch('/api/me', { credentials: 'include', headers: { 'X-GB-Client': 'web' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.user) return;
+            var slot = document.getElementById('user-slot');
+            if (!slot) return;
+            var label = data.user.displayName || data.user.email || '';
+            var initial = (label.charAt(0) || '?').toUpperCase();
+            var escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            slot.innerHTML = '<a href="/account" class="user-avatar" title="' + escaped + '">' + initial + '</a>';
+          })
+          .catch(function () { /* keep "Sign in" */ });
+      })();
+    </script>
+    <script src="/assets/site-nav.js"></script>
+    <!--
+      Inline analytics beacon — mirrors src/services/trackBeacon.ts (same contract
+      as / and /planning). Cookieless, first-touch gclid/gbraid/wbraid/ref capture;
+      page_view on load; cta_click on any element with [data-cta].
+    -->
+    <script>
+    (function () {
+      var SK = 'gb_track_session', RK = 'gb_track_ref', GK = 'gb_track_gclid',
+          GBK = 'gb_track_gbraid', WBK = 'gb_track_wbraid';
+      function rid() {
+        var b = new Uint8Array(16);
+        (self.crypto || self.msCrypto).getRandomValues(b);
+        var s = ''; for (var i = 0; i < b.length; i++) s += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+        return s;
+      }
+      function get(k) { try { return sessionStorage.getItem(k); } catch (_) { return null; } }
+      function set(k, v) { try { sessionStorage.setItem(k, v); } catch (_) {} }
+      function sid() { var i = get(SK); if (!i) { i = rid(); set(SK, i); } return i; }
+      function capture(param, key, max) {
+        try {
+          if (get(key) !== null) return;
+          var p = new URLSearchParams(location.search);
+          var raw = p.get(param);
+          if (!raw) return;
+          var t = raw.trim().slice(0, max);
+          if (!t) return;
+          set(key, t);
+          p.delete(param);
+          var qs = p.toString();
+          history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+        } catch (_) {}
+      }
+      function send(kind, label) {
+        try {
+          fetch('/api/events/track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-GB-Client': 'web' },
+            credentials: 'omit',
+            keepalive: true,
+            body: JSON.stringify({
+              kind: kind,
+              path: location.pathname,
+              ref: get(RK),
+              sessionId: sid(),
+              label: label || null,
+              gclid: get(GK),
+              gbraid: get(GBK),
+              wbraid: get(WBK)
+            })
+          }).catch(function () {});
+        } catch (_) {}
+      }
+      capture('ref', RK, 128);
+      capture('gclid', GK, 256);
+      capture('gbraid', GBK, 256);
+      capture('wbraid', WBK, 256);
+      send('page_view');
+      document.addEventListener('click', function (e) {
+        var t = e.target;
+        while (t && t !== document.body) {
+          if (t.getAttribute && t.getAttribute('data-cta')) {
+            send('cta_click', t.getAttribute('data-cta'));
+            return;
+          }
+          t = t.parentNode;
+        }
+      }, { capture: true, passive: true });
+
+      // At click time, carry the captured (or current-URL) click identifier onto
+      // /book-demo links so the demo submit can attribute the conversion. Covers
+      // gclid and the privacy-safe gbraid/wbraid.
+      document.addEventListener('click', function (e) {
+        var t = e.target, a = null;
+        while (t && t !== document.body) {
+          if (t.tagName === 'A') { a = t; break; }
+          t = t.parentNode;
+        }
+        if (!a) return;
+        var href = a.getAttribute('href') || '';
+        if (href.indexOf('/book-demo') !== 0) return;
+        var url;
+        try { url = new URLSearchParams(location.search); } catch (_) { url = null; }
+        [['gclid', GK], ['gbraid', GBK], ['wbraid', WBK]].forEach(function (pair) {
+          var param = pair[0];
+          var v = get(pair[1]);
+          if (!v && url) { v = url.get(param); }
+          if (!v || href.indexOf(param + '=') !== -1) return;
+          href += (href.indexOf('?') === -1 ? '?' : '&') + param + '=' + encodeURIComponent(v);
+        });
+        a.setAttribute('href', href);
+      }, { capture: true, passive: true });
+    })();
+    </script>
+</body>
+</html>
