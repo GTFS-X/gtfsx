@@ -1,0 +1,1217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!--
+      SOURCES — every factual claim on this page traces to one of these. Re-audit
+      against these before editing any number, date, field name, or consumer claim.
+      Same standard as public/ntd/index.html.
+
+      THIS PAGE MAKES OPPORTUNITY ARGUMENTS ONLY. It must never carry
+      federal-obligation or NTD framing — no "required", "mandate", "compliance",
+      "you must report". Demand-response-only agencies are outside the NTD GTFS
+      collection entirely, so that framing would be false for exactly the reader
+      this page is written for. /ntd/ makes the obligation argument; this page
+      does not borrow it, and deliberately does not link to it.
+
+      [1] SPEC STATUS — GTFS-Flex is IN the specification, not an extension.
+          · google/transit PR #433, "GTFS-Flex [Voting ver.]" (merge commit 43d8bbc).
+            Vote closed 2024-03-18 23:59:59 UTC; PR merged 2024-03-19 16:53:51 UTC.
+            Proposer: "The vote passed on 2024-03-18 at 23:59:59 UTC. 18 votes in
+            favour and no votes against."  https://github.com/google/transit/pull/433
+            NOTE: secondary sources variously date this to 18 March, 19 March, or
+            October 2024. 18 March = vote close, 19 March = merge. Use those labels.
+          · MobilityData, "GTFS-Flex is Officially Adopted" (2024-04-08):
+            "Flex was a GTFS extension project… Now that it's officially adopted into
+            the spec, Flex is no longer considered an extension." Also "eleven years
+            of development" and "the most votes in GTFS history".
+            https://mobilitydata.org/%F0%9F%8E%89-gtfs-flex-is-officially-adopted-everything-you-need-to-know/
+            ⚠️ Cite THIS for status, never gtfs.org/community/extensions/flex/ — that
+            page still opens "GTFS Flex is a GTFS Schedule extension project", carries
+            a typo'd date ("Match 2024"), and part of it describes a superseded draft
+            referencing stop_areas.txt, which is NOT what was adopted. It is cited on
+            this page only as the producer/consumer adoption TRACKER.
+          · gtfs.org/documentation/schedule/reference/ — all four Flex files present,
+            each Presence "Optional", descriptions verbatim:
+              locations.geojson       "Zones for rider pickup or drop-off requests by
+                                       on-demand services, represented as GeoJSON polygons."
+              location_groups.txt     "A group of stops that together indicate locations
+                                       where a rider may request pickup or drop off."
+              location_group_stops.txt "Rules to assign stops to location groups."
+              booking_rules.txt       "Booking information for rider-requested services."
+            stop_times.txt adds location_group_id, location_id,
+            start_pickup_drop_off_window, end_pickup_drop_off_window,
+            pickup_booking_rule_id, drop_off_booking_rule_id. arrival_time and
+            departure_time are FORBIDDEN when a window is set, and exactly one of
+            stop_id / location_group_id / location_id may appear per row.
+            booking_rules.booking_type: 0 real-time, 1 up to same-day with advance
+            notice, 2 up to prior day(s). Type 1 requires prior_notice_duration_min;
+            type 2 requires prior_notice_last_day + prior_notice_last_time. The spec's
+            own example — "Ride must be booked 1 day in advance before 5PM" →
+            prior_notice_last_day=1, prior_notice_last_time=17:00:00 — is what this
+            page's hero chip and code block show.
+          · gtfs.org names four Flexible Services features: Booking Rules; Predefined
+            Routes with Deviation; Zone-Based Demand Responsive Services; Fixed-Stops
+            Demand Responsive Services. Route deviation IS in scope — do not hedge it.
+          · google/transit PR #598, merged 2026-04-22, added safe_duration_factor and
+            safe_duration_offset to trips.txt ("left out of the adopted base
+            implementation because the feature was not ready").
+            https://github.com/google/transit/pull/598
+          · MobilityData gtfs-validator: v6.0.0 (2024-10-25) "Partial validation
+            support for Flex"; v7.0.0 (2025-03-10) "we offer a full list of validation
+            rules for Flex". https://github.com/MobilityData/gtfs-validator/releases
+
+      [2] CONSUMERS — the crux of the page. Verified first-party only.
+          · GOOGLE MAPS DOES NOT CONSUME FLEX. Google Transit Partners Help Center,
+            "Get started with Google Transit", Participation requirements, verbatim:
+            "Note: Google Transit does not currently implement the GTFS-Flex
+            specification. GTFS-Flex datasets cannot be accepted at this time."
+            Same page requires agencies "Operate on fixed routes and schedules".
+            https://support.google.com/transitpartners/answer/1111481?hl=en
+            Corroborated: developers.google.com/transit/gtfs/reference states it is
+            current "as of December 21, 2022" — before adoption — and contains no
+            Flex file or field. This is a flat no, not partial and not a pilot.
+            MIRROR GOOGLE'S OWN HEDGE ("does not currently implement"): do not say
+            Google has permanently ruled it out, and do not predict that it will add
+            support.
+          · TRANSIT — confirmed consumer, with stated limits.
+            https://resources.transitapp.com/article/401-demand-response-service
+            "Primary services supported: Paratransit, dial-a-ride, deviated fixed-route
+            service"; "Zone-to-zone, point-to-zone"; "Real-time pickup ETA: Not
+            available. Static service information only."; "How booking or pickup
+            requests are handled: Direct link to the demand-response provider's app,
+            website, or phone number." Blog (2023-05-11): "Transit is the first major
+            app to integrate demand-response service using GTFS-flex."
+            ⚠️ Transit's most recent statement (2025-09-30, blog.transitapp.com/gofs/)
+            is hedged — Flex "is a complex format, and critically, it doesn't include
+            any real-time information" — and they are promoting GOFS. Do not frame
+            Transit as a 2026 Flex champion; cite them as a consumer, which they are.
+          · OPENTRIPPLANNER 2 — confirmed consumer, SANDBOX feature. Support since
+            OTP 2.1.0 (2022-03-17). Current docs: "To enable this turn on FlexRouting
+            as a feature in otp-config.json. The GTFS feeds must conform to the final,
+            approved version of the draft which has been merged into the mainline
+            specification in March 2024."
+            https://docs.opentripplanner.org/en/latest/sandbox/Flex/
+            Do not call it built-in or on by default.
+          · The only official consumer list is MobilityData's adoption tracker embedded
+            on gtfs.org/community/extensions/flex/. It names exactly three consumers:
+            Transit, OpenTripPlanner, IBI (Arcadis). Producers listed there include
+            Trillium, Transport for NSW, SBB SKI+, MENTZ, Spare Labs.
+          · transitland-lib merged "GTFS-Flex: database, copier, validation support
+            (#527)" on 2025-12-04 — code-level data support, NOT trip planning.
+          · Trillium is a PRODUCER, not a consumer ("our hands-on experience as leading
+            producers of GTFS-Flex data", trilliumtransit.com, 2024-05-22).
+          · Rolling Hills Transit screenshots: Transit app blog, "MnDOT + GTFS-Flex".
+            https://blog.transitapp.com/mndot-gtfs-flex-bringing-rural-riders-into-the-fold/
+
+      [3] GTFS·X product surface, verified against the codebase on 2026-08-08:
+          · Free "Editor" plan includes "Add GTFS-Flex zones and booking rules to
+            any feed" — worker/billing/plans.ts, PLAN_CATALOG free-tier features.
+            Flex authoring is NOT gated: FEATURE_PLANS has no flex key at all.
+          · No account is required to use the editor (public/docs/pricing/).
+          · Planner is $299/mo or $2,988/yr; what that buys is hosted publishing
+            (a stable feeds.gtfsx.com/<slug>/gtfs.zip URL), the rider mini-site and
+            embeds, Mobility Database submission, and the planning-analysis suite —
+            NOT Flex authoring. plans.ts PLAN_CATALOG + public/docs/pricing/.
+          · 26 GTFS-Flex-specific validation rules run continuously in the editor:
+            src/services/validation.ts VALIDATION_CODES, keys matching /^flex/.
+            Covers zone geometry, the id namespace shared with stops.txt, the
+            pickup/drop-off window, the service pattern, and every conditional
+            booking_rules.txt requirement keyed on booking_type.
+          · Three zone-creation methods (draw a polygon / group existing stops /
+            buffer existing fixed routes at a configurable distance, default
+            0.75 mi) and the field-by-field export mapping:
+            public/docs/flex-zones-and-booking-rules/.
+          · Creating a zone creates its paired route at route_type 715.
+
+      [4] The published svt-demo feed, https://feeds.gtfsx.com/svt-demo/gtfs.zip,
+          downloaded and unpacked 2026-08-08. It carries locations.geojson (two
+          zones — "Paratransit Service Area" and "Four Corners Microtransit"),
+          booking_rules.txt (one prior-day rule with prior_notice_last_day=1 /
+          prior_notice_last_time=17:00:00, one real-time rule with a booking_url),
+          two route_type=715 routes, and stop_times.txt rows carrying location_id,
+          start_pickup_drop_off_window, end_pickup_drop_off_window,
+          pickup_booking_rule_id and drop_off_booking_rule_id. /demo loads this
+          exact feed. NOTE: it does not exercise location_groups.txt — do not
+          claim the demo shows stop groups.
+
+      [5] GTFS·X Feed Health dashboard (/feed-health/), canonical export generated
+          2026-07-31 from GTFS-X/gtfs-feed-health (schema 1.1.0, sha 1242baa):
+          · 1,924 agencies on the FY2024 NTD roster report Demand Response service
+            (mode DR; DT absorbed since report year 2019).
+          · 77 distinct GTFS-Flex feeds findable in the Mobility Database,
+            covering 11 states. Colorado's statewide program accounts for 41 of
+            the 77.
+          · 77 / 1,924 = 4.0%. This is a FEED count against an AGENCY count — the
+            page states each figure in its own units and never calls the ratio a
+            share of agencies that publish. Do not restate it as "96% of agencies
+            don't publish Flex"; the denominators don't match.
+          These are the same numbers the /feed-health/ GTFS-Flex band renders.
+
+      DELIBERATELY OMITTED for lack of a primary source:
+        · Any ridership-lift number from publishing Flex. Agencies say it helps;
+          nobody publishes a controlled figure, so there is none to quote.
+        · Any claim that Flex is required, expected, or scored by any funder.
+          It is not, and this page's reader would know.
+        · Apple Maps and Moovit, in either direction. No first-party evidence found
+          that they do or do not consume Flex, so neither is named on the page.
+        · Any agency/feed count sourced to MobilityData or Transit. Every published
+          figure is stale or pre-adoption: Transit's "fifteen transit agencies" is
+          from May 2023; the MobilityData/gtfs-flex repo's "over 100 transit services"
+          sits on a repo deprecated in April 2024 and counts the old v1/v2 extension;
+          the mobility-database-catalogs CSV tags 25 flex-v1 + 12 flex-v2 feeds but
+          populates that column on under a sixth of rows. This page uses only its own
+          counts, from [5].
+        · Any claim that Transit or any other app lets a rider BOOK a flex trip.
+          Flex conveys booking instructions; Transit link-outs to a phone or URL.
+        · Any characterisation of Google's position as partial, piloted, or coming
+          soon. Also: any prediction that Google will add support.
+        · Any implication that the 18 agencies and vendors who voted for adoption
+          (Caltrans, WSDOT, SEPTA, LA Metro, King County, MnDOT, Interline…) therefore
+          consume Flex. A vote is not shipped support.
+        · gtfs.org's "Early Implementations" list. Undated, and traceable entries run
+          from 2017 to 2024.
+        · safe_duration_factor / safe_duration_offset as a rider-facing benefit. They
+          are genuinely in the spec (April 2026) and GTFS·X writes them, which is why
+          they appear as a currency signal in the FAQ — but MobilityData's tracker
+          lists no consumer for them at all, so the page never says anyone reads them.
+        · Any count of how long a Flex feed takes to build. The page describes the
+          workflow concretely instead ("one polygon, one window, one booking
+          rule") and lets the reader judge.
+        · "Built by transit planners" (plural, from the ad copy). One AICP transit
+          planner founded and builds GTFS·X; the page says so in the singular.
+    -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>GTFS-Flex Feed Builder — publish demand-response service | GTFS·X</title>
+    <meta name="description" content="Dial-a-ride, microtransit and paratransit service is invisible in trip planners until you publish GTFS-Flex. Draw the zone, set the booking rule, export the feed — free in the browser, no code, validated as you build." />
+    <link rel="canonical" href="https://www.gtfsx.com/gtfs-flex/" />
+    <meta property="og:title" content="GTFS-Flex Feed Builder — publish demand-response service" />
+    <meta property="og:description" content="Your dial-a-ride service exists. Trip planners can't see it. Draw the zone, set the booking rule, export a GTFS-Flex feed — free in the browser, no code." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.gtfsx.com/gtfs-flex/" />
+    <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="GTFS·X" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@gtfsxapp" />
+    <meta name="twitter:image" content="https://www.gtfsx.com/og-default.png" />
+    <style>
+      /* Brand fonts — the same self-hosted variable files the homepage and
+         /planning use (docs/brand-kit/colors_and_type.css), served from /home/fonts/. */
+      @font-face {
+        font-family: "Nunito";
+        src: url("/home/fonts/Nunito/Nunito-VariableFont_wght.ttf") format("truetype-variations");
+        font-weight: 200 1000; font-style: normal; font-display: swap;
+      }
+      @font-face {
+        font-family: "Inter";
+        src: url("/home/fonts/Inter/Inter-VariableFont_opsz,wght.ttf") format("truetype-variations");
+        font-weight: 100 900; font-style: normal; font-display: swap;
+      }
+
+      :root {
+        --bg:#FFF8F0; --ink:#2A1F18; --ink-soft:#3D2E22; --brown:#5C4A3A; --muted:#6B5A4D;
+        --accent:#E8734A; --accent-deep:#D4603A; --accent-tint:#FDECE5;
+        --rule:#EADBC8; --sand:#F5E6D3; --card:#fff;
+        --teal:#2A9D8F; --teal-tint:#E0F5F2; --gold:#E9C46A; --gold-ink:#B45309;
+        --purple:#7B68EE; --purple-tint:#EDEAFD;
+        --font-heading:"Nunito", ui-rounded, system-ui, sans-serif;
+        --font-body:"Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+        --shadow-card: 0 1px 2px rgba(61,46,34,.05), 0 10px 30px -12px rgba(61,46,34,.16);
+        --shadow-lift: 0 2px 4px rgba(61,46,34,.06), 0 24px 56px -20px rgba(61,46,34,.28);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { overflow-x: hidden; }
+      body {
+        margin:0; background:var(--bg); color:var(--ink);
+        font-family:var(--font-body); font-size:16px; line-height:1.6;
+        -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+      }
+      h1,h2,h3,h4 { font-family:var(--font-heading); letter-spacing:-0.022em; margin:0; }
+      h2 { font-weight:800; }
+      p { margin:0 0 1em; }
+      a { color:var(--accent); }
+      img, svg { max-width:100%; }
+      code, .mono { font-family:var(--font-mono); font-size:0.88em; }
+      :focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:4px; }
+
+      /* ─── site header (matches the editor; verbatim from /ntd/) ─── */
+      .site-header { position: sticky; top: 0; z-index: 30; background:#fff; border-bottom:1px solid var(--rule); height:56px; display:flex; align-items:center; padding: 0 20px; gap:16px; }
+      .site-header .brand { display:inline-flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+      .site-header .brand img { height:36px; width:auto; }
+      .site-header nav { display:flex; gap:4px; margin-left:12px; }
+      .site-header nav a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; padding:8px 12px; border-radius:6px; transition:color .15s, background .15s; }
+      .site-header nav a:hover { color:var(--ink); background:var(--bg); }
+      .site-header nav a.active { color:var(--ink); background:var(--bg); }
+      .site-header .actions { margin-left:auto; display:flex; align-items:center; gap:12px; }
+      .site-header .cta { font-family:var(--font-heading); background:var(--accent); color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:800; font-size:14px; white-space:nowrap; }
+      .site-header .cta:hover { filter:brightness(0.95); }
+      .site-header .user-slot a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; }
+      .site-header .user-slot a:hover { color:var(--ink); }
+      .site-header .user-slot .user-avatar { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; font-weight:800; font-size:13px; text-decoration:none; }
+      .site-header .user-slot .user-avatar:hover { filter:brightness(0.95); }
+      @media (max-width: 720px) {
+        .site-header nav { display:none; }
+        .site-header { padding: 0 12px; gap:10px; }
+        .site-header .cta { padding:11px 12px; font-size:13px; border-radius:6px; line-height:1; min-height:44px; display:inline-flex; align-items:center; }
+        .site-header .actions { gap:8px; }
+        .site-header .brand img { height:30px; }
+        .site-header .user-slot a { white-space:nowrap; font-size:13px; }
+      }
+
+      /* ─── layout scaffolding ─── */
+      section { padding: 72px 24px; }
+      .inner { max-width: 1120px; margin: 0 auto; }
+      .inner-narrow { max-width: 780px; margin: 0 auto; }
+      .eyebrow {
+        font-family:var(--font-body); font-weight:700; font-size:11.5px;
+        text-transform:uppercase; letter-spacing:0.1em; color:var(--accent);
+        margin:0 0 12px; display:block;
+      }
+      .eyebrow.muted { color:var(--muted); }
+      h2.sec { font-size:clamp(25px,3.3vw,36px); line-height:1.12; margin:0 0 14px; text-wrap:balance; }
+      .sec-lede { font-size:clamp(16px,1.7vw,18.5px); color:var(--brown); max-width:64ch; margin:0 0 8px; }
+      @media (max-width: 640px) { section { padding: 48px 20px; } }
+
+      /* ─── buttons ─── */
+      .btn {
+        font-family:var(--font-heading); font-weight:800; text-decoration:none;
+        display:inline-flex; align-items:center; justify-content:center; gap:9px;
+        border-radius:10px; min-height:52px; padding:14px 26px; font-size:17px;
+        transition: transform .16s cubic-bezier(.2,.8,.2,1), box-shadow .16s, filter .16s;
+      }
+      .btn-primary { background:var(--accent); color:#fff; box-shadow: 0 10px 26px -8px rgba(232,115,74,.62), inset 0 1px 0 rgba(255,255,255,.22); }
+      .btn-primary:hover { transform:translateY(-2px); box-shadow: 0 16px 34px -10px rgba(232,115,74,.7), inset 0 1px 0 rgba(255,255,255,.22); }
+      .btn-ghost { background:#fff; color:var(--ink-soft); border:1.5px solid var(--rule); box-shadow: var(--shadow-card); }
+      .btn-ghost:hover { transform:translateY(-2px); border-color:var(--accent); color:var(--accent); }
+      .btn .arrow { transition: transform .16s; }
+      .btn:hover .arrow { transform: translateX(3px); }
+      .cta-row { display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
+      .cta-sub { font-size:13.5px; color:var(--muted); margin:14px 0 0; }
+      .cta-sub strong { color:var(--ink-soft); font-weight:700; }
+
+      /* ─── hero ─── */
+      .hero {
+        position:relative; overflow:hidden; padding-top:56px; padding-bottom:64px;
+        background:
+          radial-gradient(900px 520px at 82% -8%, rgba(232,115,74,.16), transparent 62%),
+          radial-gradient(720px 480px at 6% 105%, rgba(42,157,143,.11), transparent 60%),
+          var(--bg);
+      }
+      /* Faint street-grid texture: two repeating-linear-gradients, masked to fade out. */
+      .hero::before {
+        content:""; position:absolute; inset:0; pointer-events:none;
+        background-image:
+          repeating-linear-gradient(0deg, rgba(61,46,34,.055) 0 1px, transparent 1px 64px),
+          repeating-linear-gradient(90deg, rgba(61,46,34,.055) 0 1px, transparent 1px 64px);
+        -webkit-mask-image: radial-gradient(1100px 620px at 50% 24%, #000 0%, transparent 78%);
+        mask-image: radial-gradient(1100px 620px at 50% 24%, #000 0%, transparent 78%);
+      }
+      .hero > .inner { position:relative; }
+      .hero-grid { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1.06fr); gap:56px; align-items:center; }
+      .hero h1 {
+        font-weight:900; font-size:clamp(33px,5vw,58px); line-height:1.03;
+        letter-spacing:-0.035em; margin:0 0 18px; text-wrap:balance;
+      }
+      .hero h1 .hi { color:var(--accent); display:block; }
+      .hero .subhead { font-size:clamp(17px,2vw,20px); color:var(--brown); margin:0 0 12px; max-width:56ch; }
+      .hero .subhead b { color:var(--ink); font-weight:650; }
+      .hero .support { font-size:15.5px; color:var(--muted); margin:0 0 26px; max-width:52ch; }
+
+      /* Hero device: the real editor, in a soft-lifted frame with a code chip. */
+      .device { position:relative; }
+      .device-frame {
+        border-radius:16px; overflow:hidden; background:#fff;
+        border:1px solid var(--rule); box-shadow: var(--shadow-lift);
+      }
+      .device-frame img { display:block; width:100%; height:auto; }
+      .device-chip {
+        position:absolute; left:-26px; bottom:-26px; z-index:2;
+        background:#2A1F18; color:#FFF8F0; border-radius:12px;
+        padding:12px 15px; box-shadow:0 18px 40px -14px rgba(42,31,24,.62);
+        font-family:var(--font-mono); font-size:11.5px; line-height:1.65; white-space:nowrap;
+        border:1px solid rgba(255,248,240,.12);
+      }
+      .device-chip .k { color:#E9C46A; }
+      .device-chip .f { color:#8B7E74; display:block; font-size:10px; letter-spacing:.09em; text-transform:uppercase; margin-bottom:5px; }
+      @media (max-width: 980px) {
+        .hero-grid { grid-template-columns: 1fr; gap:38px; }
+        .device { margin-top:6px; }
+        .device-chip { left:auto; right:8px; bottom:-20px; }
+      }
+      @media (max-width: 560px) {
+        .device-chip { position:static; margin-top:14px; white-space:normal; box-shadow:none; }
+      }
+
+      /* ─── stat band ─── */
+      .band { background:var(--ink-soft); color:#FFF8F0; }
+      .band .eyebrow { color:#E9C46A; }
+      .band h2 { color:#fff; }
+      .band .sec-lede { color:rgba(255,248,240,.76); }
+      .stat-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; margin-top:36px; }
+      .stat {
+        background:rgba(255,248,240,.055); border:1px solid rgba(255,248,240,.13);
+        border-radius:14px; padding:24px 22px;
+      }
+      .stat .n {
+        font-family:var(--font-heading); font-weight:900; letter-spacing:-.03em;
+        font-size:clamp(38px,4.6vw,52px); line-height:1; color:#fff; display:block;
+      }
+      .stat.hot .n { color:var(--accent); }
+      .stat .u { font-size:.42em; font-weight:800; letter-spacing:0; color:rgba(255,248,240,.6); }
+      .stat p { margin:12px 0 0; font-size:14.5px; line-height:1.5; color:rgba(255,248,240,.78); }
+      .band-note { margin:26px 0 0; font-size:13px; color:rgba(255,248,240,.52); max-width:76ch; }
+      .band-note a { color:rgba(255,248,240,.82); }
+      @media (max-width: 820px) { .stat-grid { grid-template-columns:minmax(0,1fr); gap:14px; } }
+
+      /* ─── "what flex describes" diagram cards ─── */
+      .describe { background:#fff; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
+      .dgrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:22px; margin-top:40px; }
+      .dcard {
+        border:1px solid var(--rule); border-radius:16px; overflow:hidden;
+        background:var(--bg); display:flex; flex-direction:column;
+        transition: transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s;
+      }
+      .dcard:hover { transform:translateY(-3px); box-shadow:var(--shadow-card); }
+      .dcard .art { display:block; width:100%; height:auto; background:#fff; border-bottom:1px solid var(--rule); }
+      .dcard .body { padding:20px 22px 22px; }
+      .dcard h3 { font-size:18.5px; font-weight:800; margin:0 0 8px; }
+      .dcard p { font-size:14.5px; color:var(--muted); margin:0 0 12px; }
+      .dcard .fields { display:flex; flex-wrap:wrap; gap:6px; margin:0; padding:0; list-style:none; }
+      .dcard .fields li {
+        font-family:var(--font-mono); font-size:11px; color:var(--brown);
+        background:#fff; border:1px solid var(--rule); border-radius:999px; padding:4px 10px;
+      }
+      @media (max-width: 900px) { .dgrid { grid-template-columns:minmax(0,1fr); } }
+
+      /* ─── build steps ─── */
+      .steps { counter-reset:step; margin-top:44px; display:grid; gap:26px; }
+      .step {
+        display:grid; grid-template-columns: 54px minmax(0,1fr) minmax(0,1.15fr);
+        gap:26px; align-items:start;
+        border-top:1px solid var(--rule); padding-top:26px;
+      }
+      .step:first-child { border-top:0; padding-top:0; }
+      .step .num {
+        counter-increment:step; font-family:var(--font-heading); font-weight:900;
+        font-size:20px; width:46px; height:46px; border-radius:50%;
+        background:var(--accent-tint); color:var(--accent-deep);
+        display:flex; align-items:center; justify-content:center; flex-shrink:0;
+        border:1px solid rgba(232,115,74,.28);
+      }
+      .step .num::before { content: counter(step); }
+      .step h3 { font-size:20px; font-weight:800; margin:8px 0 8px; }
+      .step p { font-size:15.5px; color:var(--muted); margin:0 0 10px; }
+      .step .writes {
+        font-size:13px; color:var(--brown); background:#fff; border:1px solid var(--rule);
+        border-left:3px solid var(--teal); border-radius:0 8px 8px 0; padding:10px 14px; margin:0;
+      }
+      .step .writes code { color:var(--ink); }
+      .step figure { margin:0; }
+      .step figure img { display:block; width:100%; height:auto; border:1px solid var(--rule); border-radius:12px; box-shadow:var(--shadow-card); }
+      .step figcaption { font-size:12.5px; color:var(--muted); margin-top:9px; }
+      @media (max-width: 900px) {
+        .step { grid-template-columns: 46px minmax(0,1fr); gap:18px; }
+        .step figure { grid-column: 1 / -1; }
+      }
+
+      /* ─── export snippet ─── */
+      .export-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.25fr); gap:44px; align-items:center; margin-top:14px; }
+      /* minmax(0,1fr), not 1fr: a grid item's default min-width:auto would let the
+         nowrap <pre> inside .codeblock stretch the column past the viewport. */
+      @media (max-width:900px){ .export-split { grid-template-columns:minmax(0,1fr); gap:26px; } }
+      .export-split > * { min-width:0; }
+      .codeblock { min-width:0; max-width:100%;
+        background:#2A1F18; color:#F5E6D3; border-radius:14px; padding:20px 4px 20px 20px;
+        box-shadow:var(--shadow-lift); border:1px solid rgba(255,248,240,.1);
+        font-family:var(--font-mono); font-size:12.5px; line-height:1.75;
+      }
+      .codeblock .fname { display:block; color:#E8734A; font-weight:600; letter-spacing:.02em; margin:0 0 4px; }
+      .codeblock .fname + .scroll { margin-bottom:16px; }
+      .codeblock .scroll { overflow-x:auto; padding-right:20px; padding-bottom:2px; }
+      .codeblock pre { margin:0; white-space:pre; }
+      .codeblock .hdr { color:#8B7E74; }
+      .codeblock .hl { color:#E9C46A; }
+      .code-note { font-size:12.5px; color:var(--muted); margin:12px 0 0; }
+
+      /* ─── plain cards / prose ─── */
+      .cards2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:22px; margin-top:34px; }
+      @media (max-width: 760px) { .cards2 { grid-template-columns:minmax(0,1fr); } }
+      .card {
+        background:#fff; border:1px solid var(--rule); border-radius:16px; padding:26px 26px 24px;
+        display:flex; flex-direction:column; box-shadow:var(--shadow-card);
+      }
+      .card.feature { border-color:rgba(232,115,74,.45); box-shadow:0 2px 4px rgba(61,46,34,.05), 0 22px 48px -22px rgba(232,115,74,.5); }
+      .card h3 { font-size:20px; font-weight:800; margin:0 0 6px; }
+      .card .price { font-family:var(--font-heading); font-weight:900; font-size:30px; letter-spacing:-.03em; margin:0 0 4px; }
+      .card .price small { font-size:14px; font-weight:700; color:var(--muted); letter-spacing:0; }
+      .card p { font-size:15px; color:var(--muted); }
+      .card ul { margin:0 0 20px; padding-left:0; list-style:none; }
+      .card li { font-size:14.5px; color:var(--brown); padding-left:26px; position:relative; margin:0 0 9px; }
+      .card li::before {
+        content:""; position:absolute; left:2px; top:.5em; width:11px; height:6px;
+        border-left:2px solid var(--teal); border-bottom:2px solid var(--teal);
+        transform:rotate(-45deg);
+      }
+      .card .spacer { flex:1 1 auto; }
+      .card .btn { width:100%; }
+
+      /* ─── proof figure (real app screenshots) ─── */
+      .proof { margin:36px 0 34px; }
+      .proof img {
+        display:block; width:100%; height:auto; border-radius:16px;
+        background:#fff; border:1px solid var(--rule); box-shadow:var(--shadow-lift);
+      }
+      .proof figcaption { font-size:13.5px; color:var(--muted); margin-top:14px; max-width:78ch; }
+
+      /* ─── consumers list ─── */
+      .consumers { display:grid; gap:14px; margin-top:34px; }
+      .consumer {
+        display:grid; grid-template-columns:auto minmax(0,1fr); gap:18px; align-items:start;
+        background:#fff; border:1px solid var(--rule); border-radius:14px; padding:20px 22px;
+      }
+      .consumer .tag {
+        font-family:var(--font-heading); font-weight:800; font-size:12px; letter-spacing:.03em;
+        border-radius:999px; padding:5px 12px; white-space:nowrap; align-self:start; margin-top:2px;
+      }
+      .tag.yes { background:var(--teal-tint); color:#1F7268; border:1px solid rgba(42,157,143,.32); }
+      .tag.partial { background:#FFF6E0; color:var(--gold-ink); border:1px solid rgba(233,196,106,.55); }
+      .consumer h3 { font-size:17px; font-weight:800; margin:0 0 5px; }
+      .consumer p { font-size:14.5px; color:var(--muted); margin:0; }
+      .consumer p a { color:var(--brown); }
+      @media (max-width:560px){ .consumer { grid-template-columns:minmax(0,1fr); gap:10px; } }
+
+      /* ─── final CTA ─── */
+      .finale {
+        text-align:center;
+        background:
+          radial-gradient(760px 420px at 50% 0%, rgba(232,115,74,.15), transparent 66%),
+          #fff;
+        border-top:1px solid var(--rule);
+      }
+      .finale h2 { font-size:clamp(27px,3.6vw,40px); margin:0 0 14px; }
+      .finale p { font-size:17px; color:var(--brown); max-width:56ch; margin:0 auto 28px; }
+      .finale .cta-row { justify-content:center; }
+
+      /* ─── FAQ ─── */
+      details { border-bottom:1px solid var(--rule); padding:16px 0; }
+      details > summary { cursor:pointer; font-family:var(--font-heading); font-weight:800; font-size:16.5px; list-style:none; padding-right:30px; position:relative; }
+      details > summary::-webkit-details-marker { display:none; }
+      details > summary::after { content:"+"; position:absolute; right:2px; top:-2px; color:var(--accent); font-size:22px; line-height:1.2; font-weight:700; }
+      details[open] > summary::after { content:"\2212"; }
+      details > div { color:var(--muted); padding-top:10px; font-size:15px; }
+
+      /* ─── sources ─── */
+      .sources { background:var(--bg); }
+      .sources h2 { font-size:20px; margin:0 0 14px; }
+      .sources ul { font-size:13.5px; color:var(--muted); padding-left:1.1rem; margin:0; }
+      .sources li { margin:.5rem 0; }
+      .sources a { color:var(--brown); }
+
+      /* ─── entrance motion (respects reduced-motion) ─── */
+      @media (prefers-reduced-motion: no-preference) {
+        .rise { animation: rise .7s cubic-bezier(.2,.8,.2,1) both; }
+        .rise-1 { animation-delay:.04s; } .rise-2 { animation-delay:.12s; }
+        .rise-3 { animation-delay:.2s; }  .rise-4 { animation-delay:.3s; }
+        @keyframes rise { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
+        /* Diagram life: the zone boundary crawls, the request pins breathe. */
+        .zone-edge { animation: crawl 2.6s linear infinite; }
+        @keyframes crawl { to { stroke-dashoffset:-24; } }
+        .pulse { animation: pulse 3.2s ease-in-out infinite; transform-origin:center; transform-box:fill-box; }
+        .pulse-2 { animation-delay:.7s; } .pulse-3 { animation-delay:1.4s; }
+        @keyframes pulse { 0%,100% { opacity:.35; transform:scale(1); } 50% { opacity:.9; transform:scale(1.35); } }
+      }
+    </style>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "GTFS·X — GTFS-Flex feed builder",
+      "description": "Author GTFS-Flex in the browser: draw microtransit, dial-a-ride and paratransit service areas on a map, set pickup/drop-off windows and booking rules in a form, validate against 26 Flex-specific checks, and export a spec-clean GTFS feed. Free, no signup required.",
+      "brand": { "@type": "Brand", "name": "GTFS·X" },
+      "url": "https://www.gtfsx.com/gtfs-flex/",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "image": "https://www.gtfsx.com/og-default.png",
+      "publisher": { "@type": "Organization", "name": "GTFS·X", "url": "https://www.gtfsx.com/" },
+      "offers": [
+        { "@type": "Offer", "name": "Editor", "price": "0", "priceCurrency": "USD", "description": "GTFS-Flex zones, booking rules, continuous validation and GTFS export. Free, no account required." },
+        { "@type": "Offer", "name": "Planner", "price": "2988", "priceCurrency": "USD", "description": "Annual subscription. Adds hosted publishing at a stable feed URL, Mobility Database submission, rider mini-site and embeds, and the service-planning analysis suite. Not required to author GTFS-Flex." }
+      ]
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Is GTFS-Flex still an extension?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. GTFS-Flex was adopted into the GTFS specification on 18 March 2024 with 18 votes in favour and none against, the most support any GTFS change has received. MobilityData stated at the time that Flex is no longer considered an extension. locations.geojson, location_groups.txt, location_group_stops.txt and booking_rules.txt all appear in the GTFS Schedule Reference today, each marked Optional. safe_duration_factor and safe_duration_offset were added to trips.txt in April 2026."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Will publishing GTFS-Flex put my demand-response service in Google Maps?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. Google's transit partner documentation states that Google Transit does not currently implement the GTFS-Flex specification and that GTFS-Flex datasets cannot be accepted at this time. Publishing GTFS-Flex reaches the Transit app and OpenTripPlanner-based trip planners today."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does a GTFS-Flex feed let riders book a ride?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. A Flex feed carries booking instructions — how far ahead to book, by when, and on what phone number or URL. Apps display those instructions and hand the rider off to the agency's existing booking channel. There is no real-time vehicle availability and no reservation in the feed itself; real-time on-demand data is covered by a separate standard, GOFS."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Do I need to write code to build a GTFS-Flex feed?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. In GTFS·X you draw the service area as a polygon on a map, group existing stops, or buffer existing fixed routes; then type a pickup start and end time, pick a service calendar, and choose a booking type. The editor writes locations.geojson, booking_rules.txt and the stop_times.txt pickup/drop-off window fields for you and exports a GTFS zip."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can one feed contain both fixed routes and flex service?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes, and that is the normal case. Flex zones live in the same project as ordinary routes, stops and timetables, and export together in a single GTFS zip. An agency that already publishes a fixed-route feed adds flex to it rather than maintaining a second feed."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What does it cost to build a GTFS-Flex feed in GTFS·X?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Nothing. Authoring GTFS-Flex — zones, booking rules, validation and export — is on the free Editor plan and needs no account to start. The paid Planner plan ($299 per month, or $2,988 per year) covers hosted publishing at a stable public feed URL, Mobility Database submission, rider mini-sites and embeds, and the service-planning analysis suite. You do not need it to build or export a Flex feed."
+          }
+        }
+      ]
+    }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/" class="brand">
+        <img src="/gtfsx-lockup.svg" alt="GTFS·X" />
+      </a>
+      <nav>
+        <a href="/about/">About</a>
+        <a href="/docs/">Docs</a>
+        <a href="/learn/gtfs/">Learn</a>
+        <a href="/community">Community</a>
+        <a href="/help">Help</a>
+      </nav>
+      <div class="actions">
+        <a href="/editor" class="cta" data-cta="flex_header_editor">Open editor</a>
+        <div id="user-slot" class="user-slot">
+          <a href="/login">Sign in</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <!-- ══════════════════ HERO ══════════════════ -->
+      <section class="hero">
+        <div class="inner">
+          <div class="hero-grid">
+            <div>
+              <span class="eyebrow rise rise-1">GTFS-Flex feed builder</span>
+              <h1 class="rise rise-1">Your dial&#8209;a&#8209;ride service exists.<span class="hi">Trip planners can&rsquo;t see it.</span></h1>
+              <p class="subhead rise rise-2">GTFS-Flex is the part of the GTFS spec that describes service without a fixed route or a fixed timetable &mdash; <b>microtransit zones, dial-a-ride, paratransit, deviated routes</b>. Publish it and the service you already run becomes something a trip planner can find, route, and explain to a rider.</p>
+              <p class="support rise rise-2">Draw the zone on a map. Set the booking rule in a form. Export the feed. In the browser, no code, and free.</p>
+              <div class="cta-row rise rise-3">
+                <a class="btn btn-primary" href="/editor" data-cta="flex_hero_editor">Start building &mdash; free <span class="arrow" aria-hidden="true">&rarr;</span></a>
+                <a class="btn btn-ghost" href="/book-demo?src=flex_lp_hero" data-cta="flex_hero_demo">Have us build it</a>
+              </div>
+              <p class="cta-sub rise rise-4">No signup and no card to start. <strong>26 Flex-specific checks</strong> run while you work, so the feed is clean before you export it.</p>
+            </div>
+            <div class="device rise rise-3">
+              <div class="device-frame">
+                <img src="/assets/docs/flex-microtransit-zone-details.png" width="1440" height="900" loading="eager" decoding="async"
+                     alt="The GTFS·X editor: a microtransit zone drawn over Bozeman with the Flex Zones &amp; Rules panel open, showing the pickup window, service pattern and a same-day booking rule with a 60-minute minimum." />
+              </div>
+              <div class="device-chip" aria-hidden="true">
+                <span class="f">booking_rules.txt</span>
+                booking_type=<span class="k">2</span> &middot; prior_notice_last_day=<span class="k">1</span><br>
+                prior_notice_last_time=<span class="k">17:00:00</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════ THE GAP ══════════════════ -->
+      <section class="band">
+        <div class="inner">
+          <span class="eyebrow">The discovery gap</span>
+          <h2 class="sec">Nearly two thousand agencies run this service. Seventy-seven feeds describe it.</h2>
+          <p class="sec-lede">Demand-response service is the hardest transit in America to find out about. It lives in a PDF, a phone number, and word of mouth &mdash; so a rider opening a trip planner sees a blank map where your service actually runs.</p>
+          <div class="stat-grid">
+            <div class="stat">
+              <span class="n">1,924</span>
+              <p>US transit agencies operate demand-response service &mdash; dial-a-ride, paratransit, microtransit, community connectors.</p>
+            </div>
+            <div class="stat hot">
+              <span class="n">77</span>
+              <p>Distinct GTFS-Flex feeds are findable in the Mobility Database, the catalogue trip planners pull from.</p>
+            </div>
+            <div class="stat">
+              <span class="n">11<span class="u"> states</span></span>
+              <p>Have a Flex feed of any kind. Colorado&rsquo;s statewide programme alone accounts for 41 of the 77 feeds.</p>
+            </div>
+          </div>
+          <p class="band-note">Feed counts and agency counts are different units and this page never mixes them: 77 is a count of <em>feeds</em>, 1,924 a count of <em>agencies</em>. Both from the GTFS&middot;X <a href="/feed-health/">Feed Health dashboard</a>, export generated 31 July 2026 from the FY2024 national agency roster and the Mobility Database.</p>
+        </div>
+      </section>
+
+      <!-- ══════════════════ WHAT FLEX DESCRIBES ══════════════════ -->
+      <section class="describe">
+        <div class="inner">
+          <span class="eyebrow">What a Flex feed says</span>
+          <h2 class="sec">Three things a fixed-route feed cannot express</h2>
+          <p class="sec-lede">Ordinary GTFS assumes a vehicle leaves stop A at 8:00 and reaches stop B at 8:07. Your service does not work like that. These are the three shapes Flex adds &mdash; and they are in the specification proper, <strong>adopted in March 2024 on 18 votes in favour and none against</strong>, the most any GTFS change has received. Flex has not been an &ldquo;extension&rdquo; since.</p>
+
+          <div class="dgrid">
+            <!-- ── 1. service area ── -->
+            <div class="dcard">
+              <svg class="art" viewBox="0 0 400 230" role="img" aria-labelledby="d1t">
+                <title id="d1t">A polygon service area drawn over a street grid, with pickup requests scattered anywhere inside it rather than at marked stops.</title>
+                <defs>
+                  <clipPath id="c1"><rect x="0" y="0" width="400" height="230"/></clipPath>
+                </defs>
+                <g clip-path="url(#c1)">
+                  <rect width="400" height="230" fill="#fff"/>
+                  <g stroke="#EADBC8" stroke-width="1.5">
+                    <path d="M0 44H400M0 96H400M0 148H400M0 200H400"/>
+                    <path d="M54 0V230M124 0V230M196 0V230M268 0V230M340 0V230"/>
+                  </g>
+                  <path d="M22 118 L96 44 L214 30 L330 62 L368 132 L302 200 L166 206 L64 178 Z"
+                        fill="#2A9D8F" fill-opacity=".12"/>
+                  <path class="zone-edge" d="M22 118 L96 44 L214 30 L330 62 L368 132 L302 200 L166 206 L64 178 Z"
+                        fill="none" stroke="#2A9D8F" stroke-width="2.5" stroke-dasharray="7 5" stroke-linejoin="round"/>
+                  <g fill="#E8734A">
+                    <circle class="pulse" cx="112" cy="92" r="7" fill-opacity=".3"/>
+                    <circle cx="112" cy="92" r="4"/>
+                    <circle class="pulse pulse-2" cx="238" cy="76" r="7" fill-opacity=".3"/>
+                    <circle cx="238" cy="76" r="4"/>
+                    <circle class="pulse pulse-3" cx="196" cy="160" r="7" fill-opacity=".3"/>
+                    <circle cx="196" cy="160" r="4"/>
+                    <circle class="pulse pulse-2" cx="304" cy="140" r="7" fill-opacity=".3"/>
+                    <circle cx="304" cy="140" r="4"/>
+                  </g>
+                  <text x="200" y="222" text-anchor="middle" font-family="ui-monospace, Menlo, monospace"
+                        font-size="10.5" fill="#2A9D8F" font-weight="600">Four Corners Microtransit</text>
+                </g>
+              </svg>
+              <div class="body">
+                <h3>A service area, not a stop</h3>
+                <p>Draw the polygon riders can be picked up and dropped off inside &mdash; or name a set of existing stops the service will serve. No invented placeholder stops, no fake timepoints.</p>
+                <ul class="fields">
+                  <li>locations.geojson</li>
+                  <li>location_groups.txt</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- ── 2. booking window ── -->
+            <div class="dcard">
+              <svg class="art" viewBox="0 0 400 230" role="img" aria-labelledby="d2t">
+                <title id="d2t">A timeline showing a pickup and drop-off window running from 6:30am to 10:00pm, with a separate booking cutoff at 5:00pm the day before.</title>
+                <rect width="400" height="230" fill="#fff"/>
+                <!-- day before -->
+                <text x="30" y="46" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#8B7E74" letter-spacing="1.1">DAY BEFORE</text>
+                <line x1="30" y1="62" x2="370" y2="62" stroke="#EADBC8" stroke-width="2" stroke-linecap="round"/>
+                <g>
+                  <line x1="258" y1="48" x2="258" y2="76" stroke="#B45309" stroke-width="2.5" stroke-linecap="round"/>
+                  <circle cx="258" cy="62" r="6" fill="#E9C46A" stroke="#B45309" stroke-width="2"/>
+                  <text x="258" y="96" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="700" fill="#B45309">book by 5:00 pm</text>
+                </g>
+                <!-- service day -->
+                <text x="30" y="140" font-family="Inter, system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#8B7E74" letter-spacing="1.1">SERVICE DAY</text>
+                <line x1="30" y1="158" x2="370" y2="158" stroke="#EADBC8" stroke-width="2" stroke-linecap="round"/>
+                <rect x="62" y="150" width="278" height="16" rx="8" fill="#E8734A" fill-opacity=".16"/>
+                <rect x="62" y="152" width="278" height="12" rx="6" fill="#E8734A"/>
+                <g fill="#5C4A3A" font-family="ui-monospace, Menlo, monospace" font-size="11">
+                  <text x="62" y="188" text-anchor="middle">06:30</text>
+                  <text x="340" y="188" text-anchor="middle">22:00</text>
+                </g>
+                <text x="201" y="206" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="600" fill="#6B5A4D">pickup &amp; drop-off window</text>
+              </svg>
+              <div class="body">
+                <h3>A window, and how far ahead to call</h3>
+                <p>Rides run between two times rather than at one time. Alongside it, the rule that actually governs the trip: real-time, same-day with a minimum lead, or prior-day with a cutoff &mdash; plus the number riders call and the sentence they should read.</p>
+                <ul class="fields">
+                  <li>start_pickup_drop_off_window</li>
+                  <li>end_pickup_drop_off_window</li>
+                  <li>booking_rules.txt</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- ── 3. deviated route ── -->
+            <div class="dcard">
+              <svg class="art" viewBox="0 0 400 230" role="img" aria-labelledby="d3t">
+                <title id="d3t">A fixed bus route with a shaded corridor around it, and a dashed detour leaving the line to reach a rider away from the route.</title>
+                <rect width="400" height="230" fill="#fff"/>
+                <g stroke="#EADBC8" stroke-width="1.5">
+                  <path d="M0 52H400M0 178H400"/>
+                  <path d="M92 0V230M292 0V230"/>
+                </g>
+                <path d="M28 168 C 96 168, 118 96, 190 96 S 300 62, 372 62"
+                      fill="none" stroke="#7B68EE" stroke-opacity=".16" stroke-width="46" stroke-linecap="round"/>
+                <path d="M28 168 C 96 168, 118 96, 190 96 S 300 62, 372 62"
+                      fill="none" stroke="#274BAC" stroke-width="4" stroke-linecap="round"/>
+                <g fill="#fff" stroke="#274BAC" stroke-width="3">
+                  <circle cx="28" cy="168" r="6"/>
+                  <circle cx="132" cy="120" r="6"/>
+                  <circle cx="250" cy="80" r="6"/>
+                  <circle cx="372" cy="62" r="6"/>
+                </g>
+                <path d="M190 96 C 200 132, 196 156, 178 182" fill="none" stroke="#E8734A" stroke-width="3"
+                      stroke-dasharray="6 6" stroke-linecap="round"/>
+                <g>
+                  <circle class="pulse" cx="178" cy="188" r="11" fill="#E8734A" fill-opacity=".28"/>
+                  <circle cx="178" cy="188" r="5.5" fill="#E8734A"/>
+                </g>
+                <text x="330" y="196" text-anchor="end" font-family="Inter, system-ui, sans-serif" font-size="11.5" font-weight="600" fill="#6B5A4D">deviation area &middot; 0.75 mi</text>
+              </svg>
+              <div class="body">
+                <h3>A route that bends on request</h3>
+                <p>Deviated fixed-route is a hybrid: the published line and its stops, plus the corridor the bus will leave the line to serve. GTFS&middot;X can generate that corridor by buffering the routes you have already drawn.</p>
+                <ul class="fields">
+                  <li>locations.geojson</li>
+                  <li>stop_times.location_id</li>
+                  <li>continuous_pickup</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════ WHO READS IT ══════════════════ -->
+      <section>
+        <div class="inner">
+          <span class="eyebrow">Where it shows up</span>
+          <h2 class="sec">Who reads a Flex feed &mdash; and who doesn&rsquo;t</h2>
+          <p class="sec-lede">This is the part worth being exact about, because it is the whole reason to publish. Here is the honest state of it in 2026.</p>
+
+          <figure class="proof">
+            <img src="/assets/learn/gtfs-flex-transit-app-rolling-hills.png" width="2048" height="1015" loading="lazy" decoding="async"
+                 alt="Four screens from the Transit app showing Rolling Hills Transit's demand-response service: a Request a ride button in the nearby list, a Book ahead trip result, a zone-to-zone itinerary labelled Book by 4 PM the day before, and a Call to book button dialling the agency." />
+            <figcaption>Rolling Hills Transit, part of MnDOT&rsquo;s statewide rural Flex programme, surfaced in the Transit app. Note what the rider sees: the service area, the trip, and &ldquo;Book by 4&nbsp;PM the day before&rdquo; &mdash; that sentence is your booking rule, rendered. Source: Transit app blog, <a href="https://blog.transitapp.com/mndot-gtfs-flex-bringing-rural-riders-into-the-fold/" rel="noopener">MnDOT + GTFS-Flex</a>.</figcaption>
+          </figure>
+
+          <div class="consumers">
+            <div class="consumer">
+              <span class="tag yes">Reads it</span>
+              <div>
+                <h3>Transit</h3>
+                <p>Transit&rsquo;s partner documentation lists GTFS-Flex support for paratransit, dial-a-ride and deviated fixed-route service, zone-to-zone and point-to-zone, used for service information and trip planning. Be clear-eyed about the limits, which Transit states itself: no real-time pickup ETA, and no booking inside the app &mdash; it hands the rider a direct link to your app, website or phone number. <a href="https://resources.transitapp.com/article/401-demand-response-service" rel="noopener">Transit&rsquo;s demand-response documentation</a></p>
+              </div>
+            </div>
+            <div class="consumer">
+              <span class="tag yes">Reads it</span>
+              <div>
+                <h3>OpenTripPlanner 2</h3>
+                <p>The open-source routing engine has supported Flex since OTP 2.1 (March 2022), and its current documentation targets the version merged into the mainline spec in March 2024. One caveat to pass on to whoever runs your regional planner: it is a sandbox feature, so <code>FlexRouting</code> has to be switched on. <a href="https://docs.opentripplanner.org/en/latest/sandbox/Flex/" rel="noopener">OTP Flex documentation</a></p>
+              </div>
+            </div>
+            <div class="consumer">
+              <span class="tag partial">Not today</span>
+              <div>
+                <h3>Google Maps</h3>
+                <p>Google&rsquo;s transit partner documentation says it plainly: &ldquo;Google Transit does not currently implement the GTFS-Flex specification. GTFS-Flex datasets cannot be accepted at this time.&rdquo; If anyone has told you a Flex feed will put your dial-a-ride service into Google Maps, they were wrong, and you should hear it here rather than after you publish. <a href="https://support.google.com/transitpartners/answer/1111481?hl=en" rel="noopener">Google Transit participation requirements</a></p>
+              </div>
+            </div>
+          </div>
+
+          <p class="code-note" style="margin-top:20px;">Also on MobilityData&rsquo;s <a href="https://gtfs.org/community/extensions/flex/" rel="noopener">Flex adoption tracker</a>: IBI (Arcadis) as a consumer. Separately, <code>transitland-lib</code> added Flex data handling in late 2025 &mdash; that is catalogue and data support, not trip planning. Apple Maps and Moovit have published nothing either way, so this page claims nothing about them.</p>
+
+          <p style="margin-top:26px; max-width:68ch; color:var(--brown);">The other half of the answer is durability. A Flex feed is the machine-readable record of a service that currently exists as a phone number and a PDF: a defined service area, the days and hours it runs, and the rule for booking it &mdash; in a format the canonical <a href="https://gtfs-validator.mobilitydata.org/" rel="noopener">MobilityData validator</a> has checked in full since v7.0 (March 2025), and a catalogue entry any consumer can find. You publish it once; every reader that exists now, and every one that adds support later, gets it.</p>
+        </div>
+      </section>
+
+      <!-- ══════════════════ HOW YOU BUILD IT ══════════════════ -->
+      <section>
+        <div class="inner">
+          <span class="eyebrow">In the editor</span>
+          <h2 class="sec">One polygon, one window, one booking rule</h2>
+          <p class="sec-lede">That is a complete microtransit feed. Everything below happens on a map in your browser &mdash; there is no schema to learn, no CSV to hand-edit, and nothing to install.</p>
+
+          <div class="steps">
+            <div class="step">
+              <div class="num" aria-hidden="true"></div>
+              <div>
+                <h3>Put the service area on the map</h3>
+                <p>Three ways in, and you pick whichever matches how you already think about the service: click out a polygon, group a set of existing stops, or buffer your existing bus routes by a distance you choose &mdash; 0.75&nbsp;miles by default &mdash; for deviated-route service.</p>
+                <p class="writes">Creating a zone also creates its paired <code>route_type&nbsp;715</code> route. You never add that yourself.</p>
+              </div>
+              <figure>
+                <img src="/assets/docs/flex-create-methods.png" width="1440" height="900" loading="lazy" decoding="async"
+                     alt="The Create new flex zone panel offering three options: Draw Zone on Map, Create Stop Group, and Auto-generate from fixed routes with an editable 0.75 mile buffer." />
+                <figcaption>The three zone-creation paths. Auto-generate buffers the routes already in your feed.</figcaption>
+              </figure>
+            </div>
+
+            <div class="step">
+              <div class="num" aria-hidden="true"></div>
+              <div>
+                <h3>Fill in the window and the booking rule</h3>
+                <p>Pickup start, pickup end, and the calendar the zone runs on. Then the booking rule as a form, not a spec table: real-time, same-day with a minimum lead in minutes, or prior-day with a day-and-time cutoff. Phone and info URL are seeded from your <code>agency.txt</code> record the first time you touch the section.</p>
+                <p class="writes">The window exports as <code>start_pickup_drop_off_window</code> / <code>end_pickup_drop_off_window</code>; the rule becomes a row in <code>booking_rules.txt</code>, referenced from the trip.</p>
+              </div>
+              <figure>
+                <img src="/assets/docs/flex-microtransit-zone-details.png" width="1440" height="900" loading="lazy" decoding="async"
+                     alt="A zone's Details pane: pickup start 08:00:00, pickup end 18:00:00, a weekday service pattern, and a same-day booking rule requiring 60 minutes notice, with a booking phone number and a rider-facing message." />
+                <figcaption>Booking rules as a form. The rider message is the sentence a trip planner can show.</figcaption>
+              </figure>
+            </div>
+
+            <div class="step">
+              <div class="num" aria-hidden="true"></div>
+              <div>
+                <h3>Fix what the validator flags, then export</h3>
+                <p>Twenty-six Flex-specific checks run continuously as you edit &mdash; zone geometry, ids colliding with <code>stops.txt</code>, a window that ends before it starts, a missing service pattern, and every conditional field that a given <code>booking_type</code> requires or forbids. You are not finding these out after you publish.</p>
+                <p class="writes">Export writes a spec-clean <code>.zip</code> you can host anywhere, mixing flex zones and ordinary fixed routes in one feed.</p>
+              </div>
+              <figure>
+                <img src="/assets/docs/flex-zones-and-booking-rules-hero.png" width="1440" height="900" loading="lazy" decoding="async"
+                     alt="The GTFS·X editor with a full fixed-route network on the map and the Flex Zones and Rules panel open, noting that zones export as locations.geojson plus booking_rules.txt." />
+                <figcaption>Flex sits beside the rest of the feed. One project, one export.</figcaption>
+              </figure>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════ WHAT COMES OUT ══════════════════ -->
+      <section style="background:var(--bg); border-top:1px solid var(--rule);">
+        <div class="inner">
+          <div class="export-split">
+            <div>
+              <span class="eyebrow muted">What comes out</span>
+              <h2 class="sec">A real feed, not a diagram</h2>
+              <p class="sec-lede">Our published demo feed carries two flex zones &mdash; a paratransit service area and a microtransit zone &mdash; alongside five ordinary bus routes. It is a live GTFS&#8209;Flex feed you can download and inspect right now.</p>
+              <div class="cta-row" style="margin-top:22px;">
+                <a class="btn btn-ghost" href="/demo" data-cta="flex_demo_open">Open the demo feed <span class="arrow" aria-hidden="true">&rarr;</span></a>
+              </div>
+              <p class="code-note">Or take the zip: <a href="https://feeds.gtfsx.com/svt-demo/gtfs.zip">feeds.gtfsx.com/svt&#8209;demo/gtfs.zip</a></p>
+            </div>
+            <div>
+              <div class="codeblock">
+                <span class="fname">booking_rules.txt</span>
+                <div class="scroll"><pre><span class="hdr">booking_rule_id,booking_type,prior_notice_last_day,prior_notice_last_time,phone_number</span>
+paratransit-booking,<span class="hl">2</span>,<span class="hl">1</span>,<span class="hl">17:00:00</span>,(406) 555-5555</pre></div>
+                <span class="fname">stop_times.txt</span>
+                <div class="scroll"><pre><span class="hdr">trip_id,stop_sequence,location_id,start_pickup_drop_off_window,end_pickup_drop_off_window,pickup_booking_rule_id</span>
+paratransit-trip,1,paratransit-zone,<span class="hl">06:30:00</span>,<span class="hl">22:09:00</span>,paratransit-booking
+paratransit-trip,2,paratransit-zone,<span class="hl">06:30:00</span>,<span class="hl">22:09:00</span>,paratransit-booking</pre></div>
+              </div>
+              <p class="code-note">Structure and values as exported by GTFS&middot;X for the demo feed&rsquo;s paratransit zone; identifiers shortened for legibility. Two rows, not one: travel within a single area needs both ends of the trip.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════ WHAT IT COSTS ══════════════════ -->
+      <section style="background:#fff; border-top:1px solid var(--rule);">
+        <div class="inner">
+          <span class="eyebrow">What it costs</span>
+          <h2 class="sec">Building the feed is free. Always.</h2>
+          <p class="sec-lede">Flex authoring is not a paid feature and never has been. You pay us only if you want the feed hosted, published and kept alive for you &mdash; or if you would rather we did the whole thing.</p>
+          <div class="cards2">
+            <div class="card">
+              <h3>Editor</h3>
+              <p class="price">$0<small> / forever</small></p>
+              <p>Everything on this page, in your browser.</p>
+              <ul>
+                <li>Draw zones, stop groups and route buffers</li>
+                <li>Booking rules, windows and service patterns</li>
+                <li>26 Flex checks running as you edit</li>
+                <li>Export a spec-clean <code>.zip</code>, host it anywhere</li>
+                <li>No account needed to start</li>
+              </ul>
+              <div class="spacer"></div>
+              <a class="btn btn-primary" href="/editor" data-cta="flex_price_editor">Open the editor</a>
+            </div>
+            <div class="card feature">
+              <h3>Planner &mdash; if you want it hosted</h3>
+              <p class="price">$299<small> / mo &middot; or $2,988 / yr</small></p>
+              <p>Adds a stable public URL and the planning suite. Not needed to author Flex.</p>
+              <ul>
+                <li>Hosted publishing at a permanent feed URL</li>
+                <li>One-click Mobility Database submission</li>
+                <li>Rider mini-site and embeddable maps</li>
+                <li>Coverage, cost and equity analysis</li>
+                <li>14-day trial, no credit card</li>
+              </ul>
+              <div class="spacer"></div>
+              <a class="btn btn-ghost" href="/book-demo?src=flex_lp_pricing" data-cta="flex_price_demo">Talk to us</a>
+            </div>
+          </div>
+          <p class="code-note" style="margin-top:18px;">Full plan detail on the <a href="/pricing">pricing page</a>. Vector &amp; Vertex, the firm behind GTFS&middot;X, will also just build the feed for you as a fixed-fee project if that is simpler than doing it in-house.</p>
+        </div>
+      </section>
+
+      <!-- ══════════════════ FINALE ══════════════════ -->
+      <section class="finale">
+        <div class="inner-narrow">
+          <h2>Draw the zone. See what falls out.</h2>
+          <p>Ten minutes in the editor will tell you more about whether Flex describes your service than any amount of reading the spec will.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="/editor" data-cta="flex_finale_editor">Start building &mdash; free <span class="arrow" aria-hidden="true">&rarr;</span></a>
+            <a class="btn btn-ghost" href="/book-demo?src=flex_lp_finale" data-cta="flex_finale_demo">Have us build it</a>
+          </div>
+          <p class="cta-sub">Built and maintained by an AICP transit planner. If Flex is the wrong answer for your service, we will say so on the call.</p>
+        </div>
+      </section>
+
+      <!-- ══════════════════ FAQ ══════════════════ -->
+      <section style="background:var(--bg); border-top:1px solid var(--rule);">
+        <div class="inner-narrow">
+          <span class="eyebrow muted">Common questions</span>
+          <h2 class="sec" style="font-size:clamp(23px,2.8vw,30px);">Before you start</h2>
+          <details>
+            <summary>Is GTFS-Flex still an extension?</summary>
+            <div>No. It was adopted into the GTFS specification on 18 March 2024 with 18 votes in favour and none against &mdash; the most support any GTFS change has received. MobilityData put it plainly at the time: &ldquo;Now that it&rsquo;s officially adopted into the spec, Flex is no longer considered an extension.&rdquo; <code>locations.geojson</code>, <code>location_groups.txt</code>, <code>location_group_stops.txt</code> and <code>booking_rules.txt</code> are all in the reference today, each marked Optional. The spec is still moving, too: <code>safe_duration_factor</code> and <code>safe_duration_offset</code> were added to <code>trips.txt</code> in April 2026, and GTFS&middot;X writes both.</div>
+          </details>
+          <details>
+            <summary>Will publishing Flex put my service in Google Maps?</summary>
+            <div>No. Google&rsquo;s transit partner documentation states that Google Transit &ldquo;does not currently implement the GTFS-Flex specification&rdquo; and that &ldquo;GTFS-Flex datasets cannot be accepted at this time.&rdquo; Publishing Flex reaches Transit and OpenTripPlanner-based planners today. We would rather tell you that up front than have you find out afterwards.</div>
+          </details>
+          <details>
+            <summary>Does a Flex feed let riders book a ride?</summary>
+            <div>No, and it is important not to promise your riders otherwise. A Flex feed carries booking <em>instructions</em> &mdash; how far ahead to call, by when, and on what number or URL. Apps show that and hand the rider off to your existing booking channel. There is no real-time vehicle availability and no reservation. Real-time on-demand data is a separate standard (GOFS), not this one.</div>
+          </details>
+          <details>
+            <summary>Do I need to be a programmer?</summary>
+            <div>No. Everything is a map and a form: click out a polygon (or buffer routes you already have), type a pickup start and end time, pick a calendar, choose a booking type from three buttons, and export. GTFS&middot;X writes the GeoJSON, the booking rules and the <code>stop_times</code> windows for you. If you would rather not do it at all, we will build the feed for you as a fixed-fee project &mdash; <a href="/book-demo?src=flex_lp_faq" data-cta="flex_faq_demo">talk to us</a>.</div>
+          </details>
+          <details>
+            <summary>Can one feed hold both my fixed routes and my flex service?</summary>
+            <div>Yes, and that is the normal case. Flex zones live in the same project as your ordinary routes, stops and timetables, and export together in one zip. If you already publish a fixed-route feed, adding flex means adding to it, not maintaining a second feed.</div>
+          </details>
+          <details>
+            <summary>What does it cost?</summary>
+            <div>Authoring GTFS-Flex is free, with no account needed to start &mdash; zones, booking rules, validation and export are all on the free Editor plan. The paid Planner plan ($299/month, or $2,988/year) is for hosting and publishing the feed at a stable public URL, submitting it to the Mobility Database, rider mini-sites and embeds, and the planning-analysis suite. You do not need it to build or export a Flex feed.</div>
+          </details>
+          <details>
+            <summary>Where do I read the technical detail?</summary>
+            <div>Our field-by-field authoring guide is <a href="/docs/flex-zones-and-booking-rules/">Authoring GTFS-Flex with GTFS&middot;X</a>, and <a href="/learn/gtfs-flex/">What is GTFS-Flex?</a> is the plain-English reference on the files and fields themselves. The specification is at <a href="https://gtfs.org/documentation/schedule/reference/" rel="noopener">gtfs.org</a>.</div>
+          </details>
+        </div>
+      </section>
+
+      <!-- ══════════════════ SOURCES ══════════════════ -->
+      <section class="sources">
+        <div class="inner-narrow">
+          <h2>Sources</h2>
+          <ul>
+            <li><a href="https://gtfs.org/documentation/schedule/reference/" rel="noopener">GTFS Schedule Reference</a> (gtfs.org) &mdash; <code>locations.geojson</code>, <code>location_groups.txt</code>, <code>location_group_stops.txt</code>, <code>booking_rules.txt</code>, and the <code>stop_times.txt</code> pickup/drop-off window and booking-rule fields.</li>
+            <li><a href="https://github.com/google/transit/pull/433" rel="noopener">google/transit PR #433, &ldquo;GTFS-Flex [Voting ver.]&rdquo;</a> &mdash; the adoption vote: closed 18 March 2024, 18 in favour, none against; merged 19 March 2024.</li>
+            <li>MobilityData, <a href="https://mobilitydata.org/%F0%9F%8E%89-gtfs-flex-is-officially-adopted-everything-you-need-to-know/" rel="noopener">&ldquo;GTFS-Flex is Officially Adopted&rdquo;</a> &mdash; source for &ldquo;no longer considered an extension&rdquo; and for the vote count.</li>
+            <li><a href="https://github.com/google/transit/pull/598" rel="noopener">google/transit PR #598</a> &mdash; <code>safe_duration_factor</code> and <code>safe_duration_offset</code> added to <code>trips.txt</code>, merged 22 April 2026.</li>
+            <li>Google, <a href="https://support.google.com/transitpartners/answer/1111481?hl=en" rel="noopener">&ldquo;Get started with Google Transit&rdquo; &mdash; participation requirements</a>: &ldquo;Google Transit does not currently implement the GTFS-Flex specification. GTFS-Flex datasets cannot be accepted at this time.&rdquo;</li>
+            <li>Transit, <a href="https://resources.transitapp.com/article/401-demand-response-service" rel="noopener">demand-response service documentation</a> &mdash; supported service types, zone-to-zone and point-to-zone scope, no real-time ETA, booking handled by link-out.</li>
+            <li><a href="https://docs.opentripplanner.org/en/latest/sandbox/Flex/" rel="noopener">OpenTripPlanner Flex documentation</a> &mdash; sandbox feature, enabled via <code>FlexRouting</code>; conforms to the version merged into the mainline spec in March 2024. Support dates to OTP 2.1.0 (March 2022).</li>
+            <li>MobilityData, <a href="https://github.com/MobilityData/gtfs-validator/releases" rel="noopener">gtfs-validator releases</a> &mdash; partial Flex validation in v6.0.0 (October 2024), the full Flex rule set in v7.0.0 (March 2025).</li>
+            <li>MobilityData, <a href="https://gtfs.org/community/extensions/flex/" rel="noopener">Flex adoption tracker</a> &mdash; the producer and consumer listing. Cited here only for that listing; the page&rsquo;s own status wording predates adoption.</li>
+            <li>Transit app blog, <a href="https://blog.transitapp.com/mndot-gtfs-flex-bringing-rural-riders-into-the-fold/" rel="noopener">&ldquo;MnDOT + GTFS-Flex&rdquo;</a> &mdash; source of the Rolling Hills Transit screenshots.</li>
+            <li>GTFS&middot;X, <a href="/feed-health/">Feed Health dashboard</a> &mdash; 1,924 demand-response agencies on the FY2024 national agency roster; 77 GTFS-Flex feeds across 11 states in the Mobility Database. Export generated 31 July 2026.</li>
+            <li>GTFS&middot;X, <a href="/docs/flex-zones-and-booking-rules/">Authoring GTFS-Flex</a> and the <a href="/pricing">pricing page</a> &mdash; the product claims on this page (three zone-creation methods, the 0.75&nbsp;mile default buffer, 26 Flex validation rules, free authoring, Planner pricing).</li>
+          </ul>
+          <p class="code-note" style="margin-top:18px;">Written and checked 8 August 2026. Consumer support changes; if you are reading this much later, verify against the linked documentation before relying on it.</p>
+        </div>
+      </section>
+    </main>
+<style>
+footer.gx-footer { max-width: none; width: 100%; margin: 0; padding: 0; background: #3D2E22; color: #FFF8F0; font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif; box-sizing: border-box; }
+footer.gx-footer * { box-sizing: border-box; }
+footer.gx-footer a { text-decoration: none; }
+footer.gx-footer .gx-wrap { max-width: 1180px; margin: 0 auto; padding: 64px 28px 36px; }
+footer.gx-footer .gx-top { display: grid; grid-template-columns: 1.4fr repeat(4, 1fr); gap: 36px; }
+footer.gx-footer .gx-lockup { height: 28px; width: auto; display: block; margin-bottom: 16px; }
+footer.gx-footer .gx-blurb { font-size: 13.5px; color: rgba(255,248,240,0.6); line-height: 1.55; max-width: 240px; margin: 0; }
+footer.gx-footer .gx-social { display: flex; gap: 10px; margin-top: 18px; }
+footer.gx-footer .gx-social a { width: 34px; height: 34px; border-radius: 9px; background: rgba(255,248,240,0.08); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #FFF8F0; transition: background 0.12s; }
+footer.gx-footer .gx-social a:hover { background: #E8734A; }
+footer.gx-footer .gx-col h4 { font-family: "Nunito", ui-rounded, system-ui, sans-serif; font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,248,240,0.5); margin: 0 0 16px; }
+footer.gx-footer .gx-col a { display: block; font-size: 14px; color: rgba(255,248,240,0.82); margin-bottom: 11px; transition: color 0.12s; }
+footer.gx-footer .gx-col a:hover { color: #E8734A; }
+footer.gx-footer .gx-bottom { max-width: 1180px; margin: 48px auto 0; padding: 24px 28px 0; border-top: 1px solid rgba(255,248,240,0.12); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13px; color: rgba(255,248,240,0.5); }
+footer.gx-footer .gx-mono { font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+@media (max-width: 780px) { footer.gx-footer .gx-top { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { footer.gx-footer .gx-top { grid-template-columns: 1fr; } }
+</style>
+<footer class="gx-footer">
+  <div class="gx-wrap">
+    <div class="gx-top">
+      <div>
+        <img class="gx-lockup" src="/gtfsx-lockup-on-dark.svg" alt="GTFS·X" width="100" height="28">
+        <p class="gx-blurb">The fast, easy GTFS editor and service planner. Built for transit agencies, planners, and consultants.</p>
+        <div class="gx-social">
+          <a href="https://twitter.com/gtfsxapp" aria-label="GTFS·X on X">X</a>
+          <a href="https://www.linkedin.com/company/gtfsx" aria-label="GTFS·X on LinkedIn">in</a>
+          <a href="https://github.com/GTFS-X/gtfsx" aria-label="GTFS·X on GitHub">gh</a>
+        </div>
+      </div>
+      <div class="gx-col">
+        <h4>Product</h4>
+        <a href="/editor">Editor</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/planning">Planning</a>
+        <a href="/docs/hosted-publishing/">Publishing</a>
+      </div>
+      <div class="gx-col">
+        <h4>Learn</h4>
+        <a href="/learn/gtfs/">What is GTFS</a>
+        <a href="/learn/gtfs-flex/">What is GTFS-Flex</a>
+        <a href="/learn/publish-gtfs-feed/">Publish a GTFS feed</a>
+        <a href="/docs/">Docs</a>
+      </div>
+      <div class="gx-col">
+        <h4>Compare</h4>
+        <a href="/compare/trillium/">vs Trillium</a>
+        <a href="/compare/remix/">vs Remix</a>
+        <a href="/compare/gtfs-builder-rtap/">vs RTAP</a>
+      </div>
+      <div class="gx-col">
+        <h4>Company</h4>
+        <a href="/about/">About</a>
+        <a href="/feed-health/">GTFS Dashboard</a>
+        <a href="/community/announcements">Announcements</a>
+        <a href="mailto:hello@gtfsx.com">Contact</a>
+        <a href="/use-cases/state-dot/">State DOTs</a>
+      </div>
+    </div>
+    <div class="gx-bottom">
+      <span>© 2026 GTFS·X · Vector &amp; Vertex</span>
+      <span class="gx-mono">hello@gtfsx.com</span>
+    </div>
+  </div>
+</footer>
+    <script>
+      (function () {
+        fetch('/api/me', { credentials: 'include', headers: { 'X-GB-Client': 'web' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.user) return;
+            var slot = document.getElementById('user-slot');
+            if (!slot) return;
+            var label = data.user.displayName || data.user.email || '';
+            var initial = (label.charAt(0) || '?').toUpperCase();
+            var escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            slot.innerHTML = '<a href="/account" class="user-avatar" title="' + escaped + '">' + initial + '</a>';
+          })
+          .catch(function () { /* keep "Sign in" */ });
+      })();
+    </script>
+    <script src="/assets/site-nav.js"></script>
+    <!--
+      Inline analytics beacon — mirrors src/services/trackBeacon.ts (same contract
+      as / and /planning). Cookieless, first-touch gclid/gbraid/wbraid/ref capture;
+      page_view on load; cta_click on any element with [data-cta].
+    -->
+    <script>
+    (function () {
+      var SK = 'gb_track_session', RK = 'gb_track_ref', GK = 'gb_track_gclid',
+          GBK = 'gb_track_gbraid', WBK = 'gb_track_wbraid';
+      function rid() {
+        var b = new Uint8Array(16);
+        (self.crypto || self.msCrypto).getRandomValues(b);
+        var s = ''; for (var i = 0; i < b.length; i++) s += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+        return s;
+      }
+      function get(k) { try { return sessionStorage.getItem(k); } catch (_) { return null; } }
+      function set(k, v) { try { sessionStorage.setItem(k, v); } catch (_) {} }
+      function sid() { var i = get(SK); if (!i) { i = rid(); set(SK, i); } return i; }
+      function capture(param, key, max) {
+        try {
+          if (get(key) !== null) return;
+          var p = new URLSearchParams(location.search);
+          var raw = p.get(param);
+          if (!raw) return;
+          var t = raw.trim().slice(0, max);
+          if (!t) return;
+          set(key, t);
+          p.delete(param);
+          var qs = p.toString();
+          history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+        } catch (_) {}
+      }
+      function send(kind, label) {
+        try {
+          fetch('/api/events/track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-GB-Client': 'web' },
+            credentials: 'omit',
+            keepalive: true,
+            body: JSON.stringify({
+              kind: kind,
+              path: location.pathname,
+              ref: get(RK),
+              sessionId: sid(),
+              label: label || null,
+              gclid: get(GK),
+              gbraid: get(GBK),
+              wbraid: get(WBK)
+            })
+          }).catch(function () {});
+        } catch (_) {}
+      }
+      capture('ref', RK, 128);
+      capture('gclid', GK, 256);
+      capture('gbraid', GBK, 256);
+      capture('wbraid', WBK, 256);
+      send('page_view');
+      document.addEventListener('click', function (e) {
+        var t = e.target;
+        while (t && t !== document.body) {
+          if (t.getAttribute && t.getAttribute('data-cta')) {
+            send('cta_click', t.getAttribute('data-cta'));
+            return;
+          }
+          t = t.parentNode;
+        }
+      }, { capture: true, passive: true });
+
+      // At click time, carry the captured (or current-URL) click identifier onto
+      // /book-demo links so the demo submit can attribute the conversion. Covers
+      // gclid and the privacy-safe gbraid/wbraid.
+      document.addEventListener('click', function (e) {
+        var t = e.target, a = null;
+        while (t && t !== document.body) {
+          if (t.tagName === 'A') { a = t; break; }
+          t = t.parentNode;
+        }
+        if (!a) return;
+        var href = a.getAttribute('href') || '';
+        if (href.indexOf('/book-demo') !== 0) return;
+        var url;
+        try { url = new URLSearchParams(location.search); } catch (_) { url = null; }
+        [['gclid', GK], ['gbraid', GBK], ['wbraid', WBK]].forEach(function (pair) {
+          var param = pair[0];
+          var v = get(pair[1]);
+          if (!v && url) { v = url.get(param); }
+          if (!v || href.indexOf(param + '=') !== -1) return;
+          href += (href.indexOf('?') === -1 ? '?' : '&') + param + '=' + encodeURIComponent(v);
+        });
+        a.setAttribute('href', href);
+      }, { capture: true, passive: true });
+    })();
+    </script>
+  </body>
+</html>

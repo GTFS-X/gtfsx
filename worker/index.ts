@@ -20,7 +20,11 @@ import { errorDetail } from './util/redact';
 // preserved.
 const LEGACY_ALIAS_REDIRECTS: Record<string, string> = {
   '/quickstart': '/docs/quick-start/',
-  '/gtfs-flex': '/learn/gtfs-flex/',
+  // NOTE: '/gtfs-flex' used to 301 here to '/learn/gtfs-flex/'. As of 2026-08
+  // it is a REAL page (public/gtfs-flex/index.html — the GTFS-Flex marketing
+  // landing page the "GTFS-Flex — US" Google Ads campaign points at), so the
+  // alias is gone and the static asset serves. /learn/gtfs-flex/ remains the
+  // technical reference and the two cross-link. Do not re-add the redirect.
   '/what-is-gtfs': '/learn/gtfs/',
   // The tier-picker (formerly /upgrade and /welcome/plan) was merged into
   // /pricing. 301 both aliases there, preserving the query string so checkout
