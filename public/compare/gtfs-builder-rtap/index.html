@@ -284,18 +284,79 @@ footer.gx-footer .gx-mono { font-family: "JetBrains Mono", ui-monospace, "SF Mon
       })();
     </script>
       <script src="/assets/site-nav.js"></script>
+    <!--
+      Inline analytics beacon — mirrors src/services/trackBeacon.ts (same contract
+      as /, /home, /ntd and /planning). Cookieless, first-touch gclid/gbraid/wbraid/
+      ref capture; page_view on load; cta_click on any element with [data-cta].
+      Replaces the earlier gclid-only capture, which dropped iOS/consent-limited
+      clicks (no gbraid/wbraid) and fired no page_view telemetry at all.
+    -->
     <script>
       (function () {
-        // Minimal first-party gclid capture + /book-demo carry-through.
-        // Same sessionStorage key as the site beacon; no cookies.
-        var GK = 'gb_track_gclid';
-        function get() { try { return sessionStorage.getItem(GK); } catch (_) { return null; } }
-        try {
-          if (get() === null) {
-            var raw = new URLSearchParams(location.search).get('gclid');
-            if (raw) { raw = raw.trim().slice(0, 256); if (raw) sessionStorage.setItem(GK, raw); }
+        var SK = 'gb_track_session', RK = 'gb_track_ref', GK = 'gb_track_gclid',
+            GBK = 'gb_track_gbraid', WBK = 'gb_track_wbraid';
+        function rid() {
+          var b = new Uint8Array(16);
+          (self.crypto || self.msCrypto).getRandomValues(b);
+          var s = ''; for (var i = 0; i < b.length; i++) s += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+          return s;
+        }
+        function get(k) { try { return sessionStorage.getItem(k); } catch (_) { return null; } }
+        function set(k, v) { try { sessionStorage.setItem(k, v); } catch (_) {} }
+        function sid() { var i = get(SK); if (!i) { i = rid(); set(SK, i); } return i; }
+        function capture(param, key, max) {
+          try {
+            if (get(key) !== null) return;
+            var p = new URLSearchParams(location.search);
+            var raw = p.get(param);
+            if (!raw) return;
+            var t = raw.trim().slice(0, max);
+            if (!t) return;
+            set(key, t);
+            p.delete(param);
+            var qs = p.toString();
+            history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+          } catch (_) {}
+        }
+        function send(kind, label) {
+          try {
+            fetch('/api/events/track', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-GB-Client': 'web' },
+              credentials: 'omit',
+              keepalive: true,
+              body: JSON.stringify({
+                kind: kind,
+                path: location.pathname,
+                ref: get(RK),
+                sessionId: sid(),
+                label: label || null,
+                gclid: get(GK),
+                gbraid: get(GBK),
+                wbraid: get(WBK)
+              })
+            }).catch(function () {});
+          } catch (_) {}
+        }
+        capture('ref', RK, 128);
+        capture('gclid', GK, 256);
+        capture('gbraid', GBK, 256);
+        capture('wbraid', WBK, 256);
+        send('page_view');
+        document.addEventListener('click', function (e) {
+          var t = e.target;
+          while (t && t !== document.body) {
+            if (t.getAttribute && t.getAttribute('data-cta')) {
+              send('cta_click', t.getAttribute('data-cta'));
+              return;
+            }
+            t = t.parentNode;
           }
-        } catch (_) {}
+        }, { capture: true, passive: true });
+
+        // At click time, carry the captured (or current-URL) click identifier onto
+        // /book-demo links so the demo submit can attribute the conversion. Covers
+        // gclid and the privacy-safe gbraid/wbraid.
         document.addEventListener('click', function (e) {
           var t = e.target, a = null;
           while (t && t !== document.body) {
@@ -305,10 +366,16 @@ footer.gx-footer .gx-mono { font-family: "JetBrains Mono", ui-monospace, "SF Mon
           if (!a) return;
           var href = a.getAttribute('href') || '';
           if (href.indexOf('/book-demo') !== 0) return;
-          var g = get();
-          if (!g) { try { g = new URLSearchParams(location.search).get('gclid'); } catch (_) {} }
-          if (!g || href.indexOf('gclid=') !== -1) return;
-          a.setAttribute('href', href + (href.indexOf('?') === -1 ? '?' : '&') + 'gclid=' + encodeURIComponent(g));
+          var url;
+          try { url = new URLSearchParams(location.search); } catch (_) { url = null; }
+          [['gclid', GK], ['gbraid', GBK], ['wbraid', WBK]].forEach(function (pair) {
+            var param = pair[0];
+            var v = get(pair[1]);
+            if (!v && url) { v = url.get(param); }
+            if (!v || href.indexOf(param + '=') !== -1) return;
+            href += (href.indexOf('?') === -1 ? '?' : '&') + param + '=' + encodeURIComponent(v);
+          });
+          a.setAttribute('href', href);
         }, { capture: true, passive: true });
       })();
     </script>
