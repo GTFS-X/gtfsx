@@ -1,13 +1,25 @@
 # Google Ads Offline Conversion Import (OCI)
 
-Server-side conversion uploader that pushes gclid-stamped events from the
-`event` table (`feed_exported`, `paywall_view`, `demo_request`) to Google Ads
-via the
-[uploadClickConversions](https://developers.google.com/google-ads/api/docs/conversions/upload-clicks)
-endpoint. Cookieless replacement for the standard `gtag.js` conversion pixel.
+Server-side conversion uploader that pushes click-id-stamped events from the
+`event` table — **four kinds**: `feed_exported`, `paywall_view`, `demo_request`,
+`sign_up` — to Google Ads via the **Data Manager API**
+([`events:ingest`](https://developers.google.com/data-manager/api/reference/rest/v1/events/ingest)).
+Cookieless replacement for the standard `gtag.js` conversion pixel.
 
-Code: `worker/marketing/ads/oci.ts`. Cron: `0 9 * * *` (09:00 UTC ≈ 03:00 MT)
-in `wrangler.jsonc`. Status page: `/api/admin/events/oci-status`.
+> **The legacy [`uploadClickConversions`](https://developers.google.com/google-ads/api/docs/conversions/upload-clicks)
+> endpoint is de-allowlisted for this account** and returns
+> `CUSTOMER_NOT_ALLOWLISTED_FOR_THIS_FEATURE` (re-confirmed live 2026-08-08).
+> The code keeps it only as a loud-on-failure fallback for when the Data Manager
+> secrets are absent. Do not migrate back to it.
+
+A row carries `gclid`, `gbraid` or `wbraid`. Where we also hold a hashed
+customer email it rides along as a `userData` user identifier — see
+[User identifiers](#user-identifiers-hashed-email) below.
+
+Code: `worker/marketing/ads/oci.ts` (+ `userIdentifiers.ts`). Cron: `0 9 * * *`
+(09:00 UTC ≈ 03:00 MT) in `wrangler.jsonc`. Status page:
+`/api/admin/events/oci-status`. One-shot diagnostic:
+`npx tsx scripts/oci-diagnose.ts` (validate-only / read-only by default).
 
 ---
 
@@ -189,6 +201,18 @@ wrangler secret put GOOGLE_ADS_CONVERSION_ACTION_DEMO_REQUEST    # numeric ID (o
 wrangler secret put GOOGLE_ADS_CONVERSION_ACTION_SIGN_UP         # numeric ID (optional — see §4)
 ```
 
+**Local `.env` / `.dev.vars` are INCOMPLETE relative to prod.** As of
+2026-08-08 the local files hold neither
+`GOOGLE_ADS_CONVERSION_ACTION_DEMO_REQUEST` nor
+`GOOGLE_ADS_CONVERSION_ACTION_SIGN_UP`, both of which *are* set as prod Worker
+secrets. So anything run locally (the diagnostic, an ad-hoc script) resolves
+only `feed_exported` + `paywall_view` and **silently skips the other two kinds**
+— the skip looks identical to "those kinds have nothing pending". Copy both
+values out of the prod secrets before drawing any conclusion about
+`demo_request` or `sign_up` locally. `scripts/oci-diagnose.ts` prints a
+`PROD-ONLY (this script cannot exercise these)` line naming exactly which
+secrets are missing locally; read it before trusting the rest of the run.
+
 The cron triggers automatically at 09:00 UTC the next day. To smoke-test
 sooner, hit the manual trigger:
 
@@ -271,6 +295,207 @@ wrong or unnecessary, adjust or unset that secret — the operating account
 
 ---
 
+## User identifiers (hashed email)
+
+Added 2026-08. Alongside the ad click id, an event may carry
+`userData.userIdentifiers[].emailAddress` — the SHA-256 of the customer's
+normalized email, hex-encoded. Google uses it to attribute conversions the click
+id alone can't: cross-device journeys, iOS/consent-limited clicks, and clicks
+whose `gclid` never made it back to us.
+
+**Contract** (`worker/marketing/ads/userIdentifiers.ts`):
+
+- `userData` is a **sibling of `adIdentifiers`**, not nested inside it. Max 10
+  identifiers per event; we send exactly one.
+- The value is `hex(sha256(normalized_email))`. No `encryptionInfo` / KMS — that
+  is a separate, optional feature we do not use.
+- Top-level **`encoding: "HEX"` becomes required** the moment any event in the
+  request carries `userData`. It is omitted when none does, so a click-id-only
+  request is byte-identical to what shipped before this change.
+- Normalization: trim, lowercase; then **only** for `gmail.com` /
+  `googlemail.com`, drop the `+tag` and strip dots from the local part. Every
+  other domain keeps its dots and `+` (case-folding only).
+- An event with **neither** an ad identifier nor a user identifier is a hard
+  failure (`NO_IDENTIFIERS_PROVIDED`); `buildIngestBody` refuses to construct one.
+
+### Where the email comes from, per kind
+
+The `event` table stores **no user id and no plaintext address** — that is the
+locked cookieless design. So the hash is computed at INSERT time by whichever
+code path already holds the address, and only the digest is stored
+(`event.oci_email_sha256`, migration 0032).
+
+| Kind | Source of the address | Coverage |
+|---|---|---|
+| `sign_up` | The account email, from `POST /auth/signup` and the new-user branch of `/auth/google/callback`. | Always — a signup by definition has one. |
+| `demo_request` | The lead's own address on the `/book-demo` form (`POST /api/demo-leads`). Plaintext stays in `demo_leads`, as before. | Always. The most reliable identifier of the four: typed by the requester, on the form that *is* the conversion. |
+| `feed_exported` | `c.var.user.email`, if the `/api/events/track` call carries a session. | **None today** — see below. |
+| `paywall_view` | Same as above. | **None today** — see below. |
+
+**The gap, stated plainly: `paywall_view` and `feed_exported` resolve no email
+at all right now, and won't without a separate decision.** They come from the
+SPA's analytics beacon, and `src/services/trackBeacon.ts` sends
+`credentials: 'omit'` — deliberately, so the ingest endpoint never sees a
+session. `sessionMiddleware` therefore leaves `c.var.user` undefined and those
+rows upload on their click id alone, exactly as they do today. The server-side
+branch that would stamp a hash is in place and tested, but it is unreached from
+a real browser.
+
+Closing that gap means **attaching credentials to the analytics beacon**, which
+would let the server correlate every page view with an account. That is a much
+bigger change than the hashed email itself: it contradicts the locked cookieless
+design and `public/privacy-policy` §3.5's promise that page views aren't
+correlated across sessions. Not done here — it needs an explicit owner decision.
+(Hashing client-side instead was considered and rejected: the endpoint is public
+and unauthenticated, so it would let anyone forge conversions carrying someone
+else's hashed email.)
+
+Net: user identifiers realistically cover `sign_up` and `demo_request`. Those
+are also the two highest-intent conversions, so it is the useful half of the
+funnel — but do not read "hashed email attached" as covering paywall views.
+
+Non-conversion kinds (`page_view`, `editor_loaded`, `cta_click`) are **never**
+stamped: there is nothing to upload them to, so there is no reason to attach an
+identifier.
+
+### ⚠️ Outstanding: the privacy policy does not cover this
+
+`public/privacy-policy` currently states, twice, that we **"don't share [data]
+with advertisers"** (§1 and §5), lists no Google entry in the §5 vendor table,
+and describes the `event` table in §3.5 as purely aggregated cookieless
+analytics. None of that accounts for uploading conversion data to Google Ads.
+
+That gap **predates this change** — shipping a `gclid` + conversion timestamp to
+Google Ads has been happening since 2026-05. Adding a hashed email makes it
+materially more significant, because a hashed email is a hashed *direct
+identifier* of a person, not just a click token.
+
+**No policy text was changed here** — legal copy is the owner's call. Suggested
+wording is in the handoff report. Please resolve this before, or at the same
+time as, the account terms are accepted and hashed emails begin flowing.
+
+### The customer-data terms gate (live as of 2026-08-08)
+
+The destination account has **not** accepted Google's customer-data terms and
+enhanced conversions for leads is **off**, so a `userData`-bearing event is
+rejected:
+
+```
+HTTP 400 INVALID_ARGUMENT
+  error.details[].fieldViolations[]:
+    field:  events.events[0].destination_references[0]
+    reason: DESTINATION_ACCOUNT_ENHANCED_CONVERSIONS_TERMS_NOT_SIGNED
+```
+
+Naively adding `userData` would therefore have turned every currently-succeeding
+upload into a 400 — a regression, not a fix. Instead the uploader:
+
+1. sends the event **with** `userData` when the row has a hash;
+2. on rejection, reads the **structured `reason` token** (never the message
+   text, never the bare 400) and, if it is one of
+   `DESTINATION_ACCOUNT_ENHANCED_CONVERSIONS_TERMS_NOT_SIGNED`,
+   `TERMS_AND_CONDITIONS_NOT_SIGNED`,
+   `DESTINATION_ACCOUNT_DATA_POLICY_PROHIBITS_ENHANCED_CONVERSIONS`,
+   re-sends the identical event **without** `userData` — same `transactionId`,
+   so no double-count risk;
+3. treats the retry's outcome as the row's outcome.
+
+Any *other* 400 still fails the row, as before. The result: today the pipeline
+behaves exactly as it did, and **the moment Mark accepts the terms, hashed
+emails start flowing with no code change and no deploy**.
+
+The fallback logs **once per run** (not once per row) and the run summary
+carries `userDataFallbacks`; a non-zero value is the standing signal that the
+terms are still outstanding.
+
+**To turn user identifiers on** (a UI click, not an engineering task): Google
+Ads → **Goals → Conversions → Summary →** a conversion action **→ Settings →
+Enhanced conversions for leads**, tick it, and accept both boxes in the terms
+dialog ("Google's EU user consent policy" + "Customer data policies"). Then
+re-run `npx tsx scripts/oci-diagnose.ts` — probe A2 should return 200 instead of
+the 400 above.
+
+---
+
+## Draining the organic backlog (`GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID`)
+
+Attaching a hashed email makes rows *without* a click id uploadable for the
+first time. **That is a much bigger change than it looks**, so it is a
+capability behind a flag, not a behaviour change.
+
+Production D1, measured 2026-08-08 — conversion-kind rows with **no** `gclid`,
+`gbraid` or `wbraid`, all of them pending and all inside the 90-day window:
+
+| Kind | Rows with no click id | Date range |
+|---|---:|---|
+| `paywall_view` | 2,075 | 2026-05-21 → 2026-08-08 |
+| `feed_exported` | 546 | 2026-05-21 → 2026-08-08 |
+| `demo_request` | 106 | 2026-07-12 → 2026-07-20 |
+| **Total** | **2,727** | |
+
+For scale: **30** rows have ever been uploaded (all click-id-bearing, all
+successful, 0 pending, 0 errors). Enabling this carelessly would push roughly
+**90× the account's entire conversion history** into live Google Ads in a single
+cron run — overwhelmingly *organic* traffic that was never an ad conversion.
+Conversions cannot be un-uploaded, and the bid strategy learns from them.
+
+Nobody has approved that, so:
+
+- **The default candidate criteria are unchanged.** A row still needs an ad
+  click id to be picked up by the cron. The hashed email is an *extra*
+  identifier that rides along; it never widens the candidate set.
+- Two env settings are required, and **both**:
+  - `GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID=true` — arms the capability;
+  - `GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE=<unix ms | ISO 8601>` — a
+    **mandatory** cutover. Only email-only rows *newer* than this are ever
+    considered. With the flag on and no cutover the capability stays **off** and
+    logs a warning: flipping the flag alone can never retroactively drain
+    history.
+- `markExpiredOnly` deliberately still ignores email-only rows, so arming the
+  flag can't stamp the `-1` sentinel across thousands of historical rows either.
+
+### The deliberate, bounded drain
+
+For a decision made on purpose later, there is a staff-only endpoint. It is
+**dry-run by default** and has **no unbounded mode**:
+
+```bash
+# Dry run — counts candidates, sends nothing, writes nothing:
+curl -X POST -b "$COOKIE" -H 'X-GB-Client: web' \
+  'https://www.gtfsx.com/api/admin/events/oci-backfill?from=2026-08-01&to=2026-08-08'
+
+# Actually send (BOTH params required), capped at `limit` rows:
+curl -X POST -b "$COOKIE" -H 'X-GB-Client: web' \
+  'https://www.gtfsx.com/api/admin/events/oci-backfill?from=2026-08-01&to=2026-08-08&limit=50&dryRun=false&confirm=send'
+```
+
+`from` and `to` are mandatory; `limit` defaults to 100 and is hard-capped at
+500; every run writes an `admin.oci.backfill` audit row. **This has not been
+run.** Start with a dry run, look at `candidates`, and decide.
+
+---
+
+## Alerting and the per-run summary
+
+Every run logs one `[oci] run summary` line: candidates, attempted, uploaded,
+failed, permanently failed, expired, `withUserData`, `userDataFallbacks`, the
+top structured error reasons, and any kinds pending with no conversion action.
+Sample identifiers in logs are redacted to a short prefix — a full digest is
+never logged.
+
+At most **one email per run** (never one per row), from both the cron *and* the
+admin "Run upload now" button. It fires when:
+
+| Condition | Why it used to be silent |
+|---|---|
+| Rejected or permanently-failed rows | (already alerted) |
+| `configured: false` on prod | A rotated-away secret produced only a `console.warn` — the uploader stopped uploading and nothing said so. |
+| A kind has pending rows but **no conversion action id** | Its rows are never selected, so `attempted` stayed 0 and no alert could fire however many piled up. |
+
+A deliberate skip (non-production origin) and a dry run never alert.
+
+---
+
 ## Operational notes
 
 - **Idempotency.** Once a row is uploaded, `event.oci_uploaded_at` is set to
@@ -279,11 +504,14 @@ wrong or unnecessary, adjust or unset that secret — the operating account
 - **90-day gclid TTL.** Google rejects gclids older than ~90 days, so rows
   past that cutoff are marked with the sentinel `oci_uploaded_at = -1` and
   `oci_last_error = 'expired (>90 days)'` instead of being sent.
-- **Per-row failures.** The request uses `partial_failure: true`. When
-  Google reports an individual row as bad, we increment `oci_attempts` and
-  store the error in `oci_last_error`. Once `oci_attempts >= 3` the row is
-  marked permanently failed (`oci_uploaded_at = -1`) so it stops being
-  retried — check the admin page and investigate.
+- **Per-row failures.** The Data Manager path sends **one event per request**,
+  so the HTTP status *is* the per-row verdict — there is no hidden per-row
+  rejection channel. (The legacy fallback instead uses `partial_failure: true`
+  and decodes `partialFailureError`.) On a rejection we increment
+  `oci_attempts` and store the error in `oci_last_error`. Once
+  `oci_attempts >= 3` the row is marked permanently failed
+  (`oci_uploaded_at = -1`) so it stops being retried — check the admin page and
+  investigate.
 - **Token rotation.** If the refresh token is revoked (e.g. password reset
   for `mark@eateggs.com`, scope change in Google security settings) the
   uploader will start returning OAuth `invalid_grant` errors. Re-run the
@@ -298,10 +526,16 @@ wrong or unnecessary, adjust or unset that secret — the operating account
   Mark manually flips it to Maximize Conversions in the Ads UI, which
   should only happen after ≥30 conversions in a 30-day window have been
   uploaded.
-- **No conversion values.** Both actions are configured "Don't use a
+- **No conversion values.** All four actions are configured "Don't use a
   value"; the uploader deliberately omits `conversion_value` from the
   payload. Adding a value would silently switch the action to value-based
   mode in Google's system.
 - **No user_id linking.** The session-anonymous architecture is locked
   (see `docs/archive/GOOGLE_ADS_PLAN.md` §4). LTV-weighted bidding would require
-  changing that and is out of scope.
+  changing that and is out of scope. The hashed-email identifier is
+  deliberately *not* an exception: `event` gains no `user_id`, no session→account
+  join, and no plaintext address — only a one-way digest of the same value we
+  hand to Google, written by the paths that already held the address.
+- **No plaintext email, anywhere in this path.** Not in `event`, not in a log
+  line, not in an alert email. Hashes are redacted to an 8-char prefix in logs
+  (`redactHash`), mirroring how click ids are redacted.

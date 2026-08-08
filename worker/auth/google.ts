@@ -9,6 +9,7 @@ import { twofaRequirement, startChallenge } from './twofa';
 import { maybeSendNewSigninAlert } from '../sms/alerts';
 import { sendWelcomeEmail } from '../email';
 import { insertEvent } from '../events/insert';
+import { hashEmailHex } from '../marketing/ads/userIdentifiers';
 
 // ─── Google OAuth: server-side authorization-code flow (issue #20) ───────────
 //
@@ -410,6 +411,10 @@ googleRouter.get('/callback', async (c) => {
             gclid: gclid ?? null,
             gbraid: gbraid ?? null,
             wbraid: wbraid ?? null,
+            // Hashed account email — same treatment as the password-signup
+            // path (worker/marketing/ads/userIdentifiers.ts). `email` here is
+            // the verified address from Google's userinfo response.
+            emailSha256: await hashEmailHex(email),
           });
         } catch (err) {
           console.error('[google-oauth] sign_up conversion event insert failed', err);

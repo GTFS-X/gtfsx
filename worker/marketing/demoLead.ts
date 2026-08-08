@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { ulid } from 'ulidx';
 import type { AppContext } from '../env';
 import { insertEvent } from '../events/insert';
+import { hashEmailHex } from './ads/userIdentifiers';
 import { verifyTurnstile } from '../util/turnstile';
 import { validationFailed } from '../util/errors';
 import { clientIp, rateLimit } from '../util/rateLimit';
@@ -127,6 +128,10 @@ demoLeadRouter.post('/', async (c) => {
 
   // 2. Google Ads conversion — same field conventions the old GET used
   //    (src → label, gclid, ref); event name is load-bearing (OCI cron).
+  //    The lead's own address gives this kind the most reliable user
+  //    identifier we have: it is typed by the requester, on the form that IS
+  //    the conversion. Hashed here (never stored in `event` in the clear); the
+  //    plaintext stays in `demo_leads`, where it always has.
   await insertEvent(c.env.DB, {
     kind: 'demo_request',
     path: '/book-demo',
@@ -137,6 +142,7 @@ demoLeadRouter.post('/', async (c) => {
     gclid,
     gbraid,
     wbraid,
+    emailSha256: await hashEmailHex(body.email),
   });
 
   // 3. Best-effort owner notification. A Resend hiccup must not fail the

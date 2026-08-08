@@ -39,6 +39,7 @@ import { sendVerifyEmail, sendMagicLink, sendPasswordReset, sendWelcomeEmail } f
 import { maybeSendNewSigninAlert } from '../sms/alerts';
 import { verifyTurnstile } from '../util/turnstile';
 import { insertEvent } from '../events/insert';
+import { hashEmailHex } from '../marketing/ads/userIdentifiers';
 
 const emailSchema = z.string().trim().toLowerCase().email();
 const passwordSchema = z.string().min(10).max(256);
@@ -421,6 +422,10 @@ authRouter.post('/signup', async (c) => {
         gclid,
         gbraid,
         wbraid,
+        // Hashed account email, so the upload can carry a user identifier
+        // beside the click id. Hashed here — the address itself is never
+        // written to `event`. See worker/marketing/ads/userIdentifiers.ts.
+        emailSha256: await hashEmailHex(body.email),
       });
     } catch (err) {
       console.error('[signup] sign_up conversion event insert failed', err);

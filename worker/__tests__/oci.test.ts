@@ -77,11 +77,12 @@ async function seedEvent(opts: {
   wbraid?: string | null;
   oci_uploaded_at?: number | null;
   oci_attempts?: number;
+  emailSha256?: string | null;
 }): Promise<string> {
   const id = ulid();
   await dbRun(
-    `INSERT INTO event (id, ts, kind, path, ref, session_id, country, label, gclid, gbraid, wbraid, oci_uploaded_at, oci_attempts, oci_last_error)
-     VALUES (?, ?, ?, '/', NULL, ?, NULL, NULL, ?, ?, ?, ?, ?, NULL)`,
+    `INSERT INTO event (id, ts, kind, path, ref, session_id, country, label, gclid, gbraid, wbraid, oci_uploaded_at, oci_attempts, oci_last_error, oci_email_sha256)
+     VALUES (?, ?, ?, '/', NULL, ?, NULL, NULL, ?, ?, ?, ?, ?, NULL, ?)`,
     id,
     opts.ts ?? FIXED_NOW - 1000,
     opts.kind ?? 'feed_exported',
@@ -91,6 +92,7 @@ async function seedEvent(opts: {
     opts.wbraid ?? null,
     opts.oci_uploaded_at ?? null,
     opts.oci_attempts ?? 0,
+    opts.emailSha256 ?? null,
   );
   return id;
 }
@@ -675,7 +677,7 @@ describe('OCI: readDataManagerConfig', () => {
 describe('OCI: buildAdIdentifiers / buildIngestBody', () => {
   const baseRow = (over: Partial<PendingRow>): PendingRow => ({
     id: 'evt-1', ts: Date.UTC(2026, 4, 26, 14, 0, 0), kind: 'feed_exported',
-    gclid: null, gbraid: null, wbraid: null, attempts: 0, ...over,
+    gclid: null, gbraid: null, wbraid: null, attempts: 0, emailSha256: null, ...over,
   });
 
   it('prefers gclid, then gbraid, then wbraid', () => {

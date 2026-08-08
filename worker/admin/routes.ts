@@ -1567,7 +1567,7 @@ adminRouter.get('/events/oci-status', async (c) => {
 </head>
 <body>
   <h1>Google Ads OCI status</h1>
-  <p class="lead">Daily uploader pushes gclid-stamped <code>feed_exported</code>, <code>paywall_view</code>, and <code>demo_request</code> events to Google Ads — see <code>worker/marketing/ads/oci.ts</code>.</p>
+  <p class="lead">Daily uploader pushes click-id-stamped <code>feed_exported</code>, <code>paywall_view</code>, <code>demo_request</code> and <code>sign_up</code> events to Google Ads via the <strong>Data Manager API</strong> (<code>events:ingest</code>) — the legacy <code>uploadClickConversions</code> endpoint is de-allowlisted for this account. A row carries <code>gclid</code>, <code>gbraid</code> or <code>wbraid</code>; where we also hold a hashed customer email it rides along as a <code>userData</code> user identifier. See <code>worker/marketing/ads/oci.ts</code>.</p>
   ${cfgBanner}
 
   <div class="cards">
@@ -1594,7 +1594,7 @@ adminRouter.get('/events/oci-status', async (c) => {
   <pre class="result" id="result" hidden></pre>
 
   <h2>Recover rejected uploads</h2>
-  <p style="color:#555;">Reset conversion rows that were <em>marked uploaded but rejected by Google</em> (e.g. during the June 2026 endpoint de-allowlisting) back to pending, so the next run re-sends them. Idempotent — Google de-dupes by gclid + action + time — and limited to the 90-day window. Run this only after uploads work again.</p>
+  <p style="color:#555;">Reset conversion rows that were <em>marked uploaded but rejected by Google</em> (e.g. during the June 2026 endpoint de-allowlisting) back to pending, so the next run re-sends them. Idempotent — the Data Manager path de-dupes on the event's <code>transactionId</code> (our row id) — and limited to the 90-day window. Run this only after uploads work again.</p>
   <button class="run" id="requeue-btn" style="background:#b45309;">Requeue rejected conversions</button>
   <pre class="result" id="requeue-result" hidden></pre>
 
@@ -1603,7 +1603,7 @@ adminRouter.get('/events/oci-status', async (c) => {
     <thead>
       <tr>
         <th style="width:120px;">Kind</th>
-        <th>gclid</th>
+        <th>Click id (gclid / gbraid / wbraid)</th>
         <th style="width:170px;">Event time (UTC)</th>
         <th style="width:60px;text-align:right;">Attempts</th>
         <th>Last error</th>
@@ -1668,8 +1668,17 @@ ${failedRows}
 adminRouter.post('/events/oci-run', async (c) => {
   const staff = c.var.user!;
   await rateLimit(c.env, { key: `admin:oci-run:${staff.id}`, limit: 6, windowSec: 60 });
-  const { uploadPendingConversions } = await import('../marketing/ads/oci');
-  const result = await uploadPendingConversions(c.env);
+  const { uploadPendingConversions, alertOnOciRun, alertOnOciFatal } = await import('../marketing/ads/oci');
+  let result;
+  try {
+    result = await uploadPendingConversions(c.env);
+  } catch (err) {
+    // A manual run used to fail in total silence — only the cron alerted
+    // (§A1.5 hole 3). Now both do, from the same code path.
+    await alertOnOciFatal(c.env, err, 'admin');
+    throw err;
+  }
+  await alertOnOciRun(c.env, result, 'admin');
   await logAudit(c.env, {
     actorUserId: staff.id,
     subjectType: 'user',
@@ -1677,22 +1686,86 @@ adminRouter.post('/events/oci-run', async (c) => {
     action: 'admin.oci.run',
     metadata: {
       configured: result.configured,
+      candidates: result.candidates,
       attempted: result.attempted,
       uploaded: result.uploaded,
       failedThisRun: result.failedThisRun,
       markedPermanentlyFailed: result.markedPermanentlyFailed,
       skippedExpired: result.skippedExpired,
+      withUserData: result.withUserData,
+      userDataFallbacks: result.userDataFallbacks,
+      pendingUnconfigured: result.pendingUnconfigured,
     },
     ip: clientIp(c.req.raw),
   });
   return c.json(result);
 });
 
+// Deliberate, bounded backfill of conversion rows that have a hashed email but
+// NO ad click id — the ~2.7k historical organic rows the daily cron will never
+// touch (see worker/marketing/ads/README.md → "Draining the organic backlog").
+//
+// This exists so that drain can be a decision someone MAKES, with the numbers in
+// view, rather than something a flag flip does to them:
+//   - dry run by DEFAULT. Sending requires ?dryRun=false AND ?confirm=send.
+//   - a date window is MANDATORY (?from=&to=, ISO 8601 or unix ms) — there is
+//     no "everything" mode.
+//   - ?limit caps the run (default 100, hard ceiling 500), so even a confirmed
+//     send is a bounded batch you can inspect before repeating.
+// Never runs on its own; no cron path reaches it.
+adminRouter.post('/events/oci-backfill', async (c) => {
+  const staff = c.var.user!;
+  await rateLimit(c.env, { key: `admin:oci-backfill:${staff.id}`, limit: 6, windowSec: 60 });
+  const { uploadPendingConversions, parseCutover, alertOnOciRun } = await import('../marketing/ads/oci');
+
+  const q = c.req.query();
+  const from = parseCutover(q.from);
+  const to = parseCutover(q.to);
+  if (from === null || to === null) {
+    return c.json(
+      { error: 'from and to are required (ISO 8601 or unix ms) — this endpoint has no unbounded mode' },
+      400,
+    );
+  }
+  if (to <= from) return c.json({ error: 'to must be after from' }, 400);
+  const limit = Math.min(Math.max(Number(q.limit ?? 100) || 100, 1), 500);
+  // Anything other than an explicit opt-out stays a dry run.
+  const dryRun = !(q.dryRun === 'false' && q.confirm === 'send');
+
+  const result = await uploadPendingConversions(c.env, {}, {
+    allowMissingClickId: true,
+    emailOnlySince: from,
+    since: from,
+    until: to,
+    limit,
+    dryRun,
+  });
+  if (!dryRun) await alertOnOciRun(c.env, result, 'admin');
+  await logAudit(c.env, {
+    actorUserId: staff.id,
+    subjectType: 'user',
+    subjectId: staff.id,
+    action: 'admin.oci.backfill',
+    metadata: {
+      from, to, limit, dryRun,
+      candidates: result.candidates,
+      attempted: result.attempted,
+      uploaded: result.uploaded,
+      failedThisRun: result.failedThisRun,
+    },
+    ip: clientIp(c.req.raw),
+  });
+  return c.json({ from, to, limit, dryRun, ...result });
+});
+
 // Recovery endpoint for the "Requeue rejected conversions" button. Resets
 // conversion-kind rows that were marked uploaded (or sentinel-failed) but were
 // actually rejected by Google — e.g. every row uploaded during the June 2026
 // window when the account was silently de-allowlisted from
-// ConversionUploadService.UploadClickConversions. Clearing oci_uploaded_at /
+// ConversionUploadService.UploadClickConversions. Covers all four upload kinds
+// (`sign_up` was missing until 2026-08 — latent, since it had no rows yet, but
+// it would have quietly excluded them from any future recovery). Clearing
+// oci_uploaded_at /
 // oci_attempts / oci_last_error puts them back in the uploader's pending set so
 // the next run (cron or "Run upload now") re-sends them. Idempotent: Google
 // de-dupes offline click conversions by gclid + conversion action +
@@ -1705,7 +1778,7 @@ adminRouter.post('/events/oci-requeue', async (c) => {
   const res = await c.env.DB.prepare(
     `UPDATE event
         SET oci_uploaded_at = NULL, oci_attempts = 0, oci_last_error = NULL
-      WHERE kind IN ('feed_exported', 'paywall_view', 'demo_request')
+      WHERE kind IN ('feed_exported', 'paywall_view', 'demo_request', 'sign_up')
         AND (gclid IS NOT NULL OR gbraid IS NOT NULL OR wbraid IS NOT NULL)
         AND oci_uploaded_at IS NOT NULL
         AND ts > ?`,

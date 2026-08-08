@@ -316,6 +316,8 @@ export async function sendDemoLeadNotification(
 // text is included verbatim so the actual Google message (e.g.
 // CUSTOMER_NOT_ALLOWLISTED_FOR_THIS_FEATURE) lands in Mark's inbox.
 export interface OciAlertSummary {
+  /** Rows the candidate query returned (may exceed `attempted` on a capped run). */
+  candidates?: number;
   attempted: number;
   uploaded: number;
   failedThisRun: number;
@@ -324,16 +326,34 @@ export interface OciAlertSummary {
   sampleErrors: string[];
   /** Present when the whole run threw (e.g. OAuth token exchange failed). */
   fatal?: string;
+  /** Which trigger produced this run — the cron, or the admin button. */
+  source?: 'cron' | 'admin';
+  /** True when no upload path resolved at all (a secret was rotated away). */
+  notConfigured?: boolean;
+  /** Kinds with rows waiting but no conversion-action id, so nothing is ever sent. */
+  unconfiguredKinds?: Array<{ kind: string; pending: number }>;
+  /** Structured Google error reasons, most frequent first. */
+  topErrorReasons?: Array<{ reason: string; count: number }>;
+  /** Rows re-sent without a hashed email because the account terms are unsigned. */
+  userDataFallbacks?: number;
 }
 
 export async function sendOciAlert(env: Env, summary: OciAlertSummary): Promise<void> {
   const to = env.OWNER_NOTIFY_EMAIL;
   if (!to) return;
   const statusUrl = `${env.APP_ORIGIN}/api/admin/events/oci-status`;
+  const unconfigured = summary.unconfiguredKinds ?? [];
   const headline = summary.fatal
     ? 'The Google Ads conversion uploader failed to run.'
-    : `The Google Ads conversion uploader had ${summary.failedThisRun} rejected `
-      + `row(s)${summary.markedPermanentlyFailed ? ` (${summary.markedPermanentlyFailed} now permanently failed)` : ''}.`;
+    : summary.notConfigured
+      ? 'The Google Ads conversion uploader is NOT CONFIGURED — no upload path resolved, so nothing '
+        + 'is being uploaded at all. A secret was probably rotated away or deleted.'
+      : summary.failedThisRun > 0 || summary.markedPermanentlyFailed > 0
+        ? `The Google Ads conversion uploader had ${summary.failedThisRun} rejected `
+          + `row(s)${summary.markedPermanentlyFailed ? ` (${summary.markedPermanentlyFailed} now permanently failed)` : ''}.`
+        : `The Google Ads conversion uploader has ${unconfigured.reduce((s, u) => s + u.pending, 0)} `
+          + 'row(s) waiting on conversion kinds with no conversion action configured — they will never '
+          + 'be uploaded until the action ids are set.';
   const samples = summary.sampleErrors.slice(0, 5);
   const samplesHtml = summary.fatal
     ? `<p style="margin:14px 0 0;"><strong>Error:</strong><br /><code>${escapeHtml(summary.fatal)}</code></p>`
@@ -341,22 +361,46 @@ export async function sendOciAlert(env: Env, summary: OciAlertSummary): Promise<
       ? `<p style="margin:14px 0 0;"><strong>Sample errors from Google:</strong></p><ul>`
         + samples.map((s) => `<li><code>${escapeHtml(s)}</code></li>`).join('') + `</ul>`
       : '';
+  const reasons = summary.topErrorReasons ?? [];
+  const reasonsHtml = reasons.length
+    ? `<p style="margin:14px 0 0;"><strong>Top error reasons:</strong></p><ul>`
+      + reasons.map((r) => `<li><code>${escapeHtml(r.reason)}</code> × ${r.count}</li>`).join('') + `</ul>`
+    : '';
+  const unconfiguredHtml = unconfigured.length
+    ? `<p style="margin:14px 0 0;"><strong>Kinds with no conversion action:</strong></p><ul>`
+      + unconfigured.map((u) => `<li><code>${escapeHtml(u.kind)}</code> — ${u.pending} pending</li>`).join('')
+      + `</ul>`
+    : '';
+  const fallbackHtml = summary.userDataFallbacks
+    ? `<p style="margin:14px 0 0;">${summary.userDataFallbacks} row(s) were re-sent without a hashed `
+      + 'email because the account has not accepted Google\'s customer-data terms. The uploads still '
+      + 'went through; the user identifiers were dropped.</p>'
+    : '';
+  const sourceLabel = summary.source === 'admin' ? ' (manual run)' : '';
   await send(env, {
     to,
-    subject: 'GTFS·X: Google Ads conversion upload needs attention',
+    subject: `GTFS·X: Google Ads conversion upload needs attention${sourceLabel}`,
     html: wrap(`
       <p>⚠️ ${escapeHtml(headline)}</p>
-      <p><strong>Attempted:</strong> ${summary.attempted} &nbsp;·&nbsp;
+      <p>${summary.candidates === undefined ? '' : `<strong>Candidates:</strong> ${summary.candidates} &nbsp;·&nbsp;`}
+         <strong>Attempted:</strong> ${summary.attempted} &nbsp;·&nbsp;
          <strong>Uploaded:</strong> ${summary.uploaded} &nbsp;·&nbsp;
          <strong>Failed:</strong> ${summary.failedThisRun}</p>
+      ${unconfiguredHtml}
+      ${reasonsHtml}
       ${samplesHtml}
+      ${fallbackHtml}
       <p style="margin:18px 0 0;"><a href="${escapeHtml(statusUrl)}">Open the OCI status page</a> for detail.</p>
     `),
     text:
       `${headline}\n\n` +
+      (summary.candidates === undefined ? '' : `Candidates: ${summary.candidates}\n`) +
       `Attempted: ${summary.attempted}\nUploaded: ${summary.uploaded}\nFailed: ${summary.failedThisRun}\n` +
       (summary.markedPermanentlyFailed ? `Permanently failed: ${summary.markedPermanentlyFailed}\n` : '') +
+      (unconfigured.length ? `\nKinds with no conversion action:\n${unconfigured.map((u) => `- ${u.kind}: ${u.pending} pending`).join('\n')}\n` : '') +
+      (reasons.length ? `\nTop error reasons:\n${reasons.map((r) => `- ${r.reason} x${r.count}`).join('\n')}\n` : '') +
       (summary.fatal ? `\nError:\n${summary.fatal}\n` : samples.length ? `\nSample errors from Google:\n${samples.map((s) => `- ${s}`).join('\n')}\n` : '') +
+      (summary.userDataFallbacks ? `\n${summary.userDataFallbacks} row(s) re-sent without a hashed email (customer-data terms not accepted).\n` : '') +
       `\nStatus page: ${statusUrl}`,
   });
 }

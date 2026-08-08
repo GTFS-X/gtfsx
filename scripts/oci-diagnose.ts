@@ -38,21 +38,27 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 
 import {
   readOciConfig,
   readDataManagerConfig,
+  readEmailOnlyCutover,
   configuredKinds,
   exchangeRefreshToken,
   buildIngestBody,
   buildConversionPayload,
   formatConversionDateTime,
+  extractErrorReasons,
+  isTermsGateError,
   type PendingRow,
   type UploadedKind,
   type OciConfig,
   type DataManagerConfig,
 } from '../worker/marketing/ads/oci';
+// The PRODUCTION normalization + hashing. Imported rather than reimplemented so
+// "this is the exact identifier the uploader would send" is true by
+// construction; a drift between the two would otherwise be invisible here.
+import { normalizeEmail, hashEmailHex } from '../worker/marketing/ads/userIdentifiers';
 import type { Env } from '../worker/env';
 
 // ─── args ──────────────────────────────────────────────────────────────────
@@ -251,30 +257,6 @@ async function gaql(cfg: OciConfig, accessToken: string, query: string): Promise
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
-// ─── enhanced-conversions email hashing ────────────────────────────────────
-
-/**
- * Google's normalization for an email user identifier: trim, lowercase, and for
- * gmail.com / googlemail.com strip dots and anything after a '+' in the local
- * part. Then SHA-256, hex-encoded (the Data Manager contract we use is plain
- * hex with a top-level `encoding: "HEX"`, no KMS envelope).
- */
-export function normalizeEmail(raw: string): string {
-  const email = raw.trim().toLowerCase();
-  const at = email.lastIndexOf('@');
-  if (at < 1) return email;
-  let local = email.slice(0, at);
-  const domain = email.slice(at + 1);
-  if (domain === 'gmail.com' || domain === 'googlemail.com') {
-    local = local.split('+')[0].replace(/\./g, '');
-  }
-  return `${local}@${domain}`;
-}
-
-export function hashEmail(raw: string): string {
-  return createHash('sha256').update(normalizeEmail(raw), 'utf8').digest('hex');
-}
-
 // ─── partialFailureError decoding ──────────────────────────────────────────
 
 interface GoogleAdsError {
@@ -394,6 +376,14 @@ async function main(): Promise<void> {
   }
   if (legacyCfg) kv('configured kinds (legacy)', configuredKinds(legacyCfg).join(', ') || '(none)');
 
+  h2('email-only uploads (GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID)');
+  const emailOnlyCutover = readEmailOnlyCutover(env);
+  kv('capability', emailOnlyCutover === null
+    ? 'OFF — a candidate still requires an ad click id (the default)'
+    : `ON, cutover ${new Date(emailOnlyCutover).toISOString()} (only rows newer than this)`);
+  note('Off means the hashed email is an EXTRA identifier on click-id rows and nothing more —');
+  note('it cannot widen the candidate set, so the organic backlog stays untouched.');
+
   // ── 3. D1 census ─────────────────────────────────────────────────────────
   let sampleRow: PendingRow | null = null;
   if (!SKIP_D1) {
@@ -451,11 +441,37 @@ async function main(): Promise<void> {
         + `permanently-failed=${totals?.sentinel_failed ?? '?'}, carrying oci_last_error=${totals?.with_error ?? '?'}`,
       );
 
+      // migration 0032 adds event.oci_email_sha256. Prod may not have it yet, so
+      // detect rather than assume — selecting a missing column is a hard error.
+      const hasEmailColumn = d1Query(
+        `SELECT name FROM pragma_table_info('event') WHERE name = 'oci_email_sha256'`,
+      ).length > 0;
+      kv('event.oci_email_sha256 (migration 0032)', hasEmailColumn ? 'present' : 'NOT YET APPLIED');
+      const emailCol = hasEmailColumn ? 'oci_email_sha256 AS emailSha256' : `NULL AS emailSha256`;
+
+      // ── the organic backlog behind GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID ──
+      // Rows a hashed email would make uploadable for the FIRST time. This is
+      // the number that has to be looked at before anyone flips that flag.
+      h2('rows with NO ad identifier (what the email-only flag would expose)');
+      console.table(d1Query(`
+        SELECT kind, COUNT(*) AS rows_no_click_id,
+               SUM(CASE WHEN oci_uploaded_at IS NULL THEN 1 ELSE 0 END) AS still_pending,
+               SUM(CASE WHEN ts > (strftime('%s','now') - 90*86400) * 1000 THEN 1 ELSE 0 END) AS within_90d,
+               MIN(date(ts/1000,'unixepoch')) AS first_day,
+               MAX(date(ts/1000,'unixepoch')) AS last_day
+          FROM event
+         WHERE kind IN ('feed_exported','paywall_view','demo_request','sign_up')
+           AND gclid IS NULL AND gbraid IS NULL AND wbraid IS NULL
+         GROUP BY kind ORDER BY rows_no_click_id DESC`));
+      note('The cron will NOT touch these: a candidate still requires an ad click id.');
+      note('They become candidates only behind GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID +');
+      note('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE, which is bounded by the cutover.');
+
       const sel = ROW_ID
         ? `SELECT id, ts, kind, gclid, gbraid, wbraid, COALESCE(oci_attempts,0) AS attempts,
-                  oci_uploaded_at FROM event WHERE id = '${ROW_ID.replace(/'/g, '')}'`
+                  ${emailCol}, oci_uploaded_at FROM event WHERE id = '${ROW_ID.replace(/'/g, '')}'`
         : `SELECT id, ts, kind, gclid, gbraid, wbraid, COALESCE(oci_attempts,0) AS attempts,
-                  oci_uploaded_at
+                  ${emailCol}, oci_uploaded_at
              FROM event
             WHERE kind IN ('feed_exported','paywall_view','demo_request','sign_up')
               AND (gclid IS NOT NULL OR gbraid IS NOT NULL OR wbraid IS NOT NULL)
@@ -466,6 +482,7 @@ async function main(): Promise<void> {
           id: String(found.id), ts: Number(found.ts), kind: found.kind as UploadedKind,
           gclid: (found.gclid as string) ?? null, gbraid: (found.gbraid as string) ?? null,
           wbraid: (found.wbraid as string) ?? null, attempts: Number(found.attempts ?? 0),
+          emailSha256: (found.emailSha256 as string) ?? null,
         };
         const sampleWasUploaded = Number(found.oci_uploaded_at ?? 0) > 0;
         h2('sampled real conversion candidate');
@@ -475,6 +492,7 @@ async function main(): Promise<void> {
         kv('gclid', redact(sampleRow.gclid));
         kv('gbraid', redact(sampleRow.gbraid));
         kv('wbraid', redact(sampleRow.wbraid));
+        kv('oci_email_sha256', redact(sampleRow.emailSha256, 10));
         kv('already uploaded?', sampleWasUploaded
           ? 'YES — no pending candidate existed, so we sampled an already-uploaded row'
           : 'no — genuinely pending');
@@ -496,6 +514,7 @@ async function main(): Promise<void> {
     gbraid: null,
     wbraid: null,
     attempts: 0,
+    emailSha256: null,
   };
   if (!sampleRow) note('using a SYNTHETIC row for the API probes (no real candidate available)');
 
@@ -544,26 +563,26 @@ async function main(): Promise<void> {
 
   // ── 4b. Data Manager + userData (enhanced conversions for leads) ─────────
   h1(`Probe A2 — Data Manager events:ingest WITH hashed email (validateOnly=true, ALWAYS)`);
-  note('Structural fix from handoff §A1.4, probed but NOT shipped: does this account accept a');
-  note('userData-bearing event today, or does it need the customer-data terms accepted first?');
-  note('Contract: userData.userIdentifiers[].emailAddress = plain SHA-256 hex, sibling to');
-  note('adIdentifiers, with a REQUIRED top-level encoding:"HEX" once any event carries userData.');
+  note('The §A1.4 structural fix as SHIPPED: buildIngestBody() attaches userData itself when the');
+  note('row carries event.oci_email_sha256, and sets the top-level encoding:"HEX" that field then');
+  note('requires. Nothing is hand-assembled here — we only hand it a row with a hash and flip');
+  note('validateOnly, so the bytes below are the bytes the cron would send.');
   if (!dmCfg) {
     note('skipped: Data Manager config not resolvable from this environment');
     record('Data Manager userData probe: SKIPPED (no local DM credentials)');
   } else {
     try {
       const token = await exchangeRefreshToken(dmCfg);
-      const body = buildIngestBody(dmCfg, probeRow) as Record<string, unknown>;
-      const events = body.events as Array<Record<string, unknown>>;
-      events[0].userData = {
-        userIdentifiers: [{ emailAddress: hashEmail(PROBE_EMAIL) }],
-      };
-      // Required as soon as ANY event carries userData.
-      body.encoding = 'HEX';
+      const probeHash = await hashEmailHex(PROBE_EMAIL);
+      // Production builder, production hashing — the ONLY change vs. the cron
+      // is validateOnly.
+      const body = buildIngestBody(dmCfg, { ...probeRow, emailSha256: probeHash });
       body.validateOnly = true; // never false in this probe, even under --live
-      kv('probe email (not sent in clear)', redact(normalizeEmail(PROBE_EMAIL), 4));
-      kv('sha256 hex (redacted)', redact(hashEmail(PROBE_EMAIL), 10));
+      kv('probe email (not sent in clear)', redact(normalizeEmail(PROBE_EMAIL) ?? '', 4));
+      kv('sha256 hex (redacted)', redact(probeHash, 10));
+      kv('top-level encoding', String(body.encoding));
+      kv('userData is a sibling of adIdentifiers?',
+        String(Object.hasOwn((body.events as Array<Record<string, unknown>>)[0], 'userData')));
       dump('request body (redacted)', redactDeep(body));
       const res = await fetch(DATA_MANAGER_ENDPOINT, {
         method: 'POST',
@@ -579,19 +598,70 @@ async function main(): Promise<void> {
       let parsed: unknown = text;
       try { parsed = JSON.parse(text); } catch { /* keep raw */ }
       dump('response', redactDeep(parsed));
-      const blob = typeof parsed === 'string' ? parsed : JSON.stringify(parsed);
-      const termsBlocked = /TERMS_AND_CONDITIONS_NOT_SIGNED|ENHANCED_CONVERSIONS_TERMS|CUSTOMER_DATA_TERMS/i.test(blob);
+      // Decide with the PRODUCTION matcher, not a regex over the message. This
+      // is the assertion that the shipped fallback will actually recognise the
+      // live error and retry without userData rather than failing the row.
+      const reasons = extractErrorReasons(parsed);
+      kv('structured error reasons', reasons.length ? reasons.join(', ') : '(none)');
+      kv('isTermsGateError(reasons)', String(isTermsGateError(reasons)));
       if (res.ok) {
-        record('Data Manager + hashed email → ACCEPTED under validateOnly. The §A1.4 structural fix is unblocked; no in-account terms step needed.');
-      } else if (termsBlocked) {
-        record(`Data Manager + hashed email → REJECTED for customer-data terms (HTTP ${res.status}). Mark must accept them before §A1.4 ships.`);
+        record('Data Manager + hashed email → ACCEPTED under validateOnly. User identifiers are live; the uploader will stop falling back.');
+      } else if (isTermsGateError(reasons)) {
+        record(
+          `Data Manager + hashed email → REJECTED for the customer-data terms gate (HTTP ${res.status}, `
+          + `reason ${reasons.filter((r) => r !== 'INVALID_ARGUMENT').join('/')}). The shipped uploader `
+          + 'detects exactly this and re-sends without userData, so uploads keep working until Mark accepts the terms.',
+        );
       } else {
-        record(`Data Manager + hashed email → REJECTED HTTP ${res.status} (not a terms error — see response above).`);
+        record(`Data Manager + hashed email → REJECTED HTTP ${res.status} (NOT a terms error — the uploader would fail the row, correctly).`);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       kv('FAILED', msg);
       record(`Data Manager userData probe threw: ${msg}`);
+    }
+  }
+
+  // ── 4c. The fallback payload, byte for byte ──────────────────────────────
+  h1('Probe A3 — the terms-gate FALLBACK payload (validateOnly=true, ALWAYS)');
+  note('When probe A2 is rejected for the terms gate, the uploader re-sends this: the identical');
+  note('event rebuilt with includeUserData:false. If this is accepted, the fallback holds the');
+  note('pipeline up unchanged while the account terms are outstanding.');
+  if (!dmCfg) {
+    note('skipped: Data Manager config not resolvable from this environment');
+  } else {
+    try {
+      const token = await exchangeRefreshToken(dmCfg);
+      const probeHash = await hashEmailHex(PROBE_EMAIL);
+      const body = buildIngestBody(
+        dmCfg, { ...probeRow, emailSha256: probeHash }, { includeUserData: false },
+      );
+      body.validateOnly = true;
+      kv('userData present?',
+        String(Object.hasOwn((body.events as Array<Record<string, unknown>>)[0], 'userData')));
+      kv('top-level encoding present?', String(Object.hasOwn(body, 'encoding')));
+      dump('request body (redacted)', redactDeep(body));
+      const res = await fetch(DATA_MANAGER_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'x-goog-user-project': dmCfg.projectId,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      kv('HTTP status', `${res.status} ${res.statusText}`);
+      let parsed: unknown = text;
+      try { parsed = JSON.parse(text); } catch { /* keep raw */ }
+      dump('response', redactDeep(parsed));
+      record(res.ok
+        ? 'Terms-gate fallback payload → ACCEPTED. Today\'s uploads are unaffected by the userData change.'
+        : `Terms-gate fallback payload → REJECTED HTTP ${res.status}. The fallback would NOT save the row — investigate.`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      kv('FAILED', msg);
+      record(`Fallback probe threw: ${msg}`);
     }
   }
 

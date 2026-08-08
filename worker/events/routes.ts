@@ -2,8 +2,15 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppContext } from '../env';
 import { insertEvent } from './insert';
+import { hashEmailHex } from '../marketing/ads/userIdentifiers';
 import { validationFailed } from '../util/errors';
 import { clientIp, rateLimit } from '../util/rateLimit';
+
+// The event kinds the Google Ads uploader can send (ALL_UPLOAD_KINDS in
+// worker/marketing/ads/oci.ts). Only these carry a hashed email; page_view /
+// editor_loaded / cta_click never do — there is nothing to upload them to, so
+// there is no reason to stamp an identifier on them.
+const CONVERSION_KINDS = new Set(['feed_exported', 'paywall_view', 'demo_request', 'sign_up']);
 
 // ─── Public, cookieless event ingestion ────────────────────────────────────
 //
@@ -73,6 +80,29 @@ eventsRouter.post('/track', async (c) => {
     windowSec: 60,
   });
 
+  // Hashed user identifier for the Google Ads uploader. `sessionMiddleware`
+  // runs on /api/* and populates c.var.user when the caller has a live session,
+  // so a signed-in visitor's conversion can carry hex(sha256(email)) beside its
+  // click id. Deliberately narrow: conversion kinds only, hashed here (no
+  // address is passed to insertEvent or stored), and anonymous callers are
+  // completely unchanged.
+  //
+  // ⚠️ INERT FOR THE REAL BROWSER BEACON, ON PURPOSE. `src/services/
+  // trackBeacon.ts` sends `credentials: 'omit'`, so the SPA's page-view /
+  // paywall / export beacons arrive WITHOUT the session cookie and c.var.user is
+  // always undefined — `paywall_view` and `feed_exported` therefore upload on
+  // their click id alone, exactly as before. Making them resolve an email means
+  // attaching credentials to the analytics beacon, which would let the server
+  // correlate every page view with an account: a much larger change than this
+  // one, squarely against the locked cookieless design and against what
+  // public/privacy-policy §3.5 currently promises. That is an owner decision,
+  // not an implementation detail — so this stays a correct-but-unreached branch
+  // rather than a silent flip of the beacon's contract. It DOES cover any
+  // credentialed caller of this endpoint (and is exercised by the worker tests).
+  const emailSha256 = CONVERSION_KINDS.has(body.kind) && c.var.user
+    ? await hashEmailHex(c.var.user.email)
+    : null;
+
   await insertEvent(c.env.DB, {
     kind: body.kind,
     path: body.path,
@@ -83,6 +113,7 @@ eventsRouter.post('/track', async (c) => {
     gclid: body.gclid ?? null,
     gbraid: body.gbraid ?? null,
     wbraid: body.wbraid ?? null,
+    emailSha256,
   });
 
   return c.body(null, 204);

@@ -108,7 +108,7 @@ delivered once.
 | `subscription` | Stripe-synced plan/status/renewal for a user or org. |
 | `forum_*` | `forum_category`, `forum_thread`, `forum_post`, `forum_post_upvote`, `forum_subscription`, `forum_user_state`, `forum_image`, FTS5 `forum_search`. |
 | `audit_event` | Append-only log of significant actions. |
-| `event` | Cookieless page-view + funnel log (`kind`, `ref`, `gclid`, country, per-tab session id). No IP/UA/user-id. |
+| `event` | Cookieless page-view + funnel log (`kind`, `ref`, `gclid`/`gbraid`/`wbraid`, country, per-tab session id). No IP/UA/user-id. Conversion rows may also carry `oci_email_sha256` — hex(sha256(normalized email)), stamped at insert by the paths that already hold the address (signup, Google OAuth new-user, `/book-demo` lead form) and sent to Google Ads as a `userData` identifier. A one-way digest only: no plaintext address, no user id, no session→account link. |
 
 ### Migrations
 
@@ -141,6 +141,8 @@ delivered once.
 | `0025_scheduled_publish_acks` | `scheduled_publish.ignore_rt_breakage` + `.ignore_agency_churn` (both `INTEGER NOT NULL DEFAULT 0`) — the ID-stability gates the user acknowledged **at schedule time**, replayed by the cron at fire time. Without them a scheduled publish that tripped either gate could only fail unattended. (`ignore_warnings` was already on the row from 0019.) |
 | `0026_demo_leads` | `demo_leads` (captured `/book-demo` lead-form submissions). |
 | `0027_open_catalog` | `feed_project.catalog_publisher_type` (NULL / `official` / `community` — the open-catalog opt-in + declaration) + `feed_project.mdb_source_id` (Mobility DB source id for the switcher/update path); `publication.catalog_meta_json` (per-publish geography/metadata for `/catalog.json`, computed once at publish). See `docs/catalog-spec.md`. |
+| `0028`–`0031` | Not documented here — see `worker/migrations/` (`assistant_messages`, `self_serve_trial`, `braid`, `twofa`). |
+| `0032_event_email_hash` | `event.oci_email_sha256` — hex(sha256(normalized email)) for the Google Ads `userData` identifier, plus a partial index on `ts`. Hash only; never a plaintext address. See `worker/marketing/ads/README.md` → "User identifiers". |
 
 ---
 
@@ -256,7 +258,15 @@ actions.
 feed contents. Data export at `GET /api/me/export`. Hard-purge 30 d after
 account deletion (cron). Analytics are cookieless — `event` rows carry
 `path`/`ref`/`gclid`/country/per-tab id only; `?ref=` is stripped from the URL
-on capture.
+on capture. **One narrow exception (2026-08):** conversion rows (`sign_up`,
+`demo_request`) also carry `oci_email_sha256`, a one-way SHA-256 of the
+customer's email, which is uploaded to Google Ads as a hashed user identifier
+beside the ad click id. No plaintext address, no user id, and no session→account
+link is stored, and the analytics beacon still sends `credentials: 'omit'` so
+page views remain uncorrelated with accounts. ⚠️ `public/privacy-policy` does
+**not** yet describe sharing conversion data with Google Ads (it currently says
+"we don't share it with advertisers") — that disclosure gap predates this change
+and is outstanding; see `worker/marketing/ads/README.md`.
 
 **Performance (NF-60..63):** edge-cached feed URLs (p95 < 100 ms); editor API
 p95 < 500 ms; idempotent working-state save; atomic publish (D1 pointer flips
