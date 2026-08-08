@@ -9,7 +9,8 @@ const client = makeClient();
 describe('legacy-alias 301 redirects', () => {
   const cases: Array<[string, string]> = [
     ['/quickstart', '/docs/quick-start/'],
-    ['/gtfs-flex', '/learn/gtfs-flex/'],
+    // '/gtfs-flex' is deliberately absent: it is now a real static landing
+    // page (public/gtfs-flex/index.html), not an alias. See worker/index.ts.
     ['/what-is-gtfs', '/learn/gtfs/'],
     // Retired agency-planning campaign LP, merged into /planning.
     ['/lp/agency-planning', '/planning'],
@@ -37,6 +38,16 @@ describe('legacy-alias 301 redirects', () => {
     for (const path of ['/lp/gtfs-editor', '/lp/gtfs-editor/']) {
       const res = await client.get(path, { redirect: 'manual' });
       expect(res.status, path).not.toBe(301);
+    }
+  });
+
+  // Regression guard for the /gtfs-flex Google Ads landing page. It was an
+  // alias to /learn/gtfs-flex/ until 2026-08; re-adding the alias would silently
+  // bounce paid traffic off the landing page and back onto the docs article.
+  it('does NOT redirect /gtfs-flex — it is a real page now', async () => {
+    for (const path of ['/gtfs-flex', '/gtfs-flex/']) {
+      const res = await client.get(path, { redirect: 'manual' });
+      expect(locationPath(res)).not.toBe('/learn/gtfs-flex/');
     }
   });
 
