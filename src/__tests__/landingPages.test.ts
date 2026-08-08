@@ -93,6 +93,36 @@ describe('/lp/gtfs-editor — restored editor campaign LP', () => {
     for (const a of ctas) expect(a, a).toContain('href="/editor"');
   });
 
+  it('labels each CTA placement distinctly so cta_click can tell them apart', async () => {
+    const html = await loadPage(LP);
+    // The page exists to test above-fold structure, so "which CTA did they
+    // click" is the question it has to be able to answer. The hero keeps the
+    // original lp_editor_primary_cta value for continuity with the 2026-05/07
+    // cta_click rows.
+    const labels = [...html.matchAll(/data-cta="([^"]+)"/g)].map((m) => m[1]);
+    expect(labels).toEqual([
+      'lp_editor_header_cta',
+      'lp_editor_primary_cta',
+      'lp_editor_secondary_cta',
+      'lp_editor_sticky_cta',
+    ]);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it('asserts no 404 URL in its BreadcrumbList structured data', async () => {
+    const html = await loadPage(LP);
+    const crumb = parseJsonLdBlocks(html).find(
+      (b) => jsonLdType(b) === 'BreadcrumbList',
+    ) as { itemListElement: Array<{ position: number; item: string }> } | undefined;
+    expect(crumb).toBeDefined();
+    // There is no /lp/ index page — it 404s. The trail is Home → this page.
+    expect(crumb!.itemListElement.map((i) => i.item)).toEqual([
+      'https://www.gtfsx.com/',
+      'https://www.gtfsx.com/lp/gtfs-editor/',
+    ]);
+    expect(crumb!.itemListElement.map((i) => i.position)).toEqual([1, 2]);
+  });
+
   it('inlines the current ad-landing beacon (gclid + gbraid + wbraid)', async () => {
     const html = await loadPage(LP);
     for (const key of ['gb_track_gclid', 'gb_track_gbraid', 'gb_track_wbraid']) {
