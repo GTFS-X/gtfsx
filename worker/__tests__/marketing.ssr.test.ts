@@ -29,6 +29,17 @@ describe('legacy-alias 301 redirects', () => {
     });
   }
 
+  // /lp/gtfs-editor was a legacy alias until 2026-08-08. The page is back as a
+  // real static LP (the controlled arm of the Editor & Hosting landing-page
+  // test), so the alias must stay OUT of the table — a 301 here would shadow
+  // the page and send every paid click to the homepage it is measured against.
+  it('does not 301 /lp/gtfs-editor — the restored LP must be reachable', async () => {
+    for (const path of ['/lp/gtfs-editor', '/lp/gtfs-editor/']) {
+      const res = await client.get(path, { redirect: 'manual' });
+      expect(res.status, path).not.toBe(301);
+    }
+  });
+
   it('preserves the query string on redirect', async () => {
     const res = await client.get('/quickstart?ref=newsletter', { redirect: 'manual' });
     expect(res.status).toBe(301);
