@@ -3,13 +3,17 @@
  * pages are static HTML served directly from `public/`, no SSR overlay, so
  * no worker round-trip is needed).
  *
- * Both dedicated campaign LPs are retired:
- * - /lp/agency-planning/ was merged into the /planning marketing page (its
- *   Google Ads land on /planning; the comparison table + FAQ it carried are
- *   asserted below to have survived the port).
- * - /lp/gtfs-editor/ was retired in pricing v4 (2026-07): with no paid
- *   editor tier left to upsell, the homepage's editor hero panel does the
- *   same job. The editor ads land on / and the path 301s there.
+ * - /lp/agency-planning/ is retired — merged into the /planning marketing page
+ *   (its Google Ads land on /planning; the comparison table + FAQ it carried
+ *   are asserted below to have survived the port).
+ * - /lp/gtfs-editor/ was retired in pricing v4 (2026-07-12) and RESTORED
+ *   2026-08-08 as the controlled arm of a landing-page test: the Editor &
+ *   Hosting campaign points here while Agency & Planning stays on /, so a
+ *   path-level cut of the beacon separates "the homepage is a poor ad
+ *   destination" from "the paid clicks are low quality". The page it replaces
+ *   shipped with CTAs pointing at https://www.gtfsx.com/ — correct only until
+ *   2026-06-20, when / became the marketing homepage — which is why the
+ *   CTA-target assertion below is load-bearing rather than decorative.
  */
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -69,6 +73,95 @@ describe('/planning — ported comparison table + FAQ (from the retired agency L
     const html = await loadPage('public/planning/index.html');
     expect(html).toContain('src="/planning/captions.vtt"');
     expect(html).not.toContain('/lp/agency-planning/captions.vtt');
+  });
+});
+
+describe('/lp/gtfs-editor — restored editor campaign LP', () => {
+  const LP = 'public/lp/gtfs-editor/index.html';
+
+  it('sends every CTA to /editor, never to the marketing homepage', async () => {
+    const html = await loadPage(LP);
+    // The retired version pointed all three CTAs + the sticky bar at
+    // https://www.gtfsx.com/, which has been the marketing homepage since
+    // 2026-06-20. Any reappearance of that href re-breaks the funnel.
+    expect(html).not.toContain('href="https://www.gtfsx.com/"');
+    const ctas = [...html.matchAll(/<a [^>]*class="(?:cta|btn-primary)"[^>]*>/g)].map(
+      (m) => m[0],
+    );
+    // header CTA + hero + secondary section + mobile sticky bar
+    expect(ctas.length).toBe(4);
+    for (const a of ctas) expect(a, a).toContain('href="/editor"');
+  });
+
+  it('labels each CTA placement distinctly so cta_click can tell them apart', async () => {
+    const html = await loadPage(LP);
+    // The page exists to test above-fold structure, so "which CTA did they
+    // click" is the question it has to be able to answer. The hero keeps the
+    // original lp_editor_primary_cta value for continuity with the 2026-05/07
+    // cta_click rows.
+    const labels = [...html.matchAll(/data-cta="([^"]+)"/g)].map((m) => m[1]);
+    expect(labels).toEqual([
+      'lp_editor_header_cta',
+      'lp_editor_primary_cta',
+      'lp_editor_secondary_cta',
+      'lp_editor_sticky_cta',
+    ]);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it('asserts no 404 URL in its BreadcrumbList structured data', async () => {
+    const html = await loadPage(LP);
+    const crumb = parseJsonLdBlocks(html).find(
+      (b) => jsonLdType(b) === 'BreadcrumbList',
+    ) as { itemListElement: Array<{ position: number; item: string }> } | undefined;
+    expect(crumb).toBeDefined();
+    // There is no /lp/ index page — it 404s. The trail is Home → this page.
+    expect(crumb!.itemListElement.map((i) => i.item)).toEqual([
+      'https://www.gtfsx.com/',
+      'https://www.gtfsx.com/lp/gtfs-editor/',
+    ]);
+    expect(crumb!.itemListElement.map((i) => i.position)).toEqual([1, 2]);
+  });
+
+  it('inlines the current ad-landing beacon (gclid + gbraid + wbraid)', async () => {
+    const html = await loadPage(LP);
+    for (const key of ['gb_track_gclid', 'gb_track_gbraid', 'gb_track_wbraid']) {
+      expect(html).toContain(`'${key}'`);
+    }
+    for (const p of ['gclid', 'gbraid', 'wbraid']) {
+      expect(html).toMatch(new RegExp(`capture\\(['"]${p}['"]`));
+    }
+    expect(html).toContain("'/api/events/track'");
+    expect(html).toContain("indexOf('/book-demo')");
+    expect(html).not.toMatch(/googletagmanager\.com|google-analytics\.com|gtag\(/);
+  });
+
+  it('references only media that still exists', async () => {
+    const html = await loadPage(LP);
+    // lp-editor-demo.mp4 was deleted from the gtfsx-videos R2 bucket when the
+    // page was retired; the page now reuses the homepage overview clip.
+    expect(html).not.toContain('lp-editor-demo.mp4');
+    expect(html).not.toContain('/lp/gtfs-editor/captions.vtt');
+    expect(html).toContain('src="/home/gtfs-x-overview.mp4"');
+    expect(html).toContain('src="/home/gtfs-x-overview.vtt"');
+    expect(html).toContain('poster="/assets/docs/editor-hero.png"');
+  });
+
+  it('carries the canonical the sitemap generator derives its entry from', async () => {
+    const html = await loadPage(LP);
+    expect(html).toContain(
+      '<link rel="canonical" href="https://www.gtfsx.com/lp/gtfs-editor/" />',
+    );
+    expect(html).not.toMatch(/<meta[^>]*name=["']robots["'][^>]*noindex/i);
+    const sitemap = await loadPage('public/sitemap.xml');
+    expect(sitemap).toContain('<loc>https://www.gtfsx.com/lp/gtfs-editor/</loc>');
+  });
+
+  it('carries no leftover Pro-tier / $49 pricing', async () => {
+    const html = await loadPage(LP);
+    expect(html).not.toMatch(/\$49\b/);
+    expect(html).not.toMatch(/\$199\b/);
+    expect(html).not.toMatch(/Pro tier|Team tier|Agency tier/);
   });
 });
 

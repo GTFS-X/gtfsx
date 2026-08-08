@@ -550,10 +550,30 @@ Design rationale is preserved in the decisions appendix of the archived
   regenerated via Whisper. The /planning page reference moves v2 → v3 on
   `feat/planning-lp-conversion`; **prod still serves v2 until that branch
   ships**, so don't delete the v2 object.
-  The editor LP `/lp/gtfs-editor/` was **retired** instead of re-recording its
-  stale video: page deleted, path 301s to `/`, editor-campaign ads land on the
-  homepage, `lp-editor-demo.mp4` removed from R2. No paid editor tier exists
-  to upsell, so the homepage's editor hero panel is the landing experience.
+  The editor LP `/lp/gtfs-editor/` was **retired** 2026-07-12 instead of
+  re-recording its stale video: page deleted, path 301'd to `/`,
+  editor-campaign ads moved to the homepage, `lp-editor-demo.mp4` removed
+  from R2.
+- **Editor LP `/lp/gtfs-editor/` RESTORED 2026-08-08** as the controlled arm of
+  a landing-page test. Paid traffic has landed on `/` since 07-13, and the
+  funnel data cannot distinguish "the homepage is a poor ad destination" from
+  "the paid clicks are low quality" — the two produce the same signature.
+  Pointing the $15/day Editor & Hosting campaign at a single-purpose LP while
+  Agency & Planning stays on `/` buys that comparison; a `path`-level cut of
+  the `page_view`/`cta_click` beacon reads it.
+  Restored from `b07474a^` with four repairs, deliberately nothing else:
+  (1) all four CTAs repointed `https://www.gtfsx.com/` → `/editor` — that href
+  was correct only until 2026-06-20 and was still wrong when the page was
+  deleted, so the page's whole final three weeks measured a two-hop funnel;
+  (2) the video repointed from the deleted `lp-editor-demo.mp4` to the
+  homepage's `/home/gtfs-x-overview.mp4` + `.vtt` (poster fallback unchanged);
+  (3) the inline beacon replaced with the current `/ntd/` implementation
+  (gclid **+ gbraid + wbraid**, `/book-demo` carry-through) — the 2026-05 beacon
+  captured gclid only; (4) two drifted `.site-header` CSS rules synced. The
+  sitemap entry regenerates automatically from the page's own canonical
+  (`scripts/build-sitemap.mjs`). **The `'/lp/gtfs-editor': '/'` alias must stay
+  out of `LEGACY_ALIAS_REDIRECTS`** — a 301 there shadows the page; a worker
+  test asserts it.
 - **`/transitfeeds/` static page live since 2026-07-12**
   (`public/transitfeeds/index.html`, `https://www.gtfsx.com/transitfeeds/`), a
   landing page for the shut-down transitfeeds.com/OpenMobilityData. Registered

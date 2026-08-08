@@ -38,10 +38,10 @@ const LEGACY_ALIAS_REDIRECTS: Record<string, string> = {
   // 2026-07-12; keep them pointing at the matching docs pages.
   '/title-vi': '/docs/title-vi-analysis/',
   '/demographics': '/docs/demographic-coverage/',
-  // The editor Google Ads landing page was retired in pricing v4 (2026-07):
-  // with no paid editor tier left to upsell, the homepage's editor hero panel
-  // does the same job. The ads point at / directly now.
-  '/lp/gtfs-editor': '/',
+  // NOTE: '/lp/gtfs-editor' → '/' used to live here (retired in pricing v4,
+  // 2026-07-12). The page is back as a static LP under public/lp/gtfs-editor/
+  // so the Editor & Hosting campaign can be measured against the homepage, so
+  // the alias must NOT be re-added — a 301 here would shadow the real page.
 };
 
 // Client-side (React Router) routes that have NO pre-rendered HTML file and
