@@ -109,7 +109,7 @@
     </header>
     <main>
       <h1>Privacy Policy</h1>
-      <p class="meta">Effective: 2026-05-16 · Last updated: 2026-07-13</p>
+      <p class="meta">Effective: 2026-05-16 · Last updated: 2026-08-08</p>
       <p class="lede">GTFS·X is a browser-based editor for creating, maintaining, and publishing GTFS transit feeds. This page describes what personal information we collect, how we use it, who we share it with, and the choices you have. It is written to match how the service actually behaves — not to maximize what we could collect.</p>
 
       <h2>1. The short version</h2>
@@ -117,7 +117,7 @@
         <li>You can use the editor entirely anonymously. We don't require an account, and we don't track you across sites.</li>
         <li>If you create an account, we collect your email, display name, and a hash of your password — never the password itself.</li>
         <li>Feed content you save to the cloud is stored on Cloudflare infrastructure under your account and is visible only to you and any organization members you've granted access.</li>
-        <li>We share data with the small set of vendors we depend on to operate the service (listed below). We don't sell personal data and we don't share it with advertisers.</li>
+        <li>We share data with the small set of vendors we depend on to operate the service (listed below). We don't sell personal data. We don't share data with data brokers, and the only advertising-related sharing we do is described in <a href="#conversion-measurement">§3.9</a> — measuring which of our ads actually lead somewhere.</li>
         <li>You can export everything we have on you at any time, and you can delete your account, which hard-purges your data after a 30-day grace window.</li>
       </ul>
 
@@ -149,8 +149,8 @@
       <h3>3.4 Feed content</h3>
       <p>If you sign in and save a feed to the cloud, the feed's content (routes, stops, trips, shapes, calendar, fares, flex zones, etc.) is stored as a single gzipped JSON blob in Cloudflare R2 (object storage), with metadata in Cloudflare D1 (SQL). Access is gated by your session and any organization memberships you've granted. We do not look at your feed content except as needed for support work you've explicitly requested, or to investigate abuse reports.</p>
 
-      <h3>3.5 Aggregated, cookieless analytics</h3>
-      <p>We record page-view events to understand how the editor is used. Each event includes the URL pathname (no query string, no host), the country derived from your IP (via the <code>CF-IPCountry</code> header — we never store the IP itself in this table), an inbound <code>?ref=</code> tag if one was present at session start, and a random per-tab session id that is not persisted across tabs or visits. We do not set tracking cookies, fingerprint your device, or correlate page views across sessions.</p>
+      <h3 id="analytics">3.5 Aggregated, cookieless analytics</h3>
+      <p>We record page-view and product events to understand how the editor is used. Each event includes the URL pathname (no query string, no host), the country derived from your IP (via the <code>CF-IPCountry</code> header — we never store the IP itself in this table), an inbound <code>?ref=</code> tag if one was present at session start, a short label for what happened (the feature behind a paid-feature prompt, the name of a marketing link), and a random per-tab session id that is not persisted across tabs or visits. An event from a visit that began with a Google Ads click also carries that click identifier, and the four conversion events described in <a href="#conversion-measurement">§3.9</a> may carry a hashed email — page views never do. We do not set tracking cookies, fingerprint your device, or correlate page views across sessions.</p>
 
       <h3>3.6 Billing information</h3>
       <p>If you upgrade to a paid plan, payment is processed by <a href="https://stripe.com/privacy">Stripe</a>. Stripe collects your name, email, billing address, and payment method details directly — we never see or store your card number. We store the Stripe customer id, the subscription state (active / past due / canceled / trialing), the current plan, and the period dates so we can show your billing page and gate paid features.</p>
@@ -161,7 +161,12 @@
       <h3>3.8 SMS verification and account alerts</h3>
       <p>Phone numbers collected for SMS verification and account alerts are used only to deliver those messages. We do not sell, rent, or share your mobile number or your SMS consent with third parties for marketing. Msg &amp; data rates may apply; message frequency varies; reply STOP to opt out, HELP for help.</p>
 
-      <h2>4. Cookies</h2>
+      <h3 id="conversion-measurement">3.9 Conversion measurement (Google Ads)</h3>
+      <p>We advertise on Google Ads, and we measure which of those ads work. When you arrive from an ad click, Google appends a click identifier to the URL (<code>gclid</code>, <code>gbraid</code>, or <code>wbraid</code>). We keep it in your browser's <code>sessionStorage</code> for the life of that tab and attach it to the analytics events described in <a href="#analytics">§3.5</a>.</p>
+      <p>Four of those events count as conversions: exporting a feed, seeing a paid-feature prompt, submitting the demo-request form, and creating an account. For those four we send Google Ads the click identifier, the time and type of the conversion, and a random event id that stops the same conversion being counted twice. Where you gave us your email address as part of the conversion itself — creating an account, or submitting the demo form — we also send a one-way SHA-256 hash of it, which lets Google match the conversion to the click when the click identifier alone cannot. <strong>We never send the address itself</strong>, and the address is never written to our analytics table; only the hash is.</p>
+      <p>We upload a conversion only where it can be tied to an ad click — because the event carries one of those click identifiers, or, for a signup or demo request, because the hashed email lets Google make the match. Ordinary page views are never uploaded, and we send Google no other analytics data. This is measurement, not retargeting: we build no advertising audiences, and no advertising or analytics tag runs in your browser (see <a href="#cookies">§4</a>).</p>
+
+      <h2 id="cookies">4. Cookies</h2>
       <table>
         <thead>
           <tr><th>Cookie</th><th>Purpose</th><th>Lifetime</th></tr>
@@ -171,7 +176,7 @@
           <tr><td><code>gb_impersonator</code></td><td>Set only when a staff member impersonates a user for support. Lets them return to their own account.</td><td>Cleared when impersonation ends.</td></tr>
         </tbody>
       </table>
-      <p>We do not use analytics, advertising, or social-media cookies.</p>
+      <p>We do not use analytics, advertising, or social-media cookies, and no advertising or analytics tag runs on our pages. The Google Ads click identifier described in <a href="#conversion-measurement">§3.9</a> is held in your browser's <code>sessionStorage</code> for the life of the tab, not in a cookie, and is cleared when you close it.</p>
 
       <h2>5. Who we share data with</h2>
       <p>We share the minimum necessary information with a small set of vendors that operate parts of the service. Each one is bound by its own privacy terms.</p>
@@ -185,9 +190,10 @@
           <tr><td><a href="https://resend.com/legal/privacy-policy">Resend</a></td><td>Recipient email, sender, subject, and body of transactional emails (verify, magic link, password reset, organization invitations).</td><td>Outbound transactional email delivery.</td></tr>
           <tr><td><a href="https://www.mapbox.com/legal/privacy">Mapbox</a></td><td>Your IP, requested map tile coordinates, browser User-Agent — sent directly from your browser, not via our servers.</td><td>Rendering the interactive map and route geocoding.</td></tr>
           <tr><td><a href="https://www.cloudflare.com/application-services/products/turnstile/">Cloudflare Turnstile</a></td><td>Browser signals used to score human-ness on signup / login / reset.</td><td>Bot abuse prevention on authentication forms.</td></tr>
+          <tr><td><a href="https://policies.google.com/privacy">Google Ads</a> (Google LLC)</td><td>An ad click identifier, the time and type of the conversion, and a random event id — plus, for signups and demo requests, a SHA-256 hash of your email address. Never the address itself, and nothing at all for an ordinary page view.</td><td>Measuring which of our ads produce signups, demo requests, feed exports, and paid-feature interest (<a href="#conversion-measurement">§3.9</a>).</td></tr>
         </tbody>
       </table>
-      <p>We do not sell personal information. We do not share data with advertisers or data brokers. We will disclose information only when required by a valid legal process or to protect the rights, property, or safety of GTFS·X, our users, or the public — and where the law allows, we will notify you first.</p>
+      <p>We do not sell personal information, and we do not share data with data brokers. Our only sharing with an advertising platform is the conversion measurement described in <a href="#conversion-measurement">§3.9</a>. We will disclose information only when required by a valid legal process or to protect the rights, property, or safety of GTFS·X, our users, or the public — and where the law allows, we will notify you first.</p>
 
       <h2>6. Your rights</h2>
       <p>Regardless of where you live, you can:</p>
@@ -205,7 +211,7 @@
         <li><strong>Active accounts:</strong> retained for as long as the account exists.</li>
         <li><strong>Deleted accounts:</strong> hard-purged 30 days after deletion. Backups taken before the deletion may persist for up to 90 days before they age out.</li>
         <li><strong>Audit events:</strong> retained while the actor account exists, then purged with it.</li>
-        <li><strong>Cookieless analytics events:</strong> retained for up to 12 months in aggregated form.</li>
+        <li><strong>Cookieless analytics events:</strong> retained for up to 12 months. These rows carry no user id, so deleting your account does not by itself remove them — if you want the hashed email described in <a href="#conversion-measurement">§3.9</a> cleared, write to <a href="mailto:support+privacy@gtfsx.com">support+privacy@gtfsx.com</a> and we'll do it.</li>
         <li><strong>Billing records (Stripe-side):</strong> retained by Stripe under their own retention rules, which may be longer than the above for tax / accounting reasons.</li>
       </ul>
 

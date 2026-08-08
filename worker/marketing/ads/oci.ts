@@ -24,9 +24,10 @@
 // in `event.oci_email_sha256` (migration 0032) the Data Manager path also sends
 // it as `userData.userIdentifiers[].emailAddress`, with the top-level
 // `encoding: "HEX"` that field requires. The email RIDES ALONG with the click
-// id — it does NOT change which rows are candidates. See the
-// GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID note on emailOnlyCutover() for why that
-// separation matters.
+// id — it does NOT change which rows are candidates. See
+// EMAIL_ONLY_ELIGIBLE_KINDS / readEmailOnlyPolicy below for why that separation
+// matters, and why the capability that *can* widen candidacy is structurally
+// limited to the two kinds that ever resolve an email at all.
 //
 // The destination account has NOT yet accepted Google's customer-data terms, so
 // a userData-bearing event is currently rejected with
@@ -161,12 +162,20 @@ export interface OciResult {
 export interface UploadOptions {
   /**
    * Also consider rows with NO ad click id, on the strength of their hashed
-   * email alone. Default: whatever readEmailOnlyCutover(env) resolves, which is
-   * off unless BOTH the flag and a cutover timestamp are configured.
+   * email alone. Default: whatever readEmailOnlyPolicy(env) resolves, which is
+   * off for every kind unless BOTH a kinds list and a cutover are configured.
    */
   allowMissingClickId?: boolean;
   /** Lower bound (exclusive) on event ts for email-only rows. */
   emailOnlySince?: number;
+  /**
+   * Kinds the email-only widening applies to. Defaults to
+   * EMAIL_ONLY_ELIGIBLE_KINDS — the ceiling, not the env's configured subset,
+   * so a deliberate bounded backfill doesn't depend on a cron setting that is
+   * off. Filtered against the ceiling regardless: an ineligible kind here is
+   * dropped exactly as it is in the env var.
+   */
+  emailOnlyKinds?: UploadedKind[];
   /** Extra lower bound (exclusive) on event ts for ALL candidates. */
   since?: number;
   /** Extra upper bound (inclusive) on event ts for ALL candidates. */
@@ -249,24 +258,62 @@ export function readDataManagerConfig(env: Env): DataManagerConfig | null {
   };
 }
 
-// ─── Email-only candidates (default OFF) ────────────────────────────────────
+// ─── Email-only candidates (per-kind, default OFF for every kind) ───────────
 //
-// Attaching a hashed email makes rows WITHOUT a click id technically
-// uploadable for the first time. Prod D1 holds thousands of such rows going
-// back to 2026-05 — overwhelmingly organic traffic that was never an ad
-// conversion. Letting them become candidates would dump the whole backlog into
-// the live Google Ads account on the next cron run: large, irreversible, and
-// nobody asked for it.
+// Attaching a hashed email makes a row WITHOUT a click id technically
+// uploadable for the first time. That is a capability, not a behaviour change,
+// and it is scoped two ways: structurally by KIND, and by configuration.
 //
-// So this is a capability, not a behaviour change. TWO things must be true:
-//   1. GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID is explicitly enabled, and
-//   2. GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE names a cutover timestamp.
-// The cutover is mandatory precisely so flipping the flag alone can never
-// retroactively drain history: with no cutover we log loudly and stay off.
+// ── The structural half: which kinds can ever qualify ──
+//
+// Whether a kind can supply an email is a property of where its rows come from,
+// not of any setting:
+//
+//   sign_up       always — the account email, from POST /auth/signup and the
+//                 new-user branch of /auth/google/callback.
+//   demo_request  always — the lead's own address on the /book-demo form
+//                 (POST /api/demo-leads). Since 2026-07-13 this event fires on
+//                 the form SUBMIT, so an event and a `demo_leads` row are the
+//                 same act. (Before that it fired on GET /book-demo — i.e. on a
+//                 link click or a crawl — which is why prod holds 104 rows from
+//                 2026-07-12/13 that are not demo requests at all. They carry no
+//                 hash, so they can never qualify here; the cutover is the
+//                 belt to that suspenders.)
+//   paywall_view  never — see below.
+//   feed_exported never — see below.
+//
+// paywall_view and feed_exported are emitted by the SPA's analytics beacon, and
+// `src/services/trackBeacon.ts` sends `credentials: 'omit'` deliberately, so
+// /api/events/track never sees a session and never resolves an email for them.
+// A paywall_view or feed_exported row without a click id therefore has NO
+// identifier whatsoever — not a click id, not an email — and Google would
+// reject it with NO_IDENTIFIERS_PROVIDED. Such rows are excluded at SELECTION
+// (the `oci_email_sha256 IS NOT NULL` conjunct never matches them) rather than
+// attempted-and-failed, and buildIngestBody refuses to construct an event with
+// no identifiers as a second tripwire.
+//
+// So EMAIL_ONLY_ELIGIBLE_KINDS is a hard ceiling, not a default. Naming any
+// other kind in the env var is rejected, loudly, rather than honoured: the SQL
+// would happily act on the lie, and a paywall_view that DID somehow acquire a
+// hash (a credentialed non-beacon caller of /api/events/track) would then be
+// uploaded as a "conversion" on the strength of a page view.
+//
+// ── The configuration half ──
+//
+// TWO settings are required, and both:
+//   1. GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS — a comma-separated subset of
+//      EMAIL_ONLY_ELIGIBLE_KINDS. Empty/unset ⇒ off for every kind.
+//   2. GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE — a mandatory cutover
+//      timestamp. Only email-only rows NEWER than it are ever considered, so
+//      naming a kind can never retroactively drain history.
+// Any misconfiguration resolves to null (off) and logs, never to "on".
 
-function truthy(v: string | undefined): boolean {
-  return v === '1' || v?.toLowerCase() === 'true';
-}
+/**
+ * The only kinds email-only candidacy can ever apply to. Structural — no
+ * configuration widens it. See the block comment above for why paywall_view and
+ * feed_exported are permanently absent.
+ */
+export const EMAIL_ONLY_ELIGIBLE_KINDS: readonly UploadedKind[] = ['sign_up', 'demo_request'];
 
 /** Parse a cutover as unix-ms digits or any Date-parseable string (e.g. ISO 8601). */
 export function parseCutover(raw: string | undefined): number | null {
@@ -282,22 +329,56 @@ export function parseCutover(raw: string | undefined): number | null {
 }
 
 /**
- * The cutover timestamp for email-only candidates, or null when the capability
- * is off. Null is the default and the fail-safe: any misconfiguration (flag on
- * with no cutover, or an unparseable cutover) resolves to null.
+ * Kinds named in GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS that are actually
+ * eligible, in EMAIL_ONLY_ELIGIBLE_KINDS order. Ineligible or unrecognized
+ * tokens are DROPPED with a warning — never honoured, never fatal. `*` is
+ * accepted as "every eligible kind" so the common case doesn't require
+ * spelling both out (and still cannot reach an ineligible kind).
  */
-export function readEmailOnlyCutover(env: Env): number | null {
-  if (!truthy(env.GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID)) return null;
-  const cutover = parseCutover(env.GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE);
-  if (cutover === null) {
+export function parseEmailOnlyKinds(raw: string | undefined): UploadedKind[] {
+  if (!raw) return [];
+  const tokens = raw.split(',').map((t) => t.trim().toLowerCase()).filter((t) => t !== '');
+  if (tokens.length === 0) return [];
+  if (tokens.includes('*')) return [...EMAIL_ONLY_ELIGIBLE_KINDS];
+  const eligible = new Set<string>(EMAIL_ONLY_ELIGIBLE_KINDS);
+  const rejected = tokens.filter((t) => !eligible.has(t));
+  if (rejected.length > 0) {
     console.warn(
-      '[oci] GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID is on but '
+      `[oci] GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS names ineligible kind(s) `
+      + `[${rejected.join(', ')}] — IGNORED. Only [${EMAIL_ONLY_ELIGIBLE_KINDS.join(', ')}] `
+      + 'ever resolve an email; the others have no identifier at all without a click id.',
+    );
+  }
+  // Preserve EMAIL_ONLY_ELIGIBLE_KINDS order so the SQL bind order is stable.
+  return EMAIL_ONLY_ELIGIBLE_KINDS.filter((k) => tokens.includes(k));
+}
+
+/**
+ * Which kinds may be uploaded on a hashed email alone, and from when. Null —
+ * the default and the fail-safe — means the capability is off for every kind.
+ * Every misconfiguration (no kinds, only ineligible kinds, kinds with no
+ * cutover, an unparseable cutover) resolves to null.
+ */
+export interface EmailOnlyPolicy {
+  /** Non-empty subset of EMAIL_ONLY_ELIGIBLE_KINDS. */
+  kinds: UploadedKind[];
+  /** Exclusive lower bound on `event.ts` for email-only rows. */
+  since: number;
+}
+
+export function readEmailOnlyPolicy(env: Env): EmailOnlyPolicy | null {
+  const kinds = parseEmailOnlyKinds(env.GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS);
+  if (kinds.length === 0) return null;
+  const since = parseCutover(env.GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE);
+  if (since === null) {
+    console.warn(
+      `[oci] GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS names [${kinds.join(', ')}] but `
       + 'GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE is missing or unparseable — '
-      + 'staying OFF. A cutover is mandatory so enabling the flag can never drain history.',
+      + 'staying OFF. A cutover is mandatory so naming a kind can never drain history.',
     );
     return null;
   }
-  return cutover;
+  return { kinds, since };
 }
 
 // ─── OAuth ────────────────────────────────────────────────────────────────
@@ -770,23 +851,26 @@ function identifierSql(includeBraids: boolean): string {
 /**
  * The candidate predicate plus its bindings.
  *
- * DEFAULT (emailOnlySince === null): identical to what has always shipped — a
- * row needs an ad click id, full stop. A hashed email is an EXTRA identifier
- * that rides along on those rows; it never widens the candidate set.
+ * DEFAULT (emailOnly === null): identical to what has always shipped — a row
+ * needs an ad click id, full stop. A hashed email is an EXTRA identifier that
+ * rides along on those rows; it never widens the candidate set.
  *
- * Only when the capability is explicitly enabled (see readEmailOnlyCutover)
- * does the second disjunct appear, and even then it is bounded by the cutover
- * so history cannot be swept in.
+ * Only when the capability is explicitly enabled (see readEmailOnlyPolicy) does
+ * the second disjunct appear, and it is bounded three ways: it requires a hash,
+ * it requires `ts` after the cutover, and it applies ONLY to the named kinds.
+ * The kind conjunct is what keeps paywall_view / feed_exported out of the
+ * candidate set at selection time — see EMAIL_ONLY_ELIGIBLE_KINDS.
  */
 function candidateSql(
   includeBraids: boolean,
-  emailOnlySince: number | null,
-): { sql: string; binds: number[] } {
+  emailOnly: EmailOnlyPolicy | null,
+): { sql: string; binds: Array<number | string> } {
   const base = identifierSql(includeBraids);
-  if (emailOnlySince === null) return { sql: base, binds: [] };
+  if (emailOnly === null || emailOnly.kinds.length === 0) return { sql: base, binds: [] };
+  const kindPlaceholders = emailOnly.kinds.map(() => '?').join(', ');
   return {
-    sql: `(${base} OR (oci_email_sha256 IS NOT NULL AND ts > ?))`,
-    binds: [emailOnlySince],
+    sql: `(${base} OR (oci_email_sha256 IS NOT NULL AND ts > ? AND kind IN (${kindPlaceholders})))`,
+    binds: [emailOnly.since, ...emailOnly.kinds],
   };
 }
 
@@ -795,7 +879,7 @@ interface LoadPendingArgs {
   limit: number;
   kinds: UploadedKind[];
   includeBraids: boolean;
-  emailOnlySince: number | null;
+  emailOnly: EmailOnlyPolicy | null;
   since?: number;
   until?: number;
 }
@@ -805,10 +889,10 @@ interface LoadPendingArgs {
 // alerted on via pendingUnconfigured) instead of failing per-row against a
 // missing action.
 async function loadPending(env: Env, args: LoadPendingArgs): Promise<PendingRow[]> {
-  const { now, limit, kinds, includeBraids, emailOnlySince, since, until } = args;
+  const { now, limit, kinds, includeBraids, emailOnly, since, until } = args;
   const cutoff = now - GCLID_TTL_MS;
   const placeholders = kinds.map(() => '?').join(', ');
-  const candidate = candidateSql(includeBraids, emailOnlySince);
+  const candidate = candidateSql(includeBraids, emailOnly);
   const extra: string[] = [];
   const extraBinds: number[] = [];
   if (since !== undefined) { extra.push('AND ts > ?'); extraBinds.push(since); }
@@ -843,13 +927,13 @@ async function pendingUnconfiguredKinds(
   now: number,
   configured: UploadedKind[],
   includeBraids: boolean,
-  emailOnlySince: number | null,
+  emailOnly: EmailOnlyPolicy | null,
 ): Promise<Array<{ kind: UploadedKind; pending: number }>> {
   const missing = ALL_UPLOAD_KINDS.filter((k) => !configured.includes(k));
   if (missing.length === 0) return [];
   const cutoff = now - GCLID_TTL_MS;
   const placeholders = missing.map(() => '?').join(', ');
-  const candidate = candidateSql(includeBraids, emailOnlySince);
+  const candidate = candidateSql(includeBraids, emailOnly);
   const res = await env.DB.prepare(
     `SELECT kind, COUNT(*) AS pending
        FROM event
@@ -970,38 +1054,44 @@ export async function uploadPendingConversions(
   }
   const usingDataManager = dmCfg !== null;
 
-  // Email-only candidates: off unless deliberately enabled. `opts` lets the
-  // owner-triggered backfill widen this for one bounded run without touching
-  // the env flag; the cron passes no opts and therefore gets the env default,
-  // which is null (see readEmailOnlyCutover).
-  const envCutover = readEmailOnlyCutover(env);
-  let emailOnlySince: number | null = envCutover;
+  // Email-only candidates: off for every kind unless deliberately enabled.
+  // `opts` lets the owner-triggered backfill widen this for one bounded run
+  // without touching the env config; the cron passes no opts and therefore gets
+  // the env default, which is null (see readEmailOnlyPolicy).
+  const envPolicy = readEmailOnlyPolicy(env);
+  let emailOnly: EmailOnlyPolicy | null = envPolicy;
   if (opts.allowMissingClickId === true) {
-    emailOnlySince = opts.emailOnlySince ?? envCutover;
-    if (emailOnlySince === null) {
+    const since = opts.emailOnlySince ?? envPolicy?.since ?? null;
+    if (since === null) {
       throw new Error(
         'allowMissingClickId requires an emailOnlySince cutover — refusing to consider the entire history',
       );
     }
+    // Default to the eligible ceiling, then filter: an ineligible kind passed
+    // in code is dropped exactly as one named in the env var is. There is no
+    // argument that reaches paywall_view / feed_exported.
+    const requested = opts.emailOnlyKinds ?? EMAIL_ONLY_ELIGIBLE_KINDS;
+    const kinds = EMAIL_ONLY_ELIGIBLE_KINDS.filter((k) => requested.includes(k));
+    emailOnly = kinds.length > 0 ? { kinds, since } : null;
   } else if (opts.allowMissingClickId === false) {
-    emailOnlySince = null;
+    emailOnly = null;
   }
   // The legacy endpoint has no user-identifier field at all, so an email-only
-  // row is unsendable there however the flag is set.
-  if (!usingDataManager) emailOnlySince = null;
+  // row is unsendable there however the capability is configured.
+  if (!usingDataManager) emailOnly = null;
 
   const dryRun = opts.dryRun === true;
   const skippedExpired = dryRun ? 0 : await markExpiredOnly(env, now, usingDataManager);
   const kinds = configuredKinds(activeCfg);
   const pendingUnconfigured = await pendingUnconfiguredKinds(
-    env, now, kinds, usingDataManager, emailOnlySince,
+    env, now, kinds, usingDataManager, emailOnly,
   );
   const rows = await loadPending(env, {
     now,
     limit: opts.limit ?? BATCH_SIZE * 5,
     kinds,
     includeBraids: usingDataManager,
-    emailOnlySince,
+    emailOnly,
     since: opts.since,
     until: opts.until,
   });

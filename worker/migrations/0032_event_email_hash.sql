@@ -15,9 +15,18 @@
 -- Google, and nothing more: a one-way digest, not a reversible identifier.
 --
 -- It is still a *stable pseudonymous* identifier — anyone holding a candidate
--- address can test it against the digest — so it is redacted in logs and is
--- covered by the same deletion path as the rest of a user's data. Nothing about
--- the cookieless beacon changes: no IP, no User-Agent, no user id, no cookie.
+-- address can test it against the digest — so it is redacted in logs
+-- (redactHash). Nothing about the cookieless beacon changes: no IP, no
+-- User-Agent, no user id, no cookie.
+--
+-- ⚠️ DELETION IS NOT AUTOMATIC. `reapOne` (worker/cron/tasks.ts) purges the
+-- user, credentials, sessions, projects, org rows and audit_event; it does NOT
+-- touch `event`, which carries no user_id to key a delete on. So this hash
+-- survives an account deletion until someone clears it by hand. That is stated
+-- in public/privacy-policy §7, which routes the request to
+-- support+privacy@gtfsx.com. Wiring it into reap is a small change nobody has
+-- made yet: UPDATE event SET oci_email_sha256 = NULL WHERE oci_email_sha256 = ?
+-- with hashEmailHex(user.email).
 --
 -- Additive; forward-only. (SQLite ADD COLUMN has no IF NOT EXISTS — the
 -- migration runner applies each file exactly once, same as 0014/0030.)
@@ -25,8 +34,9 @@
 ALTER TABLE event ADD COLUMN oci_email_sha256 TEXT;
 
 -- The uploader's email-only candidate query (only reachable behind the
--- default-off GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID flag) filters on this column
--- plus `ts`; the partial index mirrors the gclid/gbraid/wbraid ones from
+-- default-off GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS setting, and only for
+-- kinds in EMAIL_ONLY_ELIGIBLE_KINDS) filters on this column plus `ts` and
+-- `kind`; the partial index mirrors the gclid/gbraid/wbraid ones from
 -- 0014/0030 so that query stays cheap and never scans the whole table.
 CREATE INDEX IF NOT EXISTS event_email_hash_ts_idx
   ON event (ts) WHERE oci_email_sha256 IS NOT NULL;

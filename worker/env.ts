@@ -139,17 +139,24 @@ export interface Env {
   // Data Manager API is enabled on — the same one holding the OAuth client).
   GOOGLE_DATAMANAGER_PROJECT_ID?: string;
 
-  // ── Email-only conversion uploads (default OFF) ──
-  // Once conversion rows carry a hashed email (migration 0032), rows with NO ad
-  // click id become technically uploadable. Prod holds thousands of such rows,
-  // almost all organic — enabling this carelessly would dump the whole backlog
-  // into the live Google Ads account in one cron run. So it takes TWO settings,
-  // and BOTH are required (see readEmailOnlyCutover in marketing/ads/oci.ts):
-  //   'true' | '1' to arm the capability…
-  GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID?: string;
+  // ── Email-only conversion uploads (per-kind, default OFF for every kind) ──
+  // Once conversion rows carry a hashed email (migration 0032), a row with NO
+  // ad click id becomes technically uploadable — but only for a kind that ever
+  // resolves an email. `paywall_view` / `feed_exported` come from the cookieless
+  // beacon (credentials:'omit') and resolve none, so without a click id they
+  // have no identifier at all and are excluded at selection. The capability is
+  // therefore structurally capped at EMAIL_ONLY_ELIGIBLE_KINDS
+  // (`sign_up`, `demo_request`) in marketing/ads/oci.ts.
+  //
+  // TWO settings are required, and BOTH (see readEmailOnlyPolicy):
+  //   A comma-separated subset of the eligible kinds, e.g. `sign_up` or
+  //   `sign_up,demo_request`; `*` means "every eligible kind". Unset/empty ⇒
+  //   off for every kind. Ineligible names are dropped with a warning, never
+  //   honoured.
+  GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS?: string;
   //   …and a mandatory cutover (unix ms, or any Date-parseable string such as
   //   an ISO 8601 timestamp). Only email-only rows NEWER than this are ever
-  //   considered, so arming the flag can never retroactively drain history.
+  //   considered, so naming a kind can never retroactively drain history.
   //   Missing or unparseable ⇒ the capability stays off and logs a warning.
   GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE?: string;
 }

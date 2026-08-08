@@ -333,46 +333,81 @@ code path already holds the address, and only the digest is stored
 | `paywall_view` | Same as above. | **None today** — see below. |
 
 **The gap, stated plainly: `paywall_view` and `feed_exported` resolve no email
-at all right now, and won't without a separate decision.** They come from the
-SPA's analytics beacon, and `src/services/trackBeacon.ts` sends
+at all, and that is now a settled decision rather than an open question.** They
+come from the SPA's analytics beacon, and `src/services/trackBeacon.ts` sends
 `credentials: 'omit'` — deliberately, so the ingest endpoint never sees a
 session. `sessionMiddleware` therefore leaves `c.var.user` undefined and those
-rows upload on their click id alone, exactly as they do today. The server-side
-branch that would stamp a hash is in place and tested, but it is unreached from
-a real browser.
+rows upload on their click id alone. The server-side branch that would stamp a
+hash is in place and tested, but it is unreached from a real browser.
+
+### The beacon stays cookieless — decided 2026-08-08, do not "fix" it
 
 Closing that gap means **attaching credentials to the analytics beacon**, which
-would let the server correlate every page view with an account. That is a much
-bigger change than the hashed email itself: it contradicts the locked cookieless
-design and `public/privacy-policy` §3.5's promise that page views aren't
-correlated across sessions. Not done here — it needs an explicit owner decision.
-(Hashing client-side instead was considered and rejected: the endpoint is public
-and unauthenticated, so it would let anyone forge conversions carrying someone
-else's hashed email.)
+would let the server correlate every page view with an account. That was
+reviewed and **declined**:
 
-Net: user identifiers realistically cover `sign_up` and `demo_request`. Those
-are also the two highest-intent conversions, so it is the useful half of the
-funnel — but do not read "hashed email attached" as covering paywall views.
+- it contradicts the locked cookieless design and `public/privacy-policy` §3.5's
+  promise that page views aren't correlated across sessions;
+- the measurable upside is near zero at current volume — **12 paid paywall views
+  in 30 days**, so a better match rate on those clicks buys almost nothing;
+- it is a privacy-policy change, not a match-rate optimization.
+
+(Hashing client-side instead was considered and rejected separately: the
+endpoint is public and unauthenticated, so it would let anyone forge conversions
+carrying someone else's hashed email.)
+
+The constraint is recorded at the `credentials: 'omit'` line in
+`src/services/trackBeacon.ts` so the next reader sees why it is there and what
+it costs before changing it.
+
+Net: user identifiers cover `sign_up` and `demo_request`, permanently. Those are
+also the two highest-intent conversions, so it is the useful half of the funnel —
+but do not read "hashed email attached" as covering paywall views. This is also
+why those two kinds, and only those two, can ever be uploaded on an email alone
+(see [Draining the organic backlog](#draining-the-organic-backlog-google_ads_upload_without_click_id_kinds)).
 
 Non-conversion kinds (`page_view`, `editor_loaded`, `cta_click`) are **never**
 stamped: there is nothing to upload them to, so there is no reason to attach an
 identifier.
 
-### ⚠️ Outstanding: the privacy policy does not cover this
+### The privacy policy now covers this (corrected 2026-08-08)
 
-`public/privacy-policy` currently states, twice, that we **"don't share [data]
-with advertisers"** (§1 and §5), lists no Google entry in the §5 vendor table,
-and describes the `event` table in §3.5 as purely aggregated cookieless
-analytics. None of that accounts for uploading conversion data to Google Ads.
+`public/privacy-policy` used to state, twice, that we **"don't share [data] with
+advertisers"** (§1 and §5), listed no Google entry in the §5 vendor table, and
+described the `event` table in §3.5 as purely aggregated cookieless analytics.
+None of that accounted for uploading conversion data to Google Ads, which has
+been happening since 2026-05 — the gap predated the hashed email and was made
+worse by it, since a hashed email is a hashed *direct identifier* of a person,
+not just a click token.
 
-That gap **predates this change** — shipping a `gclid` + conversion timestamp to
-Google Ads has been happening since 2026-05. Adding a hashed email makes it
-materially more significant, because a hashed email is a hashed *direct
-identifier* of a person, not just a click token.
+Corrected on the owner's instruction:
 
-**No policy text was changed here** — legal copy is the owner's call. Suggested
-wording is in the handoff report. Please resolve this before, or at the same
-time as, the account terms are accepted and hashed emails begin flowing.
+- **§1** bullet 4 no longer claims we share nothing with advertisers; it points
+  at §3.9.
+- **§3.5** now says conversion events additionally carry the ad click identifier
+  and (for signups / demo requests) the hashed email, and cross-references §3.9.
+  The "no tracking cookies / no fingerprinting / no cross-session correlation of
+  page views" promise is unchanged and still true: `page_view` rows are never
+  stamped with a hash (`CONVERSION_KINDS` in `worker/events/routes.ts`).
+- **§3.9 "Conversion measurement"** is new and describes the whole mechanism.
+- **§4** notes the click identifier lives in `sessionStorage`, not a cookie.
+- **§5** has a Google Ads vendor row and a corrected closing sentence.
+- **§7** is explicit that deleting your account does not by itself remove the
+  hash from `event` — see "Deletion" below.
+
+**Keep the policy true if you change the code.** In particular: enabling
+`GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS` is *already* covered by §3.9's
+wording, but adding a fifth conversion kind, a conversion value, or a second
+user identifier is not.
+
+**Deletion — a real gap, not a wording one.** `reapOne` in `worker/cron/tasks.ts`
+purges `user`, `credential`, `audit_event`, sessions, projects and org rows; it
+does **not** touch `event`, which has no `user_id` to key on. So a deleted
+account's `oci_email_sha256` survives. §7 says so plainly and routes the request
+to `support+privacy@gtfsx.com`. Making it automatic is straightforward — reap
+could `UPDATE event SET oci_email_sha256 = NULL WHERE oci_email_sha256 = ?` with
+`hashEmailHex(user.email)` — but it was out of scope for this change and has not
+been done.
 
 ### The customer-data terms gate (live as of 2026-08-08)
 
@@ -417,42 +452,78 @@ the 400 above.
 
 ---
 
-## Draining the organic backlog (`GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID`)
+## Email-only uploads (`GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS`)
 
-Attaching a hashed email makes rows *without* a click id uploadable for the
+Attaching a hashed email makes a row *without* a click id uploadable for the
 first time. **That is a much bigger change than it looks**, so it is a
-capability behind a flag, not a behaviour change.
+capability, off by default, and **scoped per conversion kind**.
 
-Production D1, measured 2026-08-08 — conversion-kind rows with **no** `gclid`,
-`gbraid` or `wbraid`, all of them pending and all inside the 90-day window:
+### Which kinds can ever qualify — and why it isn't a setting
 
-| Kind | Rows with no click id | Date range |
-|---|---:|---|
-| `paywall_view` | 2,075 | 2026-05-21 → 2026-08-08 |
-| `feed_exported` | 546 | 2026-05-21 → 2026-08-08 |
-| `demo_request` | 106 | 2026-07-12 → 2026-07-20 |
-| **Total** | **2,727** | |
+`EMAIL_ONLY_ELIGIBLE_KINDS` in `oci.ts` is a **hard ceiling of two**:
 
-For scale: **30** rows have ever been uploaded (all click-id-bearing, all
-successful, 0 pending, 0 errors). Enabling this carelessly would push roughly
-**90× the account's entire conversion history** into live Google Ads in a single
-cron run — overwhelmingly *organic* traffic that was never an ad conversion.
-Conversions cannot be un-uploaded, and the bid strategy learns from them.
+| Kind | Email-only candidacy | Why |
+|---|---|---|
+| `sign_up` | possible, but **vacuous today** | The account email is always available server-side — but the event is only *written* when the signup carried a click id (`auth/routes.ts`, `auth/google.ts`), so no click-id-less `sign_up` row can exist to widen to. Eligible because that gate is a product decision that could change, not a law. |
+| `demo_request` | possible, and **the only one that bites** | The lead's own address, on the form that *is* the conversion. `demoLead.ts` writes the event unconditionally, so a form submit with no click id is a real, uploadable row. |
+| `paywall_view` | **impossible** | Beacon-emitted, `credentials: 'omit'` ⇒ no email ever. |
+| `feed_exported` | **impossible** | Same. |
 
-Nobody has approved that, so:
+A `paywall_view` or `feed_exported` row with no click id has **no identifier at
+all** — not a click id, not an email — so it can never be uploaded whatever any
+flag says; Google would answer `NO_IDENTIFIERS_PROVIDED`. Those rows are
+excluded at **selection** (`candidateSql`'s email-only disjunct requires both
+`oci_email_sha256 IS NOT NULL` and an eligible `kind`), not attempted and failed,
+and `buildIngestBody` refuses to construct a no-identifier event as a second
+tripwire. Both are covered by tests.
 
-- **The default candidate criteria are unchanged.** A row still needs an ad
-  click id to be picked up by the cron. The hashed email is an *extra*
-  identifier that rides along; it never widens the candidate set.
-- Two env settings are required, and **both**:
-  - `GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID=true` — arms the capability;
-  - `GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE=<unix ms | ISO 8601>` — a
-    **mandatory** cutover. Only email-only rows *newer* than this are ever
-    considered. With the flag on and no cutover the capability stays **off** and
-    logs a warning: flipping the flag alone can never retroactively drain
-    history.
-- `markExpiredOnly` deliberately still ignores email-only rows, so arming the
-  flag can't stamp the `-1` sentinel across thousands of historical rows either.
+Naming `paywall_view` or `feed_exported` in the env var does **not** enable them:
+the token is dropped with a warning. That matters because a `paywall_view` *can*
+acquire a hash in principle — `/api/events/track` stamps one for any credentialed
+caller — and without the kind conjunct such a row would upload as a "conversion"
+on the strength of a page view.
+
+### The two settings, and both are required
+
+- `GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS` — a comma-separated subset of the
+  eligible kinds (`sign_up`, `demo_request`), or `*` for both. Unset or empty ⇒
+  **off for every kind**, which is the default and the shipped state.
+- `GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE=<unix ms | ISO 8601>` — a
+  **mandatory** cutover. Only email-only rows *newer* than this are ever
+  considered. Kinds named with no cutover ⇒ the capability stays **off** and
+  logs a warning, so naming a kind can never retroactively drain history.
+
+`markExpiredOnly` deliberately still ignores email-only rows, so arming the
+capability can't stamp the `-1` sentinel across historical rows either.
+
+### What is actually in the backlog (measured 2026-08-08, prod D1)
+
+Conversion-kind rows with **no** `gclid`/`gbraid`/`wbraid`, all pending:
+
+| Kind | Rows, no click id | Date range | Could email-only reach them? |
+|---|---:|---|---|
+| `paywall_view` | 2,075 | 2026-05-21 → 2026-08-08 | No — ineligible kind |
+| `feed_exported` | 546 | 2026-05-21 → 2026-08-08 | No — ineligible kind |
+| `demo_request` | 106 | 2026-07-12 → 2026-07-20 | No — no hash on any of them |
+| **Total** | **2,727** | | **0 rows** |
+
+**So the real answer today is zero.** Migration 0032 adds `oci_email_sha256` as
+`NULL` and nothing backfills it, so not one existing row carries a hash. Earlier
+wording here implied flipping the flag would dump ~2,727 rows (≈90× the 30 rows
+ever uploaded) into the live account; that was wrong in a way worth correcting,
+because the true hazard is *future* rows, not the backlog. Use the
+`eligible_with_hash` column in `npx tsx scripts/oci-diagnose.ts` to re-check the
+number rather than reasoning from this table.
+
+> ⚠️ **Those 106 `demo_request` rows are not demo requests.** Until 2026-07-13 the
+> event fired on `GET /book-demo` — the redirect click — so crawlers walking every
+> `/book-demo?src=…` link on a marketing page generated bursts of them (12 rows
+> in 4 seconds on 2026-07-12 17:08, one per placement, with distinct `src`
+> labels). Since commit `8a040fb` the event fires on the form **submit** (POST
+> `/api/demo-leads`), and prod bears that out: 5 `demo_leads` rows and 5
+> post-cutover `demo_request` events, 1:1. **Uploading the pre-2026-07-13 rows as
+> conversions would be feeding Google Ads crawler traffic.** They carry no hash
+> so they cannot become candidates, but set any cutover after 2026-07-13 anyway.
 
 ### The deliberate, bounded drain
 
@@ -472,6 +543,11 @@ curl -X POST -b "$COOKIE" -H 'X-GB-Client: web' \
 `from` and `to` are mandatory; `limit` defaults to 100 and is hard-capped at
 500; every run writes an `admin.oci.backfill` audit row. **This has not been
 run.** Start with a dry run, look at `candidates`, and decide.
+
+The endpoint is unchanged, but it inherits the same per-kind ceiling: an
+explicit backfill widens candidacy for `sign_up` and `demo_request` only, never
+for `paywall_view` / `feed_exported`. It would otherwise be a way to route
+around the scoping, and the rows it would reach have no identifier anyway.
 
 ---
 

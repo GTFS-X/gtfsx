@@ -42,7 +42,8 @@ import { execFileSync } from 'node:child_process';
 import {
   readOciConfig,
   readDataManagerConfig,
-  readEmailOnlyCutover,
+  readEmailOnlyPolicy,
+  EMAIL_ONLY_ELIGIBLE_KINDS,
   configuredKinds,
   exchangeRefreshToken,
   buildIngestBody,
@@ -376,13 +377,17 @@ async function main(): Promise<void> {
   }
   if (legacyCfg) kv('configured kinds (legacy)', configuredKinds(legacyCfg).join(', ') || '(none)');
 
-  h2('email-only uploads (GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID)');
-  const emailOnlyCutover = readEmailOnlyCutover(env);
-  kv('capability', emailOnlyCutover === null
-    ? 'OFF — a candidate still requires an ad click id (the default)'
-    : `ON, cutover ${new Date(emailOnlyCutover).toISOString()} (only rows newer than this)`);
+  h2('email-only uploads (GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS)');
+  const emailOnly = readEmailOnlyPolicy(env);
+  kv('eligible kinds (structural ceiling)', EMAIL_ONLY_ELIGIBLE_KINDS.join(', '));
+  kv('capability', emailOnly === null
+    ? 'OFF for every kind — a candidate still requires an ad click id (the default)'
+    : `ON for [${emailOnly.kinds.join(', ')}], cutover ${new Date(emailOnly.since).toISOString()} `
+      + '(only rows newer than this)');
   note('Off means the hashed email is an EXTRA identifier on click-id rows and nothing more —');
   note('it cannot widen the candidate set, so the organic backlog stays untouched.');
+  note('paywall_view / feed_exported can NEVER be widened: the beacon sends credentials:\'omit\',');
+  note('so they resolve no email and a row without a click id has no identifier at all.');
 
   // ── 3. D1 census ─────────────────────────────────────────────────────────
   let sampleRow: PendingRow | null = null;
@@ -449,14 +454,21 @@ async function main(): Promise<void> {
       kv('event.oci_email_sha256 (migration 0032)', hasEmailColumn ? 'present' : 'NOT YET APPLIED');
       const emailCol = hasEmailColumn ? 'oci_email_sha256 AS emailSha256' : `NULL AS emailSha256`;
 
-      // ── the organic backlog behind GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID ──
-      // Rows a hashed email would make uploadable for the FIRST time. This is
-      // the number that has to be looked at before anyone flips that flag.
-      h2('rows with NO ad identifier (what the email-only flag would expose)');
+      // ── rows with no ad identifier, and what could ever reach them ──
+      // `eligible_with_hash` is the only column that can become non-zero
+      // candidates: an eligible kind, no click id, but a hashed email to match
+      // on. Everything else in this table is structurally un-uploadable — no
+      // click id and no email is no identifier at all.
+      const eligibleList = EMAIL_ONLY_ELIGIBLE_KINDS.map((k) => `'${k}'`).join(',');
+      const withHash = hasEmailColumn
+        ? `SUM(CASE WHEN oci_email_sha256 IS NOT NULL AND kind IN (${eligibleList}) THEN 1 ELSE 0 END)`
+        : '0';
+      h2('rows with NO ad identifier (what the email-only capability could expose)');
       console.table(d1Query(`
         SELECT kind, COUNT(*) AS rows_no_click_id,
                SUM(CASE WHEN oci_uploaded_at IS NULL THEN 1 ELSE 0 END) AS still_pending,
                SUM(CASE WHEN ts > (strftime('%s','now') - 90*86400) * 1000 THEN 1 ELSE 0 END) AS within_90d,
+               ${withHash} AS eligible_with_hash,
                MIN(date(ts/1000,'unixepoch')) AS first_day,
                MAX(date(ts/1000,'unixepoch')) AS last_day
           FROM event
@@ -464,8 +476,9 @@ async function main(): Promise<void> {
            AND gclid IS NULL AND gbraid IS NULL AND wbraid IS NULL
          GROUP BY kind ORDER BY rows_no_click_id DESC`));
       note('The cron will NOT touch these: a candidate still requires an ad click id.');
-      note('They become candidates only behind GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID +');
-      note('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE, which is bounded by the cutover.');
+      note('Only `eligible_with_hash` can ever become candidates, and only behind');
+      note('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS + _SINCE, bounded by the cutover.');
+      note('A zero there means the capability would expose nothing however it is configured.');
 
       const sel = ROW_ID
         ? `SELECT id, ts, kind, gclid, gbraid, wbraid, COALESCE(oci_attempts,0) AS attempts,

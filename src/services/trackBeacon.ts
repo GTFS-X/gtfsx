@@ -129,8 +129,11 @@ export function getStoredClickIds(): {
 }
 
 // Keep in sync with the zod enum in worker/events/routes.ts. demo_request is
-// recorded server-side by GET /book-demo (worker/marketing/bookDemo.ts) — it
-// is listed for type parity only and has no client beacon call site.
+// recorded server-side by the /book-demo lead-form SUBMIT (POST
+// /api/demo-leads, worker/marketing/demoLead.ts) — it is listed for type parity
+// only and has no client beacon call site. (Until 2026-07-13 it was written by
+// GET /book-demo, i.e. on the redirect click, which is why prod holds a burst
+// of crawler-generated rows from 2026-07-12/13.)
 type TrackKind =
   | 'page_view'
   | 'editor_loaded'
@@ -149,6 +152,28 @@ function send(kind: TrackKind, opts?: { path?: string; label?: string | null }):
         'Content-Type': 'application/json',
         'X-GB-Client': 'web',
       },
+      // ⚠️ DELIBERATE, AND DECIDED — do not "fix" this by attaching credentials.
+      //
+      // Omitting the session cookie is what keeps the beacon cookieless in
+      // substance rather than only in name: /api/events/track never sees who
+      // you are, so `c.var.user` is always undefined server-side and no event
+      // row can be correlated with an account. public/privacy-policy §3.5
+      // promises exactly that.
+      //
+      // What it costs, stated plainly: `paywall_view` and `feed_exported`
+      // therefore resolve NO email, so those conversions upload to Google Ads
+      // on their click id alone and never carry a hashed-email user identifier
+      // (worker/marketing/ads/userIdentifiers.ts). The server-side branch that
+      // would stamp one exists and is tested, but is unreachable from a real
+      // browser. It also means such a row WITHOUT a click id has no identifier
+      // at all, which is why those two kinds are permanently excluded from
+      // EMAIL_ONLY_ELIGIBLE_KINDS in worker/marketing/ads/oci.ts.
+      //
+      // Reviewed 2026-08-08 and left as-is: correlating every page view with an
+      // account is a bad trade against the cookieless design, and the upside is
+      // near zero at current paid conversion volume (12 paid paywall views in
+      // 30 days). Changing this is an owner decision with a privacy-policy
+      // change attached, not a match-rate optimization.
       credentials: 'omit',
       keepalive: true,
       body: JSON.stringify({

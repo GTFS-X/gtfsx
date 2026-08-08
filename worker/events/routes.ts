@@ -91,14 +91,17 @@ eventsRouter.post('/track', async (c) => {
   // trackBeacon.ts` sends `credentials: 'omit'`, so the SPA's page-view /
   // paywall / export beacons arrive WITHOUT the session cookie and c.var.user is
   // always undefined — `paywall_view` and `feed_exported` therefore upload on
-  // their click id alone, exactly as before. Making them resolve an email means
-  // attaching credentials to the analytics beacon, which would let the server
-  // correlate every page view with an account: a much larger change than this
-  // one, squarely against the locked cookieless design and against what
-  // public/privacy-policy §3.5 currently promises. That is an owner decision,
-  // not an implementation detail — so this stays a correct-but-unreached branch
-  // rather than a silent flip of the beacon's contract. It DOES cover any
+  // their click id alone. Reviewed 2026-08-08 and DECIDED: the beacon keeps
+  // omitting credentials. Attaching them would let the server correlate every
+  // page view with an account — against the locked cookieless design and against
+  // public/privacy-policy §3.5 — for near-zero measurement gain at current
+  // volume. So this stays a correct-but-unreached branch; it DOES cover any
   // credentialed caller of this endpoint (and is exercised by the worker tests).
+  //
+  // Consequence worth knowing: a credentialed caller CAN produce a paywall_view
+  // / feed_exported row carrying a hash. Those two kinds are therefore excluded
+  // from EMAIL_ONLY_ELIGIBLE_KINDS in worker/marketing/ads/oci.ts, so such a row
+  // can never be uploaded on the email alone. See public/privacy-policy §3.9.
   const emailSha256 = CONVERSION_KINDS.has(body.kind) && c.var.user
     ? await hashEmailHex(c.var.user.email)
     : null;

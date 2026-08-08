@@ -7,7 +7,8 @@
 //   - The customer-data terms fallback: a terms-gate rejection retries WITHOUT
 //     userData and the row still succeeds; an unrelated 400 still fails it.
 //   - Candidate selection: a hashed email must NOT widen the candidate set
-//     unless the email-only capability is explicitly armed with a cutover.
+//     unless the email-only capability is explicitly armed with a cutover, and
+//     even then only for the two kinds that can ever resolve an email.
 //   - The alert conditions that close the three silent-failure holes.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,9 +19,11 @@ import {
   isTermsGateError,
   ociAlertReason,
   parseCutover,
+  parseEmailOnlyKinds,
   readDataManagerConfig,
-  readEmailOnlyCutover,
+  readEmailOnlyPolicy,
   uploadPendingConversions,
+  EMAIL_ONLY_ELIGIBLE_KINDS,
   type OciResult,
   type PendingRow,
 } from '../marketing/ads/oci';
@@ -67,7 +70,7 @@ const DM_SECRETS = {
 };
 const EXTRA_KEYS = [
   'GOOGLE_ADS_DEVELOPER_TOKEN', 'GOOGLE_ADS_REFRESH_TOKEN',
-  'GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID', 'GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE',
+  'GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS', 'GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE',
 ];
 
 function clearSecrets(): void {
@@ -494,9 +497,9 @@ describe('OCI: customer-data terms fallback', () => {
   });
 });
 
-// ─── Candidate selection must NOT widen by default ──────────────────────────
+// ─── Candidate selection must NOT widen by default, and is per-kind ─────────
 
-describe('OCI: email-only candidates stay behind the flag', () => {
+describe('OCI: email-only candidacy is per-kind and default-off', () => {
   beforeEach(async () => {
     await applyMigrations();
     await resetDb();
@@ -505,22 +508,191 @@ describe('OCI: email-only candidates stay behind the flag', () => {
     (testEnv as unknown as Record<string, unknown>).APP_ORIGIN = 'https://www.gtfsx.com';
   });
 
-  it('BY DEFAULT a row with a hashed email but NO click id is not a candidate', async () => {
-    withDataManager();
-    const organic = await seedEvent({ kind: 'paywall_view', emailSha256: GMAIL_VECTOR.sha256, gclid: null });
-    const withClick = await seedEvent({ kind: 'paywall_view', gclid: 'gA' });
-
-    const sent: string[] = [];
-    const fetchMock = stubFetch(({ url, init }) => {
+  // Arm the capability for `kinds` with a cutover 10 days back.
+  const CUTOVER = FIXED_NOW - 10 * 86400000;
+  function arm(kinds: string): void {
+    setEnv('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS', kinds);
+    setEnv('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE', new Date(CUTOVER).toISOString());
+  }
+  // Collects the transactionId of every event actually POSTed to Data Manager.
+  function captureSends(sent: string[]): ReturnType<typeof stubFetch> {
+    return stubFetch(({ url, init }) => {
       if (url.includes('oauth2.googleapis.com')) return oauthResponse();
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
       sent.push(String((body.events as Array<Record<string, unknown>>)[0].transactionId));
       return dmSuccessResponse();
     });
-
-    const result = await uploadPendingConversions(
-      testEnv, { fetch: fetchMock as unknown as typeof fetch, now },
+  }
+  async function run(sent: string[]): Promise<OciResult> {
+    return uploadPendingConversions(
+      testEnv, { fetch: captureSends(sent) as unknown as typeof fetch, now },
     );
+  }
+
+  // ── the structural ceiling ──
+
+  it('EMAIL_ONLY_ELIGIBLE_KINDS is exactly the two kinds that resolve an email', () => {
+    expect([...EMAIL_ONLY_ELIGIBLE_KINDS]).toEqual(['sign_up', 'demo_request']);
+  });
+
+  it('parseEmailOnlyKinds honours eligible kinds and DROPS ineligible ones', () => {
+    expect(parseEmailOnlyKinds(undefined)).toEqual([]);
+    expect(parseEmailOnlyKinds('')).toEqual([]);
+    expect(parseEmailOnlyKinds('   ')).toEqual([]);
+    expect(parseEmailOnlyKinds('sign_up')).toEqual(['sign_up']);
+    expect(parseEmailOnlyKinds(' Demo_Request ')).toEqual(['demo_request']);
+    // Order follows the ceiling, not the env string, so binds stay stable.
+    expect(parseEmailOnlyKinds('demo_request,sign_up')).toEqual(['sign_up', 'demo_request']);
+    expect(parseEmailOnlyKinds('*')).toEqual(['sign_up', 'demo_request']);
+    // The kinds with no identifier are never honoured, alone or mixed in.
+    expect(parseEmailOnlyKinds('paywall_view')).toEqual([]);
+    expect(parseEmailOnlyKinds('feed_exported')).toEqual([]);
+    expect(parseEmailOnlyKinds('paywall_view,feed_exported,nonsense')).toEqual([]);
+    expect(parseEmailOnlyKinds('paywall_view,sign_up')).toEqual(['sign_up']);
+  });
+
+  it('readEmailOnlyPolicy: kinds without a cutover stays OFF', () => {
+    setEnv('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS', 'sign_up');
+    expect(readEmailOnlyPolicy(testEnv)).toBeNull();
+    setEnv('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE', 'whenever');
+    expect(readEmailOnlyPolicy(testEnv)).toBeNull();
+  });
+
+  it('readEmailOnlyPolicy: a cutover without kinds stays OFF', () => {
+    setEnv('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE', new Date(CUTOVER).toISOString());
+    expect(readEmailOnlyPolicy(testEnv)).toBeNull();
+  });
+
+  it('readEmailOnlyPolicy: only-ineligible kinds + a valid cutover stays OFF', () => {
+    arm('paywall_view,feed_exported');
+    expect(readEmailOnlyPolicy(testEnv)).toBeNull();
+  });
+
+  it('readEmailOnlyPolicy: eligible kinds + cutover resolves', () => {
+    arm('sign_up,demo_request');
+    expect(readEmailOnlyPolicy(testEnv)).toEqual({
+      kinds: ['sign_up', 'demo_request'], since: CUTOVER,
+    });
+  });
+
+  // ── per-kind candidacy, with and without the capability ──
+
+  // Each kind, in both states. A `null` expectation means "never a candidate".
+  const KIND_CASES: Array<{ kind: string; armed: boolean }> = [
+    { kind: 'sign_up', armed: true },
+    { kind: 'sign_up', armed: false },
+    { kind: 'demo_request', armed: true },
+    { kind: 'demo_request', armed: false },
+    { kind: 'paywall_view', armed: true },
+    { kind: 'paywall_view', armed: false },
+    { kind: 'feed_exported', armed: true },
+    { kind: 'feed_exported', armed: false },
+  ];
+  const CAN_BE_WIDENED = new Set(['sign_up', 'demo_request']);
+
+  for (const { kind, armed } of KIND_CASES) {
+    const eligible = CAN_BE_WIDENED.has(kind);
+    const shouldSend = armed && eligible;
+    it(
+      `${kind}, email-only, capability ${armed ? 'ARMED for every eligible kind' : 'OFF'}: `
+      + `${shouldSend ? 'IS' : 'is NOT'} a candidate`,
+      async () => {
+        withDataManager();
+        // Arm for the full ceiling — the point is that arming everything the
+        // config CAN name still cannot reach paywall_view / feed_exported.
+        if (armed) arm('*');
+        const emailOnlyRow = await seedEvent({
+          kind, emailSha256: GMAIL_VECTOR.sha256, gclid: null, ts: CUTOVER + 86400000,
+        });
+
+        const sent: string[] = [];
+        const result = await run(sent);
+
+        expect(sent).toEqual(shouldSend ? [emailOnlyRow] : []);
+        expect(result.attempted).toBe(shouldSend ? 1 : 0);
+
+        // A non-candidate is left completely alone: not uploaded, and NOT
+        // stamped with the -1 sentinel (markExpiredOnly stays ad-id-only).
+        const row = await dbGet<{ oci_uploaded_at: number | null; oci_attempts: number }>(
+          `SELECT oci_uploaded_at, COALESCE(oci_attempts, 0) AS oci_attempts FROM event WHERE id = ?`,
+          emailOnlyRow,
+        );
+        if (shouldSend) {
+          expect(row!.oci_uploaded_at).toBe(FIXED_NOW);
+        } else {
+          expect(row!.oci_uploaded_at).toBeNull();
+          expect(row!.oci_attempts).toBe(0);
+        }
+      },
+    );
+  }
+
+  it('a kind with NO identifier available is never even attempted', async () => {
+    withDataManager();
+    arm('*');
+    // The real shape of a beacon row: no click id AND no hash, because
+    // trackBeacon.ts sends credentials:'omit' and the server resolves no email.
+    const paywall = await seedEvent({ kind: 'paywall_view', gclid: null, emailSha256: null });
+    const exported = await seedEvent({ kind: 'feed_exported', gclid: null, emailSha256: null });
+
+    const sent: string[] = [];
+    const result = await run(sent);
+
+    // Excluded at SELECTION — not attempted-then-failed. If these ever became
+    // candidates, buildIngestBody would throw NO-identifier and they'd land in
+    // errors with oci_attempts incremented, which is exactly what must not happen.
+    expect(sent).toEqual([]);
+    expect(result.candidates).toBe(0);
+    expect(result.attempted).toBe(0);
+    expect(result.failedThisRun).toBe(0);
+    expect(result.errors).toEqual([]);
+    for (const id of [paywall, exported]) {
+      const row = await dbGet<{ oci_uploaded_at: number | null; oci_attempts: number; oci_last_error: string | null }>(
+        `SELECT oci_uploaded_at, COALESCE(oci_attempts, 0) AS oci_attempts, oci_last_error FROM event WHERE id = ?`,
+        id,
+      );
+      expect(row!.oci_uploaded_at).toBeNull();
+      expect(row!.oci_attempts).toBe(0);
+      expect(row!.oci_last_error).toBeNull();
+    }
+  });
+
+  it('arming one kind does not arm the other', async () => {
+    withDataManager();
+    arm('sign_up');
+    const signUp = await seedEvent({
+      kind: 'sign_up', emailSha256: GMAIL_VECTOR.sha256, gclid: null, ts: CUTOVER + 86400000,
+    });
+    await seedEvent({
+      kind: 'demo_request', emailSha256: NON_GMAIL_VECTOR.sha256, gclid: null, ts: CUTOVER + 86400000,
+    });
+
+    const sent: string[] = [];
+    const result = await run(sent);
+    expect(sent).toEqual([signUp]);
+    expect(result.attempted).toBe(1);
+  });
+
+  it('click-id rows of EVERY kind keep uploading regardless of the capability', async () => {
+    withDataManager();
+    const ids = [
+      await seedEvent({ kind: 'paywall_view', gclid: 'gPaywall' }),
+      await seedEvent({ kind: 'feed_exported', gclid: 'gExport' }),
+    ];
+    const sent: string[] = [];
+    const result = await run(sent);
+    expect(sent.sort()).toEqual([...ids].sort());
+    expect(result.attempted).toBe(2);
+    expect(result.uploaded).toBe(2);
+  });
+
+  it('BY DEFAULT a row with a hashed email but NO click id is not a candidate', async () => {
+    withDataManager();
+    const organic = await seedEvent({ kind: 'sign_up', emailSha256: GMAIL_VECTOR.sha256, gclid: null });
+    const withClick = await seedEvent({ kind: 'sign_up', gclid: 'gA' });
+
+    const sent: string[] = [];
+    const result = await run(sent);
     expect(result.attempted).toBe(1);
     expect(sent).toEqual([withClick]);
 
@@ -531,12 +703,12 @@ describe('OCI: email-only candidates stay behind the flag', () => {
     expect(row!.oci_uploaded_at).toBeNull();
   });
 
-  it('the flag alone (no cutover) does nothing — the capability stays off', async () => {
+  it('kinds alone (no cutover) does nothing — the capability stays off', async () => {
     withDataManager();
-    setEnv('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID', 'true');
-    expect(readEmailOnlyCutover(testEnv)).toBeNull();
+    setEnv('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS', '*');
+    expect(readEmailOnlyPolicy(testEnv)).toBeNull();
 
-    await seedEvent({ kind: 'paywall_view', emailSha256: GMAIL_VECTOR.sha256, gclid: null });
+    await seedEvent({ kind: 'sign_up', emailSha256: GMAIL_VECTOR.sha256, gclid: null });
     const fetchMock = stubFetch(({ url }) => {
       if (url.includes('oauth2.googleapis.com')) return oauthResponse();
       throw new Error('no row should have been sent');
@@ -547,30 +719,22 @@ describe('OCI: email-only candidates stay behind the flag', () => {
     expect(result.attempted).toBe(0);
   });
 
-  it('flag + cutover: only rows NEWER than the cutover become candidates', async () => {
+  it('kinds + cutover: only rows NEWER than the cutover become candidates', async () => {
     withDataManager();
-    const cutover = FIXED_NOW - 10 * 86400000;
-    setEnv('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID', 'true');
-    setEnv('GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_SINCE', new Date(cutover).toISOString());
-    expect(readEmailOnlyCutover(testEnv)).toBe(cutover);
+    arm('*');
+    expect(readEmailOnlyPolicy(testEnv)).toEqual({
+      kinds: ['sign_up', 'demo_request'], since: CUTOVER,
+    });
 
     const older = await seedEvent({
-      kind: 'paywall_view', emailSha256: GMAIL_VECTOR.sha256, ts: cutover - 86400000,
+      kind: 'sign_up', emailSha256: GMAIL_VECTOR.sha256, ts: CUTOVER - 86400000,
     });
     const newer = await seedEvent({
-      kind: 'paywall_view', emailSha256: NON_GMAIL_VECTOR.sha256, ts: cutover + 86400000,
+      kind: 'sign_up', emailSha256: NON_GMAIL_VECTOR.sha256, ts: CUTOVER + 86400000,
     });
 
     const sent: string[] = [];
-    const fetchMock = stubFetch(({ url, init }) => {
-      if (url.includes('oauth2.googleapis.com')) return oauthResponse();
-      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
-      sent.push(String((body.events as Array<Record<string, unknown>>)[0].transactionId));
-      return dmSuccessResponse();
-    });
-    const result = await uploadPendingConversions(
-      testEnv, { fetch: fetchMock as unknown as typeof fetch, now },
-    );
+    const result = await run(sent);
     expect(sent).toEqual([newer]);
     expect(result.attempted).toBe(1);
 
@@ -592,15 +756,14 @@ describe('OCI: email-only candidates stay behind the flag', () => {
 
   it('a dry run counts candidates and sends/writes NOTHING', async () => {
     withDataManager();
-    const cutover = FIXED_NOW - 10 * 86400000;
     const id = await seedEvent({
-      kind: 'paywall_view', emailSha256: GMAIL_VECTOR.sha256, ts: cutover + 86400000,
+      kind: 'sign_up', emailSha256: GMAIL_VECTOR.sha256, ts: CUTOVER + 86400000,
     });
     const fetchMock = stubFetch(() => { throw new Error('a dry run must not call out'); });
 
     const result = await uploadPendingConversions(
       testEnv, { fetch: fetchMock as unknown as typeof fetch, now },
-      { allowMissingClickId: true, emailOnlySince: cutover, dryRun: true },
+      { allowMissingClickId: true, emailOnlySince: CUTOVER, dryRun: true },
     );
     expect(result.dryRun).toBe(true);
     expect(result.candidates).toBe(1);
@@ -614,10 +777,72 @@ describe('OCI: email-only candidates stay behind the flag', () => {
     expect(row!.oci_uploaded_at).toBeNull();
   });
 
+  it('the backfill option path is capped at the eligible kinds too', async () => {
+    withDataManager();
+    const signUp = await seedEvent({
+      kind: 'sign_up', emailSha256: GMAIL_VECTOR.sha256, gclid: null, ts: CUTOVER + 86400000,
+    });
+    // A paywall_view that somehow acquired a hash (a credentialed non-beacon
+    // caller of /api/events/track). Even an explicit backfill must not send it.
+    await seedEvent({
+      kind: 'paywall_view', emailSha256: NON_GMAIL_VECTOR.sha256, gclid: null, ts: CUTOVER + 86400000,
+    });
+
+    const sent: string[] = [];
+    const result = await uploadPendingConversions(
+      testEnv, { fetch: captureSends(sent) as unknown as typeof fetch, now },
+      { allowMissingClickId: true, emailOnlySince: CUTOVER },
+    );
+    expect(sent).toEqual([signUp]);
+    expect(result.attempted).toBe(1);
+  });
+
+  it('an ineligible kind passed in code is dropped, not honoured', async () => {
+    withDataManager();
+    await seedEvent({
+      kind: 'paywall_view', emailSha256: GMAIL_VECTOR.sha256, gclid: null, ts: CUTOVER + 86400000,
+    });
+    const sent: string[] = [];
+    const result = await uploadPendingConversions(
+      testEnv, { fetch: captureSends(sent) as unknown as typeof fetch, now },
+      {
+        allowMissingClickId: true,
+        emailOnlySince: CUTOVER,
+        emailOnlyKinds: ['paywall_view', 'feed_exported'],
+      },
+    );
+    expect(sent).toEqual([]);
+    expect(result.candidates).toBe(0);
+  });
+
   it('allowMissingClickId without any cutover throws rather than draining history', async () => {
     withDataManager();
     await expect(uploadPendingConversions(testEnv, { now }, { allowMissingClickId: true }))
       .rejects.toThrow(/requires an emailOnlySince cutover/);
+  });
+
+  it('the legacy path ignores the capability entirely (no userData field exists)', async () => {
+    // Legacy secrets only — no Data Manager config, so the legacy uploader runs.
+    Object.assign(testEnv, {
+      GOOGLE_ADS_DEVELOPER_TOKEN: 'dev', GOOGLE_ADS_CLIENT_ID: 'cid',
+      GOOGLE_ADS_CLIENT_SECRET: 'cs', GOOGLE_ADS_REFRESH_TOKEN: 'rt',
+      GOOGLE_ADS_CUSTOMER_ID: '1001841562',
+      GOOGLE_ADS_CONVERSION_ACTION_FEED_EXPORTED: '111111',
+      GOOGLE_ADS_CONVERSION_ACTION_PAYWALL_VIEW: '222222',
+      GOOGLE_ADS_CONVERSION_ACTION_SIGN_UP: '444444',
+    });
+    arm('*');
+    await seedEvent({
+      kind: 'sign_up', emailSha256: GMAIL_VECTOR.sha256, gclid: null, ts: CUTOVER + 86400000,
+    });
+    const fetchMock = stubFetch(({ url }) => {
+      if (url.includes('oauth2.googleapis.com')) return oauthResponse();
+      throw new Error('the legacy path must not send an email-only row');
+    });
+    const result = await uploadPendingConversions(
+      testEnv, { fetch: fetchMock as unknown as typeof fetch, now },
+    );
+    expect(result.attempted).toBe(0);
   });
 });
 
