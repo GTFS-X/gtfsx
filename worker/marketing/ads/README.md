@@ -433,9 +433,11 @@ to `support+privacy@gtfsx.com`.
 Also untouched, and deliberately so, is the **plaintext address in
 `demo_leads`** — a durable record of a sales enquiry, not an account artifact,
 and not necessarily the same person as the account being reaped. Deleting it on
-account deletion has never been decided either way; note that the policy does
-not currently describe `demo_leads` as a collected category at all, so if we do
-start reaching it (or explicitly decide not to), §3 needs a line about it.
+account deletion has never been decided either way, and nothing in the codebase
+deletes from that table at all. That is now disclosed: privacy policy **§3.10**
+describes what the form stores and **§7** gives its retention (indefinite) and
+says account deletion does not reach it. If we ever do start reaping it, both
+sections have to move with the code.
 
 ### The customer-data terms gate (live as of 2026-08-08)
 

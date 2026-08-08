@@ -108,6 +108,7 @@ delivered once.
 | `subscription` | Stripe-synced plan/status/renewal for a user or org. |
 | `forum_*` | `forum_category`, `forum_thread`, `forum_post`, `forum_post_upvote`, `forum_subscription`, `forum_user_state`, `forum_image`, FTS5 `forum_search`. |
 | `audit_event` | Append-only log of significant actions. |
+| `demo_leads` | `/book-demo` form submissions: **plaintext** name, email, org, message + `src`/`ref`/click ids. ⚠️ The only table holding PII for people who never had an account. Nothing in the codebase reads or deletes it — the owner learns of a lead from the Resend notification — so retention is indefinite and the account reaper does not reach it. Disclosed in privacy policy §3.10 / §7; keep both in step if that changes. |
 | `event` | Cookieless page-view + funnel log (`kind`, `ref`, `gclid`/`gbraid`/`wbraid`, country, per-tab session id). No IP/UA/user-id. Conversion rows may also carry `oci_email_sha256` — hex(sha256(normalized email)), stamped at insert by the paths that already hold the address (signup, Google OAuth new-user, `/book-demo` lead form) and sent to Google Ads as a `userData` identifier. A one-way digest only: no plaintext address, no user id, no session→account link. |
 
 ### Migrations
@@ -255,7 +256,9 @@ rate-limited. Audit log covers login/publish/delete/member/transfer/admin
 actions.
 
 **Privacy (NF-50..54):** PII limited to email, display name, session IP/UA, and
-feed contents. Data export at `GET /api/me/export`. Hard-purge 30 d after
+feed contents — **plus `demo_leads`** (plaintext name/email/org/message from
+`/book-demo`), which is neither exported by `GET /api/me/export` nor reached by
+the account reaper. Data export at `GET /api/me/export`. Hard-purge 30 d after
 account deletion (cron). Analytics are cookieless — `event` rows carry
 `path`/`ref`/`gclid`/country/per-tab id only; `?ref=` is stripped from the URL
 on capture. **One narrow exception (2026-08):** conversion rows (`sign_up`,
