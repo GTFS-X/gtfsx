@@ -1,9 +1,11 @@
 // Scheduled tasks run by the Worker's scheduled() handler.
 //
 // 1. `reapDeletedUsers` — hard-purge soft-deleted users past their 30-day
-//    grace period. Order matters: projects (purgeProject: R2 blobs + every
-//    project-scoped row) → org memberships → credentials → audit (keep subject
-//    events, drop actor-only rows) → the user row itself.
+//    grace period. Order matters: the conversion-email hash (keyed on the
+//    address, so it MUST be read before the user row goes) → projects
+//    (purgeProject: R2 blobs + every project-scoped row) → org memberships →
+//    credentials → audit (keep subject events, drop actor-only rows) → the user
+//    row itself.
 //
 // 2. `reapDeletedProjects` — hard-purge individually-deleted projects (feeds in
 //    the trash) past their own 30-day grace period. Shares purgeProject() with
@@ -21,6 +23,7 @@ import { requirePublishAccess } from '../billing/middleware';
 import type { OwnerType } from '../projects/quotas';
 import { sendOwnerDigest, sendTrialEndingEmail, type OwnerDigestMetrics } from '../email';
 import { insertEvent } from '../events/insert';
+import { hashEmailHex } from '../marketing/ads/userIdentifiers';
 import { PLAN_CATALOG } from '../billing/plans';
 
 export const DELETE_GRACE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -190,6 +193,8 @@ export interface ReapSummary {
   r2Projects: number;
   orgsDeleted: number;
   orgMembershipsRemoved: number;
+  /** `event.oci_email_sha256` values nulled because they hashed to a reaped address. */
+  conversionHashesCleared: number;
   errors: number;
 }
 
@@ -215,6 +220,7 @@ export async function reapDeletedUsers(env: Env): Promise<ReapSummary> {
     r2Projects: 0,
     orgsDeleted: 0,
     orgMembershipsRemoved: 0,
+    conversionHashesCleared: 0,
     errors: 0,
   };
 
@@ -225,9 +231,11 @@ export async function reapDeletedUsers(env: Env): Promise<ReapSummary> {
       summary.r2Projects += result.r2Projects;
       summary.orgsDeleted += result.orgsDeleted;
       summary.orgMembershipsRemoved += result.orgMembershipsRemoved;
+      summary.conversionHashesCleared += result.conversionHashesCleared;
       console.log(
         `[reaper] purged user ${row.id} (${row.email}): ${result.r2Projects} projects, ` +
-          `${result.orgMembershipsRemoved} org memberships, ${result.orgsDeleted} orgs`,
+          `${result.orgMembershipsRemoved} org memberships, ${result.orgsDeleted} orgs, ` +
+          `${result.conversionHashesCleared} conversion email hashes`,
       );
     } catch (err) {
       summary.errors += 1;
@@ -237,7 +245,9 @@ export async function reapDeletedUsers(env: Env): Promise<ReapSummary> {
 
   console.log(
     `[reaper] ${summary.reaped}/${summary.candidates} users reaped, ` +
-      `${summary.r2Projects} project blob sets removed, ${summary.errors} errors`,
+      `${summary.r2Projects} project blob sets removed, ` +
+      `${summary.conversionHashesCleared} conversion email hashes cleared, ` +
+      `${summary.errors} errors`,
   );
   return summary;
 }
@@ -246,10 +256,67 @@ interface PerUserReap {
   r2Projects: number;
   orgsDeleted: number;
   orgMembershipsRemoved: number;
+  conversionHashesCleared: number;
+}
+
+/**
+ * Null every `event.oci_email_sha256` that is the hash of this address.
+ *
+ * `event` is the cookieless analytics table: no user id, no session→account
+ * link, no plaintext address — so there is nothing to key a delete on EXCEPT
+ * the digest itself. We recompute it with the very same `hashEmailHex` the
+ * write paths use (signup, the Google OAuth new-user branch, the /book-demo
+ * lead form, the credentialed beacon). That shared function is the whole
+ * correctness argument: it owns Google's normalization (trim, lowercase, and
+ * the gmail dot/+tag folding), so a reaper that reimplemented any part of it
+ * would compute a different digest, match zero rows, and purge nothing while
+ * looking like it worked. Import it; never restate it.
+ *
+ * Matching on the hash rather than on an account link also means this reaches
+ * EVERY conversion row carrying that address — including a `demo_request` the
+ * person submitted from the same email before they ever had an account.
+ *
+ * Returns the number of rows cleared.
+ */
+async function clearConversionEmailHash(env: Env, email: string | null): Promise<number> {
+  const hash = await hashEmailHex(email);
+  // A malformed/absent address hashes to null. There is nothing to match on,
+  // and `= NULL` would match no rows anyway — skip the write entirely.
+  if (hash === null) return 0;
+  const res = await env.DB.prepare(
+    `UPDATE event SET oci_email_sha256 = NULL WHERE oci_email_sha256 = ?`,
+  )
+    .bind(hash)
+    .run();
+  return res.meta?.changes ?? 0;
 }
 
 async function reapOne(env: Env, userId: string): Promise<PerUserReap> {
-  const stats: PerUserReap = { r2Projects: 0, orgsDeleted: 0, orgMembershipsRemoved: 0 };
+  const stats: PerUserReap = {
+    r2Projects: 0, orgsDeleted: 0, orgMembershipsRemoved: 0, conversionHashesCleared: 0,
+  };
+
+  // 0) Conversion-email hashes (migration 0032). FIRST, and deliberately so.
+  //
+  //    ORDERING. This is the only purge in reapOne keyed on the user's EMAIL
+  //    rather than their id, so it has to happen while the `user` row still
+  //    exists — after step 5 the address is gone and there is nothing left to
+  //    hash. Running it first (rather than merely "before step 5") also fails
+  //    safe: reapOne throwing part-way leaves the user in `deleted_soft` for
+  //    tonight's retry, and we would rather the retry find the hash already
+  //    cleared than find it still there. The UPDATE is idempotent, so a retry
+  //    simply matches nothing.
+  //
+  //    A row that loses its hash and has no click id drops out of the OCI
+  //    uploader's candidate set on its own: candidateSql's email-only disjunct
+  //    is gated on `oci_email_sha256 IS NOT NULL` (worker/marketing/ads/oci.ts),
+  //    so it is never selected again, never re-attempted, and never accrues
+  //    another oci_attempts. It does not need — and must not get — the -1
+  //    "permanently failed" sentinel; it is simply no longer a candidate.
+  const reaped = await env.DB.prepare(`SELECT email FROM user WHERE id = ?`)
+    .bind(userId)
+    .first<{ email: string | null }>();
+  stats.conversionHashesCleared = await clearConversionEmailHash(env, reaped?.email ?? null);
 
   // 1) Personally-owned projects — purgeProject() erases the R2 blobs AND every
   //    project-scoped row (see worker/projects/purge.ts). Same helper the trash
@@ -314,7 +381,8 @@ async function reapOne(env: Env, userId: string): Promise<PerUserReap> {
   //    where they're the subject — those may matter for orgs/admins later.
   await env.DB.prepare(`DELETE FROM audit_event WHERE actor_user_id = ?`).bind(userId).run();
 
-  // 5) The user row itself. Sessions, auth tokens etc. cascade via FK.
+  // 5) The user row itself. Sessions, auth tokens etc. cascade via FK. Nothing
+  //    that needs the email address may be added after this line — see step 0.
   await env.DB.prepare(`DELETE FROM user WHERE id = ?`).bind(userId).run();
 
   return stats;

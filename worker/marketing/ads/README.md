@@ -392,22 +392,50 @@ Corrected on the owner's instruction:
 - **§3.9 "Conversion measurement"** is new and describes the whole mechanism.
 - **§4** notes the click identifier lives in `sessionStorage`, not a cookie.
 - **§5** has a Google Ads vendor row and a corrected closing sentence.
-- **§7** is explicit that deleting your account does not by itself remove the
-  hash from `event` — see "Deletion" below.
+- **§7** says the hash is cleared automatically when the account is hard-purged,
+  and names the residue that isn't reached — see "Deletion" below.
 
 **Keep the policy true if you change the code.** In particular: enabling
 `GOOGLE_ADS_UPLOAD_WITHOUT_CLICK_ID_KINDS` is *already* covered by §3.9's
 wording, but adding a fifth conversion kind, a conversion value, or a second
 user identifier is not.
 
-**Deletion — a real gap, not a wording one.** `reapOne` in `worker/cron/tasks.ts`
-purges `user`, `credential`, `audit_event`, sessions, projects and org rows; it
-does **not** touch `event`, which has no `user_id` to key on. So a deleted
-account's `oci_email_sha256` survives. §7 says so plainly and routes the request
-to `support+privacy@gtfsx.com`. Making it automatic is straightforward — reap
-could `UPDATE event SET oci_email_sha256 = NULL WHERE oci_email_sha256 = ?` with
-`hashEmailHex(user.email)` — but it was out of scope for this change and has not
-been done.
+**Deletion — automatic, as of this change.** `event` has no `user_id`, so the
+only thing a delete can key on is the digest itself. Step 0 of `reapOne`
+(`worker/cron/tasks.ts`) reads the reaped user's address *before* the `user` row
+is dropped, recomputes the digest with the same `hashEmailHex` the write paths
+use, and runs `UPDATE event SET oci_email_sha256 = NULL WHERE oci_email_sha256 = ?`.
+The count lands on `ReapSummary.conversionHashesCleared` and in the reaper log
+line.
+
+Three things to keep true if you touch this:
+
+- **Use the shared `hashEmailHex`, never a local re-implementation.** It owns
+  Google's normalization. A reaper that normalized differently would match zero
+  rows and purge nothing *while appearing to succeed* — the worst failure mode
+  available here. `cron.reaper.test.ts` guards it end-to-end: it signs a user up
+  through `POST /auth/signup` (the real write path) and asserts the reaper's
+  computation clears the row, so the two can never drift apart silently.
+- **Nothing that needs the address may run after step 5** (`DELETE FROM user`).
+- **A purged row leaves the candidate set by itself.** `candidateSql`'s
+  email-only disjunct is gated on `oci_email_sha256 IS NOT NULL`, so a row that
+  loses its hash and has no click id is simply never selected again — no further
+  attempts, no `-1` sentinel needed. That is a dependency, not a coincidence:
+  widening that predicate would turn purged rows into permanently
+  un-uploadable candidates that burn a retry every night.
+
+What deletion does **not** reach: a hash of an address the account no longer
+holds — a `demo_request` submitted from a *different* email, or an address the
+user changed away from via `/api/me/change-email` (the hash was stamped against
+the old one). §7 of the privacy policy states that residue plainly and routes it
+to `support+privacy@gtfsx.com`.
+
+Also untouched, and deliberately so, is the **plaintext address in
+`demo_leads`** — a durable record of a sales enquiry, not an account artifact,
+and not necessarily the same person as the account being reaped. Deleting it on
+account deletion has never been decided either way; note that the policy does
+not currently describe `demo_leads` as a collected category at all, so if we do
+start reaching it (or explicitly decide not to), §3 needs a line about it.
 
 ### The customer-data terms gate (live as of 2026-08-08)
 

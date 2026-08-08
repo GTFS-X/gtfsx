@@ -20,7 +20,9 @@ import {
   PROJECT_DELETE_GRACE_MS,
 } from '../cron/tasks';
 import { purgeProject } from '../projects/purge';
+import { hashEmailHex } from '../marketing/ads/userIdentifiers';
 import { hashPassword } from '../util/crypto';
+import { makeClient } from './_client';
 
 async function seedSoftDeletedUser(opts: {
   email: string;
@@ -185,6 +187,202 @@ describe('reapDeletedUsers', () => {
       .bind(userId)
       .first();
     expect(preserved).not.toBeNull();
+  });
+});
+
+// ─── Conversion-email hashes (migration 0032) ───────────────────────────────
+//
+// `event.oci_email_sha256` is the one piece of a deleted account that lives in
+// a table with no user_id, so the reaper has to key on the digest itself. These
+// tests pin the three things that can go wrong:
+//
+//   1. the purge doesn't happen at all;
+//   2. it happens too widely and takes another account's hashes with it;
+//   3. it "happens" but matches nothing because the reaper normalizes the
+//      address differently from the write path — the silent failure, which
+//      looks identical to success from the outside. (3) is covered end-to-end
+//      through BOTH real code paths: a real signup writes the hash, and the
+//      real reaper computes the value it deletes by. Nothing is asserted
+//      against a hardcoded digest, so the two cannot drift apart unnoticed.
+
+describe('reapDeletedUsers: conversion email hashes', () => {
+  let capture: EmailCapture;
+
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+    // resetDb() does not clear `event` — it's the cookieless analytics table
+    // and carries no FK to anything it truncates.
+    await env.DB.prepare(`DELETE FROM event`).run();
+    capture = setupEmailCapture();
+  });
+
+  afterEach(() => {
+    capture.restore();
+  });
+
+  /** A conversion row carrying `hash`, mirroring what insertEvent writes. */
+  async function seedConversion(opts: {
+    kind: string;
+    hash: string | null;
+    gclid?: string | null;
+    attempts?: number;
+  }): Promise<string> {
+    const id = ulid();
+    await env.DB.prepare(
+      `INSERT INTO event
+         (id, ts, kind, path, ref, session_id, country, label, gclid, gbraid, wbraid,
+          oci_uploaded_at, oci_attempts, oci_last_error, oci_email_sha256)
+       VALUES (?, ?, ?, '/signup', NULL, ?, NULL, NULL, ?, NULL, NULL, NULL, ?, NULL, ?)`,
+    )
+      .bind(id, Date.now(), opts.kind, `sess-${id}`, opts.gclid ?? null, opts.attempts ?? 0, opts.hash)
+      .run();
+    return id;
+  }
+
+  const hashOf = async (id: string): Promise<string | null> => {
+    const row = await env.DB.prepare(`SELECT oci_email_sha256 AS h FROM event WHERE id = ?`)
+      .bind(id)
+      .first<{ h: string | null }>();
+    return row?.h ?? null;
+  };
+
+  it('nulls the hashes of the reaped account and leaves another user\'s alone', async () => {
+    const mine = 'reap-hash@example.com';
+    const theirs = 'keep-hash@example.com';
+    const { userId } = await seedSoftDeletedUser({
+      email: mine,
+      deletedAt: Date.now() - DELETE_GRACE_MS - 1000,
+    });
+    // A second soft-deleted account still inside its grace window — its hash
+    // must survive this run entirely.
+    await seedSoftDeletedUser({ email: theirs, deletedAt: Date.now() - 1000 });
+
+    const mineHash = await hashEmailHex(mine);
+    const theirsHash = await hashEmailHex(theirs);
+    expect(mineHash).not.toBeNull();
+    expect(mineHash).not.toBe(theirsHash);
+
+    const signUp = await seedConversion({ kind: 'sign_up', hash: mineHash, gclid: 'GCLID-mine' });
+    // Same address, different kind — matching on the digest reaches it too.
+    const demo = await seedConversion({ kind: 'demo_request', hash: mineHash });
+    const other = await seedConversion({ kind: 'sign_up', hash: theirsHash, gclid: 'GCLID-theirs' });
+
+    const summary = await reapDeletedUsers(env);
+    expect(summary.errors).toBe(0);
+    expect(summary.reaped).toBe(1);
+    expect(summary.conversionHashesCleared).toBe(2);
+
+    expect(await hashOf(signUp)).toBeNull();
+    expect(await hashOf(demo)).toBeNull();
+    expect(await hashOf(other)).toBe(theirsHash);
+
+    // Only the hash is cleared — the anonymous row and its click id stay, as §7
+    // of the privacy policy says they do.
+    const kept = await env.DB.prepare(`SELECT kind, gclid FROM event WHERE id = ?`)
+      .bind(signUp)
+      .first<{ kind: string; gclid: string | null }>();
+    expect(kept).toEqual({ kind: 'sign_up', gclid: 'GCLID-mine' });
+
+    // And the user really was purged, so this wasn't a no-op run.
+    expect(await env.DB.prepare(`SELECT id FROM user WHERE id = ?`).bind(userId).first()).toBeNull();
+  });
+
+  // THE normalization test. A hash written by the real write path
+  // (POST /auth/signup → hashEmailHex → insertEvent) must be matched by the
+  // reaper's own computation. Both ends are the production code; no digest is
+  // hardcoded. If the reaper ever stopped sharing hashEmailHex — or the write
+  // path started normalizing differently — this is what fails, instead of the
+  // purge quietly matching zero rows.
+  it('matches a hash written end-to-end by the real signup write path', async () => {
+    // Deliberately awkward: mixed case, surrounding whitespace, a gmail +tag
+    // and dots — every normalization rule at once. The address STORED on the
+    // user row is the raw one, exactly as /auth/signup writes it.
+    const raw = '  Cloudy.SanFrancisco+ads@GMail.com  ';
+    const client = makeClient();
+    const res = await client.post('/auth/signup', {
+      email: raw,
+      displayName: 'Deleted Later',
+      password: 'correct-horse-battery',
+      gclid: 'GCLID-e2e',
+    });
+    expect(res.status).toBe(200);
+
+    const written = await env.DB.prepare(
+      `SELECT id, oci_email_sha256 AS h FROM event WHERE kind = 'sign_up'`,
+    ).first<{ id: string; h: string | null }>();
+    expect(written?.h).toBeTruthy();
+
+    // Age the account out of its grace window, exactly as DELETE /api/me + 30
+    // days would. Note the stored email is whatever signup persisted — the
+    // reaper has to normalize it back to the same digest on its own.
+    const user = await env.DB.prepare(`SELECT id, email FROM user WHERE display_name = 'Deleted Later'`)
+      .first<{ id: string; email: string }>();
+    expect(user).not.toBeNull();
+    await env.DB.prepare(
+      `UPDATE user SET status = 'deleted_soft', deleted_at = ? WHERE id = ?`,
+    )
+      .bind(Date.now() - DELETE_GRACE_MS - 1000, user!.id)
+      .run();
+
+    const summary = await reapDeletedUsers(env);
+    expect(summary.errors).toBe(0);
+    expect(summary.conversionHashesCleared).toBe(1);
+    expect(await hashOf(written!.id)).toBeNull();
+  });
+
+  it('a purged email-only row drops out of the OCI candidate set instead of burning retries', async () => {
+    // The mid-flight case: a sign_up with NO click id, already one failed
+    // attempt, whose only identifier was the hash. Once that's gone the row has
+    // nothing Google would accept, so it must simply stop being selected —
+    // candidateSql's email-only disjunct is gated on `oci_email_sha256 IS NOT
+    // NULL`. If it were still selected it would fail forever, one attempt a
+    // night, until the -1 sentinel.
+    const email = 'midflight@example.com';
+    await seedSoftDeletedUser({ email, deletedAt: Date.now() - DELETE_GRACE_MS - 1000 });
+    const hash = await hashEmailHex(email);
+    const rowId = await seedConversion({ kind: 'sign_up', hash, gclid: null, attempts: 1 });
+
+    // Arm the email-only capability so the row IS a candidate beforehand.
+    const policy = { kinds: ['sign_up'] as const, since: Date.now() - 60_000 };
+    const candidates = async (): Promise<number> => {
+      const r = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM event
+          WHERE (gclid IS NOT NULL OR gbraid IS NOT NULL OR wbraid IS NOT NULL
+                 OR (oci_email_sha256 IS NOT NULL AND ts > ? AND kind IN ('sign_up')))
+            AND oci_uploaded_at IS NULL
+            AND kind IN ('sign_up')`,
+      )
+        .bind(policy.since)
+        .first<{ n: number }>();
+      return r?.n ?? 0;
+    };
+    expect(await candidates()).toBe(1);
+
+    await reapDeletedUsers(env);
+
+    expect(await hashOf(rowId)).toBeNull();
+    expect(await candidates()).toBe(0);
+
+    // It drops out — it is NOT marked permanently failed, and no further
+    // attempt is recorded against it.
+    const after = await env.DB.prepare(
+      `SELECT oci_uploaded_at, oci_attempts FROM event WHERE id = ?`,
+    )
+      .bind(rowId)
+      .first<{ oci_uploaded_at: number | null; oci_attempts: number }>();
+    expect(after?.oci_uploaded_at).toBeNull();
+    expect(after?.oci_attempts).toBe(1);
+  });
+
+  it('is a no-op for an account with no conversion events', async () => {
+    await seedSoftDeletedUser({
+      email: 'no-events@example.com',
+      deletedAt: Date.now() - DELETE_GRACE_MS - 1000,
+    });
+    const summary = await reapDeletedUsers(env);
+    expect(summary.reaped).toBe(1);
+    expect(summary.conversionHashesCleared).toBe(0);
   });
 });
 

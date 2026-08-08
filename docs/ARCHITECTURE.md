@@ -263,10 +263,12 @@ on capture. **One narrow exception (2026-08):** conversion rows (`sign_up`,
 customer's email, which is uploaded to Google Ads as a hashed user identifier
 beside the ad click id. No plaintext address, no user id, and no session→account
 link is stored, and the analytics beacon still sends `credentials: 'omit'` so
-page views remain uncorrelated with accounts. ⚠️ `public/privacy-policy` does
-**not** yet describe sharing conversion data with Google Ads (it currently says
-"we don't share it with advertisers") — that disclosure gap predates this change
-and is outstanding; see `worker/marketing/ads/README.md`.
+page views remain uncorrelated with accounts. `public/privacy-policy` §3.9
+describes the Google Ads conversion sharing, and §7 the retention. Account
+deletion clears the hash: step 0 of `reapOne` reads the address before the
+`user` row is dropped and nulls every `event.oci_email_sha256` matching
+`hashEmailHex(email)` — see `worker/marketing/ads/README.md` → "Deletion" for
+what that does and does not reach.
 
 **Performance (NF-60..63):** edge-cached feed URLs (p95 < 100 ms); editor API
 p95 < 500 ms; idempotent working-state save; atomic publish (D1 pointer flips

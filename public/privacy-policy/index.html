@@ -211,7 +211,7 @@
         <li><strong>Active accounts:</strong> retained for as long as the account exists.</li>
         <li><strong>Deleted accounts:</strong> hard-purged 30 days after deletion. Backups taken before the deletion may persist for up to 90 days before they age out.</li>
         <li><strong>Audit events:</strong> retained while the actor account exists, then purged with it.</li>
-        <li><strong>Cookieless analytics events:</strong> retained for up to 12 months. These rows carry no user id, so deleting your account does not by itself remove them — if you want the hashed email described in <a href="#conversion-measurement">§3.9</a> cleared, write to <a href="mailto:support+privacy@gtfsx.com">support+privacy@gtfsx.com</a> and we'll do it.</li>
+        <li><strong>Cookieless analytics events:</strong> retained for up to 12 months. The rows themselves carry no user id and survive your account deletion as anonymous records — but the hashed email described in <a href="#conversion-measurement">§3.9</a> does not. When your account is hard-purged 30 days after you delete it, the same nightly job clears every conversion hash matching your account's email address, including one recorded from a demo request you submitted with that address. A hash of an address your account no longer holds — a demo request sent from a different email, or an address you later changed away from — is not reached automatically; write to <a href="mailto:support+privacy@gtfsx.com">support+privacy@gtfsx.com</a> and we'll clear it.</li>
         <li><strong>Billing records (Stripe-side):</strong> retained by Stripe under their own retention rules, which may be longer than the above for tax / accounting reasons.</li>
       </ul>
 

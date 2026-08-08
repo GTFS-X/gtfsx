@@ -19,14 +19,23 @@
 -- (redactHash). Nothing about the cookieless beacon changes: no IP, no
 -- User-Agent, no user id, no cookie.
 --
--- ⚠️ DELETION IS NOT AUTOMATIC. `reapOne` (worker/cron/tasks.ts) purges the
--- user, credentials, sessions, projects, org rows and audit_event; it does NOT
--- touch `event`, which carries no user_id to key a delete on. So this hash
--- survives an account deletion until someone clears it by hand. That is stated
--- in public/privacy-policy §7, which routes the request to
--- support+privacy@gtfsx.com. Wiring it into reap is a small change nobody has
--- made yet: UPDATE event SET oci_email_sha256 = NULL WHERE oci_email_sha256 = ?
--- with hashEmailHex(user.email).
+-- DELETION. Account deletion clears this column. `event` carries no user_id, so
+-- there is nothing to key a delete on except the digest itself: step 0 of
+-- `reapOne` (worker/cron/tasks.ts) reads the reaped user's address BEFORE the
+-- `user` row is dropped, recomputes the digest with the SAME hashEmailHex the
+-- write paths use, and runs
+--   UPDATE event SET oci_email_sha256 = NULL WHERE oci_email_sha256 = ?
+-- Because it matches on the hash, it also clears a `demo_request` row submitted
+-- from that same address. What it cannot reach is a hash of an address the
+-- account no longer holds (a demo request sent from a different email, or one
+-- the user changed away from) — public/privacy-policy §7 says so plainly and
+-- routes those to support+privacy@gtfsx.com.
+--
+-- ⚠️ Reap keys on `oci_email_sha256 IS NOT NULL` being what makes an email-only
+-- row an upload candidate (candidateSql in worker/marketing/ads/oci.ts). Nulling
+-- the hash is therefore also what makes such a row stop being a candidate. If
+-- that predicate ever changes, a purged row could become permanently
+-- un-uploadable-but-still-selected and burn retries forever.
 --
 -- Additive; forward-only. (SQLite ADD COLUMN has no IF NOT EXISTS — the
 -- migration runner applies each file exactly once, same as 0014/0030.)
