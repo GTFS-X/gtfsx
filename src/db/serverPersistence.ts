@@ -5,7 +5,7 @@ import {
   ConflictError,
 } from '../services/projectsApi';
 import { db } from './dexie';
-import { backfillRouteStopShapeIds } from '../services/routeStopMigration';
+import { backfillMissingRouteStops, backfillRouteStopShapeIds } from '../services/routeStopMigration';
 import { loadingFeed } from '../store/history';
 import {
   buildVariantsEnvelope,
@@ -281,8 +281,15 @@ function applySnapshotToStoreInner(
     // feeds created before today's route/shape change load with stops the
     // per-shape timetable + stops panel can't find (they show "Add stops to
     // this route first"). Shared with the local loader so they stay in sync.
+    // Then cover any stop_times the pattern has no column for: route_stops were
+    // derived from ONE canonical trip per direction, so a feed whose first trip
+    // is a short-turn saved rows the timetable can neither show nor write.
     state.setRouteStops(
-      backfillRouteStopShapeIds(g('routeStops') as never, (g('trips') ?? []) as never) as never,
+      backfillMissingRouteStops(
+        backfillRouteStopShapeIds(g('routeStops') as never, (g('trips') ?? []) as never),
+        (g('trips') ?? []) as never,
+        (g('stopTimes') ?? []) as never,
+      ) as never,
     );
   }
   if (Array.isArray(g('stops'))) state.setStops(g('stops') as never);

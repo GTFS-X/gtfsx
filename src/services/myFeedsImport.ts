@@ -10,10 +10,10 @@
 // a PURE transform — it never touches the editor store, so importing another
 // project never clobbers or switches away from the project you have open.
 
-import { backfillRouteStopShapeIds } from './routeStopMigration';
+import { backfillMissingRouteStops, backfillRouteStopShapeIds } from './routeStopMigration';
 import { fetchWorkingState, listProjects, type ProjectSummary } from './projectsApi';
 import type { ImportData } from './gtfsImport';
-import type { RouteStop, Trip } from '../types/gtfs';
+import type { RouteStop, StopTime, Trip } from '../types/gtfs';
 
 export interface MyFeedItem {
   id: string;
@@ -75,7 +75,12 @@ function asArray<T>(value: unknown): T[] {
  */
 export function workingStateToImportData(snapshot: Record<string, unknown>): ImportData {
   const trips = asArray<Trip>(snapshot.trips);
-  const routeStops = backfillRouteStopShapeIds(asArray<RouteStop>(snapshot.routeStops), trips);
+  const stopTimes = asArray<StopTime>(snapshot.stopTimes);
+  const routeStops = backfillMissingRouteStops(
+    backfillRouteStopShapeIds(asArray<RouteStop>(snapshot.routeStops), trips),
+    trips,
+    stopTimes,
+  );
   return {
     agencies: asArray(snapshot.agencies),
     calendars: asArray(snapshot.calendars),
@@ -84,7 +89,7 @@ export function workingStateToImportData(snapshot: Record<string, unknown>): Imp
     shapes: asArray(snapshot.shapes),
     stops: asArray(snapshot.stops),
     trips,
-    stopTimes: asArray(snapshot.stopTimes),
+    stopTimes,
     feedInfo: (snapshot.feedInfo ?? null) as ImportData['feedInfo'],
     routeStops,
     fareAttributes: asArray(snapshot.fareAttributes),

@@ -13,6 +13,7 @@ import type {
   FareProduct, FareLegRule, FareTransferRule,
 } from '../types/gtfs';
 import type { FlexZone, BookingRule } from '../store/flexSlice';
+import { backfillMissingRouteStops } from './routeStopMigration';
 
 /** Populate shape_dist_traveled (cumulative metres) from the lat/lon geometry.
  *  Mirrors shapeSlice.recalcShapeDistances so the import path doesn't need the
@@ -602,6 +603,10 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
       // once (a loop returning to its start). The dedup key includes
       // stop_sequence so a repeated stop_id at distinct sequences is preserved
       // as two route_stops, not collapsed into one.
+      // NOTE: only this canonical trip contributes here. Trips on the same
+      // pattern that serve MORE stops are covered by the backfill below —
+      // without it their extra stop_times get no route_stop, and so no
+      // timetable column (see backfillMissingRouteStops).
       const firstTrip = dirTrips[0];
       const tripStopTimes = stopTimes
         .filter((st) => st.trip_id === firstTrip.trip_id)
@@ -624,6 +629,12 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
       }
     }
   }
+
+  // Cover EVERY trip's stop_times, not just the canonical trip's. A direction
+  // whose first trip is a short-turn would otherwise leave the longer trips'
+  // extra rows with no route_stop — hence no timetable column, no way to see or
+  // edit those times, and a pattern re-time that silently desynchronizes them.
+  const coveredRouteStops = backfillMissingRouteStops(routeStops, trips, stopTimes);
 
   // directions.txt (non-standard but widely supported)
   const directionsText = await readFile('directions.txt');
@@ -1052,7 +1063,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
     agencies, calendars, calendarDates,
     routes: routesWithoutFlex, shapes, stops,
     trips: tripsWithoutFlex, stopTimes, feedInfo,
-    routeStops, fareAttributes, fareRules: fareRulesWithoutFlex, transfers,
+    routeStops: coveredRouteStops, fareAttributes, fareRules: fareRulesWithoutFlex, transfers,
     frequencies, levels, pathways,
     fareAreas, stopAreas, fareNetworks, routeNetworks,
     timeframes, riderCategories, fareMedia,

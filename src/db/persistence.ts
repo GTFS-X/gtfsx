@@ -2,7 +2,7 @@ import { db } from './dexie';
 import { useStore } from '../store';
 import { loadingFeed } from '../store/history';
 import type { StopTime, Shape, RouteStop, Trip } from '../types/gtfs';
-import { backfillRouteStopShapeIds } from '../services/routeStopMigration';
+import { backfillMissingRouteStops, backfillRouteStopShapeIds } from '../services/routeStopMigration';
 
 // The heavy tables — millions of rows for a regional feed. Persisted in their
 // own IndexedDB record and only rewritten when they actually change.
@@ -140,10 +140,16 @@ export async function loadProject(projectId: string) {
     if (snapshot.calendarDates) state.setCalendarDates(snapshot.calendarDates);
     if (snapshot.routes) state.setRoutes(snapshot.routes);
     if (snapshot.routeStops) {
-      // Backfill shape_id on stops saved before per-shape keying (shared with the
-      // server load path so the two can't drift — see routeStopMigration).
+      // Backfill shape_id on stops saved before per-shape keying, then cover any
+      // stop_times the pattern is missing a column for (shared with the server
+      // load path so the two can't drift — see routeStopMigration).
+      const trips = (snapshot.trips ?? []) as Trip[];
       state.setRouteStops(
-        backfillRouteStopShapeIds(snapshot.routeStops as RouteStop[], (snapshot.trips ?? []) as Trip[]),
+        backfillMissingRouteStops(
+          backfillRouteStopShapeIds(snapshot.routeStops as RouteStop[], trips),
+          trips,
+          (stopTimes ?? []) as StopTime[],
+        ),
       );
     }
     if (snapshot.stops) state.setStops(snapshot.stops);

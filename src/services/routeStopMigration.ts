@@ -1,4 +1,4 @@
-import type { RouteStop, Trip } from '../types/gtfs';
+import type { RouteStop, StopTime, Trip } from '../types/gtfs';
 
 /**
  * Backfill `shape_id` on route stops saved before stops were keyed per shape.
@@ -32,4 +32,88 @@ export function backfillRouteStopShapeIds(routeStops: RouteStop[], trips: Trip[]
       ? rs
       : { ...rs, shape_id: shapeForRouteDir.get(`${rs.route_id}|${rs.direction_id}`) },
   );
+}
+
+/**
+ * Backfill route_stops for stop_times the pattern doesn't cover.
+ *
+ * A route's stop list is what the timetable builds its COLUMNS from, and it was
+ * derived from a single canonical trip per direction (see gtfsParse). When the
+ * other trips on that pattern serve MORE stops than the canonical one — a feed
+ * whose first trip is a short-turn is enough — their extra stop_times land on
+ * stop_sequences with no route_stop. Those rows are then invisible: the grid
+ * renders no column for them, and every write path is column-scoped (cell edits,
+ * Set run time, Estimate, interpolate, seedTripStops), so a re-time rewrites the
+ * covered rows and leaves the uncovered ones at their old values. The trip's
+ * STORED times then run backwards while the grid still shows a clean row.
+ *
+ * Add a route_stop for every (route, direction, sequence) a trip's stop_times
+ * reference but the pattern lacks, so the columns cover every stored row.
+ *
+ * Deliberately CONSERVATIVE — it only extends a pattern that already exists. A
+ * (route, direction) with no route_stops at all is left alone: removeRouteStop
+ * cascades into stop_times, so an empty stop list is a deliberate state, not a
+ * gap to refill. New sequences inherit the shape tag of the pattern they extend
+ * so we never invent a second, half-populated pattern for one direction.
+ *
+ * Run on EVERY load path (local IndexedDB draft AND server working state) plus
+ * the importer, so feeds already saved in the broken state self-heal on open.
+ */
+export function backfillMissingRouteStops(
+  routeStops: RouteStop[],
+  trips: Trip[],
+  stopTimes: StopTime[],
+): RouteStop[] {
+  if (routeStops.length === 0 || trips.length === 0 || stopTimes.length === 0) return routeStops;
+
+  // Sequences already covered, keyed both per (route, direction, shape) and per
+  // (route, direction). A trip is matched against its OWN shape's pattern when
+  // that pattern exists, else against the direction's as a whole — legacy
+  // route_stops predate per-shape keying and carry no shape_id.
+  const byDirShape = new Map<string, Set<number>>();
+  const byDir = new Map<string, Set<number>>();
+  const shapeOfDir = new Map<string, string | undefined>();
+  for (const rs of routeStops) {
+    const dirKey = `${rs.route_id}|${rs.direction_id}`;
+    const shapeKey = `${dirKey}|${rs.shape_id ?? ''}`;
+    if (!byDirShape.has(shapeKey)) byDirShape.set(shapeKey, new Set());
+    byDirShape.get(shapeKey)!.add(rs.stop_sequence);
+    if (!byDir.has(dirKey)) byDir.set(dirKey, new Set());
+    byDir.get(dirKey)!.add(rs.stop_sequence);
+    if (!shapeOfDir.has(dirKey)) shapeOfDir.set(dirKey, rs.shape_id);
+  }
+
+  const timesByTrip = new Map<string, StopTime[]>();
+  for (const st of stopTimes) {
+    const arr = timesByTrip.get(st.trip_id);
+    if (arr) arr.push(st); else timesByTrip.set(st.trip_id, [st]);
+  }
+
+  const added: RouteStop[] = [];
+  for (const t of trips) {
+    const times = timesByTrip.get(t.trip_id);
+    if (!times) continue;
+    const dirKey = `${t.route_id}|${t.direction_id}`;
+    const own = byDirShape.get(`${dirKey}|${t.shape_id ?? ''}`);
+    const covered = own ?? byDir.get(dirKey);
+    if (!covered) continue; // no pattern to extend — leave it alone
+    // Extending the trip's own pattern keeps that trip's shape; extending the
+    // direction's keeps the direction's existing tag, so the added stops stay
+    // in the pattern the timetable already filters on.
+    const shape_id = own ? t.shape_id : shapeOfDir.get(dirKey);
+    for (const st of times) {
+      if (covered.has(st.stop_sequence)) continue;
+      covered.add(st.stop_sequence);
+      added.push({
+        route_id: t.route_id,
+        stop_id: st.stop_id,
+        direction_id: t.direction_id,
+        stop_sequence: st.stop_sequence,
+        _snapped: true,
+        shape_id,
+      });
+    }
+  }
+
+  return added.length === 0 ? routeStops : [...routeStops, ...added];
 }
