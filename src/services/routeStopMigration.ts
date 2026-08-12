@@ -27,11 +27,21 @@ export function backfillRouteStopShapeIds(routeStops: RouteStop[], trips: Trip[]
     if (!shapeForRouteDir.has(k)) shapeForRouteDir.set(k, t.shape_id);
   }
 
-  return routeStops.map((rs) =>
-    rs.shape_id
-      ? rs
-      : { ...rs, shape_id: shapeForRouteDir.get(`${rs.route_id}|${rs.direction_id}`) },
-  );
+  // Only rebuild the array when a stop actually GETS a shape id. A feed whose
+  // trips carry no shapes has nothing to assign, and handing back a fresh array
+  // of `{...rs, shape_id: undefined}` clones would be both a wasted allocation
+  // and — since callers use identity as the "did the migration change
+  // anything?" test (see repairRouteStops) — a false "this feed was repaired"
+  // signal that marks an untouched project dirty on open.
+  let changed = false;
+  const migrated = routeStops.map((rs) => {
+    if (rs.shape_id) return rs;
+    const shape_id = shapeForRouteDir.get(`${rs.route_id}|${rs.direction_id}`);
+    if (!shape_id) return rs;
+    changed = true;
+    return { ...rs, shape_id };
+  });
+  return changed ? migrated : routeStops;
 }
 
 /**
@@ -116,4 +126,42 @@ export function backfillMissingRouteStops(
   }
 
   return added.length === 0 ? routeStops : [...routeStops, ...added];
+}
+
+export interface RouteStopRepair {
+  routeStops: RouteStop[];
+  /**
+   * True when the migrations actually changed the pattern, i.e. what is now in
+   * the store no longer matches what was loaded.
+   *
+   * Load runs inside `loadingFeed()` and ends with `markSaved()`, so without
+   * this signal a repair is invisible: the editor reports "Saved", Save stays
+   * disabled, and the fix lives only in memory. A server-backed feed then
+   * re-serves the broken pattern forever and every session silently re-repairs
+   * it — which is exactly how the orphan-stop_times fix looked like it had
+   * never shipped. Callers use this to re-mark the project dirty AFTER the
+   * load's `markSaved()`, so the user's next Save persists the repair.
+   *
+   * Both backfills return their input array by reference when there is nothing
+   * to do, so identity is an exact "did anything change?" test.
+   */
+  repaired: boolean;
+}
+
+/**
+ * Run both route_stop migrations in the canonical order and report whether they
+ * changed anything. Every load path (IndexedDB draft, server working state)
+ * goes through this so the two can't drift.
+ */
+export function repairRouteStops(
+  routeStops: RouteStop[],
+  trips: Trip[],
+  stopTimes: StopTime[],
+): RouteStopRepair {
+  const repaired = backfillMissingRouteStops(
+    backfillRouteStopShapeIds(routeStops, trips),
+    trips,
+    stopTimes,
+  );
+  return { routeStops: repaired, repaired: repaired !== routeStops };
 }

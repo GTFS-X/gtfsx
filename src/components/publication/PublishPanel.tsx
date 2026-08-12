@@ -73,11 +73,13 @@ async function renderSnapshotZip(projectId: string, snapshotId: string): Promise
   const snapshotState = await fetchSnapshotState(projectId, snapshotId);
   try {
     // Transient swap for the export, not a feed boundary — keep any active
-    // variant layer intact across it (#66).
-    applySnapshotToStore(snapshotState, { preserveVariants: true });
+    // variant layer intact across it (#66), and keep the dirty flag: downloading
+    // an old snapshot's ZIP must never tell the user their unsaved edits are
+    // saved (which disabled Save on real, unpersisted work).
+    applySnapshotToStore(snapshotState, { preserveVariants: true, keepDirty: true });
     return await exportGtfsZip();
   } finally {
-    applySnapshotToStore(snapshotBefore, { preserveVariants: true });
+    applySnapshotToStore(snapshotBefore, { preserveVariants: true, keepDirty: true });
   }
 }
 

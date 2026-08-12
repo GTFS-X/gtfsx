@@ -5,7 +5,7 @@ import {
   ConflictError,
 } from '../services/projectsApi';
 import { db } from './dexie';
-import { backfillMissingRouteStops, backfillRouteStopShapeIds } from '../services/routeStopMigration';
+import { repairRouteStops } from '../services/routeStopMigration';
 import { loadingFeed } from '../store/history';
 import {
   buildVariantsEnvelope,
@@ -239,6 +239,16 @@ export interface ApplySnapshotOptions {
    * layer is captured before the reset and restored after.
    */
   preserveVariants?: boolean;
+  /**
+   * Leave the dirty flag exactly as it was instead of declaring the store
+   * clean. An apply normally IS the "we just loaded what the server has" event,
+   * hence the trailing markSaved(). But some callers use it as a TRANSIENT
+   * swap — PublishPanel renders a past snapshot's ZIP by applying it, exporting,
+   * then applying the live state back (renderSnapshotZip). Marking clean on the
+   * way back out told the user their genuinely-unsaved work was saved and
+   * disabled the Save button on it. Transient swaps must pass this.
+   */
+  keepDirty?: boolean;
 }
 
 export function applySnapshotToStore(
@@ -262,6 +272,8 @@ function applySnapshotToStoreInner(
   const preservedVariants = opts?.preserveVariants
     ? { variants: state.variants, activeVariantId: state.activeVariantId }
     : null;
+  // Captured before the apply because every setter below marks the store dirty.
+  const wasDirty = state.isDirty;
 
   // Clean-slate the editor first: selection, in-progress editing, map mode,
   // visibility filters, derived overlays, AND every entity slice. A partial
@@ -276,6 +288,7 @@ function applySnapshotToStoreInner(
   if (Array.isArray(g('calendars'))) state.setCalendars(g('calendars') as never);
   if (Array.isArray(g('calendarDates'))) state.setCalendarDates(g('calendarDates') as never);
   if (Array.isArray(g('routes'))) state.setRoutes(g('routes') as never);
+  let repaired = false;
   if (Array.isArray(g('routeStops'))) {
     // Backfill shape_id on stops saved before per-shape keying — without this,
     // feeds created before today's route/shape change load with stops the
@@ -284,13 +297,13 @@ function applySnapshotToStoreInner(
     // Then cover any stop_times the pattern has no column for: route_stops were
     // derived from ONE canonical trip per direction, so a feed whose first trip
     // is a short-turn saved rows the timetable can neither show nor write.
-    state.setRouteStops(
-      backfillMissingRouteStops(
-        backfillRouteStopShapeIds(g('routeStops') as never, (g('trips') ?? []) as never),
-        (g('trips') ?? []) as never,
-        (g('stopTimes') ?? []) as never,
-      ) as never,
+    const fixed = repairRouteStops(
+      g('routeStops') as never,
+      (g('trips') ?? []) as never,
+      (g('stopTimes') ?? []) as never,
     );
+    repaired = fixed.repaired;
+    state.setRouteStops(fixed.routeStops as never);
   }
   if (Array.isArray(g('stops'))) state.setStops(g('stops') as never);
   if (Array.isArray(g('trips'))) state.setTrips(g('trips') as never);
@@ -347,14 +360,15 @@ function applySnapshotToStoreInner(
     state.setActiveVariantId(preservedVariants.activeVariantId);
   }
 
-  // Restore the variant layer for within-set callers (see preserveVariants):
-  // the reset above cleared it, but a variant switch must keep the set intact.
-  if (preservedVariants) {
-    state.setVariants(preservedVariants.variants);
-    state.setActiveVariantId(preservedVariants.activeVariantId);
-  }
-
   state.markSaved();
+  // A transient swap (publish-preview export) must not claim the user's
+  // in-flight work is saved just because it round-tripped the store.
+  if (opts?.keepDirty && wasDirty) state.markDirty();
+  // A repaired route_stop pattern is a real, unsaved difference from what the
+  // server holds. Assert it AFTER markSaved() so the editor offers to persist
+  // the repair — otherwise the server keeps serving the broken pattern and
+  // every session re-repairs it in memory, forever.
+  if (repaired) state.markDirty();
 }
 
 /**
@@ -412,7 +426,13 @@ export async function loadProjectFromServer(projectId: string): Promise<void> {
     if (active && !active.baseline) {
       applySnapshotToStore(active.snapshot, { preserveVariants: true });
     }
+    // The applies above leave the store dirty only when they REPAIRED something
+    // (see applySnapshotToStoreInner). Preserve that across this markSaved(),
+    // or a feed with an orphaned pattern and a variant layer would silently go
+    // back to looking clean and could never persist the repair.
+    const repaired = useStore.getState().isDirty;
     useStore.getState().markSaved();
+    if (repaired) useStore.getState().markDirty();
   }
 }
 

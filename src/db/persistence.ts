@@ -2,42 +2,12 @@ import { db } from './dexie';
 import { useStore } from '../store';
 import { loadingFeed } from '../store/history';
 import type { StopTime, Shape, RouteStop, Trip } from '../types/gtfs';
-import { backfillMissingRouteStops, backfillRouteStopShapeIds } from '../services/routeStopMigration';
-
-// The heavy tables — millions of rows for a regional feed. Persisted in their
-// own IndexedDB record and only rewritten when they actually change.
-const BULK_KEYS = ['stopTimes', 'shapes'] as const;
-
-// Everything else — small enough to snapshot on every autosave.
-const SMALL_KEYS = [
-  'agencies', 'calendars', 'calendarDates', 'routes', 'routeStops',
-  'stops', 'trips', 'feedInfo',
-  'fareAttributes', 'fareRules',
-  'fareAreas', 'stopAreas', 'fareNetworks', 'routeNetworks',
-  'timeframes', 'riderCategories', 'fareMedia',
-  'fareProducts', 'fareLegRules', 'fareTransferRules',
-  'frequencies', 'levels', 'pathways',
-  // GTFS-Flex demand-response service areas. Must be persisted alongside their
-  // paired routes/stops; the server-backed path (serverPersistence.ts) already
-  // saves these, so the IndexedDB cache has to match or anonymous drafts lose
-  // every flex zone (geometry, name, booking rules) on reload.
-  'flexZones',
-  // transfers.txt — same story: the exporter writes it but it was never cached,
-  // so an anonymous draft's transfers vanished on reload (#67).
-  'transfers',
-  'featureSettings',
-  'dismissedValidations',
-  'projectId', 'projectName',
-  'licenseSpdx',
-  // Mobility Database import provenance (issue #47). Cached locally alongside
-  // licenseSpdx so an anonymous draft imported from MDB still carries its
-  // source id after a reload and through the sign-in → server-migration flow.
-  'mdbSourceId',
-] as const;
-
-// Union used for "did any persisted data change?" detection in the autosave
-// subscription.
-const DATA_KEYS = [...SMALL_KEYS, ...BULK_KEYS] as const;
+import { repairRouteStops } from '../services/routeStopMigration';
+// The persisted-key list lives in the store (a leaf module) because the store
+// middleware needs it to decide when an edit makes the project dirty. Keeping
+// one definition is what stops the dirty flag, the IndexedDB snapshot and the
+// server snapshot from drifting apart.
+import { SMALL_KEYS, DATA_KEYS } from '../store/persistedKeys';
 
 // Reference tracking so we skip the (potentially huge) bulk write when only
 // small tables changed. The store replaces these arrays by reference on edit,
@@ -130,6 +100,10 @@ export async function loadProject(projectId: string) {
   // snapshot still carries.
   const stopTimes = bulk?.stopTimes ?? snapshot.stopTimes;
   const shapes = bulk?.shapes ?? snapshot.shapes;
+  // Set when the route_stop migrations repair the loaded pattern — the store
+  // then holds something the cache doesn't, so the project must end up dirty
+  // rather than clean (see RouteStopRepair.repaired).
+  let repaired = false;
   // Loading a different feed must not be undoable across the boundary (#49):
   // suppress history capture during the bulk apply, then reset both stacks.
   loadingFeed(() => {
@@ -144,13 +118,13 @@ export async function loadProject(projectId: string) {
       // stop_times the pattern is missing a column for (shared with the server
       // load path so the two can't drift — see routeStopMigration).
       const trips = (snapshot.trips ?? []) as Trip[];
-      state.setRouteStops(
-        backfillMissingRouteStops(
-          backfillRouteStopShapeIds(snapshot.routeStops as RouteStop[], trips),
-          trips,
-          (stopTimes ?? []) as StopTime[],
-        ),
+      const fixed = repairRouteStops(
+        snapshot.routeStops as RouteStop[],
+        trips,
+        (stopTimes ?? []) as StopTime[],
       );
+      repaired = fixed.repaired;
+      state.setRouteStops(fixed.routeStops);
     }
     if (snapshot.stops) state.setStops(snapshot.stops);
     if (snapshot.trips) state.setTrips(snapshot.trips);
@@ -201,6 +175,10 @@ export async function loadProject(projectId: string) {
     lastSavedShapes = loaded.shapes;
 
     state.markSaved();
+    // A repaired pattern is a real, unsaved difference from what's on disk —
+    // assert it AFTER markSaved() so the editor offers to persist the fix
+    // instead of silently re-doing it on every open.
+    if (repaired) state.markDirty();
   });
   return true;
 }
@@ -218,6 +196,12 @@ let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 // EditorRoute, before EditorRoute's cleanup fully runs in some race
 // scenarios) hand back the same unsubscribe so we never end up with two
 // subscriptions writing to IndexedDB on every keystroke.
+//
+// This subscription schedules the local IndexedDB write and NOTHING ELSE. It
+// deliberately no longer owns the `isDirty` flag: dirtiness is now stamped on
+// the store's own write path (store/historyMiddleware.ts), because tying it to
+// a ref-counted, mount-scoped subscription meant any moment with no editor
+// route holding a reference silently swallowed edits and left Save disabled.
 let activeUnsub: (() => void) | null = null;
 let activeRefs = 0;
 
@@ -229,7 +213,6 @@ export function setupAutoSave(): () => void {
       const dataChanged = DATA_KEYS.some((key) => state[key] !== prevState[key]);
       if (!dataChanged) return;
 
-      state.markDirty();
       if (saveTimeout) clearTimeout(saveTimeout);
       saveTimeout = setTimeout(() => {
         // Skip the IndexedDB write when the editor is on a server-backed
