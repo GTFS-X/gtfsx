@@ -105,6 +105,11 @@ const immerWithHistoryImpl =
       // carry a recipe — nothing to diff for history, but they still change
       // feed data (an undo IS an unsaved change), so they get the dirty check.
       if (typeof updater !== 'function') {
+        // Zustand permits a non-object replacement state; nothing in this app
+        // does that, but the dirty check must not be what discovers it.
+        if (typeof updater !== 'object' || updater === null) {
+          return set(updater, replace, ...args);
+        }
         const partial = updater as Record<string, unknown>;
         return set(withDirty(prev, partial, true), replace, ...args);
       }
