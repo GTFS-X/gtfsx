@@ -97,12 +97,18 @@ export function RouteList() {
   return (
     <div>
       {managedRoutes.length === 0 && flexZones.length === 0 ? (
+        // The secondary action is the same entry point as the list's "Import
+        // from another feed" button, which only lived in the non-empty branch —
+        // so it was missing from the one screen where starting from an existing
+        // feed is most useful. Signed-in only; anon users have no feeds.
         <EmptyState
           icon="🗺️"
           title="No routes yet"
           description="Create a route to start drawing paths and building timetables."
           actionLabel="Create Route"
           onAction={handleAdd}
+          secondaryActionLabel={currentUser ? '+ Import from another feed' : undefined}
+          onSecondaryAction={currentUser ? () => requestImportDialog('myfeeds') : undefined}
         />
       ) : (
         <>
