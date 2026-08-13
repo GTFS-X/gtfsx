@@ -88,9 +88,66 @@ npm run dev                   # http://localhost:5173
 
 # With backend (in a second terminal):
 npx wrangler dev --port 8787 --local
+npx wrangler d1 migrations apply gtfs-builder --local   # once, and after pulling new migrations
 ```
 
 `.env` carries `VITE_*` flags. `.dev.vars` carries `RESEND_API_KEY` and overridden `APP_ORIGIN` / `FEEDS_ORIGIN`. Both are gitignored.
+
+### Signing in locally (dev auth switch)
+
+A plain `npm run dev` has no session, so every signed-in-only and plan-gated
+surface — the Routes-panel "Import from another feed" button, paywall overlays,
+org/workspace UI, `/admin` — is invisible and therefore unverifiable. The dev
+auth switch gives the dev server an identity. It is **opt-in and
+development-only**: `import.meta.env.DEV` gates every entry point, so a
+production build has no trace of it (enforced by `npm run check:prod-bundle`,
+which fails the build if any of it survives).
+
+Enable it in **`.env.local`** (gitignored via `*.local`; `.env` is shared, so
+don't put it there). Two modes:
+
+**1. Client-only — fastest, no worker needed.** Injects a synthetic
+`currentUser` into the store and skips `/api/me` entirely.
+
+```bash
+# .env.local
+VITE_DEV_AUTH=agency        # free | agency | enterprise, optionally +staff
+```
+
+**2. Server-backed — a real session against your local D1.** Seeds a real
+`user` + `session` row into the miniflare D1 under `.wrangler/state` and prints
+the cookie token. No auth code is bypassed: the local worker authenticates you
+through the ordinary `resolveSession` path, so `/api/*`, saving, and publishing
+all work.
+
+```bash
+npm run dev:auth -- --plan agency --staff     # prints the two lines below
+# .env.local
+VITE_DEV_AUTH=server
+VITE_DEV_SESSION_TOKEN=<token printed by dev:auth>
+```
+
+Restart `npm run dev` after editing `.env.local` (Vite reads env at startup). A
+persistent badge in the bottom-left states which mode is live — amber for the
+client-only fake, green with the real email once the local worker has accepted
+the session, red if it hasn't — so fake auth is never mistaken for real auth.
+
+**What each mode does NOT cover:**
+
+| | client-only (`=agency`) | server-backed (`=server`) |
+|---|---|---|
+| Client-side gating (`currentUser`, `planHasFeature`) | ✅ | ✅ |
+| `/api/*`, project save/load, publish | ❌ **401** — there is no session | ✅ against local D1/R2 |
+| Org list, members, invitations | ❌ empty (`/api/orgs` 401) | ✅ (create the org through the UI) |
+| Real login/signup/2FA/magic-link flows | ❌ bypassed, not exercised | ❌ bypassed, not exercised |
+| Stripe checkout, webhooks, real plan changes | ❌ | ❌ — plan is set directly in D1 |
+| Email delivery (verify, invite, digest) | ❌ | ❌ unless `.dev.vars` has a real `RESEND_API_KEY` |
+
+In client-only mode the 401s in the network tab are the point: nothing fakes a
+server response, so anything server-backed still visibly fails. Reach for
+server-backed mode as soon as the thing you're testing touches the worker.
+Neither mode exercises the authentication code paths themselves — test those
+against staging.
 
 ### Tests
 

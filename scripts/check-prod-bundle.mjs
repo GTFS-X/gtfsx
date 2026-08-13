@@ -86,6 +86,37 @@ if (anyChunk('pk.eyJ').length === 0) {
   );
 }
 
+// 4. The local dev auth switch (src/dev/devAuth.ts) must not survive the build.
+//
+// It fabricates a signed-in user so plan-gated UI can be reviewed on `npm run
+// dev`. Every function there is behind `if (!import.meta.env.DEV) return …`,
+// which Vite turns into a literal `false` so esbuild drops the bodies — but
+// that is a property of the compiler, not a promise, so it gets checked here
+// rather than trusted. Each marker below is declared INSIDE a guarded body, so
+// its presence in a chunk means the guard failed to eliminate the code.
+// Keep in sync with src/dev/devAuth.ts.
+const DEV_AUTH_MARKERS = [
+  'dev-auth@gtfsx.invalid', // the synthetic user's email
+  'dev-auth-local-user', // the synthetic user's id
+  'gtfsx-dev-auth-badge', // the persistent dev badge element id
+  'VITE_DEV_AUTH', // canary: the flag name should never be emitted at all
+];
+for (const marker of DEV_AUTH_MARKERS) {
+  const hits = anyChunk(marker);
+  if (hits.length > 0) {
+    fail(
+      `DEV AUTH SWITCH LEAKED INTO THE PROD BUNDLE — found "${marker}" in: ${hits.map((c) => c.name).join(', ')}\n` +
+        `    src/dev/devAuth.ts fabricates a signed-in, plan-bearing user. In a production\n` +
+        `    bundle that is an authentication bypass in the client. DO NOT DEPLOY.`,
+      `Something defeated the \`if (!import.meta.env.DEV) return …\` guards in\n` +
+        `    src/dev/devAuth.ts — a caller that inlines the synthetic user itself, a marker\n` +
+        `    hoisted to module scope (they must stay inside the guarded function bodies), or\n` +
+        `    a build that no longer defines import.meta.env.DEV as a literal. Fix the code;\n` +
+        `    do not relax this check.`,
+    );
+  }
+}
+
 if (failures.length > 0) {
   console.error(
     `\n✖ PROD BUNDLE CHECK FAILED (${failures.length} problem${failures.length > 1 ? 's' : ''}) — DO NOT DEPLOY dist/\n`,
@@ -98,5 +129,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `✔ prod bundle OK — ${chunks.length} chunks scanned: stripe=pk_live_ (no pk_test_), mapbox token present`,
+  `✔ prod bundle OK — ${chunks.length} chunks scanned: stripe=pk_live_ (no pk_test_), mapbox token present, no dev-auth switch`,
 );

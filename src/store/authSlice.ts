@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
 import { me as fetchMe, type AuthedUser } from '../services/authApi';
+import { readDevAuth, installDevSessionCookie } from '../dev/devAuth';
 import type { OrgsSlice } from './orgsSlice';
 
 export interface AuthSlice {
@@ -30,6 +31,28 @@ export const createAuthSlice: StateCreator<
     set((state) => {
       state.authLoading = true;
     });
+
+    // Local dev auth switch (src/dev/devAuth.ts). `readDevAuth()` returns
+    // `off` in every production build — the whole module is compiled out —
+    // and `off` in dev too unless VITE_DEV_AUTH is set in .env.local.
+    const devAuth = readDevAuth();
+    if (devAuth.kind === 'client') {
+      set((state) => {
+        state.currentUser = devAuth.user;
+        state.authLoading = false;
+        state.authChecked = true;
+      });
+      // Deliberately still attempted: it 401s (there is no session), which is
+      // the honest client-only boundary rather than a faked org list.
+      get().loadOrgs().catch(() => {});
+      return;
+    }
+    if (devAuth.kind === 'server') {
+      // Real session token seeded into the local D1 by `npm run dev:auth`.
+      // Nothing below is faked — the normal /api/me path runs from here.
+      installDevSessionCookie(devAuth.token);
+    }
+
     try {
       const { user } = await fetchMe();
       set((state) => {

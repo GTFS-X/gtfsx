@@ -25,6 +25,7 @@ import {
   trackGateBlocked,
   trackPageview,
 } from './services/trackBeacon';
+import { startDevAuthBadge } from './dev/devAuth';
 
 // Route-level code splitting. The homepage (`/`) renders the editor, so its
 // shell stays eager (imported above); every other route is loaded on demand
@@ -329,6 +330,10 @@ function App() {
     useStore.getState().hydrateAuth().catch(() => {});
     captureRefFromUrl();
     captureGclidFromUrl();
+    // Persistent "DEV AUTH" badge when the local dev auth switch is on. Returns
+    // a no-op in every production build (the module is compiled out) and
+    // whenever VITE_DEV_AUTH is unset.
+    return startDevAuthBadge(useStore);
   }, []);
 
   useEffect(() => {

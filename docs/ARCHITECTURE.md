@@ -300,6 +300,20 @@ editor, and never coexist with an external alerts feed (UI forces a choice).
 **BE-93 (backlog):** multi-language alert text — v1 emits a single-language
 `TranslatedString`, so adding languages needs no wire-format change.
 
+**Local dev auth switch (development only).** `src/dev/devAuth.ts` lets a dev
+server run as a signed-in user so plan-gated and signed-in-only UI is reviewable
+locally — either a synthetic client-side `currentUser` (`VITE_DEV_AUTH=agency`)
+or a real session seeded into the local D1 by `npm run dev:auth`
+(`VITE_DEV_AUTH=server`). **It changes nothing in `worker/`:** there is no
+dev-only route, no session-minting endpoint, and no relaxation of
+`resolveSession` — the server-backed mode inserts a `session` row into the
+miniflare D1 from a CLI script and the worker authenticates it through the
+ordinary path. Every entry point is behind `import.meta.env.DEV`, so a
+production bundle contains none of it, and `scripts/check-prod-bundle.mjs`
+greps every emitted chunk for its markers and fails `npm run build:prod` if any
+survive. Usage and the exact boundary of what it does and does not cover are in
+README → "Signing in locally".
+
 Design rationale is preserved in the decisions appendix of the archived
 `BACKEND_REQUIREMENTS.md` (`docs/archive/`).
 
