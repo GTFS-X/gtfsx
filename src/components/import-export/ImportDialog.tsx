@@ -198,8 +198,14 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     setImportSourceUrl(sourceUrl);
     setImportMdbSourceId(mdbSourceId);
     setImportOrigin(origin);
-    // If the project is empty, skip the options screen and import immediately
-    if (useStore.getState().routes.length === 0) {
+    // If the project is empty, skip the options screen and import immediately —
+    // there is nothing to merge into, so the choice is moot.
+    //
+    // EXCEPT for the "import from another feed" flow, whose whole purpose is
+    // taking a SUBSET of another feed's routes. Skipping the picker there
+    // silently imported the entire source feed, and a blank workspace is
+    // exactly when you're most likely to be cherry-picking into it.
+    if (useStore.getState().routes.length === 0 && origin !== 'myfeeds') {
       doReplaceImport(data, name, mdbSourceId, origin);
       return;
     }
