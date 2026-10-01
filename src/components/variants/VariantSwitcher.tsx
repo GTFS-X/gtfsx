@@ -14,7 +14,8 @@ import { useCanUseVariants } from './useCanUseVariants';
  * between the baseline and variants, plus quick new / delete / compare / discard.
  * Full lifecycle management (rename, duplicate, promote-to-baseline, per-row
  * compare + stats) lives in the RightRail "Variants" panel, opened from the
- * "Manage variants…" item here. Agency+ (self-hides otherwise).
+ * "Manage variants…" item here. Plan-gated via useCanUseVariants (every plan
+ * since the Sep 2026 free-planning change; self-hides otherwise).
  */
 export function VariantSwitcher() {
   const variants = useStore((s) => s.variants);

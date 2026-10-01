@@ -25,7 +25,7 @@ import type { FeedDiff } from '../../services/feedDiff';
  * TopBar variants dropdown's "Manage variants…"). Lists baseline + every variant
  * with a compact change summary and full CRUD: switch, rename (inline), duplicate
  * (from any variant), delete (baseline protected), promote-to-baseline (headline),
- * and a per-row compare shortcut. Agency+ (inherits the variants gate).
+ * and a per-row compare shortcut. Inherits the 'variants' gate (every plan today).
  *
  * Spatial stats show ONLY when already cached (peekVariantSpatialMetrics — a sync
  * read); the panel never triggers a compute. Entity deltas come from the cheap
@@ -61,7 +61,7 @@ export function VariantsPanel() {
   }, [variants, baselineId, activeVariantId]);
 
   if (!canUse) {
-    return <p className="text-sm text-warm-gray">Variants are an Agency-plan feature.</p>;
+    return <p className="text-sm text-warm-gray">Variants aren't available on this plan.</p>;
   }
 
   const handleNew = () => {

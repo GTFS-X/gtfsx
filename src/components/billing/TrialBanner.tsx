@@ -72,7 +72,7 @@ export function TrialBanner() {
       }
     >
       Planner trial: <strong>{dayLabel} left</strong>. No credit card on file, subscribe any time to keep your
-      hosted feeds and the full planning suite.
+      hosted feeds and team workspace.
     </Banner>
   );
 }

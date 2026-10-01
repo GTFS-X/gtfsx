@@ -130,8 +130,8 @@ export function TopBar() {
       <div className="h-14 bg-white border-b border-sand flex items-center px-3 sm:px-5 gap-2 sm:gap-3 shrink-0 min-w-0">
         <AppBrand onResetRequest={() => setShowResetConfirm(true)} showTagline={false} />
 
-        {/* Variant switcher (A2) — fork/compare feed variants. Agency+ (or
-            /demo). Self-hides otherwise. */}
+        {/* Variant switcher (A2) — fork/compare feed variants. Plan-gated via
+            the 'variants' key (every plan today); self-hides otherwise. */}
         <div className="hidden min-[600px]:flex shrink-0">
           <VariantSwitcher />
         </div>

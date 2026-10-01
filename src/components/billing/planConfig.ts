@@ -26,6 +26,11 @@ export type FeatureKey =
   | 'assistant'
   | 'phone_support';
 
+// Free planning (Sep 2026): every planning/analysis feature (analysis_basic,
+// analysis_title_vi, network_walksheds, access_isochrones, variants) is on
+// EVERY plan, including free/anonymous. Organizational user management stays
+// paid. See the matching comment in worker/billing/plans.ts.
+//
 // Pricing v4 (Jul 2026): the Pro tier is retired. Everything that was Pro+
 // moves up to Agency+ (internal id 'agency'; displayed as "Planner"), except
 // geojson_export which is now free for every plan. Demand dots
@@ -37,19 +42,19 @@ export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   embeds:              ['agency', 'enterprise'],
   embed_remove_badge:  ['agency', 'enterprise'],
   snapshot_history:    ['agency', 'enterprise'],
-  analysis_basic:      ['agency', 'enterprise'],
-  analysis_title_vi:   ['agency', 'enterprise'],
+  analysis_basic:      ['free', 'agency', 'enterprise'],
+  analysis_title_vi:   ['free', 'agency', 'enterprise'],
   analysis_propensity: ['free', 'agency', 'enterprise'],
-  network_walksheds:   ['agency', 'enterprise'],
+  network_walksheds:   ['free', 'agency', 'enterprise'],
   org_workspace:       ['agency', 'enterprise'],
   cross_org_member:    ['agency', 'enterprise'],
   multi_org:           ['enterprise'],
   org_logo:            ['agency', 'enterprise'],
   brand_color:         ['agency', 'enterprise'],
   service_alerts:      ['agency', 'enterprise'],
-  variants:            ['agency', 'enterprise'],
+  variants:            ['free', 'agency', 'enterprise'],
   geojson_export:      ['free', 'agency', 'enterprise'],
-  access_isochrones:   ['agency', 'enterprise'],
+  access_isochrones:   ['free', 'agency', 'enterprise'],
   // "Ask GTFS·X" help assistant — every tier, differentiated by a per-plan
   // daily message quota enforced server-side. See worker/billing/plans.ts.
   assistant:           ['free', 'agency', 'enterprise'],
@@ -122,7 +127,7 @@ export const FEATURE_COPY: Record<FeatureKey, { title: string; description: stri
   },
   analysis_basic: {
     title: 'Route-level coverage and cost analysis',
-    description: 'System-level summaries are free. Unlock the per-route breakdown (coverage and operating cost, route by route) with the Planner suite.',
+    description: 'The per-route breakdown of coverage and operating cost, route by route, plus stop analysis.',
   },
   analysis_title_vi: {
     title: 'Title VI equity analysis',

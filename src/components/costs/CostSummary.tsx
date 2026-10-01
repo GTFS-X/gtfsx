@@ -20,8 +20,8 @@ export function CostSummary() {
   // Analysis is scoped to the routes toggled visible on the map.
   const { routes, trips, stopTimes } = useVisibleFeed();
   const { byTrip: stopTimesByTrip } = useStopTimesIndex();
-  // System totals (above) are free; the route-level breakdown + CSV export are
-  // Agency+ (analysis_basic) — the whole per-route section is gated below.
+  // The route-level breakdown + CSV export sit behind the analysis_basic gate
+  // below, which every plan holds since the Sep 2026 free-planning change.
   const plan = useEditorPlan();
 
   const [defaultCostPerHour, setDefaultCostPerHour] = useState(100);

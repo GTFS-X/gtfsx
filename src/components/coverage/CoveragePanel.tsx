@@ -202,7 +202,8 @@ function CsvButton({ onClick, label = 'Download CSV' }: { onClick: () => void; l
 export function CoveragePanel() {
   // Analysis is scoped to the routes toggled visible on the map.
   const { stops, routes, visibleRouteCount, totalRouteCount } = useVisibleFeed();
-  // System summary + demographic profile are free; per-route coverage is Agency+.
+  // Per-route coverage + walksheds are plan-gated (analysis_basic /
+  // network_walksheds), both granted to every plan since Sep 2026.
   const plan = useEditorPlan();
   const coverageData = useStore((s) => s.coverageData);
   const isFetchingCoverage = useStore((s) => s.isFetchingCoverage);
@@ -578,7 +579,7 @@ export function CoveragePanel() {
             baseline={baselineShares(coverageData.blockGroups)}
           />
 
-          {/* Per-route breakdown (Agency+) */}
+          {/* Per-route breakdown (analysis_basic) */}
           <PaywallOverlay feature="analysis_basic" currentPlan={plan} preview>
             <div className="space-y-2">
               <h3 className="font-heading font-bold text-sm text-dark-brown">
@@ -619,9 +620,9 @@ export function CoveragePanel() {
 }
 
 /**
- * Walkshed-mode selector. Paid users get a checkbox to switch Coverage from the
+ * Walkshed-mode selector. Entitled users (every plan today) get a checkbox to switch Coverage from the
  * straight-line buffer to Mapbox street-network walksheds plus a walk-time
- * picker; free/pro users see a disabled control with the standard upgrade
+ * picker; users without network_walksheds see a disabled control with the standard upgrade
  * affordance (a Link to /pricing carrying the feature).
  */
 function WalkshedModeControl({
@@ -644,7 +645,7 @@ function WalkshedModeControl({
       <Link
         to="/pricing?feature=network_walksheds"
         className="flex w-full items-center gap-2 rounded-lg border border-sand bg-cream px-3 py-2 text-xs font-semibold text-warm-gray transition-colors hover:border-teal hover:text-teal"
-        title="Replace the straight-line buffer with real walking-time isochrones — a Planner plan feature"
+        title={`Replace the straight-line buffer with real walking-time isochrones — a ${target} plan feature`}
       >
         <span aria-hidden>🚶</span>
         <span>Network walksheds (street distance)</span>

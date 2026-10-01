@@ -98,12 +98,13 @@ function PanelBody({ section }: { section: SidebarSection }) {
     case 'blocks':
       return <BlocksPanel />;
     case 'costs':
-      // System cost totals are free; the per-route breakdown + CSV export are
-      // gated (analysis_basic / Agency+) inside CostSummary. Keep it unwrapped.
+      // The per-route breakdown + CSV export sit behind an analysis_basic
+      // PaywallOverlay inside CostSummary (free on every plan since Sep 2026,
+      // so it passes through). Keep it unwrapped here.
       return <CostSummary />;
     case 'coverage':
-      // System coverage summary is free; the per-route coverage is gated
-      // (analysis_basic) inside CoveragePanel. Keep it unwrapped here.
+      // Per-route coverage sits behind an analysis_basic PaywallOverlay inside
+      // CoveragePanel (free on every plan since Sep 2026). Keep it unwrapped.
       return <CoveragePanel />;
     case 'titlevi':
       return (
@@ -130,8 +131,8 @@ function PanelBody({ section }: { section: SidebarSection }) {
         </PaywallOverlay>
       );
     case 'variants':
-      // Agency+ feature; the only entry point (the TopBar variants dropdown's
-      // "Manage variants…") is itself plan-gated, and VariantsPanel self-guards.
+      // Entry point is the TopBar variants dropdown's "Manage variants…";
+      // VariantsPanel self-guards on the 'variants' key (every plan today).
       return <VariantsPanel />;
     case 'settings':
       return <FeatureSettingsPanel />;

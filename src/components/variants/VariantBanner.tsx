@@ -9,8 +9,8 @@ import { useCanUseVariants } from './useCanUseVariants';
  * obvious you're editing a fork (not your baseline / saved feed). Save persists
  * your baseline as the canonical feed and keeps every variant alongside it, so
  * the copy makes clear edits here land in this variant, not the baseline.
- * Mirrors WelcomeBanner / PartnerBanner placement. Agency+ only (mirrors
- * VariantSwitcher's useCanUseVariants gate).
+ * Mirrors WelcomeBanner / PartnerBanner placement. Plan-gated via
+ * useCanUseVariants, like VariantSwitcher (every plan today).
  */
 export function VariantBanner() {
   const canUse = useCanUseVariants();

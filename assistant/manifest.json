@@ -114,13 +114,13 @@
       "id": "costs",
       "name": "Cost estimation",
       "category": "panel",
-      "purpose": "Estimate operating cost from service levels; system-level summary is free, per-route breakdown is on the Planner suite.",
+      "purpose": "Estimate operating cost from service levels, system-wide and per route.",
       "whenToUse": "Estimating what a service plan costs to operate.",
       "clickPath": "Left rail → Costs.",
       "deepLink": { "sidebarSection": "costs" },
-      "plan": "analysis_basic",
+      "plan": "all",
       "docs": ["/docs/cost-estimation/"],
-      "limitations": "System-level cost is free; the per-route breakdown requires the Planner plan (FeatureKey analysis_basic)."
+      "limitations": ""
     },
     {
       "id": "stop-analysis",
@@ -138,13 +138,13 @@
       "id": "coverage",
       "name": "Demographic coverage",
       "category": "panel",
-      "purpose": "Measure population and jobs within walking distance of service using census data; per-route breakdown on Planner.",
+      "purpose": "Measure population and jobs within walking distance of service using census data, system-wide and per route.",
       "whenToUse": "Reporting who your service reaches, or comparing coverage across routes.",
       "clickPath": "Left rail → Coverage.",
       "deepLink": { "sidebarSection": "coverage" },
-      "plan": "analysis_basic",
+      "plan": "all",
       "docs": ["/docs/demographic-coverage/"],
-      "limitations": "System-level coverage is free; the per-route breakdown requires the Planner plan (FeatureKey analysis_basic)."
+      "limitations": ""
     },
     {
       "id": "access-isochrones",
@@ -154,9 +154,9 @@
       "whenToUse": "Showing schedule-based travel-time reach from a point.",
       "clickPath": "Left rail → Access, then drop a pin on the map.",
       "deepLink": { "sidebarSection": "access-isochrones" },
-      "plan": "access_isochrones",
+      "plan": "all",
       "docs": ["/docs/access-isochrones/"],
-      "limitations": "Requires the Planner plan (FeatureKey access_isochrones)."
+      "limitations": ""
     },
     {
       "id": "title-vi",
@@ -166,9 +166,9 @@
       "whenToUse": "Preparing a Title VI service-equity analysis.",
       "clickPath": "Left rail → Title VI.",
       "deepLink": { "sidebarSection": "titlevi" },
-      "plan": "analysis_title_vi",
+      "plan": "all",
       "docs": ["/docs/title-vi-analysis/"],
-      "limitations": "Requires the Planner plan (FeatureKey analysis_title_vi)."
+      "limitations": ""
     },
     {
       "id": "service-alerts",
@@ -190,9 +190,9 @@
       "whenToUse": "Comparing service scenarios (A vs B) or exporting an alternative.",
       "clickPath": "Top bar → variants dropdown → 'Manage variants…' (variants have no left-rail item).",
       "deepLink": { "sidebarSection": "variants" },
-      "plan": "variants",
+      "plan": "all",
       "docs": ["/docs/service-planning/"],
-      "limitations": "Requires the Planner plan (FeatureKey variants). Opened from the top-bar variants dropdown, not the left rail."
+      "limitations": "Opened from the top-bar variants dropdown, not the left rail."
     },
     {
       "id": "settings",

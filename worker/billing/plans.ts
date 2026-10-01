@@ -24,10 +24,21 @@ export type FeatureKey =
   | 'service_alerts'       // author GTFS-Realtime Service Alerts
   | 'geojson_export'       // export routes + stops as GeoJSON for GIS
   | 'access_isochrones'    // schedule-based transit travel-time reach analysis
+  | 'variants'             // feed variants (fork / compare-to-baseline) — client-side; mirrored for parity
   | 'assistant'            // "Ask GTFS·X" embedded help assistant (all tiers; per-plan daily quota)
   | 'phone_support';       // SLA-backed phone support
 
 // Per-feature: which plans grant access. Free is excluded by absence.
+//
+// Free planning (Sep 2026): GTFS·X is no longer pursuing commercialization of
+// the planning suite. Every planning/analysis feature (route-level cost &
+// coverage, stop analysis, Title VI, network walksheds, access isochrones,
+// variants/scenario comparison) is granted to EVERY plan, including free and
+// anonymous editors. Organizational user management (org workspaces, members,
+// roles, seats, cross-org membership, additional orgs) stays paid. Hosting /
+// publishing / branding / support gates are unchanged pending a separate
+// decision. The keys stay in this matrix (rather than being deleted) so a
+// future re-gate is a one-line config change in BOTH files.
 //
 // Pricing v4 (Jul 2026): the Pro tier is retired (zero subscribers — no
 // migration needed). Everything that was Pro+ moves up to Agency+ (internal
@@ -41,10 +52,10 @@ export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   embeds:              ['agency', 'enterprise'],
   embed_remove_badge:  ['agency', 'enterprise'],
   snapshot_history:    ['agency', 'enterprise'],
-  analysis_basic:      ['agency', 'enterprise'],
-  analysis_title_vi:   ['agency', 'enterprise'],
+  analysis_basic:      ['free', 'agency', 'enterprise'],
+  analysis_title_vi:   ['free', 'agency', 'enterprise'],
   analysis_propensity: ['free', 'agency', 'enterprise'],
-  network_walksheds:   ['agency', 'enterprise'],
+  network_walksheds:   ['free', 'agency', 'enterprise'],
   org_workspace:       ['agency', 'enterprise'],
   cross_org_member:    ['agency', 'enterprise'],
   // Owning MORE THAN ONE org is Enterprise-only; the first org is available to
@@ -54,7 +65,8 @@ export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   brand_color:         ['agency', 'enterprise'],
   service_alerts:      ['agency', 'enterprise'],
   geojson_export:      ['free', 'agency', 'enterprise'],
-  access_isochrones:   ['agency', 'enterprise'],
+  access_isochrones:   ['free', 'agency', 'enterprise'],
+  variants:            ['free', 'agency', 'enterprise'],
   // "Ask GTFS·X" is available to every logged-in tier; the differentiation is a
   // per-plan daily message quota enforced server-side (see worker/assistant/quota.ts),
   // not plan membership.
@@ -118,13 +130,13 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
     monthlyPriceUsd: 0,
     annualPriceUsd: 0,
     perSeat: false,
-    tagline: 'Create, edit, validate, and export GTFS feeds—free.',
+    tagline: 'Edit, validate, and plan transit service. Free.',
     features: [
-      'Create and edit routes, stops, trips, and schedules on a live map',
-      'Add GTFS-Flex zones and booking rules to any feed',
-      'Validate against the GTFS spec as you work',
-      'Import an existing feed or start from scratch (no signup required)',
-      'Export a spec-clean GTFS .zip and host it anywhere',
+      'Create, edit, and validate GTFS and GTFS-Flex feeds on a live map',
+      'The full planning suite: route-level cost, coverage & Title VI equity',
+      'Access isochrones, stop analysis & street-network walksheds',
+      'Scenario comparison with feed variants, timetables & vehicle blocking',
+      'Export a spec-clean GTFS .zip or GeoJSON (no signup required)',
     ],
   },
   {
@@ -133,16 +145,16 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
     monthlyPriceUsd: 299,
     annualPriceUsd: 2988,
     perSeat: false,
-    tagline: 'The service-planning suite for transit agencies.',
+    tagline: 'Team workspaces and hosted publishing for transit agencies.',
     features: [
-      'Route operating cost estimates',
-      'Demographic coverage & Title VI equity analysis',
-      'Scenario comparison',
+      'Everything in Editor',
+      'Team workspaces: invite members and manage roles',
       'Hosted publishing: stable feed URL, rider mini-site & embeds',
-      'Unlimited feeds & team workspaces',
+      'Unlimited cloud feeds, snapshot history & Service Alerts',
+      'Phone + email support',
     ],
-    detailsHref: '/planning',
-    detailsLabel: 'See all planning features →',
+    detailsHref: '/docs/pricing/',
+    detailsLabel: 'Compare plans in detail →',
   },
   {
     plan: 'enterprise',

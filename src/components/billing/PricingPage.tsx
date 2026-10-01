@@ -57,13 +57,13 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
     monthlyPriceUsd: 0,
     annualPriceUsd: 0,
     perSeat: false,
-    tagline: 'Create, edit, validate, and export GTFS feeds—free.',
+    tagline: 'Edit, validate, and plan transit service. Free.',
     features: [
-      'Create and edit routes, stops, trips, and schedules on a live map',
-      'Add GTFS-Flex zones and booking rules to any feed',
-      'Validate against the GTFS spec as you work',
-      'Import an existing feed or start from scratch (no signup required)',
-      'Export a spec-clean GTFS .zip and host it anywhere',
+      'Create, edit, and validate GTFS and GTFS-Flex feeds on a live map',
+      'The full planning suite: route-level cost, coverage & Title VI equity',
+      'Access isochrones, stop analysis & street-network walksheds',
+      'Scenario comparison with feed variants, timetables & vehicle blocking',
+      'Export a spec-clean GTFS .zip or GeoJSON (no signup required)',
     ],
   },
   {
@@ -72,16 +72,16 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
     monthlyPriceUsd: 299,
     annualPriceUsd: 2988,
     perSeat: false,
-    tagline: 'The service-planning suite for transit agencies.',
+    tagline: 'Team workspaces and hosted publishing for transit agencies.',
     features: [
-      'Route operating cost estimates',
-      'Demographic coverage & Title VI equity analysis',
-      'Scenario comparison',
+      'Everything in Editor',
+      'Team workspaces: invite members and manage roles',
       'Hosted publishing: stable feed URL, rider mini-site & embeds',
-      'Unlimited feeds & team workspaces',
+      'Unlimited cloud feeds, snapshot history & Service Alerts',
+      'Phone + email support',
     ],
-    detailsHref: '/planning',
-    detailsLabel: 'See all planning features →',
+    detailsHref: '/docs/pricing/',
+    detailsLabel: 'Compare plans in detail →',
   },
   {
     plan: 'enterprise',
@@ -592,7 +592,7 @@ export function PricingPage() {
     return (
       <AuthLayout
         title="Your Planner trial is active"
-        subtitle="No credit card required. You have full access to the planning suite for the next 14 days."
+        subtitle="No credit card required. You have full access to team workspaces and hosted publishing for the next 14 days."
       >
         <div className="space-y-4">
           <TestModeBanner />
@@ -767,7 +767,7 @@ export function PricingPage() {
     }
     if (isWelcome) return 'Your email is verified. Pick the plan that fits—you can always change later.';
     if (onPaidPlan) return `You're on ${planDisplayName(currentPlan)}. Compare tiers or change your plan below.`;
-    return 'The Editor is free forever. Planner adds hosted publishing and the service-planning suite for transit agencies.';
+    return 'Editing and the full planning suite are free. Planner adds team workspaces and hosted publishing for agencies.';
   })();
 
   // Redirect modal that covers the page during a deep-linked auto-checkout. The

@@ -25,8 +25,8 @@ const pct = (v: number | null) => (v == null ? '—' : `${Math.round(v * 100)}%`
  * Transit Access Isochrones (#40) — "from a pin, what can a rider reach in N
  * minutes?" Places an origin, runs a schedule-based RAPTOR pass over the
  * in-memory feed, draws time-budget contours on the map, and tallies the
- * population / jobs / equity populations inside each contour. Agency+ (gated by
- * the RightRail wrapper).
+ * population / jobs / equity populations inside each contour. Wrapped in an
+ * access_isochrones PaywallOverlay by RightRail (free on every plan today).
  */
 export function AccessIsochronePanel() {
   const origin = useStore((s) => s.accessOrigin);

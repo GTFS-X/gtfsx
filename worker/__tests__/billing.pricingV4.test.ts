@@ -34,13 +34,15 @@ describe('Pricing v4 entitlements', () => {
     }
   });
 
-  it('route-level analysis (analysis_basic) stays Agency+', () => {
-    expect(planHasFeature('free', 'analysis_basic')).toBe(false);
+  // Superseded Sep 2026: route-level analysis and network walksheds moved to
+  // every plan (free planning). See billing.freePlanning.test.ts.
+  it('route-level analysis (analysis_basic) is on every plan (free planning, Sep 2026)', () => {
+    expect(planHasFeature('free', 'analysis_basic')).toBe(true);
     expect(planHasFeature('agency', 'analysis_basic')).toBe(true);
   });
 
-  it('network walksheds (Mapbox isochrone coverage) are Agency+', () => {
-    expect(planHasFeature('free', 'network_walksheds')).toBe(false);
+  it('network walksheds (Mapbox isochrone coverage) are on every plan (free planning, Sep 2026)', () => {
+    expect(planHasFeature('free', 'network_walksheds')).toBe(true);
     expect(planHasFeature('agency', 'network_walksheds')).toBe(true);
     expect(planHasFeature('enterprise', 'network_walksheds')).toBe(true);
   });

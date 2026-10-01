@@ -214,7 +214,7 @@ export async function sendTrialEndingEmail(
       html: wrap(`
         <p>Your 14-day Planner trial ends on <strong>${date}</strong>. There's no credit card on file, so nothing will be charged, your workspace simply returns to the free Editor on that date.</p>
         <p style="margin: 18px 0;"><a href="${manage}" style="display: inline-block; background: #8a5a3b; color: white; padding: 10px 18px; border-radius: 6px; text-decoration: none;">Subscribe to keep Planner</a></p>
-        <p style="color: #666; font-size: 13px;">Planner is ${price}. Subscribe any time to keep your hosted feeds, embeds, and the full planning suite.</p>
+        <p style="color: #666; font-size: 13px;">Planner is ${price}. Subscribe any time to keep your hosted feeds, embeds, and team workspace. Planning features stay free either way.</p>
       `),
       text:
         `Your 14-day Planner trial ends on ${opts.trialEndDate}.\n\n` +
