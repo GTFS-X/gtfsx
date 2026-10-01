@@ -620,19 +620,7 @@ Design rationale is preserved in the decisions appendix of the archived
   and the cron replays them). svt-demo carries a live example since
   2026-07-15 (`external_id: 99999`, license `CC0-1.0` — visible in its
   `dmfr.json` and `feed_info.json`).
-- The project owner's account (`mark@gtfsx.com`) is staff + enterprise.
-  Pre-launch D1 backup under `backups/` (gitignored).
-- **Rollback:** `BILLING_ENABLED=false` disables paid checkout/portal but leaves
-  auth + editor up; `BACKEND_ENABLED=false` (with SPA rebuild) hides the whole
-  backend. Both are `wrangler.jsonc` edits + redeploy. The two `*_ENABLED` flags
-  and their `VITE_*` build-env twins must move in lockstep (see project memory).
-
-### Not yet deployed (in flight)
-
-Work that exists in the repo but is **not** live in production. Delete an entry
-from here when it ships, and fold it into the Production list above.
-
-- **Free planning (branch `free-planning`, 2026-09-30, NOT on prod).** GTFS·X
+- **Free planning (live on prod since 2026-10-01; merged from `free-planning`, `8a9c831`).** GTFS·X
   stopped pursuing commercialization of the planning suite: `analysis_basic`,
   `analysis_title_vi`, `network_walksheds`, `access_isochrones` and `variants`
   are granted to every plan (free + anonymous) in BOTH `worker/billing/plans.ts`
@@ -645,8 +633,21 @@ from here when it ships, and fold it into the Production list above.
   Pricing copy (in-app `/pricing` catalog + fallback, `/pricing` SSR,
   `/docs/pricing/`, planning docs tier badges, the Ask GTFS·X manifest) and a
   dismissible announcement (homepage `#free-planning` + editor
-  `FreePlanningBanner`) ship with it. Stripe product descriptions
+  `FreePlanningBanner`) shipped with it. Stripe product descriptions
   (`scripts/setup-stripe.ts` + live product) were deliberately NOT touched.
+- The project owner's account (`mark@gtfsx.com`) is staff + enterprise.
+  Pre-launch D1 backup under `backups/` (gitignored).
+- **Rollback:** `BILLING_ENABLED=false` disables paid checkout/portal but leaves
+  auth + editor up; `BACKEND_ENABLED=false` (with SPA rebuild) hides the whole
+  backend. Both are `wrangler.jsonc` edits + redeploy. The two `*_ENABLED` flags
+  and their `VITE_*` build-env twins must move in lockstep (see project memory).
+
+### Not yet deployed (in flight)
+
+Work that exists in the repo but is **not** live in production. Delete an entry
+from here when it ships, and fold it into the Production list above.
+
+_(none)_
 
 ### Staging — PARKED (since 2026-05-16)
 
