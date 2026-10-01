@@ -161,11 +161,12 @@ describe('alerts CRUD + gating', () => {
     expect(res.status).toBe(404);
   });
 
-  it('paywalls Free users (402)', async () => {
+  it('Free users can author alerts (Service Alerts are free since Oct 2026)', async () => {
     const free = await loggedIn('free-user@example.com', 'free');
     const proj = await createProject(free, 'Free Feed');
     const res = await free.post(`/api/projects/${proj.id}/alerts`, ACTIVE_ALERT);
-    expect(res.status).toBe(402);
+    expect(res.status).not.toBe(402);
+    expect(res.status).toBeLessThan(300);
   });
 
   it('validates header, informed_entity, and period ordering', async () => {

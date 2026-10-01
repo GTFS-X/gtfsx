@@ -293,15 +293,14 @@ describe('Embeds Phase 7', () => {
       expect(top?.views).toBe(2);
     });
 
-    it('owner rollup is gated by the embeds entitlement (402 paywall for free)', async () => {
-      // The owner-facing /api/projects endpoint uses the app's standard 402
-      // paywall (requireOwnerFeature), matching brand_color / publish gating —
-      // unlike the public JSON/RT surfaces which serve a 403 to integrators.
+    it('owner rollup is available to a free-plan owner (embeds are free since Oct 2026)', async () => {
+      // The owner-facing endpoint still runs requireOwnerFeature('embeds'); the
+      // free plan is entitled now, so it passes.
       const { client, userId } = await loggedInClient('p7-imp6@example.com');
       const { id } = await createPublishedProject(client, 'ImpGate');
       await dbRun(`UPDATE user SET plan = 'free' WHERE id = ?`, userId);
       const res = await client.get(`/api/projects/${id}/embed-impressions`);
-      expect(res.status).toBe(402);
+      expect(res.status).toBe(200);
     });
   });
 
@@ -387,13 +386,14 @@ describe('Embeds Phase 7', () => {
       expect(res.status).toBe(502);
     });
 
-    it('RT passthrough is gated by the embeds entitlement (403 for free owner)', async () => {
+    it('RT passthrough is served for a free-plan owner (embeds are free since Oct 2026)', async () => {
       const { client, userId } = await loggedInClient('p7-rt4@example.com');
       const { slug, id } = await createPublishedProject(client, 'RtGate');
       await registerRtFeed(id, 'trip_updates', 'https://rt.gate.test/tu.pb');
       await dbRun(`UPDATE user SET plan = 'free' WHERE id = ?`, userId);
       const res = await SELF.fetch(`http://feeds.example.com/${slug}/rt/trip_updates.json`);
-      expect(res.status).toBe(403);
+      // Past the entitlement gate; the unmocked upstream then fails (502).
+      expect(res.status).not.toBe(403);
     });
 
     it('stop embed includes the live RT enhancer only when a trip_updates source exists', async () => {

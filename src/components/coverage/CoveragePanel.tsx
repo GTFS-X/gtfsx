@@ -8,6 +8,7 @@ import { useVisibleFeed } from '../../hooks/useVisibleFeed';
 import { RouteScopeNote } from '../ui/RouteScopeNote';
 import { PaywallOverlay } from '../billing/PaywallOverlay';
 import { useEditorPlan } from '../billing/useEditorPlan';
+import { SignInRequiredLink } from '../billing/SignInRequired';
 import { planHasFeature, cheapestPlanFor, planDisplayName } from '../billing/planConfig';
 import { downloadBlob } from '../../services/gtfsExport';
 import { fetchCensusData, lookupFips } from '../../services/demographics';
@@ -212,9 +213,13 @@ export function CoveragePanel() {
   const setIsFetchingCoverage = useStore((s) => s.setIsFetchingCoverage);
   const setCoverageError = useStore((s) => s.setCoverageError);
 
-  // Network walksheds (street distance) — a paid-tier capability. Free users
-  // keep the straight-line buffer; the toggle is disabled + paywalled for them.
-  const canUseWalksheds = planHasFeature(plan, 'network_walksheds');
+  // Network walksheds (street distance): free on every plan, but they call the
+  // metered Mapbox Isochrone API through an auth-gated proxy, so they need a
+  // signed-in account. Signed-out users keep the straight-line buffer and see a
+  // "Sign in (free)" link instead of the toggle.
+  const signedIn = useStore((s) => !!s.currentUser);
+  const hasWalkshedPlan = planHasFeature(plan, 'network_walksheds');
+  const canUseWalksheds = hasWalkshedPlan && signedIn;
   const [useNetworkWalksheds, setUseNetworkWalksheds] = useState(false);
   // Walk-time mode. Default 'auto': each stop's walk-time is driven by its own
   // service frequency (10-min / ½-mi when frequent, else 5-min / ¼-mi). The
@@ -433,6 +438,7 @@ export function CoveragePanel() {
 
       <WalkshedModeControl
         canUse={canUseWalksheds}
+        needsSignIn={hasWalkshedPlan && !signedIn}
         enabled={useNetworkWalksheds}
         onToggle={setUseNetworkWalksheds}
         mode={walkMode}
@@ -622,23 +628,30 @@ export function CoveragePanel() {
 /**
  * Walkshed-mode selector. Entitled users (every plan today) get a checkbox to switch Coverage from the
  * straight-line buffer to Mapbox street-network walksheds plus a walk-time
- * picker; users without network_walksheds see a disabled control with the standard upgrade
- * affordance (a Link to /pricing carrying the feature).
+ * picker; signed-out users see a "Sign in (free)" link (the Mapbox proxy is
+ * auth-gated); users without network_walksheds see a disabled control with the
+ * standard upgrade affordance (a Link to /pricing carrying the feature).
  */
 function WalkshedModeControl({
   canUse,
+  needsSignIn,
   enabled,
   onToggle,
   mode,
   onMode,
 }: {
   canUse: boolean;
+  needsSignIn: boolean;
   enabled: boolean;
   onToggle: (v: boolean) => void;
   mode: WalkMode;
   onMode: (m: WalkMode) => void;
 }) {
   const target = planDisplayName(cheapestPlanFor('network_walksheds'));
+
+  if (needsSignIn) {
+    return <SignInRequiredLink label="Network walksheds (street distance)" />;
+  }
 
   if (!canUse) {
     return (

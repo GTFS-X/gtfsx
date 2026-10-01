@@ -39,7 +39,7 @@ export const PRO_NUDGE_COPY: Record<
     feature: 'managed_publishing',
   },
   feed_cap: {
-    message: 'Free saves 3 feeds. Planner saves unlimited and hosts them.',
+    message: 'Free saves 99 feeds. Planner saves unlimited.',
     cta: 'Upgrade',
     feature: 'managed_publishing',
   },

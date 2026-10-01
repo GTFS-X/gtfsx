@@ -152,16 +152,12 @@ describe('/api/projects/:id/publish/schedule', () => {
     expect(ok.status).toBe(200);
   });
 
-  it('blocks the free tier (managed publishing is paid-only)', async () => {
+  it('the free tier can schedule a publish (publishing is free since Oct 2026)', async () => {
     const { client } = await loggedIn('sched4@example.com', 'free');
     const proj = await createProject(client, 'Free');
-    const v = await createSnapshot(client, proj.id, {}).catch(() => null);
-    // Free tier can't even create snapshots (snapshot_history is paid) — but if it
-    // could, scheduling must be blocked. Assert the schedule endpoint rejects.
-    if (v) {
-      const res = await scheduleMultipart(client, proj.id, v.snapshot.id, FUTURE(), ZIP);
-      expect([402, 403]).toContain(res.status);
-    }
+    const v = await createSnapshot(client, proj.id, {});
+    const res = await scheduleMultipart(client, proj.id, v.snapshot.id, FUTURE(), ZIP);
+    expect(res.status).toBe(200);
   });
 
   it('re-scheduling replaces the pending row (one pending per project)', async () => {
@@ -213,7 +209,7 @@ describe('/api/projects/:id/publish/schedule', () => {
     expect(row?.status).toBe('executed');
   });
 
-  it('cron marks a schedule failed when the owner can no longer publish', async () => {
+  it('cron still publishes a due schedule after the owner drops to free (publishing is free since Oct 2026)', async () => {
     const { client, user } = await loggedIn('cron2@example.com');
     const proj = await createProject(client, 'Revoked');
     const v = await createSnapshot(client, proj.id, {});
@@ -225,15 +221,15 @@ describe('/api/projects/:id/publish/schedule', () => {
     await env.DB.prepare(`UPDATE user SET plan = 'free' WHERE id = ?`).bind(user.id).run();
 
     const result = await publishDueSchedules(env);
-    expect(result.failed).toBe(1);
-    expect(result.published).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(result.published).toBe(1);
 
     const row = await env.DB.prepare(
       `SELECT status FROM scheduled_publish WHERE project_id = ?`,
     ).bind(proj.id).first<{ status: string }>();
-    expect(row?.status).toBe('failed');
+    expect(row?.status).toBe('executed');
     const feed = await SELF.fetch(`http://feeds.test/${proj.slug}/gtfs.zip`);
-    expect(feed.status).toBe(404);
+    expect(feed.status).toBe(200);
   });
 });
 

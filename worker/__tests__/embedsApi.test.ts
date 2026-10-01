@@ -295,27 +295,22 @@ describe('JSON API (feeds.*/<slug>/api/v1)', () => {
     expect(second.status).toBe(304);
   });
 
-  it('gates /services behind the embeds entitlement like every other endpoint', async () => {
+  it('serves /services for a free-plan owner (embeds are free since Oct 2026)', async () => {
     const { client, userId } = await loggedInClient('api-svc-free@example.com');
     const { slug } = await createPublishedProject(client, 'ApiServiceFree');
     await testEnv.DB.prepare('UPDATE user SET plan = ? WHERE id = ?').bind('free', userId).run();
     const res = await SELF.fetch(`http://feeds.example.com/${slug}/api/v1/services`);
-    expect(res.status).toBe(403);
-    const body = await res.json() as { error: string };
-    expect(body.error).toBe('plan_required');
+    expect(res.status).toBe(200);
   });
 
-  it('returns 403 when the feed owner lacks the embeds entitlement', async () => {
-    // Publish as a paid user (publishing itself is Agency+), then downgrade the
-    // owner to free in the DB. The JSON API resolves the owner plan live at
-    // serve time, so the now-free owner's data is gated off.
+  it('serves the JSON API for a free-plan owner (embeds are free since Oct 2026)', async () => {
+    // The JSON API resolves the owner plan live at serve time; a free owner is
+    // entitled to embeds on every plan now, so the data is served.
     const { client, userId } = await loggedInClient('api-free@example.com');
     const { slug } = await createPublishedProject(client, 'ApiFree');
     await testEnv.DB.prepare('UPDATE user SET plan = ? WHERE id = ?').bind('free', userId).run();
 
     const res = await SELF.fetch(`http://feeds.example.com/${slug}/api/v1/routes`);
-    expect(res.status).toBe(403);
-    const body = await res.json() as { error: string };
-    expect(body.error).toBe('plan_required');
+    expect(res.status).toBe(200);
   });
 });

@@ -6,8 +6,11 @@
  * isochrones — the area you can reach on foot within N minutes following the
  * street network — which is a far more honest picture of who a stop serves
  * (rivers, freeways, and missing sidewalks all cut the real walkshed well below
- * the crow-flies circle). It is a PAID-tier capability (see the
- * `network_walksheds` feature key); free users keep the straight-line buffer.
+ * the crow-flies circle). Gated by the `network_walksheds` feature key (every
+ * plan since Sep 2026) AND a signed-in account: requests go through the
+ * auth-gated worker proxy GET /api/mapbox/isochrone, which returns 401 to
+ * anonymous callers (Mapbox bills per call). Signed-out users keep the
+ * straight-line buffer and see a "Sign in (free)" prompt.
  *
  * Pipeline:
  *   1. For each distinct stop coordinate (rounded, deduped), call the Isochrone
@@ -44,7 +47,16 @@ import {
   type CoverageResult,
 } from './coverageAnalysis';
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+/** Same-origin, auth-gated proxy for the Mapbox Isochrone API (worker/mapbox/isochrone.ts). */
+const ISOCHRONE_PROXY = '/api/mapbox/isochrone';
+
+/** Thrown when the proxy refuses an anonymous request (401). */
+export class IsochroneSignInRequiredError extends Error {
+  constructor() {
+    super('Sign in (free) to use street-network walksheds');
+    this.name = 'IsochroneSignInRequiredError';
+  }
+}
 
 /** Coordinate rounding for dedupe + cache key. ~3 decimals ≈ 110m, plenty for
  *  walkshed-scale geometry and collapses near-coincident stops (e.g. opposite
@@ -260,14 +272,15 @@ async function fetchIsochrone(
   if (isochroneCache.has(key)) return isochroneCache.get(key) ?? null;
 
   const url =
-    `https://api.mapbox.com/isochrone/v1/mapbox/walking/${roundCoord(lon)},${roundCoord(lat)}` +
-    `?contours_minutes=${minutes}&polygons=true&denoise=1&access_token=${MAPBOX_TOKEN}`;
+    `${ISOCHRONE_PROXY}?lon=${roundCoord(lon)}&lat=${roundCoord(lat)}` +
+    `&contours_minutes=${minutes}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let data: { features?: Feature[] };
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal, credentials: 'same-origin' });
+    if (res.status === 401) throw new IsochroneSignInRequiredError();
     if (!res.ok) throw new Error(`Isochrone API returned ${res.status}`);
     data = await res.json();
   } finally {
@@ -350,6 +363,15 @@ export async function buildNetworkWalkshed(
       polygon = polygon ? unionTwo(polygon, iso) : iso;
     }
   } catch (err) {
+    if (err instanceof IsochroneSignInRequiredError) {
+      return {
+        status: 'error',
+        polygon: null,
+        requestCount,
+        neededRequests: coords.length,
+        message: 'Sign in (free) to use street-network walksheds. Showing the straight-line buffer instead.',
+      };
+    }
     return {
       status: 'error',
       polygon: null,

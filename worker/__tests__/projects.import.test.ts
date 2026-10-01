@@ -75,9 +75,9 @@ describe('/api/projects/import', () => {
   it('partial import when the user is already near their quota', async () => {
     const { client, userId } = await loggedInClient('import3@example.com', 'free');
 
-    // Free tier has projects=3. Seed 2 so the user has 1 slot left.
+    // Free tier has projects=99. Seed 98 so the user has 1 slot left.
     const now = Date.now();
-    for (let i = 0; i < 2; i += 1) {
+    for (let i = 0; i < 98; i += 1) {
       await dbRun(
         `INSERT INTO feed_project (id, slug, name, description, owner_type, owner_id,
            working_state_r2_key, working_state_version, working_state_size, working_state_updated_at,

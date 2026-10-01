@@ -22,4 +22,11 @@ test('analysis panels are ungated on the free plan', async ({ page }) => {
     await openSection(page, label);
     await expect(page.getByRole('button', { name: /sign up to upgrade|upgrade plan/i })).toHaveCount(0);
   }
+
+  // Access isochrones call the metered Mapbox API, so signed-out editors get a
+  // "Sign in (free)" card (not an upgrade prompt). The server enforces it too
+  // (GET /api/mapbox/isochrone → 401 when anonymous).
+  await openSection(page, /access/i);
+  await expect(page.getByTestId('sign-in-required')).toBeVisible();
+  await expect(page.getByText(/sign in \(free\) to use this/i)).toBeVisible();
 });

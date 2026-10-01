@@ -690,6 +690,7 @@ import { importRouter } from './import/routes';
 import { forumRouter } from './forum/routes';
 import { demoLeadRouter } from './marketing/demoLead';
 import { assistantRouter } from './assistant/routes';
+import { mapboxRouter } from './mapbox/isochrone';
 apiRouter.route('/orgs', orgsRouter);
 apiRouter.route('/admin', adminRouter);
 apiRouter.route('/billing', billingRouter);
@@ -702,6 +703,9 @@ apiRouter.route('/assistant', assistantRouter);
 // /book-demo lead form submit (the demo_request conversion emission). Public,
 // cookieless; inherits the X-GB-Client CSRF check. See worker/marketing/demoLead.ts.
 apiRouter.route('/demo-leads', demoLeadRouter);
+// Authenticated Mapbox Isochrone proxy (network walksheds + access isochrones).
+// Signed-in accounts only (any plan); anonymous → 401. See worker/mapbox/isochrone.ts.
+apiRouter.route('/mapbox', mapboxRouter);
 // Publication and distribution endpoints hang off the projects router
 // (/api/projects/:id/publish, /catalog-submissions, etc.) so project-ownership
 // checks stay co-located with their endpoints. See worker/projects/routes.ts.

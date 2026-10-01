@@ -37,10 +37,10 @@ import {
   restoreSlugChangeMessage,
 } from '../../services/feedDeletion';
 
-// Free plan saves 3 feeds (server PLAN_QUOTAS.free.projects). Creating a 4th is
-// allowed in prod (the cap is soft, HARD_LIMITS=false) but is the moment to sell
-// Planner. Mirrors the "Free saves 3 feeds" copy.
-const FREE_FEED_CAP = 3;
+// Free plan saves 99 feeds (server PLAN_QUOTAS.free.projects, raised from 3 in
+// Oct 2026). Reaching the cap is the moment to mention Planner's unlimited
+// feeds. Mirrors the "Free saves 99 feeds" copy.
+const FREE_FEED_CAP = 99;
 
 // Env-aware public feeds origin (mirrors PublishPanel/EmbedPanel): staging
 // publishes to staging-feeds.gtfsx.com, prod to feeds.gtfsx.com. Used to build
@@ -339,7 +339,7 @@ export function MyFeedsPage() {
               <span>
                 Feeds used: <strong>{feedsQuotaWarning}</strong>.
                 {ownerPlan === 'free'
-                  ? ' Free saves 3 feeds. Planner saves unlimited and hosts them.'
+                  ? ' Free saves 99 feeds. Planner saves unlimited.'
                   : ' Archive or delete feeds to free space, or upgrade for higher limits.'}
               </span>
               <a
@@ -839,7 +839,7 @@ function CreateFeedDialog({
           action: 'feed_cap',
           source: 'create_feed_dialog',
         });
-        setError('Free saves 3 feeds. Planner saves unlimited and hosts them.');
+        setError('Free saves 99 feeds. Planner saves unlimited.');
       } else {
         setError(apiErr ? apiErr.message : 'Create failed');
       }

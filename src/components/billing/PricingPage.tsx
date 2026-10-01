@@ -57,12 +57,14 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
     monthlyPriceUsd: 0,
     annualPriceUsd: 0,
     perSeat: false,
-    tagline: 'Edit, validate, and plan transit service. Free.',
+    tagline: 'Edit, plan, publish, and host transit feeds. Free.',
     features: [
       'Create, edit, and validate GTFS and GTFS-Flex feeds on a live map',
       'The full planning suite: route-level cost, coverage & Title VI equity',
-      'Access isochrones, stop analysis & street-network walksheds',
+      'Access isochrones, stop analysis & street-network walksheds (free account)',
       'Scenario comparison with feed variants, timetables & vehicle blocking',
+      'Hosted publishing: stable feed URL, rider mini-site, embeds & Service Alerts',
+      'Up to 99 cloud feeds with snapshot history',
       'Export a spec-clean GTFS .zip or GeoJSON (no signup required)',
     ],
   },
@@ -72,11 +74,11 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
     monthlyPriceUsd: 299,
     annualPriceUsd: 2988,
     perSeat: false,
-    tagline: 'Team workspaces and hosted publishing for transit agencies.',
+    tagline: 'Team workspaces for transit agencies.',
     features: [
       'Team workspaces: invite members and manage roles',
-      'Hosted publishing: stable feed URL, rider mini-site & embeds',
-      'Unlimited cloud feeds, snapshot history & Service Alerts',
+      'Cross-org membership for consultants working in client orgs',
+      'Unlimited cloud feeds',
       'Phone + email support',
     ],
     detailsHref: '/docs/pricing/',
@@ -591,7 +593,7 @@ export function PricingPage() {
     return (
       <AuthLayout
         title="Your Planner trial is active"
-        subtitle="No credit card required. You have full access to team workspaces and hosted publishing for the next 14 days."
+        subtitle="No credit card required. You have full access to team workspaces for the next 14 days."
       >
         <div className="space-y-4">
           <TestModeBanner />
@@ -766,7 +768,7 @@ export function PricingPage() {
     }
     if (isWelcome) return 'Your email is verified. Pick the plan that fits—you can always change later.';
     if (onPaidPlan) return `You're on ${planDisplayName(currentPlan)}. Compare tiers or change your plan below.`;
-    return 'Editing and the full planning suite are free. Planner adds team workspaces and hosted publishing for agencies.';
+    return 'Editing, planning, publishing, and hosting are free. Planner adds team workspaces for agencies.';
   })();
 
   // Redirect modal that covers the page during a deep-linked auto-checkout. The
@@ -1082,17 +1084,20 @@ export function PricingPage() {
                     a: (
                       <p className="mt-2 text-sm text-warm-gray">
                         Yes. The browser-based editor, GTFS-Flex authoring, and ZIP export stay free forever. Sign
-                        up to save up to 3 feeds in the cloud, or stay anonymous and keep everything in your browser.
+                        up (free) to save up to 99 feeds in the cloud, or stay anonymous and keep everything in your
+                        browser.
                       </p>
                     ),
                   },
                   {
-                    q: 'Are the planning features really free?',
+                    q: 'Are planning, publishing, and hosting really free?',
                     a: (
                       <p className="mt-2 text-sm text-warm-gray">
                         Yes. Cost estimation, demographic coverage, Title VI, stop analysis, access isochrones,
-                        and scenario comparison are free on the Editor plan for the foreseeable future. We
-                        can&rsquo;t guarantee they&rsquo;ll stay free forever. Team and organization management
+                        scenario comparison, snapshot history, hosted publishing (stable feed URL, rider mini-site,
+                        embeds, Mobility Database submission) and Service Alerts are free on the Editor plan for the
+                        foreseeable future. We can&rsquo;t guarantee they&rsquo;ll stay free forever. Access
+                        isochrones and network walksheds need a free account. Team and organization management
                         remains a paid Planner feature.
                       </p>
                     ),

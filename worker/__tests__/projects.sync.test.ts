@@ -183,14 +183,14 @@ describe('/api/projects/:id/working-state', () => {
   });
 
   it('oversize body is rejected with 413', async () => {
-    // Free plan caps the blob at 20 MB (per quotas.ts). Send 21 MB.
+    // Free plan caps the blob at 100 MB (per quotas.ts, = Planner). Send 101 MB.
     const client = await loggedInClient('sync6@example.com', 'free');
     const proj = await client.json<{ id: string }>(
       await client.post('/api/projects', { name: 'Huge' }),
     );
 
-    // Build a >20 MB incompressible body. Random bytes gzip to ~same size.
-    const raw = new Uint8Array(21 * 1024 * 1024);
+    // Build a >100 MB body. Random bytes gzip to ~same size.
+    const raw = new Uint8Array(101 * 1024 * 1024);
     crypto.getRandomValues(raw.subarray(0, 1024));
     // Fill the rest with pseudo-random from the seed so gzip can't squash it.
     for (let i = 1024; i < raw.length; i += 1024) raw.set(raw.subarray(0, 1024), i);

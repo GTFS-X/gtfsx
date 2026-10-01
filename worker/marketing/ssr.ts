@@ -54,7 +54,7 @@ function pricingSeo(env: Env): MarketingSeo {
     '@type': 'SoftwareApplication',
     name: 'GTFS·X',
     description:
-      'Browser-based GTFS feed editor and service planner. Editing and the planning suite are free; paid plans add team workspaces and managed publishing.',
+      'Browser-based GTFS feed editor and service planner. Editing, the planning suite, publishing, and hosting are free; paid plans add team workspaces.',
     brand: { '@type': 'Brand', name: 'GTFS·X' },
     url: canonicalUrl,
     applicationCategory: 'BusinessApplication',
@@ -64,18 +64,18 @@ function pricingSeo(env: Env): MarketingSeo {
     // price, and including it as a price-less Offer would re-trigger the
     // "missing price" warning for no marketing value.
     offers: [
-      offer('Editor', 0, 'Edit, validate, and plan transit service: GTFS editing plus the full planning suite, free.'),
-      offer('Planner', 299, 'Team workspaces and hosted publishing for transit agencies: org members and roles, managed publishing and hosting, white-label rider site, and GTFS-Realtime Service Alerts. 14-day free trial.'),
+      offer('Editor', 0, 'Edit, plan, publish, and host transit feeds: GTFS editing, the full planning suite, and hosted publishing, free.'),
+      offer('Planner', 299, 'Team workspaces for transit agencies: org members and roles, cross-org membership for consultants, unlimited saved feeds, and phone support. 14-day free trial.'),
     ],
   });
   const body = `
     <nav class="breadcrumb"><a href="/">GTFS·X</a> › Pricing</nav>
     <h1>GTFS·X Pricing</h1>
-    <p class="lede">The editor and all of GTFS·X's planning features (cost estimation, demographic coverage, Title VI equity analysis, access isochrones, and scenario comparison) are free to use. Planner adds team workspaces and managed publishing at a stable URL.</p>
+    <p class="lede">The editor and all of GTFS·X's planning features (cost estimation, demographic coverage, Title VI equity analysis, access isochrones, and scenario comparison) are free to use, and so are publishing and hosting your feed at a stable URL. Planner adds team workspaces.</p>
     <ul class="tiers">
-      <li><strong>Editor: $0.</strong> Create, edit, validate, and export GTFS feeds in your browser, plus the full planning suite: route operating cost estimates, demographic coverage, Title VI equity analysis, stop analysis, access isochrones, feed variants and scenario comparison, timetable generation, and vehicle blocking. Up to 3 saved feeds in the cloud, GTFS ZIP and GeoJSON export, GTFS-Flex authoring, a nationwide demand-propensity map, community support.</li>
-      <li><strong>Planner: $299/mo ($2,988/yr).</strong> Team workspaces and hosted publishing for transit agencies, with a 14-day free trial. Organization workspaces with unlimited team members and roles, cross-org membership for consultants, unlimited saved feeds, feed publication and hosting, a rider-facing schedule mini-site, feed submission to Google Maps and the Mobility Database, GTFS-Realtime Service Alerts authoring, and a fully white-labeled rider site. <a href="/docs/pricing/">Compare plans in detail →</a></li>
-      <li><strong>Enterprise: custom.</strong> Multi-agency subscriptions for consultants and state DOTs. Custom feed/seat limits, unlimited managed publishing, phone + email support with SLA.</li>
+      <li><strong>Editor: $0.</strong> Create, edit, validate, and export GTFS feeds in your browser, plus the full planning suite: route operating cost estimates, demographic coverage, Title VI equity analysis, stop analysis, access isochrones, feed variants and scenario comparison, timetable generation, and vehicle blocking. Hosted publishing too: feed publication and hosting at a stable URL, a rider-facing schedule mini-site and embeds, feed submission to Google Maps and the Mobility Database, GTFS-Realtime Service Alerts authoring, and snapshot history. Up to 99 saved and 99 published feeds in the cloud, GTFS ZIP and GeoJSON export, GTFS-Flex authoring, a nationwide demand-propensity map, community support. Access isochrones and network walksheds need a free account.</li>
+      <li><strong>Planner: $299/mo ($2,988/yr).</strong> Team workspaces for transit agencies, with a 14-day free trial. Organization workspaces with unlimited team members and roles, cross-org membership for consultants, unlimited saved feeds, and phone + email support. <a href="/docs/pricing/">Compare plans in detail →</a></li>
+      <li><strong>Enterprise: custom.</strong> Multi-agency subscriptions for consultants and state DOTs. Multiple organization workspaces, custom feed/seat limits, phone + email support with SLA.</li>
     </ul>
     <p><a href="mailto:hello@gtfsx.com?subject=GTFS%C2%B7X%20%E2%80%94%20Fix%20my%20feed">Fix my feed for me</a>—prefer a done-for-you service? We can build or repair your GTFS feed.</p>
     <h2>How GTFS·X compares</h2>
@@ -88,9 +88,9 @@ function pricingSeo(env: Env): MarketingSeo {
     <p><a href="/">Open the editor</a> · <a href="/about/">About GTFS·X</a></p>
   `;
   return {
-    title: 'GTFS·X Pricing — Free GTFS Editor and Planning Suite',
+    title: 'GTFS·X Pricing — Free GTFS Editor, Planning, and Hosting',
     description:
-      'GTFS·X pricing: the GTFS editor and the planning suite are free to use; Planner at $299/mo adds team workspaces, publishing, and hosting; Enterprise offers multi-agency subscriptions for consultants and state DOTs.',
+      'GTFS·X pricing: the GTFS editor, the planning suite, and feed publishing and hosting are free to use; Planner at $299/mo adds team workspaces; Enterprise offers multi-agency subscriptions for consultants and state DOTs.',
     canonicalUrl,
     jsonLd,
     body,

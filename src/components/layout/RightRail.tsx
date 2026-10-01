@@ -23,6 +23,7 @@ import { VariantsPanel } from '../variants/VariantsPanel';
 import { AlertsEditor } from '../alerts/AlertsEditor';
 import { FeatureSettingsPanel } from '../settings/FeatureSettingsPanel';
 import { PaywallOverlay } from '../billing/PaywallOverlay';
+import { SignInRequired } from '../billing/SignInRequired';
 import { useEditorPlan } from '../billing/useEditorPlan';
 import { EditActions } from '../ui/EditActions';
 import { Breadcrumb } from '../ui/Breadcrumb';
@@ -119,9 +120,13 @@ function PanelBody({ section }: { section: SidebarSection }) {
         </PaywallOverlay>
       );
     case 'access-isochrones':
+      // Free on every plan, but needs a signed-in account: network mode calls
+      // the metered Mapbox Isochrone API via the auth-gated worker proxy.
       return (
         <PaywallOverlay feature="access_isochrones" currentPlan={plan}>
-          <AccessIsochronePanel />
+          <SignInRequired feature="access_isochrones">
+            <AccessIsochronePanel />
+          </SignInRequired>
         </PaywallOverlay>
       );
     case 'alerts':

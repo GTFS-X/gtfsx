@@ -34,11 +34,18 @@ export type FeatureKey =
 // the planning suite. Every planning/analysis feature (route-level cost &
 // coverage, stop analysis, Title VI, network walksheds, access isochrones,
 // variants/scenario comparison) is granted to EVERY plan, including free and
-// anonymous editors. Organizational user management (org workspaces, members,
-// roles, seats, cross-org membership, additional orgs) stays paid. Hosting /
-// publishing / branding / support gates are unchanged pending a separate
-// decision. The keys stay in this matrix (rather than being deleted) so a
-// future re-gate is a one-line config change in BOTH files.
+// anonymous editors. The keys stay in this matrix (rather than being deleted) so
+// a future re-gate is a one-line config change in BOTH files.
+//
+// Free hosting (Oct 2026): snapshot history, publishing + hosting (managed
+// publishing, draft links, Mobility Database submission, embeds + mini-site,
+// badge removal), Service Alerts and org branding (logo, brand color) are also
+// granted to EVERY plan. The ONLY paid features left are organizational/team
+// management (org_workspace member invites, cross_org_member, multi_org) and
+// phone_support. Free-plan quotas were raised to match (see PLAN_QUOTAS in
+// worker/projects/quotas.ts). Access isochrones + network walksheds are free on
+// every plan but need a signed-in account: the Mapbox call is proxied through
+// the auth-gated GET /api/mapbox/isochrone (worker/mapbox/isochrone.ts).
 //
 // Pricing v4 (Jul 2026): the Pro tier is retired (zero subscribers — no
 // migration needed). Everything that was Pro+ moves up to Agency+ (internal
@@ -46,12 +53,12 @@ export type FeatureKey =
 // drops DOWN to every plan including free. analysis_propensity (demand dots)
 // stays free for everyone.
 export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
-  managed_publishing:  ['agency', 'enterprise'],
-  draft_links:         ['agency', 'enterprise'],
-  mobility_db_submit:  ['agency', 'enterprise'],
-  embeds:              ['agency', 'enterprise'],
-  embed_remove_badge:  ['agency', 'enterprise'],
-  snapshot_history:    ['agency', 'enterprise'],
+  managed_publishing:  ['free', 'agency', 'enterprise'],
+  draft_links:         ['free', 'agency', 'enterprise'],
+  mobility_db_submit:  ['free', 'agency', 'enterprise'],
+  embeds:              ['free', 'agency', 'enterprise'],
+  embed_remove_badge:  ['free', 'agency', 'enterprise'],
+  snapshot_history:    ['free', 'agency', 'enterprise'],
   analysis_basic:      ['free', 'agency', 'enterprise'],
   analysis_title_vi:   ['free', 'agency', 'enterprise'],
   analysis_propensity: ['free', 'agency', 'enterprise'],
@@ -61,9 +68,9 @@ export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   // Owning MORE THAN ONE org is Enterprise-only; the first org is available to
   // Planner (and to the no-card trial). Enforced in the org-creation route.
   multi_org:           ['enterprise'],
-  org_logo:            ['agency', 'enterprise'],
-  brand_color:         ['agency', 'enterprise'],
-  service_alerts:      ['agency', 'enterprise'],
+  org_logo:            ['free', 'agency', 'enterprise'],
+  brand_color:         ['free', 'agency', 'enterprise'],
+  service_alerts:      ['free', 'agency', 'enterprise'],
   geojson_export:      ['free', 'agency', 'enterprise'],
   access_isochrones:   ['free', 'agency', 'enterprise'],
   variants:            ['free', 'agency', 'enterprise'],
@@ -130,12 +137,14 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
     monthlyPriceUsd: 0,
     annualPriceUsd: 0,
     perSeat: false,
-    tagline: 'Edit, validate, and plan transit service. Free.',
+    tagline: 'Edit, plan, publish, and host transit feeds. Free.',
     features: [
       'Create, edit, and validate GTFS and GTFS-Flex feeds on a live map',
       'The full planning suite: route-level cost, coverage & Title VI equity',
-      'Access isochrones, stop analysis & street-network walksheds',
+      'Access isochrones, stop analysis & street-network walksheds (free account)',
       'Scenario comparison with feed variants, timetables & vehicle blocking',
+      'Hosted publishing: stable feed URL, rider mini-site, embeds & Service Alerts',
+      'Up to 99 cloud feeds with snapshot history',
       'Export a spec-clean GTFS .zip or GeoJSON (no signup required)',
     ],
   },
@@ -145,11 +154,11 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
     monthlyPriceUsd: 299,
     annualPriceUsd: 2988,
     perSeat: false,
-    tagline: 'Team workspaces and hosted publishing for transit agencies.',
+    tagline: 'Team workspaces for transit agencies.',
     features: [
       'Team workspaces: invite members and manage roles',
-      'Hosted publishing: stable feed URL, rider mini-site & embeds',
-      'Unlimited cloud feeds, snapshot history & Service Alerts',
+      'Cross-org membership for consultants working in client orgs',
+      'Unlimited cloud feeds',
       'Phone + email support',
     ],
     detailsHref: '/docs/pricing/',
@@ -163,10 +172,8 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
     perSeat: false,
     tagline: 'Multi-agency subscriptions for consultants and state DOTs.',
     features: [
+      'Own and manage multiple organization workspaces',
       'Custom feed and seat limits',
-      'Unlimited Premium Feed Management',
-      'Branded mini-sites',
-      'Full Route Planning Features',
       'Phone + email support with SLA',
       'Contract terms via PO or invoice',
     ],

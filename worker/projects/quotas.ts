@@ -22,8 +22,15 @@ export interface PlanQuotas {
 
 const MB = 1024 * 1024;
 
+// Free hosting (Oct 2026): publishing and snapshots are free on every plan, so
+// the free quotas were raised to make that real. 99 saved feeds (a hard wall at
+// creation) and 99 published feeds; snapshotsPerProject and blobBytes match
+// Planner exactly. blobBytes is a PER-FEED cap on the gzipped working state /
+// uploaded zip, not an aggregate storage quota (there is none). Prod sizes at
+// the time (396 feeds): mean ≈ 0.6 MB gzipped, largest ≈ 27 MB, so 100 MB fits
+// every existing feed with ~3.5× headroom, and 99 typical feeds total ≈ 63 MB.
 export const PLAN_QUOTAS: Record<Plan, PlanQuotas> = {
-  free:       { projects: 3,     snapshotsPerProject: 5,   blobBytes:  20 * MB, publishedFeeds: 0 },
+  free:       { projects: 99,    snapshotsPerProject: 50,  blobBytes: 100 * MB, publishedFeeds: 99 },
   agency:     { projects: 99999, snapshotsPerProject: 50,  blobBytes: 100 * MB, publishedFeeds: 99999 },
   enterprise: { projects: 99999, snapshotsPerProject: 200, blobBytes: 200 * MB, publishedFeeds: 99999 },
 };
@@ -89,7 +96,7 @@ export async function countSnapshots(env: Env, projectId: string): Promise<numbe
 }
 
 // A "published" feed = a publication row pointing at a feed_snapshot for a
-// non-deleted project owned by this principal. Free tier publishedFeeds=0.
+// non-deleted project owned by this principal. Free tier publishedFeeds=99.
 export async function countPublishedFeeds(
   env: Env,
   ownerType: string,

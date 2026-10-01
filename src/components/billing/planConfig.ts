@@ -28,20 +28,27 @@ export type FeatureKey =
 
 // Free planning (Sep 2026): every planning/analysis feature (analysis_basic,
 // analysis_title_vi, network_walksheds, access_isochrones, variants) is on
-// EVERY plan, including free/anonymous. Organizational user management stays
-// paid. See the matching comment in worker/billing/plans.ts.
+// EVERY plan, including free/anonymous.
+//
+// Free hosting (Oct 2026): snapshot_history, managed_publishing, draft_links,
+// mobility_db_submit, embeds, embed_remove_badge, service_alerts, org_logo and
+// brand_color are on EVERY plan too. Only org/team management (org_workspace,
+// cross_org_member, multi_org) and phone_support stay paid. Access isochrones +
+// network walksheds additionally need a signed-in account (server-enforced by
+// the /api/mapbox/isochrone proxy; see SignInRequired). See the matching
+// comment in worker/billing/plans.ts.
 //
 // Pricing v4 (Jul 2026): the Pro tier is retired. Everything that was Pro+
 // moves up to Agency+ (internal id 'agency'; displayed as "Planner"), except
 // geojson_export which is now free for every plan. Demand dots
 // (analysis_propensity) stay free for everyone. See worker/billing/plans.ts.
 export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
-  managed_publishing:  ['agency', 'enterprise'],
-  draft_links:         ['agency', 'enterprise'],
-  mobility_db_submit:  ['agency', 'enterprise'],
-  embeds:              ['agency', 'enterprise'],
-  embed_remove_badge:  ['agency', 'enterprise'],
-  snapshot_history:    ['agency', 'enterprise'],
+  managed_publishing:  ['free', 'agency', 'enterprise'],
+  draft_links:         ['free', 'agency', 'enterprise'],
+  mobility_db_submit:  ['free', 'agency', 'enterprise'],
+  embeds:              ['free', 'agency', 'enterprise'],
+  embed_remove_badge:  ['free', 'agency', 'enterprise'],
+  snapshot_history:    ['free', 'agency', 'enterprise'],
   analysis_basic:      ['free', 'agency', 'enterprise'],
   analysis_title_vi:   ['free', 'agency', 'enterprise'],
   analysis_propensity: ['free', 'agency', 'enterprise'],
@@ -49,9 +56,9 @@ export const FEATURE_PLANS: Record<FeatureKey, readonly Plan[]> = {
   org_workspace:       ['agency', 'enterprise'],
   cross_org_member:    ['agency', 'enterprise'],
   multi_org:           ['enterprise'],
-  org_logo:            ['agency', 'enterprise'],
-  brand_color:         ['agency', 'enterprise'],
-  service_alerts:      ['agency', 'enterprise'],
+  org_logo:            ['free', 'agency', 'enterprise'],
+  brand_color:         ['free', 'agency', 'enterprise'],
+  service_alerts:      ['free', 'agency', 'enterprise'],
   variants:            ['free', 'agency', 'enterprise'],
   geojson_export:      ['free', 'agency', 'enterprise'],
   access_isochrones:   ['free', 'agency', 'enterprise'],

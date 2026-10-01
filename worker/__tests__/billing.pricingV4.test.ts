@@ -19,7 +19,9 @@ describe('Pricing v4 entitlements', () => {
     expect(planHasFeature('enterprise', 'geojson_export')).toBe(true);
   });
 
-  it('publishing, embeds, draft links, snapshots, and brand color are Agency+', () => {
+  // Superseded Oct 2026 (free hosting): publishing/hosting, snapshots and
+  // branding moved to every plan. See billing.freeHosting.test.ts.
+  it('publishing, embeds, draft links, snapshots, and brand color are on every plan (free hosting, Oct 2026)', () => {
     for (const feature of [
       'managed_publishing',
       'draft_links',
@@ -28,7 +30,7 @@ describe('Pricing v4 entitlements', () => {
       'snapshot_history',
       'brand_color',
     ] as const) {
-      expect(planHasFeature('free', feature)).toBe(false);
+      expect(planHasFeature('free', feature)).toBe(true);
       expect(planHasFeature('agency', feature)).toBe(true);
       expect(planHasFeature('enterprise', feature)).toBe(true);
     }
@@ -53,23 +55,24 @@ describe('Pricing v4 entitlements', () => {
     expect(planHasFeature('enterprise', 'phone_support')).toBe(true);
   });
 
-  it('embed badge removal is Agency+', () => {
-    expect(planHasFeature('free', 'embed_remove_badge')).toBe(false);
+  it('embed badge removal is on every plan (free hosting, Oct 2026)', () => {
+    expect(planHasFeature('free', 'embed_remove_badge')).toBe(true);
     expect(planHasFeature('agency', 'embed_remove_badge')).toBe(true);
     expect(planHasFeature('enterprise', 'embed_remove_badge')).toBe(true);
   });
 
-  it('paywall deep-links recommend agency for previously-Pro features', () => {
-    expect(cheapestPlanFor('managed_publishing')).toBe('agency');
-    expect(cheapestPlanFor('embeds')).toBe('agency');
+  it('paywall deep-links: hosting is free, team management recommends agency', () => {
+    expect(cheapestPlanFor('managed_publishing')).toBe('free');
+    expect(cheapestPlanFor('embeds')).toBe('free');
+    expect(cheapestPlanFor('org_workspace')).toBe('agency');
     expect(cheapestPlanFor('geojson_export')).toBe('free');
     expect(cheapestPlanFor('analysis_propensity')).toBe('free');
   });
 });
 
 describe('embed badge by owner plan', () => {
-  it('renders the "Powered by GTFS·X" badge for a free-owned feed', () => {
-    expect(String(embedFooter('free'))).toContain('Powered by');
+  it('omits the badge for a free-owned feed too (badge removal is free since Oct 2026)', () => {
+    expect(String(embedFooter('free'))).toBe('');
   });
 
   it('omits the badge for an Agency-owned (white-label) feed', () => {
