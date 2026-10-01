@@ -246,7 +246,7 @@ export function AccountBillingPage() {
                   )}
                 </div>
                 <div className="text-sm text-warm-gray">
-                  {state.plan === 'free' && 'No subscription on file. Planning features are free; upgrade to publish feeds and work as a team.'}
+                  {state.plan === 'free' && 'No subscription on file. Planning, publishing, and hosting are free; upgrade to work as a team.'}
                   {state.plan !== 'free' && state.planRenewalAt && (
                     <>Next renewal: <span className="font-semibold text-brown">{formatDate(state.planRenewalAt)}</span></>
                   )}

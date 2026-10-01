@@ -144,7 +144,7 @@
       "deepLink": { "sidebarSection": "coverage" },
       "plan": "all",
       "docs": ["/docs/demographic-coverage/"],
-      "limitations": ""
+      "limitations": "Street-network walksheds (the 'Network walksheds' toggle) need a signed-in (free) account; signed-out users keep the straight-line ¼–½ mi buffer."
     },
     {
       "id": "access-isochrones",
@@ -156,7 +156,7 @@
       "deepLink": { "sidebarSection": "access-isochrones" },
       "plan": "all",
       "docs": ["/docs/access-isochrones/"],
-      "limitations": ""
+      "limitations": "Free on every plan, but requires a signed-in (free) account; signed-out users see a \"Sign in (free)\" prompt. Network-walk mode calls a metered mapping API."
     },
     {
       "id": "title-vi",
@@ -178,9 +178,9 @@
       "whenToUse": "Posting a detour, delay, or stop-closure alert on a published feed.",
       "clickPath": "Enable 'Service Alerts' in Settings (on by default once the feed is published), then Left rail → Service Alerts.",
       "deepLink": { "sidebarSection": "alerts" },
-      "plan": "service_alerts",
+      "plan": "all",
       "docs": ["/docs/service-alerts/"],
-      "limitations": "Requires the Planner plan (FeatureKey service_alerts). Only Service Alerts are authored in-app — not TripUpdates or VehiclePositions."
+      "limitations": "Only Service Alerts are authored in-app — not TripUpdates or VehiclePositions."
     },
     {
       "id": "variants",
@@ -262,9 +262,9 @@
       "whenToUse": "Saving a checkpoint before a big edit, or rolling back.",
       "clickPath": "Bottom panel → Snapshots tab.",
       "deepLink": { "bottomTab": "snapshots" },
-      "plan": "snapshot_history",
+      "plan": "all",
       "docs": ["/docs/hosted-publishing/"],
-      "limitations": "Requires the Planner plan (FeatureKey snapshot_history)."
+      "limitations": "Free on every plan; requires a signed-in account with the feed saved to the cloud."
     },
     {
       "id": "publish",
@@ -274,9 +274,9 @@
       "whenToUse": "Turning a feed into a hosted, shareable GTFS URL.",
       "clickPath": "Bottom panel → Publish tab.",
       "deepLink": { "bottomTab": "publish" },
-      "plan": "managed_publishing",
+      "plan": "all",
       "docs": ["/docs/hosted-publishing/"],
-      "limitations": "Requires the Planner plan (FeatureKey managed_publishing)."
+      "limitations": "Free on every plan; requires a signed-in account with the feed saved to the cloud."
     },
     {
       "id": "embeds",
@@ -286,9 +286,9 @@
       "whenToUse": "Putting schedules/maps on an agency website.",
       "clickPath": "Bottom panel → Embed tab (feed must be published).",
       "deepLink": { "bottomTab": "embed" },
-      "plan": "embeds",
+      "plan": "all",
       "docs": ["/docs/embed-widgets/", "/docs/rider-mini-site/"],
-      "limitations": "Requires the Planner plan (FeatureKey embeds)."
+      "limitations": "Free on every plan; requires a signed-in account with the feed saved to the cloud."
     },
     {
       "id": "validation-fixes",
@@ -454,9 +454,9 @@
       "whenToUse": "Getting sign-off on a feed before it goes live.",
       "clickPath": "Bottom panel → Publish tab → draft/review links.",
       "deepLink": { "bottomTab": "publish" },
-      "plan": "draft_links",
+      "plan": "all",
       "docs": ["/docs/draft-links/"],
-      "limitations": "Requires the Planner plan (FeatureKey draft_links)."
+      "limitations": "Free on every plan; requires a signed-in account with the feed saved to the cloud."
     },
     {
       "id": "open-catalog",
@@ -466,7 +466,7 @@
       "whenToUse": "Making a hosted feed publicly discoverable to catalogs like the Mobility Database.",
       "clickPath": "Bottom panel → Publish tab → opt the feed into the public catalog (feed must be published).",
       "deepLink": { "bottomTab": "publish" },
-      "plan": "managed_publishing",
+      "plan": "all",
       "docs": ["/docs/hosted-publishing/"],
       "limitations": "Discovery is via the catalog (aggregators pull from it) — GTFS·X does not push directly to the Mobility Database API. You can also submit your feeds.gtfsx.com URL to the Mobility Database yourself via its contribution form."
     },
@@ -492,7 +492,7 @@
       "deepLink": null,
       "plan": "org_workspace",
       "docs": ["/docs/organizations/"],
-      "limitations": "Requires the Planner plan (FeatureKey org_workspace). Feeds sync per account/org but there is no live simultaneous multi-user co-editing."
+      "limitations": "Inviting members requires the Planner plan (FeatureKey org_workspace); owning more than one org requires Enterprise. Feeds sync per account/org but there is no live simultaneous multi-user co-editing."
     },
     {
       "id": "accounts-sync",
@@ -558,7 +558,7 @@
     {
       "ask": "Full edit history / unlimited undo across sessions",
       "reason": "Undo/redo covers the current editing session only — there's no persistent, unlimited edit history you can scrub back through after a reload.",
-      "workaround": "Use named snapshots (Planner plan) to checkpoint the feed and restore any prior saved state."
+      "workaround": "Use named snapshots (free with an account) to checkpoint the feed and restore any prior saved state."
     },
     {
       "ask": "Export to NeTEx, TransXChange, or another transit-data format",

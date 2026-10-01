@@ -62,6 +62,7 @@ in project memory.
 | `distribution/` | Mobility Database + transit.land catalog submission |
 | `embeds/` | Server-rendered mini-site, per-route/stop/system-map embeds, thumbnails |
 | `billing/` | Stripe checkout, customer portal, webhooks, plan catalog, feature gating |
+| `mapbox/` | Auth-gated Mapbox Isochrone proxy (`GET /api/mapbox/isochrone`) |
 | `forum/` | Community forum: threads/posts/upvotes/subscriptions/search/SEO/notify |
 | `events/` | Cookieless page-view + funnel beacon ingest (incl. `gclid` capture) |
 | `marketing/` | Marketing-site SSR (`ssr.ts`) + Google Ads OCI uploader (`ads/`) |
@@ -172,7 +173,8 @@ origin. This list is the source of truth.
 | `POST /api/projects/:id/publish` · `/unpublish` · `/publish/rollback` · `GET /publish/history` | Canonical publish lifecycle. `publish` body (JSON or the multipart `meta` part): `snapshotId`, plus optional `ignoreWarnings`, `ignoreRtBreakage`, `ignoreAgencyChurn`, `licenseSpdx`. There is **no `ntdId` field** — an agency's NTD ID is `agency.external_id` inside the feed, so it arrives with the snapshot state and needs no publish-request plumbing. For `licenseSpdx`, `null` clears it and omitting the key leaves the existing projection alone (the cron path omits it and must not clobber the last interactive publish). Advisory 409s: `rt_breakage` (removed ids referenced by an external RT feed) and **`agency_id_churn`** (removed/renamed `agency_id` vs. the published feed — fires for *every* project, RT or not, because FTA's P-50 crosswalk keys on `agency_id`); each is acknowledged by its matching `ignore*` flag. |
 | `POST/DELETE /api/projects/:id/publish/schedule` | Scheduled publish (BE-77). Body (JSON, or the multipart `meta` part + a rendered `zip` — the cron has no client to render one at fire time): `snapshotId`, `scheduledFor` (unix ms, ≥1 min out), plus the **same** optional acknowledgement flags as `publish`: `ignoreWarnings`, `ignoreRtBreakage`, `ignoreAgencyChurn`. **Scheduling runs the identical ID-stability gates and returns the identical advisory 409s** (`rt_breakage`, `agency_id_churn`) — one shared evaluation, `worker/publication/idStability.ts → assertIdStable()`, also called by `performPublish`. A scheduled publish targets a fixed, immutable snapshot, so the diff is computable *at schedule time*, while the user is present to acknowledge it; at fire time nobody is there to ask. The acknowledgements persist on the row (`scheduled_publish.ignore_rt_breakage` / `ignore_agency_churn`, 0025) and the cron replays **exactly those** into `performPublish`, which re-runs the gates — so churn that appears *after* scheduling (someone published something else, moving the baseline; or an RT feed gets registered) is still un-acknowledged, and the schedule **fails** (`status='failed'`, `failure_reason='agency_id_churn: …'`) instead of publishing something the user never agreed to. A 409 is raised before any write, leaving the existing pending schedule and stored ZIP untouched. Serialized schedule (here and in `GET /publish/history`): `{ id, snapshotId, scheduledFor, ignoreWarnings, ignoreRtBreakage, ignoreAgencyChurn, status, failureReason }`. `DELETE` cancels the pending row (idempotent). |
 | `POST /api/projects/:id/catalog-submissions`, `PUT /api/projects/:id/rt-feeds`, `GET /api/projects/:id/audit` | Distribution opt-in, external RT-feed registration, per-project audit |
-| `GET/POST/PUT/PATCH/DELETE /api/projects/:id/alerts[/:alertId]`, `GET */alerts/preview.json`, `POST */alerts/rt-feed` | Service Alerts authoring (Agency+; BE-90) |
+| `GET/POST/PUT/PATCH/DELETE /api/projects/:id/alerts[/:alertId]`, `GET */alerts/preview.json`, `POST */alerts/rt-feed` | Service Alerts authoring (every plan since 2026-10; BE-90) |
+| `GET /api/mapbox/isochrone?lon=&lat=&contours_minutes=` | Auth-gated Mapbox Isochrone proxy (`worker/mapbox/isochrone.ts`) for network walksheds + access isochrones. `requireAuth` (any plan; anonymous → 401, before any upstream call). Walking profile only, one contour of 1–60 min, coords validated and normalized to 5 dp. Calls Mapbox with `MAPBOX_TOKEN` + an `APP_ORIGIN` Referer (the token is URL-restricted); responses edge-cached 30 days via `caches.default`, keyed without the token; upstream 429 passes through, other failures → 502 |
 | `POST /api/projects/import` | Anonymous→signed-in bulk import |
 | `POST /api/billing/checkout` · `/portal` · `POST /api/billing/webhooks/stripe` · `GET /api/billing/me` · catalog | Stripe checkout/portal/webhooks; plan + usage |
 | `GET /community/*`, `/api/forum/*` | Forum SSR pages + forum JSON API (threads/posts/upvotes/subscriptions/search/profile/uploads) |
@@ -286,7 +288,7 @@ emails, auth headers, Stripe keys, the session cookie, sensitive query params). 
 richer Sentry error-aggregation upgrade is the remaining open part (issue #27).
 **NF-71 (per-project usage metrics for owners) remains open** (GitHub issue).
 
-**GTFS-Realtime Service Alerts (BE-90..93):** Agency+ editors author Service
+**GTFS-Realtime Service Alerts (BE-90..93):** editors (every plan since 2026-10; was Agency+) author Service
 Alerts (`worker/projects/alerts.ts`, gated by `requireOwnerFeature('service_alerts')`
 + project `editor`) stored one-row-per-alert in `service_alert` (migration 0018),
 decoupled from publish. **BE-90** authoring CRUD + activate/preview; **BE-91**
@@ -646,6 +648,27 @@ Design rationale is preserved in the decisions appendix of the archived
 
 Work that exists in the repo but is **not** live in production. Delete an entry
 from here when it ships, and fold it into the Production list above.
+
+- **Free hosting (branch `free-all`, 2026-10-01).** Snapshot history, publishing
+  and hosting (`managed_publishing`, `draft_links`, `mobility_db_submit`,
+  `embeds` + mini-site, `embed_remove_badge`), `service_alerts`, `org_logo` and
+  `brand_color` are granted to every plan. Plan matrix after this change
+  (mirrored in `worker/billing/plans.ts` and `src/components/billing/planConfig.ts`):
+
+  | Feature keys | Free | Planner (`agency`) | Enterprise |
+  |---|---|---|---|
+  | planning (`analysis_*`, `network_walksheds`, `access_isochrones`, `variants`), `geojson_export`, `assistant` | ✓ | ✓ | ✓ |
+  | snapshots, publishing/hosting, draft links, MDB submit, embeds + mini-site, badge removal, Service Alerts, org logo + brand color | ✓ | ✓ | ✓ |
+  | `org_workspace` (member invites), `cross_org_member`, `phone_support` | — | ✓ | ✓ |
+  | `multi_org` (own more than one org) | — | — | ✓ |
+
+  Quotas (`PLAN_QUOTAS`): free 99 saved feeds (hard wall), 99 published feeds,
+  50 snapshots/feed, 100 MB per feed (`blobBytes` is a per-blob cap, not an
+  aggregate); Planner/Enterprise unchanged (unlimited feeds; 50/200 snapshots;
+  100/200 MB). Access isochrones + network walksheds need a signed-in account
+  (any plan): the browser calls `GET /api/mapbox/isochrone`
+  (`worker/mapbox/isochrone.ts`, `requireAuth`, 401 anonymous) instead of
+  Mapbox directly. Tests: `worker/__tests__/billing.freeHosting.test.ts`.
 
 _(none)_
 

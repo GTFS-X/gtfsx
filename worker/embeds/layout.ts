@@ -7,8 +7,10 @@ import type { EmbedTheme } from './theme';
 
 /**
  * The "Powered by GTFS·X" embed footer, with an optional agency suffix. Returns
- * empty for owners entitled to remove it (embed_remove_badge — Agency+), so
- * paid white-label feeds render no badge. Shared by all embed renderers.
+ * empty for owners entitled to remove it (embed_remove_badge). Since Oct 2026
+ * that key is granted to every plan, so in practice no embed renders the badge;
+ * the markup is kept so a future re-gate is a one-line change in the plan
+ * matrix. Shared by all embed renderers.
  */
 export function embedFooter(ownerPlan: Plan, suffix?: string, poweredBy = 'Powered by') {
   if (planHasFeature(ownerPlan, 'embed_remove_badge')) return '';
