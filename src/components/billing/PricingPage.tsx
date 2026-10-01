@@ -74,7 +74,6 @@ const FALLBACK_PLANS: PlanCatalogEntry[] = [
     perSeat: false,
     tagline: 'Team workspaces and hosted publishing for transit agencies.',
     features: [
-      'Everything in Editor',
       'Team workspaces: invite members and manage roles',
       'Hosted publishing: stable feed URL, rider mini-site & embeds',
       'Unlimited cloud feeds, snapshot history & Service Alerts',
@@ -265,7 +264,7 @@ export function PricingPage() {
     const monthly = p.monthlyPriceUsd;
     const annual = p.annualPriceUsd;
     if (monthly === null || annual === null) return { amount: 'Call us', per: '', sub: null };
-    if (monthly === 0 && annual === 0) return { amount: 'Free Forever', per: '', sub: null };
+    if (monthly === 0 && annual === 0) return { amount: 'Free', per: '', sub: null };
     if (interval === 'month') {
       return {
         amount: `$${monthly}`,
@@ -1084,6 +1083,17 @@ export function PricingPage() {
                       <p className="mt-2 text-sm text-warm-gray">
                         Yes. The browser-based editor, GTFS-Flex authoring, and ZIP export stay free forever. Sign
                         up to save up to 3 feeds in the cloud, or stay anonymous and keep everything in your browser.
+                      </p>
+                    ),
+                  },
+                  {
+                    q: 'Are the planning features really free?',
+                    a: (
+                      <p className="mt-2 text-sm text-warm-gray">
+                        Yes. Cost estimation, demographic coverage, Title VI, stop analysis, access isochrones,
+                        and scenario comparison are free on the Editor plan for the foreseeable future. We
+                        can&rsquo;t guarantee they&rsquo;ll stay free forever. Team and organization management
+                        remains a paid Planner feature.
                       </p>
                     ),
                   },

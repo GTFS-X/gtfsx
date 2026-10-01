@@ -147,7 +147,6 @@ export const PLAN_CATALOG: PlanCatalogEntry[] = [
     perSeat: false,
     tagline: 'Team workspaces and hosted publishing for transit agencies.',
     features: [
-      'Everything in Editor',
       'Team workspaces: invite members and manage roles',
       'Hosted publishing: stable feed URL, rider mini-site & embeds',
       'Unlimited cloud feeds, snapshot history & Service Alerts',
