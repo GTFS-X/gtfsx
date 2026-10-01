@@ -630,26 +630,14 @@ Design rationale is preserved in the decisions appendix of the archived
   `variants` key, closing the old client-only drift; a lockstep parity test now
   lives in `worker/__tests__/billing.freePlanning.test.ts`). Org user
   management (`org_workspace` seat/invite gate, `cross_org_member`,
-  `multi_org`) stays paid; publishing/hosting/branding/snapshots/Service
-  Alerts/phone support and the quota table are unchanged pending a decision.
+  `multi_org`) stays paid. Publishing/hosting/branding/snapshots/Service
+  Alerts and quotas were freed in the follow-up below.
   Pricing copy (in-app `/pricing` catalog + fallback, `/pricing` SSR,
   `/docs/pricing/`, planning docs tier badges, the Ask GTFS·X manifest) and a
   dismissible announcement (homepage `#free-planning` + editor
   `FreePlanningBanner`) shipped with it. Stripe product descriptions
   (`scripts/setup-stripe.ts` + live product) were deliberately NOT touched.
-- The project owner's account (`mark@gtfsx.com`) is staff + enterprise.
-  Pre-launch D1 backup under `backups/` (gitignored).
-- **Rollback:** `BILLING_ENABLED=false` disables paid checkout/portal but leaves
-  auth + editor up; `BACKEND_ENABLED=false` (with SPA rebuild) hides the whole
-  backend. Both are `wrangler.jsonc` edits + redeploy. The two `*_ENABLED` flags
-  and their `VITE_*` build-env twins must move in lockstep (see project memory).
-
-### Not yet deployed (in flight)
-
-Work that exists in the repo but is **not** live in production. Delete an entry
-from here when it ships, and fold it into the Production list above.
-
-- **Free hosting (branch `free-all`, 2026-10-01).** Snapshot history, publishing
+- **Free hosting (live on prod since 2026-10-01; main `80abd2c`).** Snapshot history, publishing
   and hosting (`managed_publishing`, `draft_links`, `mobility_db_submit`,
   `embeds` + mini-site, `embed_remove_badge`), `service_alerts`, `org_logo` and
   `brand_color` are granted to every plan. Plan matrix after this change
@@ -669,6 +657,19 @@ from here when it ships, and fold it into the Production list above.
   (any plan): the browser calls `GET /api/mapbox/isochrone`
   (`worker/mapbox/isochrone.ts`, `requireAuth`, 401 anonymous) instead of
   Mapbox directly. Tests: `worker/__tests__/billing.freeHosting.test.ts`.
+  Stripe product descriptions still untouched; `/planning` and other marketing
+  pages still describe hosting/planning as Planner features (out of scope).
+- The project owner's account (`mark@gtfsx.com`) is staff + enterprise.
+  Pre-launch D1 backup under `backups/` (gitignored).
+- **Rollback:** `BILLING_ENABLED=false` disables paid checkout/portal but leaves
+  auth + editor up; `BACKEND_ENABLED=false` (with SPA rebuild) hides the whole
+  backend. Both are `wrangler.jsonc` edits + redeploy. The two `*_ENABLED` flags
+  and their `VITE_*` build-env twins must move in lockstep (see project memory).
+
+### Not yet deployed (in flight)
+
+Work that exists in the repo but is **not** live in production. Delete an entry
+from here when it ships, and fold it into the Production list above.
 
 _(none)_
 
