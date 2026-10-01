@@ -632,8 +632,21 @@ Design rationale is preserved in the decisions appendix of the archived
 Work that exists in the repo but is **not** live in production. Delete an entry
 from here when it ships, and fold it into the Production list above.
 
-- Nothing at the moment (2026-07-15). The NTD-ID alignment entry that lived
-  here shipped and moved to the Production list above.
+- **Free planning (branch `free-planning`, 2026-09-30, NOT on prod).** GTFS·X
+  stopped pursuing commercialization of the planning suite: `analysis_basic`,
+  `analysis_title_vi`, `network_walksheds`, `access_isochrones` and `variants`
+  are granted to every plan (free + anonymous) in BOTH `worker/billing/plans.ts`
+  and `src/components/billing/planConfig.ts` (the worker matrix gained the
+  `variants` key, closing the old client-only drift; a lockstep parity test now
+  lives in `worker/__tests__/billing.freePlanning.test.ts`). Org user
+  management (`org_workspace` seat/invite gate, `cross_org_member`,
+  `multi_org`) stays paid; publishing/hosting/branding/snapshots/Service
+  Alerts/phone support and the quota table are unchanged pending a decision.
+  Pricing copy (in-app `/pricing` catalog + fallback, `/pricing` SSR,
+  `/docs/pricing/`, planning docs tier badges, the Ask GTFS·X manifest) and a
+  dismissible announcement (homepage `#free-planning` + editor
+  `FreePlanningBanner`) ship with it. Stripe product descriptions
+  (`scripts/setup-stripe.ts` + live product) were deliberately NOT touched.
 
 ### Staging — PARKED (since 2026-05-16)
 
