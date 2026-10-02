@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useStore } from '../../store';
-import { directionName } from '../../utils/constants';
+import { placeStopOptions, placementTargetShapeId } from '../../services/stopPlacement';
 import { shapeEditLabel } from './shapeEditLabel';
 
 export function DrawingIndicator() {
@@ -98,62 +98,32 @@ function PlaceStopDialog() {
   const routes = useStore((s) => s.routes);
   const trips = useStore((s) => s.trips);
   const shapes = useStore((s) => s.shapes);
+  const routeStops = useStore((s) => s.routeStops);
+  const stopPlacementShapeId = useStore((s) => s.stopPlacementShapeId);
+  const stopsPanelShapeId = useStore((s) => s.stopsPanelShapeId);
   const selectedRouteId = useStore((s) => s.selectedRouteId);
   const stopPlacementMode = useStore((s) => s.stopPlacementMode);
   const setStopPlacementMode = useStore((s) => s.setStopPlacementMode);
   const stopPlacementDirection = useStore((s) => s.stopPlacementDirection);
   const setStopPlacementDirection = useStore((s) => s.setStopPlacementDirection);
+  const setStopsPanelShapeId = useStore((s) => s.setStopsPanelShapeId);
   const selectRoute = useStore((s) => s.selectRoute);
   const nextStopName = useStore((s) => s.nextStopName);
   const setNextStopName = useStore((s) => s.setNextStopName);
 
-  // One option per (route, direction) that actually has a shape. A freshly
-  // drawn shape has no trip, so its direction is unknown; processing trip-backed
-  // shapes first lets each draft take the first direction its route doesn't
-  // already use (so a route's second drawn shape doesn't collide with the first
-  // and get dropped). Labelled by the shape's own name when it has one.
-  const options = useMemo(() => {
-    const isDraft = (shapeId: string) => !trips.some((t) => t.shape_id === shapeId);
-    // Trip-backed shapes (firm direction) before drafts; stable within each
-    // group preserves draw order, so the 1st draft fills dir 0, the 2nd dir 1.
-    const ordered = [...shapes].sort(
-      (a, b) => Number(isDraft(a.shape_id)) - Number(isDraft(b.shape_id)),
-    );
-    const seen = new Set<string>();
-    const usedDirs = new Map<string, Set<0 | 1>>();
-    const out: Array<{
-      key: string;
-      routeId: string;
-      directionId: 0 | 1;
-      label: string;
-      color: string;
-    }> = [];
-    for (const shape of ordered) {
-      const trip = trips.find((t) => t.shape_id === shape.shape_id);
-      const routeId = trip?.route_id ?? shape._route_id;
-      if (!routeId) continue;
-      const route = routes.find((r) => r.route_id === routeId);
-      if (!route) continue;
-      const taken = usedDirs.get(routeId) ?? new Set<0 | 1>();
-      const directionId: 0 | 1 = trip ? trip.direction_id : taken.has(0) ? 1 : 0;
-      const k = `${routeId}__${directionId}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      taken.add(directionId);
-      usedDirs.set(routeId, taken);
-      const routeName = route.route_short_name || route.route_long_name || route.route_id;
-      // Keep the route prefix (this dropdown spans every route); use the shape's
-      // own name in place of the direction when it has one.
-      const label = `${routeName} — ${shape._name?.trim() || directionName(route, directionId)}`;
-      out.push({ key: k, routeId, directionId, label, color: route.route_color });
-    }
-    return out;
-  }, [shapes, trips, routes]);
+  // One option per shape (pattern) of every route, with the same direction
+  // and shape resolution the Stops tab and the map click use, so what this
+  // dropdown shows is where the next stop actually goes.
+  const options = useMemo(
+    () => placeStopOptions(routes, trips, routeStops, shapes),
+    [routes, trips, routeStops, shapes],
+  );
 
-  const currentKey =
-    selectedRouteId
-      ? `${selectedRouteId}__${stopPlacementDirection}`
-      : '';
+  const currentShapeId = placementTargetShapeId(
+    selectedRouteId, trips, routeStops, shapes,
+    stopPlacementShapeId, stopsPanelShapeId, stopPlacementDirection,
+  );
+  const currentKey = selectedRouteId && currentShapeId ? `${selectedRouteId}__${currentShapeId}` : '';
   const hasRoute = options.some((o) => o.key === currentKey);
 
   return (
@@ -178,6 +148,10 @@ function PlaceStopDialog() {
           if (!opt) return;
           selectRoute(opt.routeId);
           setStopPlacementDirection(opt.directionId);
+          // Pin the shape too: a shape pinned earlier ("Edit Stops") outranks
+          // the direction when resolving where the next stop goes, so changing
+          // only the direction here would be silently ignored.
+          setStopsPanelShapeId(opt.shapeId);
         }}
         className="w-full px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
       >

@@ -39,11 +39,9 @@ import { ROUTE_COLORS, getContrastTextColor } from '../../utils/colors';
 import { snapToRoadDetailed, type SnapStatus } from '../../services/snapToRoad';
 import { SnapWarningDialog } from './SnapWarningDialog';
 import { suggestStopName } from '../../services/suggestStopName';
-import { createDrawnShape, deriveRouteShapeIds } from '../../services/routeShapes';
+import { createDrawnShape } from '../../services/routeShapes';
+import { resolveStopPlacement } from '../../services/stopPlacement';
 import { trimShapeAtPoint } from '../../services/shapeHelpers';
-import nearestPointOnLine from '@turf/nearest-point-on-line';
-import distance from '@turf/distance';
-import { lineString, point } from '@turf/helpers';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -1079,52 +1077,26 @@ export function MapView() {
     // two contexts: with a route selected (snap-to-route + auto-add to route),
     // or standalone (just create the stop, no route assignment).
     if (currentState.mapMode === 'place_stop') {
-      const clickLat = e.lngLat.lat;
-      const clickLon = e.lngLat.lng;
-      let stopLat = clickLat;
-      let stopLon = clickLon;
-      let bestDirectionId: 0 | 1 = currentState.stopPlacementDirection;
-      // The shape the new stop attaches to. Defaults to the shape being edited
-      // (set by the Stops panel); snap-to-route may refine it to the nearest.
-      let bestShapeId: string | undefined = currentState.stopPlacementShapeId ?? undefined;
+      // Coordinates, shape, and direction for the new stop. The target shape is
+      // resolved from store state (not only the Stops tab's mirrored
+      // stopPlacementShapeId, which is null while the New stop panel is open),
+      // so overlapping out-and-back shapes can't steal stops. See
+      // services/stopPlacement.ts.
       const hasRoute = !!currentState.selectedRouteId;
-
-      if (hasRoute && currentState.stopPlacementMode === 'snap_to_route') {
-        // Candidate shapes to snap to = the route's shapes derived from trips,
-        // route_stops, AND freshly drawn drafts (Shape._route_id). Deriving from
-        // shapes (not just trips) means a route shape drawn but not yet given
-        // trips is still snap-able for its first stops.
-        let candidateShapeIds = deriveRouteShapeIds(
-          currentState.selectedRouteId, currentState.trips, currentState.routeStops, currentState.shapes,
-        );
-        // When a specific shape is being edited, snap only to it — out-and-back
-        // shapes overlap, so "nearest shape" would be ambiguous.
-        if (currentState.stopPlacementShapeId) {
-          candidateShapeIds = candidateShapeIds.filter((id) => id === currentState.stopPlacementShapeId);
-        }
-        let bestDist = Infinity;
-
-        for (const shapeId of candidateShapeIds) {
-          const shape = currentState.shapes.find((s) => s.shape_id === shapeId);
-          if (!shape || shape.points.length < 2) continue;
-
-          const coords = shape.points.map((p) => [p.shape_pt_lon, p.shape_pt_lat] as [number, number]);
-          const line = lineString(coords);
-          const clickPoint = point([clickLon, clickLat]);
-          const snapped = nearestPointOnLine(line, clickPoint);
-          const dist = distance(clickPoint, snapped, { units: 'meters' });
-
-          if (dist < bestDist) {
-            bestDist = dist;
-            stopLat = snapped.geometry.coordinates[1];
-            stopLon = snapped.geometry.coordinates[0];
-            // Direction: prefer a trip on this shape; else the placement default.
-            bestDirectionId = currentState.trips.find((t) => t.shape_id === shapeId)?.direction_id
-              ?? currentState.stopPlacementDirection;
-            bestShapeId = shapeId;
-          }
-        }
-      }
+      const {
+        lat: stopLat, lon: stopLon, directionId: bestDirectionId, shapeId: bestShapeId,
+      } = resolveStopPlacement({
+        clickLon: e.lngLat.lng,
+        clickLat: e.lngLat.lat,
+        selectedRouteId: currentState.selectedRouteId,
+        stopPlacementMode: currentState.stopPlacementMode,
+        stopPlacementDirection: currentState.stopPlacementDirection,
+        stopPlacementShapeId: currentState.stopPlacementShapeId,
+        stopsPanelShapeId: currentState.stopsPanelShapeId,
+        trips: currentState.trips,
+        routeStops: currentState.routeStops,
+        shapes: currentState.shapes,
+      });
 
       const stopId = generateId('stop');
       // Precedence for the stop_name: user-typed override in the place-stop

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store';
 import { FormField } from '../ui/FormField';
 import { WHEELCHAIR_BOARDING, LOCATION_TYPES } from '../../utils/constants';
 import { generateId } from '../../services/idGenerator';
+import { placementTargetShapeId } from '../../services/stopPlacement';
 
 /**
  * Create-new-stop sub-panel. Reachable from a "Create new stop" button in
@@ -36,8 +37,28 @@ export function CreateStopPanel() {
   const setEditingStopId = useStore((s) => s.setEditingStopId);
   const setRouteDetailTab = useStore((s) => s.setRouteDetailTab);
   const sidebarSection = useStore((s) => s.sidebarSection);
+  const trips = useStore((s) => s.trips);
+  const shapes = useStore((s) => s.shapes);
+  const stopsPanelShapeId = useStore((s) => s.stopsPanelShapeId);
+  const setStopPlacementShapeId = useStore((s) => s.setStopPlacementShapeId);
 
   const fromRouteContext = !!editingRouteId && !!editingRoute;
+
+  // The shape the Stops tab had selected. Opening this panel unmounts that tab
+  // (which clears stopPlacementShapeId on unmount), so re-assert it here: it
+  // keeps the map highlighting the right shape and tags manually entered stops
+  // with it. MapView's click handler resolves the same shape independently.
+  const activeShapeId = useMemo(
+    () => (fromRouteContext
+      ? placementTargetShapeId(editingRouteId, trips, routeStops, shapes, null, stopsPanelShapeId, directionId)
+      : null),
+    [fromRouteContext, editingRouteId, trips, routeStops, shapes, stopsPanelShapeId, directionId],
+  );
+  useEffect(() => {
+    if (!activeShapeId) return;
+    setStopPlacementShapeId(activeShapeId);
+    return () => setStopPlacementShapeId(null);
+  }, [activeShapeId, setStopPlacementShapeId]);
 
   // Make sure the place_stop handler in MapView reads the editing route as
   // the active route while this panel is open — otherwise the snap target
@@ -95,8 +116,11 @@ export function CreateStopPanel() {
       wheelchair_boarding: wheelchair,
     });
     if (fromRouteContext && editingRouteId) {
+      // Per-shape stop lists: tag the stop with the active shape (otherwise it
+      // shows up in neither shape's list) and append after that shape's stops.
       const existing = routeStops.filter(
-        (rs) => rs.route_id === editingRouteId && rs.direction_id === directionId,
+        (rs) => rs.route_id === editingRouteId
+          && (activeShapeId ? rs.shape_id === activeShapeId : rs.direction_id === directionId),
       );
       addRouteStop({
         route_id: editingRouteId,
@@ -104,6 +128,7 @@ export function CreateStopPanel() {
         direction_id: directionId,
         stop_sequence: existing.length,
         _snapped: false,
+        shape_id: activeShapeId ?? undefined,
       });
     }
     // Hand off to the edit sub-panel so the user can refine details — the
