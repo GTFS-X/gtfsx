@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { directionName } from '../../utils/constants';
-import { applyPatternRunTime, currentPatternRunSecs, type PatternRef } from '../../services/runtimes';
+import { applyPatternRunTime, currentPatternRunSecs, skippedOffPatternNote, type PatternApplyResult, type PatternRef } from '../../services/runtimes';
 
 interface Props {
   routeId: string;
@@ -25,7 +25,7 @@ export function RuntimeEditor({ routeId, directionId, shapeId, serviceId, onAppl
   const currentRun = useMemo(() => currentPatternRunSecs(ref), [ref]);
   const [runMin, setRunMin] = useState(() => (currentRun ? Math.round(currentRun / 60) : 20));
   const [scopeService, setScopeService] = useState(true); // this day-type only by default
-  const [applied, setApplied] = useState<number | null>(null);
+  const [applied, setApplied] = useState<PatternApplyResult | null>(null);
 
   const matching = trips.filter(
     (t) => t.route_id === routeId && t.direction_id === directionId
@@ -80,7 +80,9 @@ export function RuntimeEditor({ routeId, directionId, shapeId, serviceId, onAppl
 
       <div className="mt-3 flex items-center gap-2">
         <span className="text-xs font-semibold text-teal">
-          {applied != null ? `Re-timed ${applied} trip${applied === 1 ? '' : 's'}.` : `Applies to ${matching} trip${matching === 1 ? '' : 's'}`}
+          {applied != null
+            ? `Re-timed ${applied.updated} trip${applied.updated === 1 ? '' : 's'}${skippedOffPatternNote(applied.skipped)}.`
+            : `Applies to ${matching} trip${matching === 1 ? '' : 's'}`}
         </span>
         <div className="flex-1" />
         {onCancel && (

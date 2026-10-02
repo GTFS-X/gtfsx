@@ -12,6 +12,7 @@
 import { useStore } from '../store';
 import { gtfsTimeToSeconds, secondsToGtfsTime } from '../utils/time';
 import { layoutStopTimes } from './travelTime';
+import { hasMismatchedRows } from './patternMismatch';
 import type { RouteStop, StopTime } from '../types/gtfs';
 
 export interface PatternRef {
@@ -36,6 +37,21 @@ function patternTrips(ref: PatternRef) {
       && (ref.shapeId ? t.shape_id === ref.shapeId : true)
       && (ref.serviceId ? t.service_id === ref.serviceId : true),
   );
+}
+
+/** Outcome of a pattern-wide re-time. `skipped` counts trips left untouched
+ *  because a row sits at a pattern sequence under a different stop (#70):
+ *  re-timing around it would leave the trip's times out of order, and the
+ *  store refuses to write through it anyway. */
+export interface PatternApplyResult {
+  updated: number;
+  skipped: number;
+}
+
+/** Toast suffix for trips a pattern-wide tool left alone, e.g.
+ *  " · skipped 3 with off-pattern stops". Empty when nothing was skipped. */
+export function skippedOffPatternNote(skipped: number): string {
+  return skipped > 0 ? ` · skipped ${skipped} with off-pattern stops` : '';
 }
 
 /** The earliest set time (start) of a trip, in seconds, or null. */
@@ -66,22 +82,23 @@ export function currentPatternRunSecs(ref: PatternRef): number | null {
 /**
  * Apply a new total run time (seconds) to every trip on the pattern, keeping
  * each trip's start time fixed (headways preserved) and re-interpolating
- * intermediate stops. Returns the number of trips updated.
+ * intermediate stops. Trips with off-pattern rows are skipped whole.
  */
-export function applyPatternRunTime(ref: PatternRef, runSecs: number): number {
-  if (!(runSecs > 0)) return 0;
+export function applyPatternRunTime(ref: PatternRef, runSecs: number): PatternApplyResult {
+  const result: PatternApplyResult = { updated: 0, skipped: 0 };
+  if (!(runSecs > 0)) return result;
   const st = useStore.getState();
   const rs = patternRouteStops(ref.routeId, ref.directionId, ref.shapeId);
-  if (rs.length < 2) return 0;
+  if (rs.length < 2) return result;
   const first = rs[0];
   const last = rs[rs.length - 1];
   const trips = patternTrips(ref);
 
-  let updated = 0;
   for (const trip of trips) {
     const times = st.stopTimes.filter((s) => s.trip_id === trip.trip_id);
     const start = tripStartSec(times);
     if (start == null) continue;
+    if (hasMismatchedRows(rs, times)) { result.skipped++; continue; }
     // Anchor the endpoints to start and start+run, then interpolate the middle.
     st.setStopTime(trip.trip_id, first.stop_id, first.stop_sequence, {
       arrival_time: secondsToGtfsTime(start), departure_time: secondsToGtfsTime(start),
@@ -90,9 +107,9 @@ export function applyPatternRunTime(ref: PatternRef, runSecs: number): number {
       arrival_time: secondsToGtfsTime(start + runSecs), departure_time: secondsToGtfsTime(start + runSecs),
     });
     st.interpolateStopTimes(trip.trip_id);
-    updated++;
+    result.updated++;
   }
-  return updated;
+  return result;
 }
 
 /**
@@ -101,36 +118,38 @@ export function applyPatternRunTime(ref: PatternRef, runSecs: number): number {
  * cumulative road-travel seconds per ordered stop (from estimateStopTravelByRoad)
  * and MUST align index-for-index with `orderedStops`. Each trip keeps its own
  * start time; skips are honored (only stops the trip already times are written).
- * Returns the number of trips updated. No estimation math here — pure plumbing
- * over layoutStopTimes.
+ * Trips with off-pattern rows are skipped whole. No estimation math here — pure
+ * plumbing over layoutStopTimes.
  */
 export function applyPatternEstimate(
   ref: PatternRef,
   orderedStops: { stopId: string; seq: number }[],
   cumSecs: number[],
   opts: { dwellSec: number; speedFactor: number },
-): number {
-  if (orderedStops.length < 2 || cumSecs.length !== orderedStops.length) return 0;
+): PatternApplyResult {
+  const result: PatternApplyResult = { updated: 0, skipped: 0 };
+  if (orderedStops.length < 2 || cumSecs.length !== orderedStops.length) return result;
   const st = useStore.getState();
   const dwellSec = Math.max(0, opts.dwellSec);
   const speedFactor = Math.max(0.1, opts.speedFactor);
-  let updated = 0;
+  const slots = orderedStops.map((os) => ({ stop_sequence: os.seq, stop_id: os.stopId }));
   for (const trip of patternTrips(ref)) {
     const times = st.stopTimes.filter((s) => s.trip_id === trip.trip_id);
     const start = tripStartSec(times);
     if (start == null) continue;
+    if (hasMismatchedRows(slots, times)) { result.skipped++; continue; }
     const timings = layoutStopTimes(cumSecs, { startSec: start, dwellSec, speedFactor });
     const timedSeqs = new Set(times.map((s) => s.stop_sequence));
     let changed = false;
     orderedStops.forEach((os, i) => {
       if (!timedSeqs.has(os.seq)) return; // skip-aware — don't un-skip a skipped stop
-      st.setStopTime(trip.trip_id, os.stopId, os.seq, {
+      const wrote = st.setStopTime(trip.trip_id, os.stopId, os.seq, {
         arrival_time: secondsToGtfsTime(timings[i].arrivalSec),
         departure_time: secondsToGtfsTime(timings[i].departureSec),
       });
-      changed = true;
+      changed = wrote || changed;
     });
-    if (changed) updated++;
+    if (changed) result.updated++;
   }
-  return updated;
+  return result;
 }

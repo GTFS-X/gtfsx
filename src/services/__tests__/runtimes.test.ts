@@ -54,7 +54,7 @@ describe('applyPatternRunTime', () => {
 
   it('changes the run time but preserves each start (headway intact)', () => {
     const n = applyPatternRunTime({ routeId: 'R1', directionId: 0 }, 20 * 60);
-    expect(n).toBe(2);
+    expect(n).toEqual({ updated: 2, skipped: 0 });
     // starts unchanged → headway still 30 min
     expect(startOf('t1')).toBe('08:00:00');
     expect(startOf('t2')).toBe('08:30:00');
@@ -66,6 +66,16 @@ describe('applyPatternRunTime', () => {
     const t1mid = useStore.getState().stopTimes.find((s) => s.trip_id === 't1' && s.stop_sequence === 2);
     expect(t1mid?.arrival_time).toBe('08:10:00');
   });
+
+  it('skips a trip with an off-pattern row whole, and counts it (#70)', () => {
+    // t2 starts at a different stop than the pattern's first stop s1.
+    const st = useStore.getState();
+    st.setStopTimes(st.stopTimes.map((s) => (s.trip_id === 't2' && s.stop_sequence === 1 ? { ...s, stop_id: 'X' } : s)));
+    const before = useStore.getState().stopTimes.filter((s) => s.trip_id === 't2');
+    expect(applyPatternRunTime({ routeId: 'R1', directionId: 0 }, 20 * 60)).toEqual({ updated: 1, skipped: 1 });
+    expect(useStore.getState().stopTimes.filter((s) => s.trip_id === 't2')).toEqual(before);
+    expect(endOf('t1')).toBe('08:20:00');
+  });
 });
 
 describe('applyPatternEstimate', () => {
@@ -75,7 +85,7 @@ describe('applyPatternEstimate', () => {
 
   it('lays every trip from the road profile, keeping each start (headway intact)', () => {
     const n = applyPatternEstimate({ routeId: 'R1', directionId: 0 }, orderedStops, cum, { dwellSec: 60, speedFactor: 1 });
-    expect(n).toBe(2);
+    expect(n).toEqual({ updated: 2, skipped: 0 });
     // starts preserved
     expect(startOf('t1')).toBe('08:00:00');
     expect(startOf('t2')).toBe('08:30:00');
@@ -105,7 +115,17 @@ describe('applyPatternEstimate', () => {
     expect(t3.find((s) => s.stop_sequence === 3)?.arrival_time).toBe('09:11:00');  // re-laid from the profile
   });
 
+  it('skips a trip with an off-pattern row whole, and counts it (#70)', () => {
+    // t2's middle row is for a different stop than the pattern's s2.
+    const st = useStore.getState();
+    st.setStopTimes(st.stopTimes.map((s) => (s.trip_id === 't2' && s.stop_sequence === 2 ? { ...s, stop_id: 'X' } : s)));
+    const before = useStore.getState().stopTimes.filter((s) => s.trip_id === 't2');
+    const n = applyPatternEstimate({ routeId: 'R1', directionId: 0 }, orderedStops, cum, { dwellSec: 60, speedFactor: 1 });
+    expect(n).toEqual({ updated: 1, skipped: 1 });
+    expect(useStore.getState().stopTimes.filter((s) => s.trip_id === 't2')).toEqual(before);
+  });
+
   it('no-ops when the profile length does not match the stops', () => {
-    expect(applyPatternEstimate({ routeId: 'R1', directionId: 0 }, orderedStops, [0, 300], { dwellSec: 60, speedFactor: 1 })).toBe(0);
+    expect(applyPatternEstimate({ routeId: 'R1', directionId: 0 }, orderedStops, [0, 300], { dwellSec: 60, speedFactor: 1 }).updated).toBe(0);
   });
 });

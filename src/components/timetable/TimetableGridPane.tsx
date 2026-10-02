@@ -1,7 +1,8 @@
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { formatTimeShort, gtfsTimeToSeconds } from '../../utils/time';
 import type { OrderedStop } from './useTimetableData';
-import type { Trip, StopTime } from '../../types/gtfs';
+import type { Stop, Trip, StopTime } from '../../types/gtfs';
+import type { OffPatternRow } from '../../services/patternMismatch';
 import { expandFrequencyTrip, type FrequencyWindow, type VirtualTrip } from '../../services/frequencyExpansion';
 import { ActionCell, ColResizer, ColumnMenu, HeadwayToggle, RowMenu, TimeCell, TripCell } from './timetableGridParts';
 import {
@@ -19,6 +20,10 @@ interface PaneProps {
   timepointStopIds: Set<string>;
   continuousOverrides: Map<string, { pickup?: 0 | 1 | 2 | 3; dropOff?: 0 | 1 | 2 | 3 }>;
   findStopTime: (tripId: string, seq: number) => StopTime | undefined;
+  /** Rows per trip the pattern can't show as-is (#70) — badge + read-only cells. */
+  offPatternByTrip: Map<string, OffPatternRow[]>;
+  stopsById: Map<string, Stop>;
+  onOffPattern: (tripId: string) => void;
   /** frequencies.txt windows per template trip_id in scope — drives the
    *  read-only frequency build-out rows (item #8). */
   frequenciesByTrip: Map<string, FrequencyWindow[]>;
@@ -30,7 +35,7 @@ interface PaneProps {
   showContinuous: boolean;
   scrollRef?: RefObject<HTMLDivElement | null>;
   onCell: (tripId: string, seq: number, stopId: string, field: CommitField, normalized: string) => void;
-  onSkip: (tripId: string, seq: number) => void;
+  onSkip: (tripId: string, seq: number, stopId: string) => void;
   onRestore: (tripId: string, seq: number, stopId: string) => void;
   onRename: (tripId: string, newId: string) => void;
   onRowAction: (action: string, tripId: string) => void;
@@ -49,6 +54,7 @@ interface PaneProps {
 export function TimetableGridPane(props: PaneProps) {
   const {
     orderedStops, routeTrips, allTripIds, timepointStopIds, continuousOverrides, findStopTime,
+    offPatternByTrip, stopsById, onOffPattern,
     frequenciesByTrip, arrDepStops, rowActions, showHeadways, showColumnMenu, showContinuous, scrollRef,
     onCell, onSkip, onRestore, onRename, onRowAction, onAddTrip, onToggleRowActions, onToggleHeadways,
     onTimepoint, onArrDep, onContinuous,
@@ -277,6 +283,8 @@ export function TimetableGridPane(props: PaneProps) {
                   headway={showHeadways && delta != null ? `${delta > 0 ? '+' : ''}${delta}m` : null}
                   irregular={hwCommon != null && delta != null && delta !== hwCommon}
                   onRename={(id) => onRename(trip.trip_id, id)}
+                  offPatternCount={offPatternByTrip.get(trip.trip_id)?.length ?? 0}
+                  onOffPattern={() => onOffPattern(trip.trip_id)}
                 />
                 <ActionCell
                   mode={rowActions}
@@ -317,8 +325,11 @@ export function TimetableGridPane(props: PaneProps) {
                       onCommit={(v) => onCell(trip.trip_id, col.seq, col.stop.stop_id, 'both', v)}
                       onCommitArr={(v) => onCell(trip.trip_id, col.seq, col.stop.stop_id, 'arrival_time', v)}
                       onCommitDep={(v) => onCell(trip.trip_id, col.seq, col.stop.stop_id, 'departure_time', v)}
-                      onSkip={() => onSkip(trip.trip_id, col.seq)}
+                      onSkip={() => onSkip(trip.trip_id, col.seq, col.stop.stop_id)}
                       onRestore={() => onRestore(trip.trip_id, col.seq, col.stop.stop_id)}
+                      offPattern={st && st.stop_id !== col.stop.stop_id
+                        ? { stopName: stopsById.get(st.stop_id)?.stop_name || st.stop_id, onOpen: () => onOffPattern(trip.trip_id) }
+                        : undefined}
                     />
                   );
                 })}
