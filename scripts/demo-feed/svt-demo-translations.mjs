@@ -20,6 +20,11 @@
  * Applying (needs Mark's account): open the svt-demo project in the editor,
  * paste the printed snippet into the devtools console, check Translations in
  * the left rail and Validation (no translation warnings), Save, then Publish.
+ *
+ * The node check runs against the PUBLISHED zip, which can lag the editor's
+ * working state (unpublished edits). So the snippet re-checks every row against
+ * the working state in the browser, applies nothing if any row fails to
+ * resolve, and prints source -> translation for review before you Save.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import JSZip from 'jszip';
@@ -33,12 +38,13 @@ export const TRANSLATIONS = [
   // agency.txt — by record
   { table_name: 'agency', field_name: 'agency_name', record_id: '260', translation: 'Tránsito de Sunny Valley' },
 
-  // routes.txt — by record
-  { table_name: 'routes', field_name: 'route_long_name', record_id: '6850', translation: 'Línea Azul' },
-  { table_name: 'routes', field_name: 'route_long_name', record_id: '6852', translation: 'Línea Morada' },
-  { table_name: 'routes', field_name: 'route_long_name', record_id: '6853', translation: 'Línea Dorada' },
-  { table_name: 'routes', field_name: 'route_long_name', record_id: '6854', translation: 'Línea Café' },
-  { table_name: 'routes', field_name: 'route_long_name', record_id: '6856', translation: 'Lanzadera del noreste de Bozeman' },
+  // routes.txt — by record. Long names are the 2026-08-12 renames (editor
+  // working state), not the older Blue/Purple/... names.
+  { table_name: 'routes', field_name: 'route_long_name', record_id: '6850', translation: 'MSU a Billings Clinic' },
+  { table_name: 'routes', field_name: 'route_long_name', record_id: '6852', translation: 'Mall a Bozeman Health - Main Street' },
+  { table_name: 'routes', field_name: 'route_long_name', record_id: '6853', translation: 'MSU al Mall' },
+  { table_name: 'routes', field_name: 'route_long_name', record_id: '6854', translation: 'Centro a Gallatin High School' },
+  { table_name: 'routes', field_name: 'route_long_name', record_id: '6856', translation: 'Centro a Homeward Point' },
   { table_name: 'routes', field_name: 'route_desc', record_id: '6850', translation: 'De MSU SUB a Gallatin Center, ida y vuelta' },
   { table_name: 'routes', field_name: 'route_desc', record_id: '6852', translation: 'De Urgencias de Bozeman Health a Fallon y Cottonwood, ida y vuelta' },
 
@@ -117,11 +123,27 @@ async function main() {
     '// svt-demo translations — paste in the devtools console with the svt-demo project open',
     '(() => {',
     '  const s = window.__gtfsStore.getState();',
+    `  const rows = ${JSON.stringify(TRANSLATIONS)};`,
+    `  const keyOf = ${JSON.stringify(KEY_OF)};`,
+    '  const tables = { agency: s.agencies, routes: s.routes, trips: s.trips, stops: s.stops };',
+    '  const bad = [], review = [];',
+    '  for (const t of rows) {',
+    '    const tbl = tables[t.table_name] || [];',
+    '    if (t.record_id !== undefined) {',
+    '      const rec = tbl.find((r) => String(r[keyOf[t.table_name]]) === t.record_id);',
+    '      if (!rec || !rec[t.field_name]) bad.push(t);',
+    '      else review.push({ table: t.table_name, id: t.record_id, field: t.field_name, source: rec[t.field_name], es: t.translation });',
+    '    } else if (!tbl.some((r) => r[t.field_name] === t.field_value)) bad.push(t);',
+    '    else review.push({ table: t.table_name, id: "", field: t.field_name, source: t.field_value, es: t.translation });',
+    '  }',
+    "  if (bad.length) { console.error('ABORTED: rows do not resolve against the working state', bad); return { applied: 0, bad }; }",
+    '  console.table(review);',
     `  s.updateFeedInfo({ feed_lang: ${JSON.stringify(FEED_LANG)}, default_lang: ${JSON.stringify(DEFAULT_LANG)} });`,
     "  s.setFeatureSetting('translations', true);",
-    `  const rows = ${JSON.stringify(TRANSLATIONS)};`,
     '  for (const t of rows) s.upsertTranslation(t);',
-    "  console.log('translations:', window.__gtfsStore.getState().translations.length);",
+    '  const n = window.__gtfsStore.getState().translations.length;',
+    "  console.log('translations:', n);",
+    '  return { applied: n, review };',
     '})();',
   ].join('\n');
   console.log(snippet);
