@@ -73,7 +73,8 @@ The editor enforces a **route-first** workflow: alignment is drawn before stops 
 - ✅ Polyline drawing with vertex add/remove/drag.
 - ✅ Snap-to-road via the Mapbox Map Matching API. When a path can't be fully matched (it leaves the road network), both the draw flow and the Routes panel's per-shape **Snap** button warn before discarding geometry: the user can keep the current/unsnapped shape or snap anyway. The Routes-panel warning also summarizes the current vs snapped shape length (and the difference, in miles) so the user can judge the loss before confirming.
 - ✅ Freehand drawing for off-road segments.
-- ✅ Multiple shape variants per route (e.g., inbound vs outbound; loops); each shape carries an editable display name (UI-only label, not exported).
+- ✅ Any number of shapes per route (out-and-back pairs, loops, branches, express/short-turn variants; several may share a direction); each shape carries an editable display name (UI-only label, not exported).
+- ✅ Direction follows the GTFS model: `direction_id` (0/1) is a **trip** attribute (also stored on each shape's `route_stops`); shapes carry no direction and there is no per-shape direction picker. A shape with no stops or trips yet is grouped under direction 0 if the route has nothing in direction 0, else direction 1 (so the first two shapes drawn on a new route land 0 then 1); its stops take the selected shape's direction, and trips take the direction of the timetable pattern they're created on. Per-route direction names live in Details → Direction Labels (exported to `directions.txt`). Changing direction: the timetable's route-wide **Swap directions** (flips every trip + route_stop 0↔1, one undo). No per-trip or per-shape direction control today. Duplicating a shape keeps the source's direction (Reverse flips geometry only).
 - ✅ `shape_dist_traveled` auto-calculated on export.
 - ✅ Per-route hidden/visible toggle on the map.
 - ✅ Route delete cascades trips, `stop_times`, `route_stops`, fare rules, and shapes only used by this route. Stops unique to the route are deleted by default; user can opt out via the delete confirmation dialog to preserve them as standalone stops in `stops.txt` (useful when reassigning to a different route).
@@ -107,7 +108,7 @@ Stops are placed in the context of the currently-selected route. Default behavio
 
 - ✅ Per-route timetable grid (rows = trips, columns = stops, cells = times).
 - ✅ "Edit Stops" shortcut in the timetable toolbar opens the route's Stops editor; clicking a stop on the map opens its properties panel directly. The route's **Stops tab** has the reverse jump — an "Open timetable editor" button (mirror of the Trips tab's button).
-- ✅ Trip metadata: headsign, direction, service pattern, block_id, wheelchair_accessible.
+- ✅ Trip metadata: headsign, direction, service pattern, block_id, wheelchair_accessible. Direction is set from the pattern (shape) a trip is created on and flipped route-wide with **Swap directions** (see §1.2).
 - ✅ Auto-interpolate intermediate stop times from distance + speed.
 - ✅ Estimate stop times from the drawn route's road-network travel time (Mapbox Map Matching, `◷` per trip): per-stop travel along the matched path + a configurable per-stop dwell (default 18 s) and bus-vs-car speed factor (default 1.3). Fill one trip, then ⇶ to all.
 - ✅ Apply a trip's stop sequence + relative timing to every other trip on the route/direction (`⇶`), each keeping its own start time.

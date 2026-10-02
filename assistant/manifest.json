@@ -48,7 +48,7 @@
       "deepLink": { "sidebarSection": "routes" },
       "plan": "all",
       "docs": ["/docs/routes-and-shapes/"],
-      "limitations": ""
+      "limitations": "A route can have any number of shapes, and several can share a direction. Shapes carry no direction (GTFS puts direction_id on trips): a shape with no stops or trips yet is grouped under direction 0 if the route has nothing in direction 0, else direction 1, so the first two shapes drawn on a new route land 0 then 1. Stops take the selected shape's direction and trips take the direction of the timetable pattern they're created on. Direction names are set per route in Details → Direction Labels. Duplicating a shape keeps the source's direction (Reverse flips geometry only)."
     },
     {
       "id": "stops",
@@ -532,6 +532,11 @@
     }
   ],
   "notSupported": [
+    {
+      "ask": "Set or change a shape's direction (mark a shape inbound/outbound), or change one trip's direction",
+      "reason": "In GTFS, direction_id belongs to trips, not shapes, so shapes have no direction setting (the old per-shape direction picker was removed). There is also no per-trip direction control: direction comes from the shape/pattern a trip is created on.",
+      "workaround": "To rename the directions, open the route → Details tab → Direction Labels (e.g. Direction 0 = Southbound). To flip every trip on the route 0↔1, use the Swap directions button (two arrows) in the Timetable toolbar; one Undo reverts it. To add trips in a direction, select that direction's shape in the timetable's direction selector and add or generate trips. On a new route the first shape drawn is direction 0 and the second direction 1; to add another shape in an existing direction, Duplicate a shape in that direction (with trips, or stops with Copy stops on) and edit the copy."
+    },
     {
       "ask": "Reroute a route by dragging its existing line on the map",
       "reason": "Routes are edited by drawing or trimming their shape geometry, not by grabbing an existing route line and dragging it to a new path.",

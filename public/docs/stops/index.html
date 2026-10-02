@@ -74,7 +74,7 @@
 
       <h2 id="snap-to-route">Snap-to-route placement</h2>
       <p>Open the Routes panel, click a route, and click <strong>Add stops</strong>. Then click along the route on the map. Each click drops a stop that snaps to the nearest point on the route line and renders offset to the right side (the curbside convention for North American right-of-the-road traffic). The snap means stops always sit on the route geometry — you don't have to worry about whether your click was perfectly on the line.</p>
-      <p>Stops are added in click order; they're given sequential <code>stop_sequence</code> values when the trip is constructed. Reorder them later by dragging the stop list in the sidebar — useful when you realize the route runs in the opposite direction from how you placed the stops.</p>
+      <p>Stops go onto one shape at a time: pick the shape in the route's <strong>Stops</strong> tab <strong>Direction</strong> menu first, and each stop you place is added to that shape's stop list with that shape's direction. Stops are added in click order; they're given sequential <code>stop_sequence</code> values when the trip is constructed. Reorder them later by dragging the stop list in the sidebar — useful when you realize the route runs in the opposite direction from how you placed the stops.</p>
 
       <h2 id="freehand">Freehand stop placement</h2>
       <p>Some stops aren't on a route line — park-and-rides served off the main alignment, transfer centers off-street, the end-of-line at a terminal. Toggle <strong>Freehand</strong> in the stop placement toolbar and click anywhere. The stop drops at that exact lat/lon with no snap.</p>

@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <title>Routes &amp; shapes — GTFS·X</title>
-    <meta name="description" content="Draw and edit transit route alignments in GTFS·X: snap-to-road via Mapbox Map Matching, freehand drawing, per-direction shape variants, route metadata." />
+    <meta name="description" content="Draw and edit transit route alignments in GTFS·X: snap-to-road via Mapbox Map Matching, freehand drawing, any number of shapes per route, trip direction, route metadata." />
     <link rel="canonical" href="https://www.gtfsx.com/docs/routes-and-shapes/" />
     <meta property="og:title" content="Routes & shapes — GTFS·X" />
-    <meta property="og:description" content="Draw route alignments, edit vertices, snap to road, and manage per-direction shape variants." />
+    <meta property="og:description" content="Draw route alignments, edit vertices, snap to road, and manage a route's shapes and trip directions." />
     <meta property="og:type" content="article" />
     <meta property="og:url" content="https://www.gtfsx.com/docs/routes-and-shapes/" />
     <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
@@ -23,7 +23,7 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "headline": "Routes &amp; shapes — GTFS·X",
-  "description": "Draw and edit transit route alignments in GTFS·X: snap-to-road via Mapbox Map Matching, freehand drawing, per-direction shape variants, route metadata.",
+  "description": "Draw and edit transit route alignments in GTFS·X: snap-to-road via Mapbox Map Matching, freehand drawing, any number of shapes per route, trip direction, route metadata.",
   "image": "https://www.gtfsx.com/og-default.png",
   "author": {
     "@type": "Organization",
@@ -65,7 +65,7 @@
     <main>
       <div class="crumbs"><a href="/docs/">Docs</a> · Editor panels · Routes &amp; shapes</div>
       <h1>Routes &amp; shapes</h1>
-      <p class="lede">Routes are defined <strong>before</strong> stops in GTFS·X. The alignment is the most consequential design choice in a transit service, so the editor's workflow locks in the path first, then places stops along it. Each route can have multiple shape variants — typically one per direction of travel.</p>
+      <p class="lede">Routes are defined <strong>before</strong> stops in GTFS·X. The alignment is the most consequential design choice in a transit service, so the editor's workflow locks in the path first, then places stops along it. A route can have any number of shapes, one for each path its trips actually follow.</p>
 
       <figure>
         <img src="/assets/docs/routes-and-shapes-hero.png" alt="GTFS·X editor with the Routes panel showing the demo feed's six routes overlaid on the map." loading="lazy" />
@@ -95,11 +95,27 @@
       <p>To edit an existing shape: click the route in the sidebar, open its <strong>Shapes</strong> tab, and click <strong>Edit Shape</strong> on the one you want. Drag any vertex to move it, click between two vertices to insert a new one, select-and-Delete to remove, then <strong>Save</strong> (or <strong>Cancel</strong> to discard). The same row carries the rest of the per-shape tools: <strong>Simplify</strong> (reduces vertex count with the Douglas-Peucker algorithm — useful when a snap-to-road shape has more vertices than you need), <strong>Trim</strong>, re-<strong>Snap</strong>, <strong>Duplicate</strong> (see <a href="#duplicate-shape">below</a>), a visibility toggle, and delete.</p>
       <p>You can also jump straight in from the map: clicking a route line opens a popup with <strong>Edit Route</strong>, <strong>Edit Stops</strong> (opens the route's Stops sub-panel), and a timetable shortcut, plus a pencil icon to edit the clicked shape directly. Handy when you've spotted something on the map and want to fix it without hunting through the sidebar.</p>
 
-      <h2 id="multiple-variants">Multiple shape variants</h2>
-      <p>Most routes need at least two shapes: one for the outbound direction, one for inbound. The two often differ because one-way streets, turn restrictions, or stop pairs offset across the road force the bus to take slightly different paths each direction.</p>
-      <p>In the editor, the <strong>direction picker</strong> at the top of the route's shape panel toggles between direction 0 and direction 1. Draw separate shapes for each — they share the route_id but get distinct shape_ids on export. Each trip in the timetable then references the shape_id that matches its direction.</p>
-      <p>Loops and branches are also supported: a single direction can have multiple shape variants if the route runs different paths at different times of day (a peak express variant, a weekend deviation, etc.). The editor surfaces these as additional shapes under the same route.</p>
+      <h2 id="multiple-variants">Multiple shapes per route</h2>
+      <p>A route can have any number of shapes: one, two, three, or more. A shape is only geometry, the path a vehicle follows. An out-and-back route usually needs two, because one-way streets, turn restrictions, or stop pairs offset across the road make the bus take a slightly different path each way. A loop may need just one. A route with a peak express, a weekend deviation, and a short-turn needs a shape for each. Click <strong>Draw Route Shape</strong> on the route's <strong>Shapes</strong> tab whenever a group of trips follows a different path; there is no limit on how many a route can carry.</p>
       <p>When a route has several shapes, give them names so you can tell them apart at a glance. Each shape in the <strong>Shapes</strong> tab has an editable name field — type something like "Outbound — express" or "Weekend deviation" and it sticks with that shape. The name is an editor convenience for keeping variants straight; the exported feed still keys everything on the generated <code>shape_id</code>. Those names are also what the <a href="/docs/timetables-and-trips/#patterns">timetable's pattern dropdown</a> and the Stops sub-panel show, so naming variants pays off the moment you have more than one per direction.</p>
+
+      <h3 id="direction">Direction belongs to trips, not shapes</h3>
+      <p>In GTFS, <code>direction_id</code> (0 or 1) is a column in <code>trips.txt</code>. Shapes have no direction: <code>shapes.txt</code> is an ordered list of points, and each trip names the shape it follows with <code>shape_id</code>. Any number of shapes can serve the same direction (branches, express and local variants), and a route is never limited to one shape per direction. GTFS·X follows that model: there is no direction setting on a shape.</p>
+      <p>What 0 and 1 mean is up to you. Name them per route on the <strong>Details</strong> tab under <strong>Direction Labels</strong> (for example, Direction 0 = "Southbound", Direction 1 = "Northbound"). Unnamed, the editor calls them Outbound and Inbound. Labels you set are written to <code>directions.txt</code> on export.</p>
+      <p>How a direction gets assigned in the editor today:</p>
+      <ul>
+        <li><strong>A new shape with no stops or trips yet</strong> is grouped under direction 0 if nothing on the route is in direction 0 yet, and under direction 1 otherwise. So on a new route, the first shape you draw lands in direction 0 and the second in direction 1, the common out-and-back. This only decides where the shape's first stops and trips go; nothing is stored on the shape or written to <code>shapes.txt</code>.</li>
+        <li><strong>Stops</strong> you add to a shape (route <strong>Stops</strong> tab, pick the shape in the <strong>Direction</strong> menu, then add stops) are saved with that shape's direction.</li>
+        <li><strong>Trips</strong> get their <code>direction_id</code> from the shape selected in the <a href="/docs/timetables-and-trips/#patterns">timetable</a> when they're created: <strong>+ Add trip</strong>, <strong>Generate service</strong>, repeating a trip, and <strong>Duplicate trip</strong> all use it. Once a shape has trips, their <code>direction_id</code> is the direction the editor shows for that shape everywhere.</li>
+        <li><strong>Imported feeds</strong> keep the <code>direction_id</code> already on their trips.</li>
+      </ul>
+      <p>To change direction:</p>
+      <ul>
+        <li><strong>If the directions are only labelled the wrong way round</strong> (say your first shape runs northbound but direction 0 reads "Outbound"), rename them under <strong>Details</strong> &rarr; <strong>Direction Labels</strong>. No trip data changes.</li>
+        <li><strong>To flip the route's trips</strong>, click <strong>Swap directions</strong> in the timetable toolbar (the two-arrow button next to the direction selector). It flips <code>direction_id</code> 0&harr;1 on every trip on the route, across all services, along with the route's stop lists. One Undo puts it back. The button is enabled once the route has trips.</li>
+        <li><strong>To add another shape in a direction that already has one</strong> (a branch or variant), <a href="#duplicate-shape">duplicate</a> an existing shape in that direction that has trips, or stops with <strong>Copy stops</strong> on, then edit the copy's path. The copy keeps the source's direction.</li>
+      </ul>
+      <p>There is currently no control for changing the direction of a single trip, or of one shape's trips on their own; <strong>Swap directions</strong> works on the whole route.</p>
 
       <h3 id="per-shape-stops">Each shape owns its own stops</h3>
       <p>Stops are keyed <strong>per shape</strong>, not per direction. A route's outbound-express shape and its outbound-local shape can serve different stop lists, in a different order, even though both are "direction 0". This is what lets a short-turn variant visit a subset of the line, or an express skip the locals — the stops belong to the shape, not the whole route.</p>
@@ -108,10 +124,11 @@
       <h3 id="duplicate-shape">Duplicating a shape (with options)</h3>
       <p>The per-shape <strong>Duplicate</strong> button clones a shape's geometry into a new shape on the same route, and opens a small options popover:</p>
       <ul>
-        <li><strong>Reverse vertex order (for the opposite direction)</strong> — flips the cloned vertices end-to-end and re-sequences them, so the copy runs the other way. This is the fast path for building the inbound shape from the outbound one when the return path is essentially the same road.</li>
+        <li><strong>Reverse vertex order (for the opposite direction)</strong> — flips the cloned vertices end-to-end and re-sequences them, so the copy's geometry runs the other way. Reversing changes only the geometry: the copy still keeps the source shape's direction (see below).</li>
         <li><strong>Copy stops</strong> — also copies the source shape's stops onto the new shape. When "Reverse" is on, the copied stops are reversed to match the flipped geometry (the checkbox label updates to "Copy stops (reversed to match)"). Leave it off to start the copy with an empty stop list.</li>
       </ul>
-      <p>The duplicate also gets a minimal stub trip (same direction, service, and headsign with "(copy)" appended) so the new shape shows up immediately as a pattern you can edit in the timetable — reassign or rename it there. The typical move is <strong>draw outbound → duplicate with reverse + copy stops → refine the inbound path</strong>, which gets you both directions in a couple of clicks instead of redrawing.</p>
+      <p>If the source shape has trips, the duplicate also gets one stub trip (same direction, service, and headsign with "(copy)" appended) so the new shape shows up immediately as a pattern you can edit in the timetable. Copied stops and the stub trip carry the source's direction, so <strong>the copy is in the same direction as the original</strong>, reversed or not. That makes Duplicate the way to add a branch or variant in a direction that already has a shape. The copy stays in the shape list only if it gets a stub trip or copied stops, so duplicate a shape that has trips, or one that has stops with <strong>Copy stops</strong> on.</p>
+      <p>For an out-and-back, the quickest way to get a shape in the other direction is to draw it: the second shape drawn on a new route lands in direction 1 (see <a href="#direction">Direction belongs to trips</a>).</p>
 
       <h2 id="route-type">Picking a route type</h2>
       <p>The GTFS spec defines eight basic route types: bus (3), light rail (0), subway (1), rail (2), ferry (4), cable car (5), aerial lift (6), funicular (7). Pick the one that matches the rider's experience, not the operator's classification. A "bus rapid transit" service stays type=3 (bus); it's marketed as rail-like but legally still a bus. A "trolley" running on rails is light rail (0); a "trolley bus" running on rubber tires with overhead wires is bus (3).</p>

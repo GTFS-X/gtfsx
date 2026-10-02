@@ -141,7 +141,7 @@
       <p>Click <strong>Routes</strong>, then <strong>Create Route</strong>. Give it a name, pick a color, and click <strong>Draw Route Shape</strong>. Click on the map to place points along the route, then <strong>double-click</strong> to finish.</p>
       <ul>
         <li><strong>Snap to road</strong> (on by default) snaps your line to the road network.</li>
-        <li>Use the <strong>direction picker</strong> to draw separate outbound/inbound shapes.</li>
+        <li>A route can have as many shapes as it needs. Draw another from the route's <strong>Shapes</strong> tab for the return trip or a variant. On a new route the first shape you draw is grouped under direction 0 and the second under direction 1; name the two directions on the route's <strong>Details</strong> tab (<strong>Direction Labels</strong>). Direction is really a trip setting, so see <a href="/docs/routes-and-shapes/#direction">Direction belongs to trips</a> for the details.</li>
         <li><strong>Edit Shape</strong> (in the route's Shapes tab) to drag, add, or delete points on an existing shape; you can also rename each shape there.</li>
         <li><strong>Simplify</strong> reduces vertex count if a shape has too many points.</li>
       </ul>
@@ -161,7 +161,7 @@
         <li><strong>+ Add Trip</strong> creates a new row.</li>
         <li><strong>Repeat Every…</strong> duplicates the last trip at a fixed headway.</li>
         <li>The <strong>interpolate</strong> button (arrow icon) fills intermediate stop times from the first and last.</li>
-        <li>Use the <strong>Outbound/Inbound</strong> toggle to switch directions.</li>
+        <li>Use the direction selector at the top of the grid to switch between the route's shapes (a two-way toggle for two shapes, a dropdown for three or more). New trips take the selected shape's direction.</li>
       </ul>
 
       <h2 id="fares">6. Set fares (recommended)</h2>
