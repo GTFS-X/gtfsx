@@ -28,6 +28,9 @@ export const SMALL_KEYS = [
   // transfers.txt — same story: the exporter writes it but it was never cached,
   // so an anonymous draft's transfers vanished on reload (#67).
   'transfers',
+  // translations.txt — translated names/headsigns/URLs, keyed to the records
+  // above (or to an exact value via field_value).
+  'translations',
   'featureSettings',
   'dismissedValidations',
   'projectId', 'projectName',

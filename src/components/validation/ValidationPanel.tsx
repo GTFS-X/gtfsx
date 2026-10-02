@@ -113,6 +113,7 @@ export function ValidationPanel() {
       m.entity_type === 'fare_leg_rule' || m.entity_type === 'fare_transfer_rule'
     ) state.setSidebarSection('fares');
     else if (m.entity_type === 'flex_zone') state.setSidebarSection('flex');
+    else if (m.entity_type === 'translation') state.setSidebarSection('translations');
     else if (m.entity_type === 'route') {
       state.setSidebarSection('routes');
       if (m.entity_id) state.selectRoute(m.entity_id);

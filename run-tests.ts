@@ -1627,6 +1627,34 @@ async function main() {
       `${JSON.stringify(clearedCsv)} vs ${JSON.stringify(plainCsv)}`);
   }
 
+  // ---- PHASE 29: translations.txt round-trip on the fixture feed ----
+  // The sample feed ships a real translations.txt: record_id rows, field_value
+  // rows, a stop_times row with record_sub_id, region-tagged languages and a
+  // feed_info row. Everything imports; everything exports except the
+  // feed_publisher_url row (GTFS·X always publishes itself as the publisher).
+  console.log('\nPhase 29: translations.txt round-trip');
+  {
+    const tData = await importGtfsZip((await buildFixtureZip()) as unknown as File);
+    assert('29a: all 13 translations imported', tData.translations.length === 13, String(tData.translations.length));
+    loadImportIntoStore(tData);
+    const tCsv = await readExportedFile(await exportGtfsZip(), 'translations.txt');
+    const tLines = tCsv.trim().split(/\r?\n/);
+    assert('29b: header in spec order',
+      tLines[0] === 'table_name,field_name,language,translation,record_id,record_sub_id,field_value', tLines[0]);
+    assert('29b: 12 rows exported (feed_publisher_url omitted)', tLines.length === 13, String(tLines.length - 1));
+    assert('29b: stop_times record_sub_id survives',
+      tLines.includes('stop_times,stop_headsign,de-DE,hAllo,b-outbound-on-weekends,11,'), tCsv);
+    assert('29b: field_value row survives',
+      tLines.includes('trips,trip_headsign,de-DE,Babbage (auswärts),,,Babbage (Outbound)'), tCsv);
+    const tMsgs = runValidation(s()).filter((m) => m.entity_type === 'translation');
+    assert('29c: validator explains the omitted publisher row (warning, fixable)',
+      tMsgs.length === 1 && tMsgs[0].severity === 'warning' && tMsgs[0].fix?.id === 'remove-invalid-translations',
+      JSON.stringify(tMsgs.map((m) => m.message)));
+    s().renameTripId('b-outbound-on-weekends', 'b-out-we');
+    assert('29d: trip rename carries its stop_times translation',
+      s().translations.some((t) => t.table_name === 'stop_times' && t.record_id === 'b-out-we'));
+  }
+
   // ---- SUMMARY ----
   console.log(`\n${'='.repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed out of ${passed + failed} tests`);

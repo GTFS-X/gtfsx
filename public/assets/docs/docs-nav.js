@@ -30,6 +30,7 @@
         { path: '/docs/routes-and-shapes/',             title: 'Routes & Shapes' },
         { path: '/docs/stops/',                         title: 'Stops' },
         { path: '/docs/stations/',                      title: 'Stations' },
+        { path: '/docs/translations/',                  title: 'Translations' },
         { path: '/docs/timetables-and-trips/',          title: 'Timetables & Trips' },
         { path: '/docs/fares/',                         title: 'Fares' },
         { path: '/docs/transfers/',                     title: 'Transfers' },

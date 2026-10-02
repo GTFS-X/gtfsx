@@ -4,6 +4,8 @@ import { FormField } from '../ui/FormField';
 import { RailSubHeading, RailDivider } from '../ui/RailHeadings';
 import { ROUTE_COLORS, getContrastTextColor } from '../../utils/colors';
 import { ROUTE_TYPES } from '../../utils/constants';
+import { TranslationsEditor } from '../translations/EntityTranslations';
+import { TABLE_SPEC } from '../../services/translations';
 export function RouteEditor() {
   const {
     routes, updateRoute,
@@ -13,6 +15,7 @@ export function RouteEditor() {
   // Flag-stop / continuous pickup-drop-off controls only appear when this
   // advanced feature is enabled for the feed (niche; off for most fixed-route).
   const showContinuous = useStore((s) => featureEnabled(s, 'continuousStops'));
+  const trips = useStore((s) => s.trips);
 
   const route = routes.find((r) => r.route_id === selectedRouteId);
   if (!route) return null;
@@ -206,7 +209,41 @@ export function RouteEditor() {
         </>
       )}
 
-
+      <TranslationsEditor
+        title="Translations"
+        hint="This route's names in other languages (translations.txt)."
+        targets={TABLE_SPEC.routes.translatable.filter((f) => f.common).map((f) => ({
+          id: `route-${f.field}`,
+          label: f.label,
+          original: String((route as unknown as Record<string, unknown>)[f.field] ?? ''),
+          table: 'routes' as const,
+          field: f.field,
+          recordId: route.route_id,
+        }))}
+      />
+      {/* Headsigns are translated BY VALUE (field_value): one Spanish
+          "Hacia el norte" covers every trip whose headsign is "Northbound",
+          including trips added later — the way most multilingual feeds do it. */}
+      <TranslationsEditor
+        title="Headsign translations"
+        hint="Each headsign on this route, translated wherever it appears in the feed."
+        targets={routeHeadsigns(trips, route.route_id).map((h) => ({
+          id: `headsign-${h}`,
+          label: 'Headsign',
+          original: h,
+          table: 'trips' as const,
+          field: 'trip_headsign',
+          fieldValue: h,
+        }))}
+      />
     </div>
   );
+}
+
+function routeHeadsigns(trips: { route_id: string; trip_headsign?: string }[], routeId: string): string[] {
+  const out = new Set<string>();
+  for (const t of trips) {
+    if (t.route_id === routeId && t.trip_headsign) out.add(t.trip_headsign);
+  }
+  return [...out].sort((a, b) => a.localeCompare(b));
 }

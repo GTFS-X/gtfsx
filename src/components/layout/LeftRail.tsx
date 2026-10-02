@@ -13,6 +13,7 @@ const SETUP: NavItem[] = [
   { key: 'agency', label: 'Agency', tile: 'tile-teal' },
   { key: 'fares', label: 'Fares', tile: 'tile-gold' },
   { key: 'calendar', label: 'Calendars', tile: 'tile-gold' },
+  { key: 'translations', label: 'Translations', tile: 'tile-teal' },
 ];
 const FIXED_ROUTE: NavItem[] = [
   { key: 'routes', label: 'Routes', tile: 'tile-coral' },
@@ -38,10 +39,11 @@ const SETTINGS: NavItem[] = [
   { key: 'settings', label: 'Settings', tile: 'tile-teal' },
 ];
 
-// Returns the FIXED_ROUTE and FLEX items visible for the current feed, honoring
+// Returns the SETUP, FIXED_ROUTE and FLEX items visible for the current feed, honoring
 // the per-feed feature settings. Subscribes to primitive booleans so the
 // selector stays referentially stable. Other groups are never gated here.
-function useGatedSections(): { fixed: NavItem[]; flex: NavItem[]; operations: NavItem[] } {
+function useGatedSections(): { setup: NavItem[]; fixed: NavItem[]; flex: NavItem[]; operations: NavItem[] } {
+  const showTranslations = useStore((s) => featureEnabled(s, 'translations'));
   const showStations = useStore((s) => featureEnabled(s, 'stations'));
   const showFrequencies = useStore((s) => featureEnabled(s, 'frequencies'));
   const showBlocks = useStore((s) => featureEnabled(s, 'blocks'));
@@ -55,7 +57,8 @@ function useGatedSections(): { fixed: NavItem[]; flex: NavItem[]; operations: Na
   const fixed = FIXED_ROUTE.filter((i) => vis[i.key] ?? true);
   const flex = showFlex ? FLEX : [];
   const operations = showAlerts ? OPERATIONS : [];
-  return { fixed, flex, operations };
+  const setup = SETUP.filter((i) => i.key !== 'translations' || showTranslations);
+  return { setup, fixed, flex, operations };
 }
 
 /**
@@ -206,6 +209,13 @@ const ICON_PATHS: Record<SidebarSection, ReactNode> = {
     <>
       <circle cx="6" cy="6" r="2" /><circle cx="6" cy="18" r="2" /><circle cx="18" cy="9" r="2" />
       <path d="M6 8v8M8.4 6.6c4 .3 6.5 1.2 7.4 2.4" />
+    </>
+  ),
+  // Translations — speech bubbles ("A" / "文" pair)
+  translations: (
+    <>
+      <path d="M4 5h9M8.5 3v2M6 5c.6 3 2.6 5.4 5 6.6M11 5c-.7 3.2-3 5.8-6 7" />
+      <path d="M12.5 21l3.5-9 3.5 9M13.8 18h4.4" />
     </>
   ),
   // Settings — gear
@@ -365,7 +375,7 @@ function MaxRail({ counts }: { counts: ItemCounts }) {
   const setFlexOpen = (v: boolean) => setFlexManual(v);
   const setAnalysisOpen = (v: boolean) => setAnalysisManual(v);
   const setOperationsOpen = (v: boolean) => setOperationsManual(v);
-  const { fixed, flex, operations } = useGatedSections();
+  const { setup, fixed, flex, operations } = useGatedSections();
 
   const renderRow = (item: NavItem) => {
     const active = sidebarSection === item.key;
@@ -403,7 +413,7 @@ function MaxRail({ counts }: { counts: ItemCounts }) {
 
   return (
     <div className="flex flex-col gap-0.5 p-2.5">
-      {SETUP.map(renderRow)}
+      {setup.map(renderRow)}
       {renderCap('Fixed Route Service', fixedOpen, setFixedOpen)}
       {fixedOpen && fixed.map(renderRow)}
       {flex.length > 0 && (
@@ -461,11 +471,11 @@ function MidRail({ counts }: { counts: ItemCounts }) {
   const groupDivider = (
     <div className="my-1.5 mx-auto w-6 h-px bg-sand" aria-hidden />
   );
-  const { fixed, flex, operations } = useGatedSections();
+  const { setup, fixed, flex, operations } = useGatedSections();
 
   return (
     <div className="flex flex-col py-2 gap-0.5">
-      {SETUP.map(renderTile)}
+      {setup.map(renderTile)}
       {groupDivider}
       {fixed.map(renderTile)}
       {flex.map(renderTile)}
@@ -488,13 +498,13 @@ function MidRail({ counts }: { counts: ItemCounts }) {
 function MinRail({ counts }: { counts: ItemCounts }) {
   const sidebarSection = useStore((s) => s.sidebarSection);
   const handleClick = useNavClick();
-  const { fixed, flex, operations } = useGatedSections();
-  const all = [...SETUP, ...fixed, ...flex, ...ANALYSIS, ...operations, ...SETTINGS];
+  const { setup, fixed, flex, operations } = useGatedSections();
+  const all = [...setup, ...fixed, ...flex, ...ANALYSIS, ...operations, ...SETTINGS];
   const dividerAfter = new Set<number>([
-    SETUP.length - 1,
-    SETUP.length + fixed.length + flex.length - 1,
-    SETUP.length + fixed.length + flex.length + ANALYSIS.length - 1,
-    SETUP.length + fixed.length + flex.length + ANALYSIS.length + operations.length - 1,
+    setup.length - 1,
+    setup.length + fixed.length + flex.length - 1,
+    setup.length + fixed.length + flex.length + ANALYSIS.length - 1,
+    setup.length + fixed.length + flex.length + ANALYSIS.length + operations.length - 1,
   ]);
 
   return (

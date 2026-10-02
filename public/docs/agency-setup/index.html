@@ -88,6 +88,7 @@
         <li><strong><code>agency_email</code></strong> — internal contact for the GTFS feed itself (often a generic <code>data@</code> alias). Used by feed catalogs to reach the operator about quality issues.</li>
         <li><strong>NTD / External ID</strong> — the agency's external identifier; in the US, its National Transit Database ID. Free-form text, so leading zeros are safe (<code>00123</code> stays <code>00123</code>). Set it and it's exported as an <code>external_id</code> column on <code>agency.txt</code> and carried into your published feed's metadata for FTA's P-50 crosswalk. This is a provisional extension field, not part of the GTFS spec — see <a href="/docs/ntd-id/">NTD ID &amp; FTA reporting</a>.</li>
       </ul>
+      <p>Below the agency fields, <strong>Feed Info</strong> holds the feed&rsquo;s <strong>Feed Language</strong> (<code>feed_lang</code>, the language your names are written in) and an optional <strong>Default Language</strong> (<code>default_lang</code>). Both matter most for multilingual feeds. To give riders names in other languages, see <a href="/docs/translations/">Translations</a>.</p>
 
       <h2 id="multi-agency">Multi-agency feeds (joint operators)</h2>
       <p>Joint feeds are common when a regional fixed-route operator and a separately-branded microtransit partner share GTFS publication, or when a state DOT publishes a unified feed across several rural operators. The pattern is:</p>

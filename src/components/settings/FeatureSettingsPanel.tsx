@@ -30,6 +30,7 @@ function describeData(s: AppStore, f: AdvancedFeature): string {
         s.fareLegRules.length + s.fareTransferRules.length;
       return `${total} Fares v2 record(s) across areas, stop areas, and other v2 files`;
     }
+    case 'translations': return `${s.translations.length} translation(s)`;
     case 'continuousStops': {
       const routeCount = s.routes.filter(
         (r) => r.continuous_pickup !== undefined || r.continuous_drop_off !== undefined,

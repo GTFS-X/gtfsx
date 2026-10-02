@@ -10,10 +10,11 @@ import type {
   Agency, Calendar, CalendarDate, Route, Shape, ShapePoint, Stop, Trip, StopTime, FeedInfo, RouteStop,
   FareAttribute, FareRule, Transfer, Frequency, Pathway, Level,
   FareArea, StopArea, FareNetwork, RouteNetwork, Timeframe, RiderCategory, FareMedia,
-  FareProduct, FareLegRule, FareTransferRule,
+  FareProduct, FareLegRule, FareTransferRule, Translation,
 } from '../types/gtfs';
 import type { FlexZone, BookingRule } from '../store/flexSlice';
 import { backfillMissingRouteStops } from './routeStopMigration';
+import { parseTranslationRows } from './translations';
 
 /** Populate shape_dist_traveled (cumulative metres) from the lat/lon geometry.
  *  Mirrors shapeSlice.recalcShapeDistances so the import path doesn't need the
@@ -140,6 +141,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   fareLegRules: FareLegRule[];
   fareTransferRules: FareTransferRule[];
   flexZones: FlexZone[];
+  translations: Translation[];
   warnings: string[];
 }> {
   const report: ImportProgress = onProgress ?? (() => {});
@@ -1037,6 +1039,15 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // A zone's fare rides on its synthesized route, so dropping that route would
   // strand the fare_rules row pointing at it. Absorb the fare back onto the
   // zone and drop the row; materializeFlex re-emits both on the next export.
+  // translations.txt — kept row-for-row, including rows the editor can't
+  // resolve (an unofficial table, a record that doesn't exist): validation
+  // explains them and the exporter leaves out the ones that would be invalid,
+  // but nothing the feed shipped is discarded on the way in.
+  const translationsText = await readFile('translations.txt');
+  const translations: Translation[] = translationsText
+    ? parseTranslationRows(parseCSV<Record<string, string>>(translationsText))
+    : [];
+
   const droppedFlexRouteIds = new Set(
     routes
       .filter((r) => flexZoneRouteIds.has(r.route_id))
@@ -1068,7 +1079,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
     fareAreas, stopAreas, fareNetworks, routeNetworks,
     timeframes, riderCategories, fareMedia,
     fareProducts, fareLegRules, fareTransferRules,
-    flexZones, warnings,
+    flexZones, translations, warnings,
   };
 }
 

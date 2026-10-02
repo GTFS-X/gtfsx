@@ -347,3 +347,31 @@ export interface FareTransferRule {
   fare_transfer_type: 0 | 1 | 2;
   fare_product_id?: string;
 }
+
+/**
+ * translations.txt — a translated value for one text-like field, in one
+ * language (https://gtfs.org/documentation/schedule/reference/#translationstxt).
+ *
+ * Two mutually exclusive ways to say WHICH value is translated:
+ *  - by record: `record_id` (+ `record_sub_id` for stop_times, where it is the
+ *    stop_sequence) names one row of `table_name`;
+ *  - by value: `field_value` translates every row whose `field_name` equals it
+ *    exactly (e.g. every trip_headsign "Downtown").
+ * Neither is used for feed_info (a single-row table). A row naming a record
+ * wins over a by-value row for the same field.
+ *
+ * Rows are kept exactly as imported — including ones the editor can't resolve
+ * (an unofficial table, a record that doesn't exist). Validation explains them
+ * and the exporter leaves out the ones that would make translations.txt
+ * invalid (see services/translations.ts `exportableTranslations`).
+ */
+export interface Translation {
+  table_name: string;
+  field_name: string;
+  /** IETF BCP 47 language tag, e.g. "es", "fr-CA", "zh-Hant". */
+  language: string;
+  translation: string;
+  record_id?: string;
+  record_sub_id?: string;
+  field_value?: string;
+}

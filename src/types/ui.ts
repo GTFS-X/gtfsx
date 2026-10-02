@@ -15,6 +15,7 @@ export type SidebarSection =
   | 'access-isochrones'
   | 'alerts'
   | 'variants'
+  | 'translations'
   | 'settings';
 
 /**
@@ -73,7 +74,8 @@ export type ValidationFixId =
   | 'remove-ghost-trips'
   | 'delete-unused-stop'
   | 'generate-shapes-from-stops'
-  | 'clear-route-desc';
+  | 'clear-route-desc'
+  | 'remove-invalid-translations';
 
 export interface ValidationMessage {
   id: string;

@@ -52,6 +52,9 @@ const DATA_KEYS = [
   // (#67). Persisting it here fixes both; it also rides the variant envelope
   // now, since variant snapshots are built from these DATA_KEYS.
   'transfers',
+  // translations.txt. Persisted (and variant-enveloped) like every other feed
+  // table; absent on snapshots saved before it existed, which load as [].
+  'translations',
   'featureSettings',
   'dismissedValidations',
   // The feed's declared license (SPDX short identifier). Feed-state: the D1
@@ -168,6 +171,8 @@ export function resetStoreEntities() {
   // transfers.txt entities — cleared here so feed A's transfers can't survive
   // onto feed B opened in the same session (#67).
   state.setTransfers([] as never);
+  // translations.txt — same cross-feed-leak guard as transfers.
+  state.setTranslations([] as never);
   state.setFeatureSettings({});
   state.setDismissedValidations([]);
   state.setLicenseSpdx(null);
@@ -330,6 +335,9 @@ function applySnapshotToStoreInner(
   // an old snapshot without the key correctly loads as empty transfers rather
   // than undefined-crashing or leaking the previous feed's transfers.
   if (Array.isArray(g('transfers'))) state.setTransfers(g('transfers') as never);
+  // translations.txt. Cleared above, so a snapshot that predates the key loads
+  // with no translations instead of inheriting the previous feed's.
+  if (Array.isArray(g('translations'))) state.setTranslations(g('translations') as never);
   if (g('featureSettings') && typeof g('featureSettings') === 'object') {
     state.setFeatureSettings(g('featureSettings') as never);
   }

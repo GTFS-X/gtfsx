@@ -7,6 +7,8 @@ import { StopDeparturesSection } from './StopDeparturesSection';
 import { StopCoveragePanel } from './StopCoveragePanel';
 import { PaywallOverlay } from '../billing/PaywallOverlay';
 import { useEditorPlan } from '../billing/useEditorPlan';
+import { TranslationsEditor } from '../translations/EntityTranslations';
+import { TABLE_SPEC } from '../../services/translations';
 
 /**
  * Stop edit sub-panel. Rendered by RightRail when `editingStopId` is set;
@@ -247,6 +249,19 @@ export function StopEditPanel() {
         value={stop.zone_id || ''}
         onChange={(v) => updateStop(stop.stop_id, { zone_id: v || undefined })}
         placeholder="e.g. zone-1, downtown, juneau"
+      />
+
+      <TranslationsEditor
+        title="Translations"
+        hint="This stop's name and description in other languages (translations.txt)."
+        targets={TABLE_SPEC.stops.translatable.filter((f) => f.common).map((f) => ({
+          id: `stop-${f.field}`,
+          label: f.label,
+          original: String((stop as unknown as Record<string, unknown>)[f.field] ?? ''),
+          table: 'stops' as const,
+          field: f.field,
+          recordId: stop.stop_id,
+        }))}
       />
     </div>
   );

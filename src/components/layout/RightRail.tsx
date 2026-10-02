@@ -22,6 +22,7 @@ import { BlocksPanel } from '../blocks/BlocksPanel';
 import { VariantsPanel } from '../variants/VariantsPanel';
 import { AlertsEditor } from '../alerts/AlertsEditor';
 import { FeatureSettingsPanel } from '../settings/FeatureSettingsPanel';
+import { TranslationsPanel } from '../translations/TranslationsPanel';
 import { PaywallOverlay } from '../billing/PaywallOverlay';
 import { SignInRequired } from '../billing/SignInRequired';
 import { useEditorPlan } from '../billing/useEditorPlan';
@@ -54,6 +55,7 @@ const SECTION_TITLES: Record<SidebarSection, string> = {
   'access-isochrones': 'Access Isochrones',
   alerts: 'Service Alerts',
   variants: 'Variants',
+  translations: 'Translations',
   settings: 'Feature settings',
 };
 
@@ -74,6 +76,7 @@ const SECTION_GROUP: Record<SidebarSection, string | null> = {
   'access-isochrones': 'Analysis',
   alerts: 'Operations',
   variants: 'Planning',
+  translations: 'Setup',
   settings: null,
 };
 
@@ -139,6 +142,8 @@ function PanelBody({ section }: { section: SidebarSection }) {
       // Entry point is the TopBar variants dropdown's "Manage variants…";
       // VariantsPanel self-guards on the 'variants' key (every plan today).
       return <VariantsPanel />;
+    case 'translations':
+      return <TranslationsPanel />;
     case 'settings':
       return <FeatureSettingsPanel />;
     default:

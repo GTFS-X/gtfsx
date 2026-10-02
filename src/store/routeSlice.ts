@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
-import type { Route, RouteStop } from '../types/gtfs';
+import type { Route, RouteStop, Translation } from '../types/gtfs';
+import { withoutTranslationsFor } from '../services/translations';
 import { generateId } from '../services/idGenerator';
 import type { TripSlice } from './tripSlice';
 import type { ShapeSlice } from './shapeSlice';
@@ -10,7 +11,7 @@ import type { FlexSlice } from './flexSlice';
 // Cross-slice mutations need to see fields from neighbouring slices.
 // Casting state to this intersection is narrower than `any` and surfaces
 // real typos in field names.
-type CrossSliceState = RouteSlice & TripSlice & ShapeSlice & FareSlice & StopSlice & FlexSlice;
+type CrossSliceState = RouteSlice & TripSlice & ShapeSlice & FareSlice & StopSlice & FlexSlice & { translations?: Translation[] };
 
 export interface RouteSlice {
   routes: Route[];
@@ -147,6 +148,13 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
     if (deleteOrphanedStops && uniqueStopIds.size > 0) {
       (state as CrossSliceState).stops = fullState.stops.filter((s) => !uniqueStopIds.has(s.stop_id));
     }
+
+    // translations.txt: the route's own rows, its trips' (and their
+    // stop_times') rows, and — when they were deleted too — its unique stops'.
+    let translations = withoutTranslationsFor(fullState.translations, 'routes', new Set([route_id]));
+    translations = withoutTranslationsFor(translations, 'trips', tripIds);
+    if (deleteOrphanedStops) translations = withoutTranslationsFor(translations, 'stops', uniqueStopIds);
+    if (translations !== fullState.translations) (state as CrossSliceState).translations = translations;
   }),
   duplicateRoute: (route_id) => {
     const fullState = get() as unknown as RouteSlice & TripSlice & ShapeSlice;

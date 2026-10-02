@@ -6,6 +6,7 @@ import { useStore } from '../store';
 import { flexRouteNames } from '../components/flex/flexHelpers';
 import { bookingRuleIdOf, flexZoneHasGroup, type FlexZone } from '../store/flexSlice';
 import type { Calendar, Route, ShapePoint, Trip } from '../types/gtfs';
+import { exportableTranslations, translationCsvColumns } from './translations';
 
 /** Mirror of shapeSlice.recalcShapeDistances used as a last-resort safety
  *  net when a shape arrives at the exporter without real distances. Returns
@@ -542,6 +543,20 @@ export async function exportGtfsZip(): Promise<Blob> {
   const feedInfoRow = buildFeedInfoRow(state);
   if (feedInfoRow) {
     zip.file('feed_info.txt', toCSV([feedInfoRow]));
+  }
+
+  // translations.txt — written only when there are rows to write. Rows that
+  // would make the file invalid (a record that no longer exists, a malformed
+  // language tag, a duplicate key, attributions.txt — which GTFS·X doesn't
+  // export) are left out; the validator lists each one, and they stay in the
+  // feed state. Columns follow the spec order, and the optional reference
+  // columns appear only when some row uses them.
+  const translationRows = exportableTranslations(state);
+  if (translationRows.length > 0) {
+    zip.file('translations.txt', Papa.unparse(
+      translationRows.map((t) => ({ ...t })) as Record<string, unknown>[],
+      { columns: translationCsvColumns(translationRows) },
+    ));
   }
 
   // location_groups.txt + location_group_stops.txt (GTFS-Flex, group-based)

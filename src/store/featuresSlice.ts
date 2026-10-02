@@ -15,7 +15,8 @@ export type AdvancedFeature =
   | 'demandResponse'
   | 'serviceAlerts'
   | 'faresV2'
-  | 'continuousStops';
+  | 'continuousStops'
+  | 'translations';
 
 export interface FeaturesSlice {
   // The user's explicit per-feature choice. Absent → use the default rule.
@@ -157,6 +158,15 @@ export const ADVANCED_FEATURES: FeatureMeta[] = [
     // routes.txt and stop_times.txt, not separate files, so `files` is empty.
     files: [],
   },
+  {
+    key: 'translations',
+    label: 'Translations',
+    description:
+      'translations.txt — stop names, route names, headsigns and agency details in other languages, for riders in multilingual regions. Off by default; turning it on adds a Translations section and a Translations box to the agency, route and stop panels. Auto-on when the imported feed already has translations.',
+    defaultOn: false,
+    section: 'translations',
+    files: ['translations.txt'],
+  },
 ];
 
 export const FEATURE_BY_KEY: Record<AdvancedFeature, FeatureMeta> = Object.fromEntries(
@@ -182,6 +192,7 @@ export function featureHasData(s: AppStore, f: AdvancedFeature): boolean {
         s.fareMedia.length > 0 || s.fareProducts.length > 0 ||
         s.fareLegRules.length > 0 || s.fareTransferRules.length > 0
       );
+    case 'translations': return s.translations.length > 0;
     case 'continuousStops':
       // Any explicit continuous_pickup/continuous_drop_off on a route OR a
       // stop_time means the feed uses flag-stop service. The store leaves these
@@ -231,6 +242,7 @@ export function clearFeatureData(s: AppStore, f: AdvancedFeature): void {
       s.setFareMedia([]); s.setFareProducts([]);
       s.setFareLegRules([]); s.setFareTransferRules([]);
       break;
+    case 'translations': s.setTranslations([]); break;
     case 'continuousStops':
       // No file; strip continuous_pickup/continuous_drop_off from every route
       // and stop_time.

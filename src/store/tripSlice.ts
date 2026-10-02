@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
-import type { Trip, StopTime, Frequency } from '../types/gtfs';
+import type { Trip, StopTime, Frequency, Translation } from '../types/gtfs';
+import { renameTranslationRecord, translationsForRecords, withoutTranslationsFor } from '../services/translations';
 import type { RouteSlice } from './routeSlice';
 import type { ShapeSlice } from './shapeSlice';
 import type { StopSlice } from './stopSlice';
@@ -25,11 +26,14 @@ export interface TripRemovalSnapshot {
   trip: Trip | undefined;
   stopTimes: StopTime[];
   frequencies: Frequency[];
+  /** translations.txt rows for the trip and its stop_times (optional so
+   *  snapshots built before translations existed still restore). */
+  translations?: Translation[];
 }
 
 /** Narrow cross-slice type used only by the trip removal snapshot helpers to
  *  cascade-remove/restore frequencies (which live in FrequenciesSlice). */
-type TripWithFreqState = TripSlice & { frequencies?: Frequency[] };
+type TripWithFreqState = TripSlice & { frequencies?: Frequency[]; translations?: Translation[] };
 
 export interface TripSlice {
   trips: Trip[];
@@ -123,6 +127,8 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
   removeTrip: (trip_id) => set((state) => {
     state.trips = state.trips.filter((t) => t.trip_id !== trip_id);
     state.stopTimes = state.stopTimes.filter((st) => st.trip_id !== trip_id);
+    const cross = state as unknown as TripWithFreqState;
+    cross.translations = withoutTranslationsFor(cross.translations, 'trips', new Set([trip_id]));
   }),
   setTrips: (trips) => set((state) => { state.trips = trips; }),
   setStopTime: (trip_id, stop_id, stop_sequence, updates) => set((state) => {
@@ -153,6 +159,8 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
     for (const st of state.stopTimes) {
       if (st.trip_id === oldId) st.trip_id = newId;
     }
+    // Trip and stop_times translations both use the trip_id as record_id.
+    renameTranslationRecord((state as unknown as TripWithFreqState).translations, 'trips', oldId, newId);
   }),
   duplicateTrip: (trip_id, newTripId, offsetMinutes) => set((state) => {
     const trip = state.trips.find((t) => t.trip_id === trip_id);
@@ -363,7 +371,7 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
     }
   }),
   removeTripWithSnapshot: (trip_id) => {
-    const snapshot: TripRemovalSnapshot = { trip: undefined, stopTimes: [], frequencies: [] };
+    const snapshot: TripRemovalSnapshot = { trip: undefined, stopTimes: [], frequencies: [], translations: [] };
     set((state) => {
       // Capture a clean (pre-mutation) view via get() to avoid storing immer
       // draft proxies in the snapshot (plain objects survive the set boundary).
@@ -372,12 +380,17 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
       if (!snapshot.trip) return;
       snapshot.stopTimes = cur.stopTimes.filter((st) => st.trip_id === trip_id);
       snapshot.frequencies = (cur.frequencies ?? []).filter((f) => f.trip_id === trip_id);
+      const ids = new Set([trip_id]);
+      snapshot.translations = translationsForRecords(cur.translations, 'trips', ids);
       // Mutate draft: remove trip + stop_times + any frequency windows.
       state.trips = state.trips.filter((t) => t.trip_id !== trip_id);
       state.stopTimes = state.stopTimes.filter((st) => st.trip_id !== trip_id);
       const cross = state as unknown as TripWithFreqState;
       if (cross.frequencies) {
         cross.frequencies = cross.frequencies.filter((f) => f.trip_id !== trip_id);
+      }
+      if (snapshot.translations!.length > 0) {
+        cross.translations = withoutTranslationsFor(cur.translations, 'trips', ids);
       }
     });
     return snapshot;
@@ -390,6 +403,10 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
     if (cross.frequencies && snapshot.frequencies.length > 0) {
       const cur = get() as unknown as TripWithFreqState;
       cross.frequencies = [...(cur.frequencies ?? []), ...snapshot.frequencies];
+    }
+    if (snapshot.translations && snapshot.translations.length > 0) {
+      const cur = get() as unknown as TripWithFreqState;
+      cross.translations = [...(cur.translations ?? []), ...snapshot.translations];
     }
   }),
   applyFrequencyConversion: ({ newTrips, newStopTimes, removedTemplateIds }) => set((state) => {

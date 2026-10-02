@@ -21,6 +21,10 @@ import {
   findRouteSameNameAndDesc,
   findDuplicateRouteNames,
 } from './validationQuality';
+import {
+  analyzeTranslations, isWellFormedLanguageTag, languagesOverlap, OMITTED_ISSUES, MULTILINGUAL_FEED_LANG,
+  type TranslationIssueKind,
+} from './translations';
 
 // Stable codes for validation rules the user can dismiss per feed. The code is
 // attached to EVERY message a rule emits (a rule can emit one message per
@@ -98,6 +102,15 @@ export const VALIDATION_CODES = {
   flexForbiddenPriorNoticeStartTime: 'flex-forbidden-prior-notice-start-time',
   flexPriorNoticeLastDayAfterStartDay: 'flex-prior-notice-last-day-after-start-day',
   flexUnknownPriorNoticeService: 'flex-unknown-prior-notice-service',
+
+  // ── translations.txt ───────────────────────────────────────────────────
+  // Only the spec's "should"-level rules are dismissible: rows it allows but
+  // discourages (an unofficial table or field, a non-text field) and rows that
+  // currently translate nothing. Rows the export has to leave out are never
+  // dismissible — they carry a Remove fix instead.
+  translationUnofficial: 'translation-unofficial-field',
+  translationUnmatchedValue: 'translation-unmatched-field-value',
+  translationDefaultLangUnused: 'translation-default-lang-unused',
 } as const;
 
 // Human label for each dismissible rule, shown in the validation panel's
@@ -137,6 +150,10 @@ export const DISMISSIBLE_RULE_LABELS: Record<string, string> = {
   [VALIDATION_CODES.flexForbiddenPriorNoticeStartTime]: 'prior_notice_start_time is forbidden here',
   [VALIDATION_CODES.flexPriorNoticeLastDayAfterStartDay]: 'Booking closes before it opens',
   [VALIDATION_CODES.flexUnknownPriorNoticeService]: 'Booking rule references a missing service pattern',
+
+  [VALIDATION_CODES.translationUnofficial]: 'Translations of unofficial or non-text fields',
+  [VALIDATION_CODES.translationUnmatchedValue]: 'Translations whose field_value matches nothing',
+  [VALIDATION_CODES.translationDefaultLangUnused]: 'default_lang has no translations',
 };
 
 let msgId = 0;
@@ -1334,5 +1351,102 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     ));
   }
 
+  validateTranslations(state, messages);
+
   return messages;
+}
+
+// ── translations.txt ─────────────────────────────────────────────────────
+// One aggregated message per rule (with a count and a few examples) rather
+// than one per row: a feed can carry thousands of translations, and the same
+// broken reference repeated per row is noise. All warnings — nothing here
+// blocks an export, because the exporter already leaves out every row that
+// would make translations.txt invalid (see services/translations.ts).
+
+const TRANSLATION_ISSUE_TEXT: Record<TranslationIssueKind, string> = {
+  'missing-required': 'Translations missing a required value (table_name, field_name, language or translation)',
+  'invalid-language': 'Translations whose language isn\'t a valid IETF BCP 47 code (use codes like "es", "fr-CA" or "zh-Hant")',
+  'feed-info-reference': 'feed_info translations that set record_id, record_sub_id or field_value, which the spec forbids (feed_info has one row)',
+  'both-forms': 'Translations that set both record_id and field_value (a translation names its target one way or the other)',
+  'no-target': 'Translations that set neither record_id nor field_value, so they don\'t say which value they translate',
+  'sub-id-with-value': 'Translations that set record_sub_id together with field_value, which the spec forbids',
+  'missing-sub-id': 'stop_times translations with a record_id but no record_sub_id (the stop_sequence), which the spec requires',
+  'unexpected-sub-id': 'Translations with a record_sub_id on a table that has none (only stop_times does)',
+  'missing-record': 'Translations pointing at a record that doesn\'t exist in this feed',
+  'unsupported-table': 'Translations of attributions.txt, which GTFS·X doesn\'t carry',
+  'duplicate-key': 'Translations repeating the table, field, language and target of an earlier row',
+  'publisher-overwritten': 'Translations of feed_publisher_name or feed_publisher_url, which GTFS·X replaces with its own on export',
+  'unofficial-table': 'Translations of a table outside the GTFS spec (exported as-is, but most apps ignore them)',
+  'unknown-field': 'Translations of a field that isn\'t part of that GTFS table (GTFS·X doesn\'t carry unofficial columns, so the original value isn\'t in the export)',
+  'untranslatable-field': 'Translations of a field whose type shouldn\'t be translated (an id, number, color, time or code)',
+  'unmatched-value': 'Translations whose field_value no record currently has, so they translate nothing (was the original text edited?)',
+};
+
+function describeTranslationRow(state: AppStore, index: number): string {
+  const t = state.translations[index];
+  const target = t.record_id
+    ? ` "${t.record_id}${t.record_sub_id ? ` #${t.record_sub_id}` : ''}"`
+    : t.field_value ? ` = "${t.field_value}"` : '';
+  return `${t.table_name || '?'}${target} ${t.field_name || '?'} (${t.language || '?'})`;
+}
+
+function validateTranslations(state: AppStore, messages: ValidationMessage[]) {
+  const translations = state.translations ?? [];
+  const feedLang = state.feedInfo?.feed_lang?.trim() ?? '';
+  const defaultLang = state.feedInfo?.default_lang?.trim() ?? '';
+
+  if (translations.length > 0) {
+    const byKind = new Map<TranslationIssueKind, number[]>();
+    for (const issue of analyzeTranslations({ ...state, translations })) {
+      const list = byKind.get(issue.kind) ?? [];
+      list.push(issue.index);
+      byKind.set(issue.kind, list);
+    }
+    for (const [kind, rows] of byKind) {
+      const omitted = OMITTED_ISSUES.has(kind);
+      const examples = rows.slice(0, 3).map((i) => describeTranslationRow(state, i)).join('; ');
+      const more = rows.length > 3 ? `; and ${rows.length - 3} more` : '';
+      const tail = omitted
+        ? ` ${rows.length === 1 ? "It's" : "They're"} kept in the feed but left out of the exported translations.txt.`
+        : '';
+      const code = kind === 'unmatched-value'
+        ? VALIDATION_CODES.translationUnmatchedValue
+        : omitted ? undefined : VALIDATION_CODES.translationUnofficial;
+      const m = msg('warning', `${TRANSLATION_ISSUE_TEXT[kind]} (${rows.length}): ${examples}${more}.${tail}`, 'translation', undefined, code);
+      if (omitted) m.fix = { id: 'remove-invalid-translations' };
+      messages.push(m);
+    }
+
+    if (!feedLang) {
+      messages.push(msg(
+        'warning',
+        'This feed has translations but no feed language (feed_info.feed_lang). Set Feed Language in Agency → Feed Info so apps know which language the original names are in; without it the export falls back to the agency language or your browser\'s.',
+        'agency',
+      ));
+    }
+    if (
+      defaultLang && isWellFormedLanguageTag(defaultLang)
+      && !languagesOverlap(defaultLang, feedLang)
+      && !translations.some((t) => languagesOverlap(t.language, defaultLang))
+    ) {
+      messages.push(msg(
+        'warning',
+        `default_lang is "${defaultLang}", but no translations are in that language, so riders whose language is unknown will see the original (${feedLang || 'feed language'}) text.`,
+        'agency', undefined, VALIDATION_CODES.translationDefaultLangUnused,
+      ));
+    }
+  } else if (feedLang === MULTILINGUAL_FEED_LANG) {
+    messages.push(msg(
+      'warning',
+      'Feed language is "mul" (the original text is in several languages), but the feed has no translations. A multilingual feed should give a translation for each language it uses — or set feed_lang to the one language the text is in.',
+      'agency',
+    ));
+  }
+
+  if (feedLang && !isWellFormedLanguageTag(feedLang)) {
+    messages.push(msg('warning', `Feed language "${feedLang}" isn't a valid IETF BCP 47 language code (e.g. "en", "es", "fr-CA").`, 'agency'));
+  }
+  if (defaultLang && !isWellFormedLanguageTag(defaultLang)) {
+    messages.push(msg('warning', `default_lang "${defaultLang}" isn't a valid IETF BCP 47 language code (e.g. "en", "es", "fr-CA").`, 'agency'));
+  }
 }

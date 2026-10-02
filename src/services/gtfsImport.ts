@@ -5,6 +5,8 @@ import { useStore } from '../store';
 import { loadingFeed } from '../store/history';
 import { resetEditorState } from '../db/serverPersistence';
 import type { AdvancedFeature } from '../store/featuresSlice';
+import type { Translation } from '../types/gtfs';
+import { translationKey } from './translations';
 import {
   importGtfsZip,
   inspectGtfsZip,
@@ -85,6 +87,7 @@ function applyImportToStore(data: Awaited<ReturnType<typeof importGtfsZip>>) {
   store.setFareLegRules(data.fareLegRules);
   store.setFareTransferRules(data.fareTransferRules);
   store.setFlexZones(data.flexZones);
+  store.setTranslations(data.translations);
 
   // Seed per-feed feature settings from what the imported feed contains, so its
   // advanced sections (frequencies, stations, transfers) show up — "the feed
@@ -96,6 +99,7 @@ function applyImportToStore(data: Awaited<ReturnType<typeof importGtfsZip>>) {
   if (data.transfers.length) fs.transfers = true;
   if (data.frequencies.length) fs.frequencies = true;
   if (data.levels.length || data.pathways.length) fs.stations = true;
+  if (data.translations.length) fs.translations = true;
   // Fares v2: auto-on when the imported feed already carries any v2 file, so
   // its authoring tabs surface without the user hunting for the toggle.
   if (
@@ -295,5 +299,43 @@ export function mergeImportIntoStore(
       const s4 = useStore.getState();
       s4.setCalendarDates([...s4.calendarDates, ...calDatesToAdd]);
     }
+  }
+
+  // translations.txt for what came across: record-based rows of the merged
+  // routes, trips (+ their stop_times) and newly added stops, re-keyed to the
+  // prefixed ids; and by-value rows (e.g. a headsign) whose value one of the
+  // merged records actually carries. Rows already present aren't repeated.
+  const mergedStopIds = new Set(selectedStops.map((st) => st.stop_id));
+  const valuesByTable: Record<string, Record<string, unknown>[]> = {
+    routes: selectedRoutes as unknown as Record<string, unknown>[],
+    trips: selectedTrips as unknown as Record<string, unknown>[],
+    stop_times: selectedStopTimes as unknown as Record<string, unknown>[],
+    stops: selectedStops as unknown as Record<string, unknown>[],
+  };
+  const carried: Translation[] = [];
+  for (const t of data.translations ?? []) {
+    if (t.record_id && !t.field_value) {
+      const id = t.record_id;
+      const keep =
+        (t.table_name === 'routes' && selRouteGtfsIds.has(id)) ||
+        ((t.table_name === 'trips' || t.table_name === 'stop_times') && selTripGtfsIds.has(id)) ||
+        (t.table_name === 'stops' && mergedStopIds.has(id));
+      if (keep) carried.push({ ...t, record_id: pfx(id) });
+    } else if (t.field_value && valuesByTable[t.table_name]) {
+      if (valuesByTable[t.table_name].some((r) => String(r[t.field_name] ?? '') === t.field_value)) {
+        carried.push({ ...t });
+      }
+    }
+  }
+  if (carried.length > 0) {
+    const s5 = useStore.getState();
+    const have = new Set(s5.translations.map(translationKey));
+    const fresh = carried.filter((t) => {
+      const k = translationKey(t);
+      if (have.has(k)) return false;
+      have.add(k);
+      return true;
+    });
+    if (fresh.length > 0) s5.setTranslations([...s5.translations, ...fresh]);
   }
 }

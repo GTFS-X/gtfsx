@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
-import type { Stop, StopTime, RouteStop, Transfer } from '../types/gtfs';
+import type { Stop, StopTime, RouteStop, Transfer, Translation } from '../types/gtfs';
+import { translationsForRecords, withoutTranslationsFor } from '../services/translations';
 import type { TripSlice } from './tripSlice';
 import type { RouteSlice } from './routeSlice';
 import { generateId } from '../services/idGenerator';
@@ -21,6 +22,8 @@ export interface StopRemovalSnapshot {
   stopTimes: StopTime[];
   routeStops: RouteStop[];
   transfers: Transfer[];
+  /** translations.txt rows naming the stop (optional: older snapshots). */
+  translations?: Translation[];
 }
 
 export interface StopSlice {
@@ -54,7 +57,7 @@ export interface StopSlice {
 
 // removeStop cascades into other slices (stop_times, route_stops, transfers);
 // widen the state view to cover those fields without resorting to `any`.
-type CrossSliceState = StopSlice & TripSlice & RouteSlice & { transfers?: Transfer[] };
+type CrossSliceState = StopSlice & TripSlice & RouteSlice & { transfers?: Transfer[]; translations?: Translation[] };
 
 export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]], [], StopSlice> = (set, get) => ({
   stops: [],
@@ -80,6 +83,9 @@ export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]]
         (t) => t.from_stop_id !== stop_id && t.to_stop_id !== stop_id,
       );
     }
+
+    // Translations of the deleted stop (stop_name in Spanish, …).
+    cross.translations = withoutTranslationsFor(fullState.translations, 'stops', new Set([stop_id]));
   }),
   duplicateStop: (stop_id) => {
     const orig = get().stops.find((s) => s.stop_id === stop_id);
@@ -121,7 +127,7 @@ export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]]
   }),
   removeStopWithSnapshot: (stop_id) => {
     const snapshot: StopRemovalSnapshot = {
-      stop: undefined, stopTimes: [], routeStops: [], transfers: [],
+      stop: undefined, stopTimes: [], routeStops: [], transfers: [], translations: [],
     };
     set((state) => {
       // Capture a clean (pre-mutation) view of the store via get() so we store
@@ -134,6 +140,7 @@ export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]]
       snapshot.transfers = (cur.transfers ?? []).filter(
         (t) => t.from_stop_id === stop_id || t.to_stop_id === stop_id,
       );
+      snapshot.translations = translationsForRecords(cur.translations, 'stops', new Set([stop_id]));
       // Mutate draft — mirrors removeStop's cascade exactly.
       state.stops = state.stops.filter((s) => s.stop_id !== stop_id);
       (state as CrossSliceState).stopTimes = cur.stopTimes.filter((st) => st.stop_id !== stop_id);
@@ -143,6 +150,9 @@ export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]]
         cross.transfers = (cur.transfers ?? []).filter(
           (t) => t.from_stop_id !== stop_id && t.to_stop_id !== stop_id,
         );
+      }
+      if (snapshot.translations!.length > 0) {
+        cross.translations = withoutTranslationsFor(cur.translations, 'stops', new Set([stop_id]));
       }
     });
     return snapshot;
@@ -156,6 +166,9 @@ export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]]
     const cross = state as CrossSliceState;
     if (cross.transfers) {
       cross.transfers = [...(cur.transfers ?? []), ...snapshot.transfers];
+    }
+    if (snapshot.translations && snapshot.translations.length > 0) {
+      cross.translations = [...(cur.translations ?? []), ...snapshot.translations];
     }
   }),
   setStops: (stops) => set((state) => { state.stops = stops; }),

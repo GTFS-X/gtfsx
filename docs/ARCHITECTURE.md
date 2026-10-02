@@ -671,7 +671,15 @@ Design rationale is preserved in the decisions appendix of the archived
 Work that exists in the repo but is **not** live in production. Delete an entry
 from here when it ships, and fold it into the Production list above.
 
-_(none)_
+- **`translations.txt` support (branch `translations`, 2026-10-02).** Import/
+  export, editor UI (per-entity Translations boxes + a feed-level Translations
+  section behind the per-feed `translations` feature toggle), spec validation,
+  referential-integrity cascades. Client-only: no worker, D1 or plan change
+  (free on every plan; the zip is rendered client-side, so publishing picks it
+  up with no server work). See REQUIREMENTS §1.11. **After it ships**, apply the
+  demo-feed example: `node scripts/demo-feed/svt-demo-translations.mjs` checks
+  the 22 Spanish rows against the published svt-demo and prints a console
+  snippet to paste with the svt-demo project open; then Save + Publish.
 
 ### Staging — PARKED (since 2026-05-16)
 

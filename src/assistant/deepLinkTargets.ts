@@ -8,7 +8,7 @@ import type { SidebarSection, BottomPanelTab } from '../types/ui';
 export const SIDEBAR_SECTIONS = [
   'agency', 'calendar', 'routes', 'stops', 'stations', 'frequencies', 'blocks',
   'fares', 'flex', 'costs', 'coverage', 'titlevi', 'stop-analysis',
-  'access-isochrones', 'alerts', 'variants', 'settings',
+  'access-isochrones', 'alerts', 'variants', 'translations', 'settings',
 ] as const satisfies readonly SidebarSection[];
 
 export const BOTTOM_PANEL_TABS = [

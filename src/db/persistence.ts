@@ -152,6 +152,9 @@ export async function loadProject(projectId: string) {
     // B whose local snapshot predates this key — an older/newer feed loads with
     // its own (or empty) transfers rather than inheriting the previous one's.
     state.setTransfers(Array.isArray(snapshot.transfers) ? snapshot.transfers : []);
+    // translations.txt — unconditional for the same reason: a draft cached
+    // before translations existed must load with none, not feed A's.
+    state.setTranslations(Array.isArray(snapshot.translations) ? snapshot.translations : []);
     if (snapshot.featureSettings) state.setFeatureSettings(snapshot.featureSettings);
     // Per-feed dismissed validation rules. Set unconditionally (not `if present`)
     // so switching between drafts in one session can't leak feed A's dismissals

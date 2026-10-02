@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
-import type { Agency } from '../types/gtfs';
+import type { Agency, Translation } from '../types/gtfs';
+import { renameTranslationRecord, withoutTranslationsFor } from '../services/translations';
 import type { RouteSlice } from './routeSlice';
 import type { FareSlice } from './fareSlice';
 
@@ -7,7 +8,15 @@ import type { FareSlice } from './fareSlice';
 // (routes.txt, fare_attributes.txt). Casting the draft to this intersection is
 // narrower than `any` and still catches field typos — same approach routeSlice
 // uses for its cascades.
-type CrossSliceState = AgencySlice & RouteSlice & FareSlice;
+type CrossSliceState = AgencySlice & RouteSlice & FareSlice & { translations?: Translation[] };
+
+// A deleted agency takes its translations with it — unless another agency row
+// still carries the same id (an imported feed can have duplicates), in which
+// case the translations still have a record to name.
+function dropAgencyTranslations(state: CrossSliceState, agencyId: string) {
+  if (!agencyId || state.agencies.some((a) => a.agency_id === agencyId)) return;
+  state.translations = withoutTranslationsFor(state.translations, 'agency', new Set([agencyId]));
+}
 
 export interface AgencySlice {
   agencies: Agency[];
@@ -60,6 +69,10 @@ export const createAgencySlice: StateCreator<AgencySlice, [['zustand/immer', nev
     if (state.agencies.some((a, i) => i !== index && a.agency_id === newId)) return;
     agency.agency_id = newId;
 
+    // translations.txt rows name the agency by agency_id; they follow the rename
+    // (a blank old id names no translation, so this is a no-op for it).
+    renameTranslationRecord((state as unknown as CrossSliceState).translations, 'agency', oldId, newId);
+
     // Cascade to the referencing rows. A blank `oldId` only identifies an agency
     // unambiguously in a single-agency feed — there, rows with no agency_id can
     // only mean the one agency, so adopting them is right (and is exactly what
@@ -76,10 +89,12 @@ export const createAgencySlice: StateCreator<AgencySlice, [['zustand/immer', nev
   }),
   removeAgency: (agency_id) => set((state) => {
     state.agencies = state.agencies.filter((a) => a.agency_id !== agency_id);
+    dropAgencyTranslations(state as unknown as CrossSliceState, agency_id);
   }),
   removeAgencyAt: (index) => set((state) => {
     if (index < 0 || index >= state.agencies.length) return;
-    state.agencies.splice(index, 1);
+    const [removed] = state.agencies.splice(index, 1);
+    dropAgencyTranslations(state as unknown as CrossSliceState, removed.agency_id);
   }),
   setAgencies: (agencies) => set((state) => { state.agencies = agencies; }),
 });

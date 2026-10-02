@@ -37,6 +37,7 @@ export const HISTORY_KEYS: ReadonlySet<string> = new Set<string>([
   'timeframes', 'riderCategories', 'fareMedia', 'fareProducts',
   'fareLegRules', 'fareTransferRules',
   'frequencies', 'levels', 'pathways', 'transfers', 'flexZones',
+  'translations',
 ]);
 
 /** Max undo steps retained. Oldest are dropped past this — bounds memory on
@@ -149,6 +150,7 @@ const KEY_LABEL: Record<string, string> = {
   routeNetworks: 'fares', timeframes: 'fares', riderCategories: 'fares',
   fareMedia: 'fares', fareProducts: 'fares', fareLegRules: 'fares',
   fareTransferRules: 'fares',
+  translations: 'translation',
 };
 
 // When several keys change at once (e.g. a stop delete cascades into stop_times
@@ -162,7 +164,7 @@ const KEY_PRIORITY = [
   'levels', 'pathways', 'frequencies', 'feedInfo',
   'fareAttributes', 'fareRules', 'fareAreas', 'stopAreas', 'fareNetworks',
   'routeNetworks', 'timeframes', 'riderCategories', 'fareMedia',
-  'fareProducts', 'fareLegRules', 'fareTransferRules',
+  'fareProducts', 'fareLegRules', 'fareTransferRules', 'translations',
 ];
 
 function primaryKey(keys: Set<string>): string {

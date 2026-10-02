@@ -75,6 +75,18 @@
       "limitations": "The Stations nav item appears only when the 'Stations & pathways' feature is enabled in Settings (or the feed already contains levels/pathways)."
     },
     {
+      "id": "translations",
+      "name": "Translations (translations.txt)",
+      "category": "panel",
+      "purpose": "Give riders stop names, route names, headsigns and agency details in other languages via translations.txt, plus the feed language (feed_lang) and default language (default_lang). Translate one stop/route/agency from its own panel's Translations box, headsigns by value from the route panel, or manage every row (filter by language/table) in the Translations section.",
+      "whenToUse": "Agencies in multilingual regions (e.g. Spanish/English, French/English) that want translated names in rider apps, or a feed imported with translations.txt.",
+      "clickPath": "Enable 'Translations' in Settings, then Left rail → Translations (or the Translations box at the bottom of a stop, route or Agency panel). Feed language/default language are in Agency → Feed Info.",
+      "deepLink": { "sidebarSection": "translations" },
+      "plan": "all",
+      "docs": ["/docs/translations/"],
+      "limitations": "The Translations nav item appears only when the feature is on (auto-on when the feed already has translations). Translations of attributions.txt are kept but not exported (attributions.txt isn't modeled). Rows the export would make invalid (a record that no longer exists, a bad language code, a duplicate) stay in the editor, are listed in Validation, and are left out of the export."
+    },
+    {
       "id": "frequencies",
       "name": "Frequency-based service",
       "category": "panel",
@@ -198,7 +210,7 @@
       "id": "settings",
       "name": "Feature settings",
       "category": "panel",
-      "purpose": "Turn advanced GTFS features on/off per feed (Stations & pathways, Frequencies, Blocks, Demand response, Service Alerts, Fares v2, Flag-stop service) so the editor stays lean.",
+      "purpose": "Turn advanced GTFS features on/off per feed (Stations & pathways, Frequencies, Blocks, Demand response, Service Alerts, Fares v2, Flag-stop service, Translations) so the editor stays lean.",
       "whenToUse": "Revealing an advanced feature's panel/controls, or hiding ones you don't use.",
       "clickPath": "Left rail → Settings.",
       "deepLink": { "sidebarSection": "settings" },
@@ -524,11 +536,6 @@
       "ask": "Reroute a route by dragging its existing line on the map",
       "reason": "Routes are edited by drawing or trimming their shape geometry, not by grabbing an existing route line and dragging it to a new path.",
       "workaround": "Open the route's Shapes tab and edit/trim the shape, or redraw the line (snap-to-road will follow the streets)."
-    },
-    {
-      "ask": "Translate stop/route names into other languages (translations.txt)",
-      "reason": "There is no in-app translations editor; GTFS·X doesn't author translations.txt.",
-      "workaround": "Export the feed and add a translations.txt by hand; keep it out of a re-import so it isn't dropped."
     },
     {
       "ask": "Ferry / boat-specific route tooling (water routing)",

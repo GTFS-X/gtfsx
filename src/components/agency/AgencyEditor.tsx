@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../../store';
+import { featureEnabled } from '../../store/featuresSlice';
 import { FormField } from '../ui/FormField';
 import { EmptyState } from '../ui/EmptyState';
 import { EditActions } from '../ui/EditActions';
@@ -7,6 +8,9 @@ import { RailSubHeading, RailDivider } from '../ui/RailHeadings';
 import { US_TIMEZONES } from '../../utils/constants';
 import { agencyReferenceCount, newAgencyDraft } from './agencyHelpers';
 import type { Agency } from '../../types/gtfs';
+import { TranslationsEditor, type TranslationTarget } from '../translations/EntityTranslations';
+import { LanguagePicker } from '../translations/LanguagePicker';
+import { TABLE_SPEC } from '../../services/translations';
 
 /**
  * agency.txt editor. A feed usually has exactly one agency, so that case looks
@@ -253,9 +257,22 @@ export function AgencyEditor() {
         />
       </div>
 
+      {/* translations.txt for this agency (hidden unless the Translations
+          feature is on). Translations name the agency by agency_id, so an
+          agency without one can't be translated by record. */}
+      {currentAgencyId ? (
+        <TranslationsEditor
+          title="Agency translations"
+          targets={agencyTargets(agency)}
+          hint="The agency's name and contact details in other languages."
+        />
+      ) : (
+        <TranslationsHintNoId />
+      )}
+
       <button
         onClick={handleAdd}
-        className="w-full py-2 rounded-lg border-2 border-dashed border-sand text-warm-gray text-sm font-medium hover:border-coral hover:text-coral transition-colors"
+        className="mt-3 w-full py-2 rounded-lg border-2 border-dashed border-sand text-warm-gray text-sm font-medium hover:border-coral hover:text-coral transition-colors"
       >
         + Add Agency
       </button>
@@ -280,17 +297,73 @@ export function AgencyEditor() {
         disabled
         placeholder="None — published as GTFS·X"
       />
-      <FormField
-        label="Feed Language"
-        value={feedInfo?.feed_lang || 'en-US'}
-        onChange={(v) => updateFeedInfo({ feed_lang: v })}
-      />
+      {/* feed_lang: the language the feed's original text is in. Shown as
+          the actual stored value (blank = unset; the exporter then falls back to
+          the agency language) so the translations rules can be read off it. */}
+      <FormField label="Feed Language" testId="field-feed-language">
+        <LanguagePicker
+          value={feedInfo?.feed_lang ?? ''}
+          onChange={(v) => updateFeedInfo({ feed_lang: v })}
+          allowMultilingual
+          placeholder={`Not set (exports as ${agency.agency_lang || 'en'})`}
+          ariaLabel="Feed language"
+          testId="feed-lang-input"
+        />
+      </FormField>
+      <FormField label="Default Language" testId="field-default-language">
+        <LanguagePicker
+          value={feedInfo?.default_lang ?? ''}
+          onChange={(v) => updateFeedInfo({ default_lang: v || undefined })}
+          placeholder="Optional (e.g. en)"
+          ariaLabel="Default language"
+          testId="default-lang-input"
+        />
+        <p className="text-[11px] text-warm-gray mt-1">
+          The language apps show when they don&rsquo;t know the rider&rsquo;s. Usually your main language.
+        </p>
+      </FormField>
       <FormField
         label="Feed Version"
         value={feedInfo?.feed_version || ''}
         onChange={(v) => updateFeedInfo({ feed_version: v })}
         placeholder="e.g., 2026-03"
       />
+      <TranslationsEditor
+        title="Feed info translations"
+        targets={FEED_INFO_FIELDS.map((f) => ({
+          id: `feed_info-${f.field}`,
+          label: f.label,
+          original: String((feedInfo as Record<string, unknown> | null)?.[f.field] ?? ''),
+          table: 'feed_info' as const,
+          field: f.field,
+        }))}
+      />
     </div>
+  );
+}
+
+const FEED_INFO_FIELDS = TABLE_SPEC.feed_info.translatable.filter((f) => f.common);
+
+function agencyTargets(agency: Agency): TranslationTarget[] {
+  return TABLE_SPEC.agency.translatable
+    .filter((f) => f.common)
+    .map((f) => ({
+      id: `agency-${f.field}`,
+      label: f.label,
+      original: String((agency as unknown as Record<string, unknown>)[f.field] ?? ''),
+      table: 'agency' as const,
+      field: f.field,
+      recordId: agency.agency_id,
+    }));
+}
+
+function TranslationsHintNoId() {
+  const enabled = useStore((s) => featureEnabled(s, 'translations'));
+  if (!enabled) return null;
+  return (
+    <p className="mt-3 text-[11px] text-warm-gray leading-snug">
+      Set an Agency ID above to translate this agency&rsquo;s name and details — translations.txt
+      refers to the agency by its ID.
+    </p>
   );
 }

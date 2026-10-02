@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <title>Translations (translations.txt) — GTFS·X</title>
+    <meta name="description" content="Translate stop names, route names, headsigns and agency details into other languages in GTFS·X. Writes GTFS translations.txt for riders in multilingual regions, with feed_lang / default_lang and validation." />
+    <link rel="canonical" href="https://www.gtfsx.com/docs/translations/" />
+    <meta property="og:title" content="Translations (translations.txt) — GTFS·X" />
+    <meta property="og:description" content="Multilingual feeds: translations.txt by record or by value, feed language and default language, and what the validator checks." />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://www.gtfsx.com/docs/translations/" />
+    <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@gtfsxapp" />
+    <meta name="twitter:image" content="https://www.gtfsx.com/og-default.png" />
+    <link rel="stylesheet" href="/assets/docs/docs.css" />
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Translations (translations.txt) — GTFS·X",
+  "description": "Translate stop names, route names, headsigns and agency details into other languages in GTFS·X. Writes GTFS translations.txt for riders in multilingual regions, with feed_lang / default_lang and validation.",
+  "image": "https://www.gtfsx.com/og-default.png",
+  "author": {
+    "@type": "Organization",
+    "name": "GTFS·X",
+    "url": "https://www.gtfsx.com/"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "GTFS·X",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://www.gtfsx.com/gtfsx-lockup.svg"
+    }
+  },
+  "datePublished": "2026-10-02",
+  "dateModified": "2026-10-02",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://www.gtfsx.com/docs/translations/"
+  }
+}
+  </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/"><img src="/gtfsx-lockup.svg" alt="GTFS·X" /></a>
+      <nav>
+        <a href="/about/">About</a>
+        <a href="/docs/" class="active">Docs</a>
+        <a href="/learn/gtfs/">Learn</a>
+        <a href="/community">Community</a>
+        <a href="/help">Help</a>
+      </nav>
+      <div class="actions">
+        <a href="/editor" class="cta">Open editor</a>
+        <div id="user-slot" class="user-slot"><a href="/login">Sign in</a></div>
+      </div>
+    </header>
+    <main>
+      <div class="crumbs"><a href="/docs/">Docs</a> · Editor panels · Translations</div>
+      <h1>Translations</h1>
+      <p class="lede">In regions with more than one official or widely spoken language, riders expect stop names, route names and headsigns in their own language. GTFS carries those in <code>translations.txt</code>, and GTFS·X edits it for you: translate a single stop, route or agency from its own panel, or manage every translation in the feed from the <strong>Translations</strong> section. It&rsquo;s free on every plan.</p>
+
+      <h2 id="turn-on">Turn translations on</h2>
+      <p>Translations is an advanced feature, off by default so the editor stays simple for single-language feeds. Turn it on in <a href="/docs/feature-settings/">Settings</a> (the gear in the left rail) → <strong>Translations</strong>. If you import a feed that already has a <code>translations.txt</code>, it switches on by itself.</p>
+      <p>Once it&rsquo;s on you get a <strong>Translations</strong> section under Setup in the left rail, and a Translations box at the bottom of the agency, route and stop panels.</p>
+
+      <h2 id="languages">Feed language and default language</h2>
+      <p>Two settings in <code>feed_info.txt</code> tell apps how to read your translations. Both are in <strong>Agency → Feed Info</strong>, and repeated at the top of the Translations section:</p>
+      <ul>
+        <li><strong>Feed language</strong> (<code>feed_lang</code>) — the language your original names are written in, such as <code>en</code>. If the original text mixes languages (a Swiss feed with &ldquo;Genève&rdquo; and &ldquo;Zürich&rdquo; side by side), use <code>mul</code> and give a translation for every language.</li>
+        <li><strong>Default language</strong> (<code>default_lang</code>, optional) — what apps show a rider whose language they don&rsquo;t know. Usually your main language.</li>
+      </ul>
+      <p>Languages are <a href="https://www.w3.org/International/articles/language-tags/">IETF BCP 47</a> codes: <code>es</code> for Spanish, <code>fr-CA</code> for Canadian French, <code>zh-Hant</code> for Traditional Chinese. The language picker suggests common codes, shows the language name as you type, and accepts any valid code.</p>
+
+      <h2 id="per-entity">Translating a stop, route or agency</h2>
+      <p>Open the stop, route or agency and scroll to <strong>Translations</strong>. Click <strong>+ Add language</strong>, pick the language, and type the translated name. Each translatable field gets a box, with the original text as a hint:</p>
+      <ul>
+        <li><strong>Stops</strong> — name, text-to-speech name, description, stop URL.</li>
+        <li><strong>Routes</strong> — short name, long name, description, route URL.</li>
+        <li><strong>Agency</strong> — name, URL, fare URL, phone, email. The agency needs an Agency ID, because translations refer to it by ID.</li>
+      </ul>
+      <p>Leave a box empty to skip that field. Clearing a box deletes that translation, and <strong>Remove</strong> deletes a language&rsquo;s translations for that record.</p>
+
+      <h2 id="headsigns">Headsigns: translate by value</h2>
+      <p>The route panel also has <strong>Headsign translations</strong>, with one box per headsign used on the route. These are written <em>by value</em>: translating &ldquo;Northbound&rdquo; as &ldquo;Hacia el norte&rdquo; covers every trip whose headsign is exactly &ldquo;Northbound&rdquo;, including trips you add later. That&rsquo;s how most multilingual feeds handle headsigns, and it saves translating hundreds of trips one by one.</p>
+
+      <h2 id="table">The Translations section</h2>
+      <p>The <strong>Translations</strong> section in the left rail lists every row in <code>translations.txt</code>. Filter by language or by table, or search the text. Click a row to edit it, or <strong>+ Add</strong> to create one. That&rsquo;s also where to translate things without their own panel, such as stop headsigns, trip short names, level names, pathway signs and feed contact details.</p>
+      <p>Each translation names what it translates in one of two ways, matching the spec:</p>
+      <ul>
+        <li><strong>One record</strong> — a field on one stop, route, trip, agency, level or pathway (<code>record_id</code>). A stop headsign also needs the stop&rsquo;s position in the trip (<code>record_sub_id</code>, the stop_sequence).</li>
+        <li><strong>Every matching value</strong> — the field everywhere it has exactly this text (<code>field_value</code>). The match has to be exact; a partial match isn&rsquo;t translated.</li>
+      </ul>
+      <p>Feed info translations use neither, because a feed has a single feed info row. If both kinds of translation cover the same value, the one-record translation wins.</p>
+
+      <h2 id="integrity">Renames and deletions</h2>
+      <p>Translations follow the records they belong to. Rename an agency ID, trip ID, level or pathway and its translations move with it. Delete a stop, route, trip, agency, level or pathway and its translations go too, and undo brings them back. By-value translations are left alone, because they name text rather than a record.</p>
+
+      <h2 id="validation">What validation checks</h2>
+      <p>Translation problems show up in <a href="/docs/validation/">Validation</a> as warnings, one line per kind of problem with a count and examples. They never block an export:</p>
+      <ul>
+        <li><strong>Left out of the export:</strong> translations that point at a record that doesn&rsquo;t exist, use an invalid language code, repeat another row, break the record/value rules above, or translate the feed publisher (GTFS·X always publishes the feed as GTFS·X). They stay in the editor so you can fix them, and the <strong>Remove</strong> fix deletes them in one click.</li>
+        <li><strong>Kept, with a note:</strong> translations of a table or field outside the spec, of a field that shouldn&rsquo;t be translated (an ID or a color), or by-value translations whose text no record currently has. That last one usually means the original name was edited after it was translated.</li>
+        <li><strong>Languages:</strong> a feed with translations but no feed language, an invalid feed or default language code, a default language with no translations in it, and <code>mul</code> with no translations.</li>
+      </ul>
+
+      <h2 id="import-export">Import and export</h2>
+      <p>Importing a feed brings in its <code>translations.txt</code> row for row, including rows GTFS·X can&rsquo;t resolve, so nothing is silently dropped. Exporting writes <code>translations.txt</code> only when the feed has translations. The spec&rsquo;s optional columns appear only when a row uses them.</p>
+      <p>Translations of <code>attributions.txt</code> are kept in the editor but not exported, because GTFS·X doesn&rsquo;t carry <code>attributions.txt</code> itself.</p>
+
+      <div class="see-also">
+        <h2>See also</h2>
+        <ul>
+          <li><a href="/docs/agency-setup/">Agency setup</a> — agency fields, feed language and feed info.</li>
+          <li><a href="/docs/feature-settings/">Feature settings</a> — turn Translations on or off for a feed.</li>
+          <li><a href="/docs/import-and-export/">Import &amp; export</a> — which GTFS files GTFS·X reads and writes.</li>
+          <li><a href="https://gtfs.org/documentation/schedule/reference/#translationstxt">translations.txt in the GTFS reference</a>.</li>
+        </ul>
+      </div>
+    </main>
+    <style>
+footer.gx-footer { max-width: none; width: 100%; margin: 0; padding: 0; background: #3D2E22; color: #FFF8F0; font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif; box-sizing: border-box; }
+footer.gx-footer * { box-sizing: border-box; }
+footer.gx-footer a { text-decoration: none; }
+footer.gx-footer .gx-wrap { max-width: 1180px; margin: 0 auto; padding: 64px 28px 36px; }
+footer.gx-footer .gx-top { display: grid; grid-template-columns: 1.4fr repeat(4, 1fr); gap: 36px; }
+footer.gx-footer .gx-lockup { height: 28px; width: auto; display: block; margin-bottom: 16px; }
+footer.gx-footer .gx-blurb { font-size: 13.5px; color: rgba(255,248,240,0.6); line-height: 1.55; max-width: 240px; margin: 0; }
+footer.gx-footer .gx-social { display: flex; gap: 10px; margin-top: 18px; }
+footer.gx-footer .gx-social a { width: 34px; height: 34px; border-radius: 9px; background: rgba(255,248,240,0.08); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #FFF8F0; transition: background 0.12s; }
+footer.gx-footer .gx-social a:hover { background: #E8734A; }
+footer.gx-footer .gx-col h4 { font-family: "Nunito", ui-rounded, system-ui, sans-serif; font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,248,240,0.5); margin: 0 0 16px; }
+footer.gx-footer .gx-col a { display: block; font-size: 14px; color: rgba(255,248,240,0.82); margin-bottom: 11px; transition: color 0.12s; }
+footer.gx-footer .gx-col a:hover { color: #E8734A; }
+footer.gx-footer .gx-bottom { max-width: 1180px; margin: 48px auto 0; padding: 24px 28px 0; border-top: 1px solid rgba(255,248,240,0.12); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13px; color: rgba(255,248,240,0.5); }
+footer.gx-footer .gx-mono { font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+@media (max-width: 780px) { footer.gx-footer .gx-top { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { footer.gx-footer .gx-top { grid-template-columns: 1fr; } }
+</style>
+<footer class="gx-footer">
+  <div class="gx-wrap">
+    <div class="gx-top">
+      <div>
+        <img class="gx-lockup" src="/gtfsx-lockup-on-dark.svg" alt="GTFS·X" width="100" height="28">
+        <p class="gx-blurb">The fast, easy GTFS editor and service planner. Built for transit agencies, planners, and consultants.</p>
+        <div class="gx-social">
+          <a href="https://twitter.com/gtfsxapp" aria-label="GTFS·X on X">X</a>
+          <a href="https://www.linkedin.com/company/gtfsx" aria-label="GTFS·X on LinkedIn">in</a>
+          <a href="https://github.com/GTFS-X/gtfsx" aria-label="GTFS·X on GitHub">gh</a>
+        </div>
+      </div>
+      <div class="gx-col">
+        <h4>Product</h4>
+        <a href="/editor">Editor</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/planning">Planning</a>
+        <a href="/docs/hosted-publishing/">Publishing</a>
+      </div>
+      <div class="gx-col">
+        <h4>Learn</h4>
+        <a href="/learn/gtfs/">What is GTFS</a>
+        <a href="/learn/gtfs-flex/">What is GTFS-Flex</a>
+        <a href="/learn/publish-gtfs-feed/">Publish a GTFS feed</a>
+        <a href="/docs/">Docs</a>
+      </div>
+      <div class="gx-col">
+        <h4>Compare</h4>
+        <a href="/compare/trillium/">vs Trillium</a>
+        <a href="/compare/remix/">vs Remix</a>
+        <a href="/compare/gtfs-builder-rtap/">vs RTAP</a>
+      </div>
+      <div class="gx-col">
+        <h4>Company</h4>
+        <a href="/about/">About</a>
+        <a href="/feed-health/">GTFS Dashboard</a>
+        <a href="/community/announcements">Announcements</a>
+        <a href="mailto:hello@gtfsx.com">Contact</a>
+        <a href="/use-cases/state-dot/">State DOTs</a>
+      </div>
+    </div>
+    <div class="gx-bottom">
+      <span>© 2026 GTFS·X · Vector &amp; Vertex</span>
+      <span class="gx-mono">hello@gtfsx.com</span>
+    </div>
+  </div>
+</footer>
+    <script>
+      (function () {
+        fetch('/api/me', { credentials: 'include', headers: { 'X-GB-Client': 'web' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.user) return;
+            var slot = document.getElementById('user-slot');
+            if (!slot) return;
+            var label = data.user.displayName || data.user.email || '';
+            var initial = (label.charAt(0) || '?').toUpperCase();
+            var escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            slot.innerHTML = '<a href="/account" class="user-avatar" title="' + escaped + '">' + initial + '</a>';
+          })
+          .catch(function () { /* keep "Sign in" */ });
+      })();
+    </script>
+    <script src="/assets/site-nav.js"></script>
+      <script src="/assets/docs/docs-nav.js"></script>
+</body>
+</html>

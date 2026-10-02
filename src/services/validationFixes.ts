@@ -14,6 +14,7 @@
 // so the panel stays fix-agnostic.
 import type { ValidationFixId, ValidationMessage } from '../types/ui';
 import { useStore } from '../store';
+import { omittedTranslationIndices } from './translations';
 
 /** The result of applying a fix: a human label for the undo toast, whether
  *  anything actually changed (false → caller can skip the toast), and a closure
@@ -191,6 +192,28 @@ const FIXES: Record<ValidationFixId, ValidationFix> = {
           ? `Cleared the redundant description on route "${label}".`
           : `Route "${routeId}" has no redundant description — nothing changed.`,
         undo: () => { if (had) useStore.getState().updateRoute(routeId, { route_desc: prev }); },
+      };
+    },
+  },
+
+  'remove-invalid-translations': {
+    id: 'remove-invalid-translations',
+    label: 'Remove',
+    description:
+      'Deletes every translations.txt row the export already leaves out — rows that point at a '
+      + 'record that no longer exists, use a malformed language code, repeat another row, or break '
+      + "the spec's record_id / field_value rules. Valid translations are untouched. You can undo this.",
+    apply: () => {
+      const before = useStore.getState().translations;
+      const drop = omittedTranslationIndices(useStore.getState());
+      if (drop.length > 0) useStore.getState().removeTranslationsAt(drop);
+      return {
+        fixId: 'remove-invalid-translations',
+        changed: drop.length > 0,
+        label: drop.length > 0
+          ? `Removed ${drop.length} invalid translation${drop.length === 1 ? '' : 's'}.`
+          : 'No invalid translations left to remove.',
+        undo: () => { if (drop.length > 0) useStore.getState().setTranslations(before); },
       };
     },
   },

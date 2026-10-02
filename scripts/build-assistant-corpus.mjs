@@ -28,7 +28,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SIDEBAR_SECTIONS = new Set([
   'agency', 'calendar', 'routes', 'stops', 'stations', 'frequencies', 'blocks',
   'fares', 'flex', 'costs', 'coverage', 'titlevi', 'stop-analysis',
-  'access-isochrones', 'alerts', 'variants', 'settings',
+  'access-isochrones', 'alerts', 'variants', 'translations', 'settings',
 ]);
 const BOTTOM_PANEL_TABS = new Set([
   'timetable', 'blocks', 'service-summary', 'validation', 'snapshots', 'publish',
