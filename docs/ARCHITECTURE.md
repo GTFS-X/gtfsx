@@ -665,21 +665,25 @@ Design rationale is preserved in the decisions appendix of the archived
   auth + editor up; `BACKEND_ENABLED=false` (with SPA rebuild) hides the whole
   backend. Both are `wrangler.jsonc` edits + redeploy. The two `*_ENABLED` flags
   and their `VITE_*` build-env twins must move in lockstep (see project memory).
+- **`translations.txt` support — LIVE 2026-10-02.** Import/export, editor UI
+  (per-entity Translations boxes + a feed-level Translations section behind the
+  per-feed `translations` feature toggle), spec validation, referential-integrity
+  cascades. Client-only: no worker, D1 or plan change (free on every plan; the
+  zip is rendered client-side, so publishing picks it up with no server work).
+  Docs page: `/docs/translations/`. See REQUIREMENTS §1.11. **Still to do:**
+  apply the demo-feed example: `node scripts/demo-feed/svt-demo-translations.mjs`
+  checks the 22 Spanish rows against the published svt-demo and prints a console
+  snippet to paste with the svt-demo project open; then Save + Publish.
+  Known gaps: stop_times translations are not remapped when a stop's sequence
+  changes; extra columns are not preserved; attributions and feed_publisher rows
+  are omitted.
 
 ### Not yet deployed (in flight)
 
 Work that exists in the repo but is **not** live in production. Delete an entry
 from here when it ships, and fold it into the Production list above.
 
-- **`translations.txt` support (branch `translations`, 2026-10-02).** Import/
-  export, editor UI (per-entity Translations boxes + a feed-level Translations
-  section behind the per-feed `translations` feature toggle), spec validation,
-  referential-integrity cascades. Client-only: no worker, D1 or plan change
-  (free on every plan; the zip is rendered client-side, so publishing picks it
-  up with no server work). See REQUIREMENTS §1.11. **After it ships**, apply the
-  demo-feed example: `node scripts/demo-feed/svt-demo-translations.mjs` checks
-  the 22 Spanish rows against the published svt-demo and prints a console
-  snippet to paste with the svt-demo project open; then Save + Publish.
+_(none)_
 
 ### Staging — PARKED (since 2026-05-16)
 
