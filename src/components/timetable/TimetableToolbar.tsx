@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { Route, Shape } from '../../types/gtfs';
 import { directionName } from '../../utils/constants';
-import type { ShapePattern } from '../ui/shapePatterns';
+import { type ShapePattern, twoPatternLabels } from '../ui/shapePatterns';
 import { PatternSelector } from '../ui/ShapePatternSelector';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
@@ -121,7 +121,9 @@ function DirectionControl({
 
   if (patterns.length === 2) {
     const selectedIdx = Math.max(0, patterns.findIndex((p) => p.shapeId === effectiveShapeId));
-    const labels = patterns.map((p) => directionName(route, p.directionId));
+    // Two shapes in the SAME direction (a branch / variant) would both read as
+    // the direction name, so twoPatternLabels names them by shape instead.
+    const labels = twoPatternLabels(patterns, route, shapes);
     return (
       <Segmented
         value={selectedIdx}

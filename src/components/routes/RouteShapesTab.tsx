@@ -4,7 +4,7 @@ import { generateId } from '../../services/idGenerator';
 import { snapToRoadDetailed, pathLengthMeters } from '../../services/snapToRoad';
 import { SnapWarningDialog } from '../map/SnapWarningDialog';
 import { simplifyShapePoints, SIMPLIFY_LEVELS } from '../../services/simplifyShape';
-import { duplicateShapePoints } from '../../services/shapeHelpers';
+import { duplicateShapePoints, duplicateShapeRouteLink } from '../../services/shapeHelpers';
 import { deriveRouteShapeIds } from '../../services/routeShapes';
 import { computeShapePatterns } from '../ui/shapePatterns';
 
@@ -225,16 +225,23 @@ export function RouteShapesTab() {
     const sourceTrip = trips.filter((t) => t.shape_id === shapeId)[0];
     const newShapeId = generateId('shape');
 
-    // Optionally reverse the vertex order (re-sequenced) for the opposite
-    // direction; recalcShapeDistances then recomputes shape_dist_traveled.
+    // Optionally reverse the vertex order (re-sequenced). This flips geometry
+    // only: direction lives on trips/stops, and the copy's stub trip and copied
+    // stops keep the source's direction. recalcShapeDistances then recomputes
+    // shape_dist_traveled.
     let points = duplicateShapePoints(shape.points);
     if (opts.reverse) {
       points = points.slice().reverse().map((p, i) => ({ ...p, shape_pt_sequence: i }));
     }
+    // A copy that gets no stub trip and no copied stops (the source has no
+    // trips, and either no stops or "Copy stops" is off) only belongs to the
+    // route via _route_id; without it the copy would vanish from this list.
+    const routeLink = duplicateShapeRouteLink(shapeId, selectedRouteId, opts.copyStops, trips, routeStops);
     addShape({
       shape_id: newShapeId,
       points,
       _name: shape._name ? `${shape._name} (copy)` : undefined,
+      ...(routeLink ? { _route_id: routeLink } : {}),
     });
     recalcShapeDistances(newShapeId);
 
@@ -393,8 +400,9 @@ export function RouteShapesTab() {
                   )}
                 </div>
 
-                {/* Duplicate options — reverse the vertex order (for the
-                    opposite direction) and/or copy the shape's stops. */}
+                {/* Duplicate options — reverse the vertex order (geometry only;
+                    the copy keeps the source's direction) and/or copy the
+                    shape's stops. */}
                 {dupPromptShapeId === shape!.shape_id && (
                   <div className="mx-3 mb-2 p-2 bg-cream border border-sand rounded-lg">
                     <p className="text-[11px] text-dark-brown font-semibold mb-2">
@@ -407,7 +415,7 @@ export function RouteShapesTab() {
                         onChange={(e) => setDupReverse(e.target.checked)}
                         className="accent-coral"
                       />
-                      Reverse vertex order (for the opposite direction)
+                      Reverse vertex order (line runs the other way; trip direction unchanged)
                     </label>
                     <label className="flex items-center gap-2 text-[11px] text-dark-brown mb-2 cursor-pointer select-none">
                       <input

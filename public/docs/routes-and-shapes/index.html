@@ -39,7 +39,7 @@
     }
   },
   "datePublished": "2026-05-01",
-  "dateModified": "2026-05-30",
+  "dateModified": "2026-10-02",
   "mainEntityOfPage": {
     "@type": "WebPage",
     "@id": "https://www.gtfsx.com/docs/routes-and-shapes/"
@@ -124,10 +124,10 @@
       <h3 id="duplicate-shape">Duplicating a shape (with options)</h3>
       <p>The per-shape <strong>Duplicate</strong> button clones a shape's geometry into a new shape on the same route, and opens a small options popover:</p>
       <ul>
-        <li><strong>Reverse vertex order (for the opposite direction)</strong> — flips the cloned vertices end-to-end and re-sequences them, so the copy's geometry runs the other way. Reversing changes only the geometry: the copy still keeps the source shape's direction (see below).</li>
+        <li><strong>Reverse vertex order (line runs the other way; trip direction unchanged)</strong> — flips the cloned vertices end-to-end and re-sequences them, so the copy's geometry runs the other way. Reversing changes only the geometry: the copy still keeps the source shape's direction (see below).</li>
         <li><strong>Copy stops</strong> — also copies the source shape's stops onto the new shape. When "Reverse" is on, the copied stops are reversed to match the flipped geometry (the checkbox label updates to "Copy stops (reversed to match)"). Leave it off to start the copy with an empty stop list.</li>
       </ul>
-      <p>If the source shape has trips, the duplicate also gets one stub trip (same direction, service, and headsign with "(copy)" appended) so the new shape shows up immediately as a pattern you can edit in the timetable. Copied stops and the stub trip carry the source's direction, so <strong>the copy is in the same direction as the original</strong>, reversed or not. That makes Duplicate the way to add a branch or variant in a direction that already has a shape. The copy stays in the shape list only if it gets a stub trip or copied stops, so duplicate a shape that has trips, or one that has stops with <strong>Copy stops</strong> on.</p>
+      <p>If the source shape has trips, the duplicate also gets one stub trip (same direction, service, and headsign with "(copy)" appended) so the new shape shows up immediately as a pattern you can edit in the timetable. Copied stops and the stub trip carry the source's direction, so <strong>the copy is in the same direction as the original</strong>, reversed or not. That makes Duplicate the way to add a branch or variant in a direction that already has a shape. A copy that gets neither (the source has no trips, and no stops or <strong>Copy stops</strong> is off) still appears in the shape list, as a draft with no trips or stops yet; like any new shape, its direction then comes from the trips and stops you give it.</p>
       <p>For an out-and-back, the quickest way to get a shape in the other direction is to draw it: the second shape drawn on a new route lands in direction 1 (see <a href="#direction">Direction belongs to trips</a>).</p>
 
       <h2 id="route-type">Picking a route type</h2>

@@ -23,7 +23,7 @@ export function Segmented({ value, onChange, options, dividerBefore, title, ...a
       aria-label={aria['aria-label']}
     >
       {options.map((label, i) => (
-        <Fragment key={label}>
+        <Fragment key={`${i}-${label}`}>
           {i === dividerBefore && <span className="w-px self-stretch bg-sand mx-[3px] my-[3px]" aria-hidden="true" />}
           <button
             type="button"

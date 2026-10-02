@@ -1,4 +1,4 @@
-import type { Shape, ShapePoint } from '../types/gtfs';
+import type { RouteStop, Shape, ShapePoint, Trip } from '../types/gtfs';
 
 /**
  * Pure shape mutation helpers — kept out of the React components so they
@@ -76,4 +76,26 @@ export function trimShapeAtPoint(
   const idx = nearestVertexIndex(shape.points, lng, lat);
   if (idx === -1) return shape.points;
   return trimShapeAtIndex(shape.points, side, idx);
+}
+
+/**
+ * The `_route_id` a duplicated shape needs, if any. A route's shapes are
+ * derived from its trips, its route stops, and draft shapes tagged with
+ * `_route_id` (deriveRouteShapeIds). Duplicate gives the copy a stub trip when
+ * the source has a trip, and copied stops when the source has stops and "Copy
+ * stops" is on. A copy that gets neither would belong to no route and vanish
+ * from the Shapes list, so it is tagged with the route like a freshly drawn
+ * shape. Returns undefined when the copy is already linked by a trip or stops.
+ */
+export function duplicateShapeRouteLink(
+  sourceShapeId: string,
+  routeId: string | null | undefined,
+  copyStops: boolean,
+  trips: Trip[],
+  routeStops: RouteStop[],
+): string | undefined {
+  if (!routeId) return undefined;
+  const getsTrip = trips.some((t) => t.shape_id === sourceShapeId);
+  const getsStops = copyStops && routeStops.some((rs) => rs.shape_id === sourceShapeId);
+  return getsTrip || getsStops ? undefined : routeId;
 }
