@@ -404,7 +404,9 @@ function TranslationDialog({ index, onClose }: { index: number; onClose: () => v
     <Modal
       open
       onClose={onClose}
-      maxWidthClassName="max-w-md"
+      // Sized to the viewport rather than the shared `w-full mx-4` container,
+      // which overflows the right edge at phone width.
+      className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-lg p-5 sm:p-6 w-[calc(100vw-2rem)] max-w-md max-h-[85vh] overflow-auto"
       title={existing ? 'Edit translation' : 'Add translation'}
       footer={
         <div className="flex flex-wrap justify-end gap-2 w-full">
