@@ -24,11 +24,13 @@ import { PatternSelector } from '../ui/ShapePatternSelector';
 import { computeShapePatterns, activeStopsShapeId } from '../ui/shapePatterns';
 import { directionName } from '../../utils/constants';
 import type { Stop } from '../../types/gtfs';
+import { spacingFt } from '../../services/stopAnalysis';
 
 function SortableStopItem({
   uid,
   stop,
   index,
+  distFromPrevFt,
   isSelected,
   routeColor,
   onSelect,
@@ -38,6 +40,7 @@ function SortableStopItem({
   uid: string;
   stop: Stop;
   index: number;
+  distFromPrevFt: number | null;
   isSelected: boolean;
   routeColor: string;
   onSelect: () => void;
@@ -95,6 +98,9 @@ function SortableStopItem({
           <span className="text-[10px] text-warm-gray">Code: {stop.stop_code}</span>
         )}
       </button>
+              {distFromPrevFt && (
+          <span className="text-[10px] text-warm-gray">{Math.round(distFromPrevFt)} ft</span>
+        )}
       <button
         onClick={(e) => { e.stopPropagation(); onEdit(); }}
         className="text-coral hover:text-[#d4603a] text-[10px] font-semibold shrink-0 opacity-0 group-hover:opacity-100 transition-opacity px-1"
@@ -187,11 +193,18 @@ export function RouteStopsTab() {
   // lookup is shared — that's fine, both instances point at the same Stop).
   const directionStops = useMemo(() => {
     return orderedRouteStops
-      .map((rs) => {
+      .map((rs, index, array) => {
         const stop = stops.find((s) => s.stop_id === rs.stop_id);
-        return stop && rs._uid ? { uid: rs._uid, stop } : null;
+
+        // calculate stop spacing
+        const prevStop = index >= 1 ? stops.find((s) => s.stop_id === array[index - 1].stop_id) : null;
+        // NB this is crow-flies distance from previous stop, will underestimate spacing at corners,
+        // but this m
+        const distFromPrevFt = stop && prevStop ? spacingFt(prevStop, stop) : null;
+
+        return stop && rs._uid ? { uid: rs._uid, stop, distFromPrevFt } : null;
       })
-      .filter((x): x is { uid: string; stop: Stop } => x !== null);
+      .filter((x): x is { uid: string; stop: Stop; distFromPrevFt: number | null } => x !== null);
   }, [orderedRouteStops, stops]);
 
   // Click on a stop row: select it, fly the map to it. Clicking the
@@ -410,11 +423,12 @@ export function RouteStopsTab() {
           >
             <SortableContext items={stopUids} strategy={verticalListSortingStrategy}>
               <div className="flex flex-col gap-0.5">
-                {directionStops.map(({ uid, stop }, i) => (
+                {directionStops.map(({ uid, stop, distFromPrevFt }, i) => (
                   <SortableStopItem
                     key={uid}
                     uid={uid}
                     stop={stop}
+                    distFromPrevFt={distFromPrevFt}
                     index={i}
                     isSelected={selectedStopId === stop.stop_id}
                     routeColor={routeColor}

@@ -65,7 +65,7 @@ function percentile(xs: number[], p: number): number | null {
   return s[lo] + (s[hi] - s[lo]) * (idx - lo);
 }
 
-function spacingFt(a: Stop, b: Stop): number {
+export function spacingFt(a: Stop, b: Stop): number {
   return distance(
     point([a.stop_lon, a.stop_lat]),
     point([b.stop_lon, b.stop_lat]),
