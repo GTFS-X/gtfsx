@@ -7,6 +7,8 @@ import { simplifyShapePoints, SIMPLIFY_LEVELS } from '../../services/simplifySha
 import { duplicateShapePoints, duplicateShapeRouteLink } from '../../services/shapeHelpers';
 import { deriveRouteShapeIds } from '../../services/routeShapes';
 import { computeShapePatterns } from '../ui/shapePatterns';
+import { estimateRunSecs, shapeLengthKm } from '../../services/timetableGen';
+import { secondsInMinute } from 'date-fns/constants';
 
 /**
  * Shapes subpanel for the Routes editor. Extracted out of RouteEditor.tsx so
@@ -297,6 +299,13 @@ export function RouteShapesTab() {
         <div className="flex flex-col gap-1.5 mb-3">
           {routeShapes.map(({ shape, trips: shapeTrips, trip }) => {
             const isShapeHidden = hiddenShapeIds.includes(shape!.shape_id);
+            const shapeLen = shapeLengthKm(shape)
+
+            // The runtime here is only based on the distance, not the number of stops
+            // or the actual runtime of any trips on the route. But it should give an idea
+            // in sketch planning about what the runtimes will be.
+            const runtimeDistanceBased = Math.round(estimateRunSecs({ shape }) / secondsInMinute)
+            
             return (
               <div key={shape!.shape_id} className="bg-cream rounded-lg text-sm">
                 <div className="flex items-center gap-2 px-3 py-2">
@@ -323,7 +332,7 @@ export function RouteShapesTab() {
                       className="min-w-0 flex-1 text-dark-brown font-medium text-xs bg-transparent border border-transparent rounded px-1 py-0.5 -ml-1 hover:border-sand focus:border-coral focus:bg-white focus:outline-none placeholder:text-warm-gray placeholder:font-medium"
                     />
                     <span className="text-[10px] text-warm-gray whitespace-nowrap shrink-0">
-                      {shape!.points.length} pts · {shapeTrips.length} trip{shapeTrips.length !== 1 ? 's' : ''}
+                      {shapeLen.toFixed(1)} km · {runtimeDistanceBased} mins · {shape!.points.length} pts · {shapeTrips.length} trip{shapeTrips.length !== 1 ? 's' : ''} 
                     </span>
                   </div>
                 </div>
