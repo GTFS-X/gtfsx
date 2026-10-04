@@ -248,4 +248,23 @@ describe('admin impersonation', () => {
     expect(cookieValue(out, 'gb_impersonator')).toBe('');
     expect(await env.KV.get(impersonationKey(sess!.id))).toBeNull();
   });
+
+  it('logout-all during impersonation clears the binding and the gb_impersonator cookie', async () => {
+    const staff = await seedUser({ email: 'staff-la@example.com', staff: true });
+    const target = await seedUser({ email: 'target-la@example.com' });
+    const c = await loginAs(staff.email, staff.password);
+    const imp = await c.post(`/api/admin/users/${target.id}/impersonate`);
+    expect(imp.status).toBe(200);
+    const sess = await dbGet<{ id: string }>(
+      `SELECT id FROM session WHERE user_id = ? AND revoked_at IS NULL`,
+      target.id,
+    );
+    expect(await env.KV.get(impersonationKey(sess!.id))).not.toBeNull();
+
+    c.setCookie(`gb_session=${cookieValue(imp, 'gb_session')}; gb_impersonator=${staff.id}`);
+    const out = await c.post('/auth/logout-all');
+    expect(out.status).toBe(204);
+    expect(cookieValue(out, 'gb_impersonator')).toBe('');
+    expect(await env.KV.get(impersonationKey(sess!.id))).toBeNull();
+  });
 });

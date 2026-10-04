@@ -247,6 +247,23 @@ describe('/api/me account security (W1-03, W1-06, W1-12, W1-15, W2-07)', () => {
     expect(confirm.status).toBe(422);
   });
 
+  it('change-password invalidates an outstanding magic link (W1-15)', async () => {
+    const { user, client } = await signedIn('magic-then-change@example.com');
+    await makeClient().post('/auth/magic-link/request', { email: user.email });
+    const magicToken = capture.tokenFor(user.email);
+    expect(magicToken).toBeTruthy();
+
+    const changed = await client.post('/api/me/change-password', {
+      currentPassword: user.password,
+      newPassword: 'brand-new-passw0rd',
+    });
+    expect(changed.status).toBe(204);
+
+    const consume = await makeClient().get(`/auth/magic-link/consume?token=${magicToken}`);
+    expect(consume.headers.get('Set-Cookie') ?? '').not.toContain('gb_session=');
+    expect(consume.headers.get('Location') ?? '').toContain('magic_link_invalid');
+  });
+
   it('DELETE /api/me is blocked while a sole-member org has a live subscription', async () => {
     const { user, client } = await signedIn('paying-owner@example.com');
     const orgId = ulid();
