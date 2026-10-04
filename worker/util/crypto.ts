@@ -64,7 +64,9 @@ function bytesToHex(bytes: Uint8Array): string {
 // below OWASP's recommended 600,000; revisit if we can swap in a WASM argon2id
 // bundle or if workerd lifts the cap. `verifyPassword` reads the iteration
 // count from the stored hash, so we can migrate hashes forward in place.
-const PBKDF2_ITERATIONS = 100_000;
+export const PBKDF2_ITERATIONS = 100_000;
+/** Highest iteration count workerd's deriveBits accepts. */
+export const PBKDF2_MAX_ITERATIONS = 100_000;
 const PBKDF2_HASH_BITS = 256;
 const PBKDF2_SALT_BYTES = 16;
 
@@ -79,6 +81,13 @@ export async function verifyPassword(password: string, stored: string): Promise<
   if (parts.length !== 4 || parts[0] !== 'pbkdf2') return false;
   const iter = Number(parts[1]);
   if (!Number.isFinite(iter) || iter < 1) return false;
+  if (iter > PBKDF2_MAX_ITERATIONS) {
+    // workerd throws NotSupportedError above the cap, which would turn every
+    // password check for this credential into a 500. Fail closed instead:
+    // the user can still recover through password reset.
+    console.warn(`verifyPassword: stored hash uses ${iter} iterations (max ${PBKDF2_MAX_ITERATIONS}); rejecting`);
+    return false;
+  }
   const salt = base64urlDecode(parts[2]);
   const expected = base64urlDecode(parts[3]);
   const actual = await pbkdf2(password, salt, iter);
