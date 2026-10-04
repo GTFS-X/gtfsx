@@ -275,7 +275,7 @@ describe('publication integrity', () => {
     const pub = await publishNew(a.client, 'Published One');
     const res = await a.client.patch(`/api/projects/${pub.id}`, { slug: 'moved-elsewhere' });
     expect(res.status).toBe(409);
-    await res.arrayBuffer();
+    expect(((await res.json()) as { reason?: string }).reason).toBe('published');
     expect(await feedEtag(pub.slug)).toBe(`"${pub.snapshotId}"`);
     const row = await dbGet<{ slug: string }>(`SELECT slug FROM feed_project WHERE id = ?`, pub.id);
     expect(row?.slug).toBe(pub.slug);

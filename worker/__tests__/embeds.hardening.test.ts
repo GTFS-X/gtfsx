@@ -146,6 +146,18 @@ describe('embed pages treat feed text as hostile', () => {
     expect(html).toContain('11:30p');
   });
 
+  it('a stop with no departures says so, in the requested language (W3-11)', async () => {
+    const c = await ownerClient('harden3b@example.com');
+    const state = hostileState();
+    state.stops.push({ stop_id: 'idle', stop_name: 'Idle Stop', stop_lat: 45.62, stop_lon: -111.02 });
+    const { slug } = await publish(c, 'HardenNoDeps', state);
+    const en = await (await SELF.fetch(`http://feeds.example.com/${slug}/embed/stop/idle`)).text();
+    expect(en).toContain('No departures today from this stop.');
+    expect(en).not.toContain('class="dep-time"');
+    const es = await (await SELF.fetch(`http://feeds.example.com/${slug}/embed/stop/idle?lang=es`)).text();
+    expect(es).toContain('No hay salidas hoy desde esta parada.');
+  });
+
   it('stop, landing and system-map ETags carry today, so a previous day revalidates to 200', async () => {
     const c = await ownerClient('harden4@example.com');
     const { slug } = await publish(c, 'HardenEtag', hostileState());
