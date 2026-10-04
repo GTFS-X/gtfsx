@@ -165,22 +165,23 @@ origin. This list is the source of truth.
 | _(no endpoint)_ SMS security alerts | `worker/sms/alerts.ts` — best-effort transactional texts to opted-in users (verified phone + consent) on a new-device sign-in (fired from the `createSession` points in `auth/routes.ts` password/2FA/magic-link + `auth/google.ts`; 90-day same-user-agent suppression, capped 2/user/day via KV) and on 2FA disable (`/api/me/twofa/confirm`). Posts to Twilio's Messages API through `TWILIO_MESSAGING_SERVICE_SID` (approved A2P Messaging Service `MG…`) + the API-key trio; inert until set. Never throws — an alert failure (incl. opt-out `21610`) can't break the login/disable. Audited `user.sms_alert_sent` (kind only) |
 | `POST /auth/logout` · `/auth/logout-all` | End current / all sessions |
 | `POST /auth/password-reset/request` · `/auth/password-reset/confirm` | Forgot-password flow |
-| `GET/PATCH /api/me`, `POST /api/me/email/change`, `POST /api/me/password`, `DELETE /api/me`, `GET /api/me/export` | Profile, email/password change, soft-delete, data export |
-| `GET/POST /api/orgs`, `GET/PATCH/DELETE /api/orgs/:id`, `*/logo`, `*/invitations[...]`, `*/members/:uid`, `*/transfer`, `/api/orgs/invitations/accept` | Org lifecycle, branding, membership, invitations, transfer |
-| `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/:id`, `*/transfer`, `*/working-state` | Project CRUD + workspace transfer + working-state sync (If-Match) |
+| `GET/PATCH /api/me`, `POST /api/me/change-email` · `/change-email/confirm`, `POST /api/me/password`, `DELETE /api/me`, `GET /api/me/export` | Profile, email/password change, soft-delete, data export. `change-email` takes `{newEmail, currentPassword?}`: a user with a password credential must send the current password (missing → 422, wrong → 401); an OAuth-only user sends none. `confirm` (the link in the mail to the new address) swaps the address, revokes other sessions, and sends a best-effort notice to the previous address. `DELETE /api/me` returns 409 `{reason:'active_subscription', orgs}` while the user has a live personal subscription or solely owns an org with one |
+| `GET/POST /api/orgs`, `GET/PATCH/DELETE /api/orgs/:id`, `*/logo`, `*/invitations[...]`, `*/members/:uid`, `*/transfer`, `/api/orgs/invitations/accept`, `GET /api/orgs/invitations/pending[?token=]` | Org lifecycle, branding, membership, invitations, transfer. `DELETE /api/orgs/:id` returns 409 `{reason:'active_subscription'}` while the org has a live subscription. Only an owner may grant the `admin` role (403 otherwise). `invitations/pending?token=` filters to that invitation |
+| `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/:id`, `*/transfer`, `*/working-state` | Project CRUD + workspace transfer + working-state sync (If-Match). Changing a published feed's slug, or deleting it without `?unpublish=1`, returns 409 `{reason:'published', canonicalSlug}`. Delete cancels pending scheduled publishes and revokes draft links |
 | `POST/GET /api/projects/:id/snapshots`, `*/snapshots/:sid/state`, `*/restore`, `DELETE *` | Snapshots (list/create/fetch/restore/delete) |
 | `POST/GET/DELETE /api/projects/:id/draft-links[/:tokenHash]` | Draft review links |
-| `POST /api/projects/:id/publish` · `/unpublish` · `/publish/rollback` · `GET /publish/history` | Canonical publish lifecycle. `publish` body (JSON or the multipart `meta` part): `snapshotId`, plus optional `ignoreWarnings`, `ignoreRtBreakage`, `ignoreAgencyChurn`, `licenseSpdx`. There is **no `ntdId` field** — an agency's NTD ID is `agency.external_id` inside the feed, so it arrives with the snapshot state and needs no publish-request plumbing. For `licenseSpdx`, `null` clears it and omitting the key leaves the existing projection alone (the cron path omits it and must not clobber the last interactive publish). Advisory 409s: `rt_breakage` (removed ids referenced by an external RT feed) and **`agency_id_churn`** (removed/renamed `agency_id` vs. the published feed — fires for *every* project, RT or not, because FTA's P-50 crosswalk keys on `agency_id`); each is acknowledged by its matching `ignore*` flag. |
+| `POST /api/projects/:id/publish` · `/unpublish` · `/publish/rollback` · `GET /publish/history` | Canonical publish lifecycle. `unpublish` also cancels any pending scheduled publish, so the cron can't put the feed back up. `publish` body (JSON or the multipart `meta` part): `snapshotId`, plus optional `ignoreWarnings`, `ignoreRtBreakage`, `ignoreAgencyChurn`, `licenseSpdx`. There is **no `ntdId` field** — an agency's NTD ID is `agency.external_id` inside the feed, so it arrives with the snapshot state and needs no publish-request plumbing. For `licenseSpdx`, `null` clears it and omitting the key leaves the existing projection alone (the cron path omits it and must not clobber the last interactive publish). Advisory 409s: `rt_breakage` (removed ids referenced by an external RT feed) and **`agency_id_churn`** (removed/renamed `agency_id` vs. the published feed — fires for *every* project, RT or not, because FTA's P-50 crosswalk keys on `agency_id`); each is acknowledged by its matching `ignore*` flag. |
 | `POST/DELETE /api/projects/:id/publish/schedule` | Scheduled publish (BE-77). Body (JSON, or the multipart `meta` part + a rendered `zip` — the cron has no client to render one at fire time): `snapshotId`, `scheduledFor` (unix ms, ≥1 min out), plus the **same** optional acknowledgement flags as `publish`: `ignoreWarnings`, `ignoreRtBreakage`, `ignoreAgencyChurn`. **Scheduling runs the identical ID-stability gates and returns the identical advisory 409s** (`rt_breakage`, `agency_id_churn`) — one shared evaluation, `worker/publication/idStability.ts → assertIdStable()`, also called by `performPublish`. A scheduled publish targets a fixed, immutable snapshot, so the diff is computable *at schedule time*, while the user is present to acknowledge it; at fire time nobody is there to ask. The acknowledgements persist on the row (`scheduled_publish.ignore_rt_breakage` / `ignore_agency_churn`, 0025) and the cron replays **exactly those** into `performPublish`, which re-runs the gates — so churn that appears *after* scheduling (someone published something else, moving the baseline; or an RT feed gets registered) is still un-acknowledged, and the schedule **fails** (`status='failed'`, `failure_reason='agency_id_churn: …'`) instead of publishing something the user never agreed to. A 409 is raised before any write, leaving the existing pending schedule and stored ZIP untouched. Serialized schedule (here and in `GET /publish/history`): `{ id, snapshotId, scheduledFor, ignoreWarnings, ignoreRtBreakage, ignoreAgencyChurn, status, failureReason }`. `DELETE` cancels the pending row (idempotent). |
 | `POST /api/projects/:id/catalog-submissions`, `PUT /api/projects/:id/rt-feeds`, `GET /api/projects/:id/audit` | Distribution opt-in, external RT-feed registration, per-project audit |
 | `GET/POST/PUT/PATCH/DELETE /api/projects/:id/alerts[/:alertId]`, `GET */alerts/preview.json`, `POST */alerts/rt-feed` | Service Alerts authoring (every plan since 2026-10; BE-90) |
 | `GET /api/mapbox/isochrone?lon=&lat=&contours_minutes=` | Auth-gated Mapbox Isochrone proxy (`worker/mapbox/isochrone.ts`) for network walksheds + access isochrones. `requireAuth` (any plan; anonymous → 401, before any upstream call). Walking profile only, one contour of 1–60 min, coords validated and normalized to 5 dp. Calls Mapbox with `MAPBOX_TOKEN` + an `APP_ORIGIN` Referer (the token is URL-restricted); responses edge-cached 30 days via `caches.default`, keyed without the token; upstream 429 passes through, other failures → 502 |
 | `POST /api/projects/import` | Anonymous→signed-in bulk import |
-| `POST /api/billing/checkout` · `/portal` · `POST /api/billing/webhooks/stripe` · `GET /api/billing/me` · catalog | Stripe checkout/portal/webhooks; plan + usage |
-| `GET /community/*`, `/api/forum/*` | Forum SSR pages + forum JSON API (threads/posts/upvotes/subscriptions/search/profile/uploads) |
+| `GET /api/import/fetch?url=` · `?source=mobilitydb&feed_id=` | Hardened server-side fetch of a remote GTFS ZIP (URL imports and catalog downloads; the client sends `X-GB-Client: web`). Replaced the open `GET /_import/proxy`, which was removed in the 2026-10 security hotfix and now 404s. `GET /_import/search` (catalog search) remains |
+| `POST /api/billing/checkout` · `/portal` · `POST /api/billing/webhooks/stripe` · `GET /api/billing/me` · catalog | Stripe checkout/portal/webhooks; plan + usage. Checkout returns 409 `{reason:'already_subscribed'}` for an Enterprise org or a workspace with a live subscription (the SPA sends the user to Manage billing). `portal` accepts only a same-origin `returnUrl` (off-origin → 422) |
+| `GET /community/*`, `/api/forum/*` | Forum SSR pages + forum JSON API (threads/posts/upvotes/subscriptions/search/profile/uploads). `DELETE /api/forum/uploads/:id` soft-deletes an uploaded image (its uploader or staff; 403 otherwise; idempotent 204). No SPA UI calls it yet |
 | `POST /api/events/track` | Cookieless page-view/funnel beacon (no auth; CSRF + rate-limited; captures `?ref=`/`gclid`) |
 | `GET /book-demo` | Demo-booking tracking redirect (no auth): logs `demo_request` event (`?src=` placement label + `gclid`, bot UAs skipped) then 302 → Fantastical booking page; `demo_request` uploads to Google Ads via the OCI cron |
-| `GET /api/admin/*` | Staff operator console (404 to non-staff): stats, users, orgs, audit, events summary, ads attribution |
+| `GET /api/admin/*` | Staff operator console (404 to non-staff): stats, users, orgs, audit, events summary, ads attribution (ISO week labels `YYYY-WW`). User/org detail DTOs carry `hasStripeSubscription`; `POST */enterprise-grant` · `*/enterprise-revoke` return 409 `{reason:'active_subscription'}` for a subject with a live Stripe subscription unless the body has `force: true` (the console disables both instead of offering the override). `POST /api/admin/users/:id/impersonate` · `/end-impersonation`: see §4 |
 
 ### Feeds origin (no auth)
 
@@ -696,7 +697,14 @@ Design rationale is preserved in the decisions appendix of the archived
 Work that exists in the repo but is **not** live in production. Delete an entry
 from here when it ships, and fold it into the Production list above.
 
-_(none)_
+- **Security hotfix + codebase review (`fix/security-hotfix`, `fix/codebase-review`,
+  2026-10).** The hotfix (removed `/_import/proxy`, forum search escaping,
+  server-bound impersonation) is on staging only. `fix/codebase-review` builds on it
+  with the review fixes: change-email current-password check, subscription-aware
+  delete/checkout/grant guards, unpublish cancelling schedules, refused deletes of
+  in-use calendars and Fares v2 rows, calendar_dates-only service editing, and the
+  editor fixes. No new migrations (latest is 0032). The API changes are already
+  described in §3.
 
 ### Staging — PARKED (since 2026-05-16)
 
@@ -704,8 +712,10 @@ Infra still exists (`gtfs-builder-staging`, `staging[-feeds].gtfsx.com`, separat
 D1/KV/R2) but is **not auto-deployed**. Use as a manual rehearsal env for risky
 changes: `npm run build && unset CLOUDFLARE_API_TOKEN && npx wrangler deploy --env staging`.
 Staging runs test-mode Stripe and both `*_ENABLED` flags true. Staging D1 is
-migrated through 0026 (checked 2026-07-15). Last manual deploy 2026-07-15:
-current `main`.
+migrated through **0032** (checked 2026-10-04; matches the repo's latest).
+Last manual deploy before this month: 2026-09-04. On **2026-10-04** the
+`fix/security-hotfix` branch (`a069b39`, version `802421db`) was deployed to
+staging only, for rehearsal; it is not on `main` or prod yet.
 
 **Open catalog — the `public/catalog.json` hack is obsolete (issue #47, branch
 `feat/catalog-endpoint`).** `/catalog.json` is now a **dynamic worker route** on

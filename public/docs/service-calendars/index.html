@@ -87,18 +87,30 @@
       <p>Click into a service pattern and open its <strong>Exceptions</strong> subpanel. An exception is a single calendar date that overrides the weekly pattern. GTFS distinguishes two kinds, both shown in the exception list with a badge:</p>
       <ul>
         <li><strong>No Service</strong> (<code>exception_type=2</code>) — service does <em>not</em> run on this date even though the weekly pattern says it would. The everyday case: "no Weekday service on Christmas Day," added to the Weekday pattern.</li>
-        <li><strong>Added</strong> (<code>exception_type=1</code>) — service runs on a date the weekly pattern would skip, e.g. a one-off added trip set. (Added exceptions round-trip on import and display in the list and month preview; the editor's add controls below create No-Service exceptions, which is what holiday handling almost always needs.)</li>
+        <li><strong>Added</strong> (<code>exception_type=1</code>) — service runs on a date the weekly pattern would skip, e.g. a one-off added trip set. Added dates show in solid teal in the month preview, even outside the pattern's date range.</li>
       </ul>
       <p>If a weekday pattern has no exceptions at all, GTFS·X shows a gentle nudge in this subpanel — <em>"Consider adding holiday exceptions — transit typically doesn't run on major holidays"</em> — because a feed that runs full weekday service straight through Christmas is almost always a mistake.</p>
       <p>Two ways to add them:</p>
       <ul>
-        <li><strong>One date</strong> — pick a date and click <strong>Add</strong>; it's recorded as a No-Service exception.</li>
+        <li><strong>One date</strong> — pick a date, choose <strong>No service</strong> or <strong>Service added</strong>, and click <strong>Add</strong>. No service is the default, which is what holiday handling almost always needs.</li>
         <li><strong>US holidays</strong> — the <strong>Add US holidays</strong> picker is a checkbox grid of the eleven US federal holidays (New Year's Day, MLK Day, Presidents' Day, Memorial Day, Juneteenth, Independence Day, Labor Day, Columbus Day, Veterans Day, Thanksgiving, Christmas Day) with <strong>Select all</strong> / <strong>None</strong>. Tick the ones your agency closes for and click <strong>Add selected holidays</strong> — only the dates that fall inside this calendar's date range are added (the button tells you how many), each as a No-Service exception.</li>
       </ul>
       <p>To remove an exception, click the <strong>×</strong> next to it in the list, or click its highlighted day in the month preview and confirm. To clear the whole list at once, use <strong>Delete all</strong> in the Exceptions header — it asks for a second confirmation ("Delete all N? Yes / Cancel") before removing every <code>calendar_dates</code> exception for that service. If your policy is "run Sunday service on the holiday" instead of closing, add the holiday as a No-Service exception on the Weekday pattern and leave the Sunday pattern running that date.</p>
 
       <h2 id="exception-only">Exception-only services</h2>
       <p>For one-off events (a parade route, a holiday shuttle, an emergency replacement schedule) that don't follow a weekly pattern, create a service with all seven day toggles off. Then add explicit "service added" exception dates for the dates the service runs. The pattern is fully driven by <code>calendar_dates.txt</code> — no weekly rule at all. Valid GTFS, supported by most consumers.</p>
+
+      <h2 id="dates-only">Dates-only services</h2>
+      <p>Some feeds define a service only in <code>calendar_dates.txt</code>: there is no <code>calendar.txt</code> row at all, just one "service added" date per day the service runs. This is valid GTFS and common in feeds exported from scheduling systems. GTFS·X imports and edits these services as they are:</p>
+      <ul>
+        <li>The Calendars panel lists them as <strong>Dates only</strong> cards. Open one to see its dates, the routes that use it, and a month preview of its service days. There is no weekday grid or date range to edit; add or remove dates in the list.</li>
+        <li><strong>Duplicate</strong> and <strong>Delete</strong> work from the panel header, as for any other service. A duplicate copies the dates under a new service_id.</li>
+        <li>Every service picker (timetable, service summary, Marey chart, blocks, Flex zone windows, analysis panels) lists them with a "(dates only)" label.</li>
+        <li>Opening such a feed does not add a Default Calendar, so the project isn't marked as changed just by loading it.</li>
+      </ul>
+
+      <h2 id="deleting">Deleting a service</h2>
+      <p>Open the service and click <strong>Delete</strong> in the panel header. If trips, Flex zones, Flex booking rules or Fares v2 timeframes still use the service, the delete is refused: the panel stays open and a red message says what uses it, for example <em>"Can't delete this calendar: it is used by 12 trips and 1 flex zone."</em> Move those trips and zones to another service (or delete them) and try again. Nothing is changed by a refused delete, so you can't end up with trips pointing at a service that no longer exists.</p>
 
       <h2 id="when-to-split">When to split a calendar</h2>
       <p>A common modeling question: when does a service variation deserve its own service pattern vs. being squeezed into an existing one with exceptions?</p>
@@ -111,7 +123,7 @@
 
       <h2 id="gotchas">Edge cases and gotchas</h2>
       <ul>
-        <li><strong>Service IDs are referenced everywhere.</strong> Trips, frequencies, fare rules, and Flex zones all point to a <code>service_id</code>. Renaming or deleting a service cascades; the editor handles the references but external scripts that hardcode service IDs will break.</li>
+        <li><strong>Service IDs are referenced everywhere.</strong> Trips, frequencies, fare rules, and Flex zones all point to a <code>service_id</code>. Renaming a service cascades; the editor updates the references, but external scripts that hardcode service IDs will break. Deleting a service that is still in use is refused (see <a href="#deleting">Deleting a service</a>).</li>
         <li><strong>Date format is <code>YYYYMMDD</code></strong> (no dashes) in the underlying CSV. The editor presents a date picker; if you hand-edit, mind the format.</li>
         <li><strong>Overlapping service patterns are valid but confusing.</strong> A trip can reference only one service pattern. If "weekday" and "Friday-only" overlap on the same date, every trip needs to belong to exactly one, not both.</li>
         <li><strong>Don't leave stale services around after a pickup.</strong> When the schedule changes, retire the old service patterns (let their end_date pass and clean them out at the next refresh) rather than just bumping the end_date forward — old trips can still reference them and confuse downstream consumers.</li>

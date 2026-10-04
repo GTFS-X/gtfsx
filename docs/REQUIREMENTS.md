@@ -99,6 +99,8 @@ Stops are placed in the context of the currently-selected route. Default behavio
 
 - ✅ Day-of-week toggles + start/end date.
 - ✅ `calendar_dates` exception editor (added/removed days), with a "Delete all" control (two-step confirm) to clear every exception for a service at once.
+- ✅ **calendar_dates-only services** (no `calendar.txt` row, one `exception_type=1` row per service day; spec-valid and common) are first-class: they appear as "Dates only" cards in Calendars with a single exceptions + preview view, get Duplicate and Delete in the panel header, and are listed (marked "(dates only)") in every service picker: timetable, summary, Marey, blocks, flex windows, analysis panels. `serviceOptions()` in `src/services/serviceIds.ts` is the one source of these lists. The editor no longer adds a Default Calendar to such a feed.
+- ✅ **Deleting a service in use is refused**: `removeCalendar` changes nothing while trips, flex zones, flex booking rules or fare timeframes reference the service, and the panel stays open with "Can't delete this calendar: it is used by N trips…".
 - ✅ Bulk-add common US holidays (MLK Day, Presidents' Day, Memorial Day, July 4, Labor Day, Thanksgiving, Christmas, etc.) within the active service date range.
 - ✅ Visual calendar showing which services run on which dates, with exception days colour-coded.
 - ✅ Human-readable service summary ("Weekdays", "Saturday Only", custom day patterns) — surfaced both inside the editor and on rider-facing embeds.
@@ -152,6 +154,7 @@ GTFS-Fares v2 is a parallel set of files alongside v1; consumers prefer v2 when 
 
 - ✅ **Fares v2 toggle** — `featuresSlice.ts` `faresV2` key + `FeatureSettingsPanel.tsx`; gates the v2 authoring tabs. Off by default; auto-on if the feed has v2 files.
 - ✅ **Areas editor** — `src/components/fares/AreasEditor.tsx` (Fares panel → Areas tab). Create / rename / delete areas (area_id unique, area_name optional) and assign/unassign stops (stop_areas.txt). CRUD lives in `fareV2Slice.ts`.
+- ✅ **Referenced Fares v2 rows can't be deleted.** Deleting an area, network, rider category, fare medium, fare product or timeframe group that leg rules, transfer rules or products still use is refused (`FareV2RemovalResult`); the editor keeps the row selected and names the blocking rows instead of leaving dangling references.
 - 🔲 Networks editor — group routes for fare purposes.
 - 🔲 Rider Categories editor — first-class records for adult / senior / student / child.
 - 🔲 Fare Media editor — cash vs smart card vs cEMV vs mobile app.
@@ -297,7 +300,7 @@ Implements the FTA Title VI service-equity methodology (Circular 4702.1B): appor
 
 Estimates annual operating cost from feed structure + per-route inputs.
 
-- ✅ Per-route UI fields for cost-per-revenue-hour and vehicles-required (stored as `_cost_per_revenue_hour` / `_vehicles_required` UI-only fields, ignored on export).
+- ✅ Per-route UI fields for cost-per-revenue-hour and vehicles-required (stored as `_cost_per_revenue_hour` / `_vehicles_required` UI-only fields, ignored on export). A blank rate uses the default $100/revenue hour and every cost figure uses a 1.1 deadhead factor, in both the Costs panel and the route's Costs tab (`DEFAULT_COST_PER_REVENUE_HOUR` / `DEFAULT_DEADHEAD_FACTOR` in `costEstimation.ts`).
 - ✅ Computes weekly revenue hours, peak vehicles, weekly cost — broken out per service pattern and rolled up to annual.
 - ✅ `CostSummary` panel surfaces the totals.
 - ✅ Scenario comparison ("what if we add a Saturday run?") — via **feed variants** (§2.7): fork the feed, edit a variant, then `diffFeedState` (`feedDiff.ts`) reports Δ revenue-hours / peak vehicles / trips / weekly+annual cost plus a per-route changeset against the baseline.
@@ -358,7 +361,7 @@ The backend tier is implemented as a single Cloudflare Worker that also serves t
 - ✅ HTTP-only `Secure SameSite=Lax` session cookies; idle (30d) + absolute (90d) timeouts.
 - ✅ Cloudflare Turnstile captcha gate on `/auth/signup` (Managed mode; site key public, secret as Worker secret).
 - ✅ Rate limits on all `/auth/*` endpoints (KV-backed, per IP + per email).
-- ✅ Account settings: change name, email (with re-verify), password, soft-delete account.
+- ✅ Account settings: change name, email (with re-verify), password, soft-delete account. Changing the email asks for the current password when the account has one (Google-only accounts skip it), and the previous address gets a notice once the change is confirmed. Every sign-out (user menu, Account settings, the invitation "sign in with a different email" button, account delete) also empties the editor and wipes this browser's local copy of the feed.
 - ⚠️ Password hashing is PBKDF2-HMAC-SHA256 @ 100k iterations (workerd cap). Argon2id migration (**NF-40a**) should land before broad RTAP distribution; details in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §4 / §9. Tracked in GitHub issues.
 - ✅ Google OAuth ("Sign in with Google").
 - ✅ **Optional two-factor authentication** (2026-07-23, off by default): email 6-digit codes at sign-in (password + Google OAuth; magic link exempt — it already proves the email factor). Enable/disable in Account → Security, each confirmed by a code round-trip. Org admins can set **Require 2FA for all members** (org settings → Security); members of a requiring org are challenged via email at every sign-in even if unenrolled, and cannot disable 2FA. Codes: 10 min TTL, 5 attempts, 60s resend cooldown, hashed at rest (D1 `twofa_challenge`), KV rate-limited. Public docs: `/docs/two-factor-authentication`.
@@ -452,7 +455,7 @@ Architecture and API surface are in [`ARCHITECTURE.md`](./ARCHITECTURE.md) (§3 
 - ✅ Cache headers tuned for GTFS ingestors: `public, max-age=3600, s-maxage=3600`, version-id ETag, `Last-Modified`, 304 support, atomic R2 → D1 pointer flip.
 - ✅ Sidecar `feeds.*/<slug>/feed_info.json` with title, description, effective dates, version id, contact, distribution targets, registered RT feeds — plus an **`agencies[]`** array (`agency_id` / `agency_name` / `external_id` per agency, each key omitted when unset, so a consumer sees "absent" rather than an explicit null) and `license_spdx_identifier` when the publisher declared one. `agencies[]` is projected out of the published snapshot state, not out of D1: the feed is the source of truth for its own agencies. It replaces the earlier single top-level `ntd_id`, which could not describe a multi-agency feed.
 - ✅ **Feed identity at publish** — the Publish panel carries **one** optional field projected onto the publication: the feed's **license** (SPDX short id; `CC0-1.0` / `CC-BY-4.0` / `ODbL-1.0` / unset — we never guess one), stored in editor feed state (`licenseSpdx`) and projected onto `feed_project.license_spdx` (migration `0024_feed_license`). There is deliberately **no** project-level NTD ID: an agency's NTD ID is `Agency.external_id` (§1.8), which lives inside the feed and therefore already rides along in the snapshotted state that publication reads. **NTD IDs are strings with significant leading zeros** — carried as text end to end and never `Number()`-coerced.
-- ✅ Unpublish — pointer cleared, canonical URL returns `410 Gone`. Republish restores.
+- ✅ Unpublish — pointer cleared, canonical URL returns `410 Gone`. Republish restores. Unpublishing also cancels a pending scheduled publish (the confirm dialog says so), so the cron can't put the feed back up.
 - ✅ Publication history view + rollback ("publish this old snapshot again").
 - ✅ Published-feed editor deep-link — the current-publication section surfaces a copyable **"Copy editor link"** (plus an "Open in editor" link) for `import?url=<canonical gtfs.zip>`, so the published feed opens straight in the editor (no account needed), mirroring the draft-link share UX. The import proxy short-circuits same-zone canonical URLs by reading the published ZIP from R2 directly (Cloudflare refuses worker→own-zone fetches with a 522, which previously broke this deep-link).
 - ✅ Per-snapshot state stored as gzipped JSON (R2) plus a rendered ZIP (also R2); two immutable blobs per snapshot.

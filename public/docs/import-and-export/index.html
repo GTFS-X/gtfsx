@@ -125,7 +125,7 @@
 
       <h2 id="gotchas">Edge cases and gotchas</h2>
       <ul>
-        <li><strong>Importing replaces the current project.</strong> Edits you haven't saved get overwritten. The editor prompts before replacing; if you want to keep the current project, save it as a snapshot first or sign in and save to the cloud.</li>
+        <li><strong>Importing replaces the current project.</strong> Edits you haven't saved get overwritten. When the editor already has content, the import options screen lets you merge or replace. Replace is selected by default and shows a red <strong>Replace current project</strong> button; nothing is overwritten until you click it. If you want to keep the current project, save it as a snapshot first or sign in and save to the cloud.</li>
         <li><strong>BOM at the start of CSV files.</strong> Some Windows-authored feeds have a BOM that confuses parsers. The editor strips it; the canonical validator does too. Other consumers may not.</li>
         <li><strong>shape_dist_traveled is recomputed on export.</strong> The editor uses geodesic length from the shape geometry on every export, even if the imported value was different. This is the right behavior for consistency, but agencies with hand-tuned distances will see the values change.</li>
         <li><strong>Empty optional files trip up some validators.</strong> The editor's "don't export empty optional files" behavior is correct per spec but occasionally surprises consumers who expect to see a <code>fare_rules.txt</code> present-but-empty. If you need an empty file to satisfy a downstream check, add a stub fare to keep it populated.</li>
