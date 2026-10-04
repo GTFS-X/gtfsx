@@ -153,6 +153,31 @@ export async function sendPasswordReset(env: Env, to: string, link: string): Pro
   });
 }
 
+/**
+ * Security notice to the PREVIOUS address after a confirmed email change
+ * (W1-06). The old address can no longer reset the password, so the only
+ * recovery path offered is replying to a human (`WELCOME_REPLY_TO`, falling
+ * back to `AUTH_EMAIL_FROM`).
+ */
+export async function sendEmailChangedNotice(env: Env, oldEmail: string, newEmail: string): Promise<void> {
+  const safeNew = escapeHtml(newEmail);
+  await send(env, {
+    to: oldEmail,
+    subject: 'The email on your GTFS·X account was changed',
+    replyTo: env.WELCOME_REPLY_TO || env.AUTH_EMAIL_FROM,
+    html: wrap(`
+      <p>The sign-in email for your GTFS·X account was just changed to <strong>${safeNew}</strong>. Other signed-in sessions were signed out.</p>
+      <p>If you made this change, there's nothing else to do.</p>
+      <p><strong>If you didn't</strong>, reply to this email right away so we can secure your account. This address can no longer be used to sign in or reset the password.</p>
+    `),
+    text:
+      `The sign-in email for your GTFS·X account was just changed to ${newEmail}. Other signed-in sessions were signed out.\n\n` +
+      `If you made this change, there's nothing else to do.\n\n` +
+      `If you didn't, reply to this email right away so we can secure your account. ` +
+      `This address can no longer be used to sign in or reset the password.`,
+  });
+}
+
 export async function sendInvitationEmail(
   env: Env,
   to: string,

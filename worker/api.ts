@@ -34,7 +34,7 @@ import {
   consumeAuthToken,
   invalidateAuthTokensForUser,
 } from './auth/tokens';
-import { sendVerifyEmail } from './email';
+import { sendEmailChangedNotice, sendVerifyEmail } from './email';
 import { projectsRouter } from './projects/routes';
 import { registerAlertRoutes } from './projects/alerts';
 import { computeUserUsage } from './me/usage';
@@ -318,6 +318,16 @@ apiRouter.post('/me/change-email/confirm', requireAuth, async (c) => {
     metadata: { oldEmail: user.email, newEmail: target },
     ip: clientIp(c.req.raw),
   });
+
+  // Tell the previous address (W1-06). Best-effort: the change is already
+  // committed, so a mail failure must not turn it into an error response.
+  if (user.email && user.email !== target) {
+    try {
+      await sendEmailChangedNotice(c.env, user.email, target);
+    } catch (err) {
+      console.error('[change-email] notice to previous address failed', err);
+    }
+  }
 
   return c.body(null, 204);
 });

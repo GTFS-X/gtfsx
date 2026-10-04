@@ -86,6 +86,38 @@ describe('/api/me account management', () => {
     expect(row?.email).toBe('new@example.com');
   });
 
+  it('change-email confirm notifies the previous address (W1-06)', async () => {
+    const user = await seedUser({ email: 'was-here@example.com' });
+    const client = makeClient();
+    await client.post('/auth/login', { email: user.email, password: user.password });
+    await client.post('/api/me/change-email', { newEmail: 'now-here@example.com', currentPassword: user.password });
+    const token = capture.tokenFor('now-here@example.com');
+
+    // Nothing goes to the old address until the change is confirmed.
+    expect(capture.emails.some((e) => e.to === 'was-here@example.com')).toBe(false);
+
+    const confirm = await client.post('/api/me/change-email/confirm', { token });
+    expect(confirm.status).toBe(204);
+    const notice = capture.emails.find((e) => e.to === 'was-here@example.com');
+    expect(notice).toBeTruthy();
+    expect(notice!.subject).toMatch(/email .* was changed/i);
+    expect(notice!.text).toContain('now-here@example.com');
+  });
+
+  it('change-email confirm still succeeds when the notice fails to send', async () => {
+    const user = await seedUser({ email: 'flaky-old@example.com' });
+    const client = makeClient();
+    await client.post('/auth/login', { email: user.email, password: user.password });
+    await client.post('/api/me/change-email', { newEmail: 'flaky-new@example.com', currentPassword: user.password });
+    const token = capture.tokenFor('flaky-new@example.com');
+
+    capture.simulateSendFailure(500, '{"error":"boom"}');
+    const confirm = await client.post('/api/me/change-email/confirm', { token });
+    expect(confirm.status).toBe(204);
+    const row = await dbGet<{ email: string }>(`SELECT email FROM user WHERE id = ?`, user.id);
+    expect(row?.email).toBe('flaky-new@example.com');
+  });
+
   it('change-email collision with another user returns 409', async () => {
     await seedUser({ email: 'taken@example.com' });
     const user = await seedUser({ email: 'wants-taken@example.com' });
