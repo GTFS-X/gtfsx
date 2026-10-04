@@ -74,8 +74,13 @@ describe('/api/me account management', () => {
     const req = await client.post('/api/me/change-email', { newEmail: 'new@example.com', currentPassword: user.password });
     expect(req.status).toBe(204);
 
-    // The verify email is sent to the NEW address.
-    expect(capture.emails.some((e) => e.to === 'new@example.com')).toBe(true);
+    // The confirmation is sent to the NEW address, with its own copy rather
+    // than the signup "Welcome… activate your account" template (E2E A6).
+    const mail = capture.emails.find((e) => e.to === 'new@example.com');
+    expect(mail).toBeTruthy();
+    expect(mail!.subject).toBe('Confirm your new email for GTFS·X');
+    expect(mail!.text).toMatch(/change the email on a GTFS·X account/);
+    expect(`${mail!.text}\n${mail!.html}`).not.toMatch(/Welcome|activate your account/i);
     const token = capture.tokenFor('new@example.com');
     expect(token).toBeTruthy();
 

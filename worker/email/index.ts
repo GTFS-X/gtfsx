@@ -68,6 +68,34 @@ export async function sendVerifyEmail(env: Env, to: string, link: string): Promi
 }
 
 /**
+ * Confirmation for a signed-in user changing their account email. Sent to the
+ * NEW address; distinct from the signup verify mail (no "welcome", nothing to
+ * activate).
+ */
+export async function sendEmailChangeConfirm(env: Env, to: string, link: string): Promise<void> {
+  await send(env, {
+    to,
+    subject: 'Confirm your new email for GTFS·X',
+    html: wrap(`
+      <p>Someone asked to change the email on a GTFS·X account to this address. Click the link below to confirm the change:</p>
+      <p><a href="${link}" style="display: inline-block; background: #8a5a3b; color: white; padding: 10px 18px; border-radius: 6px; text-decoration: none;">Confirm new email</a></p>
+      <p style="color: #666; font-size: 13px;">Or paste this URL into your browser: <br /><code>${link}</code></p>
+      <p style="color: #666; font-size: 13px;">This link expires in 24 hours. Until you confirm, the account keeps its current email. If you didn't ask for this, ignore this email and nothing changes.</p>
+    `),
+    text:
+      `Someone asked to change the email on a GTFS·X account to this address.\n\n` +
+      `Confirm the change: ${link}\n\n` +
+      `This link expires in 24 hours. Until you confirm, the account keeps its current email. ` +
+      `If you didn't ask for this, ignore this email and nothing changes.`,
+  });
+}
+
+/** "a editor" → "an editor". */
+export function withArticle(word: string): string {
+  return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`;
+}
+
+/**
  * One-time welcome email, sent best-effort when an account FIRST becomes active
  * (password verify pending→active, or a brand-new Google-OAuth user). The
  * activation nudge for Campaign A: confirms they're in, points at the
@@ -193,13 +221,13 @@ export async function sendInvitationEmail(
     to,
     subject: `You're invited to ${orgName} on GTFS·X`,
     html: wrap(`
-      <p><strong>${safeInviter}</strong> has invited you to join the <strong>${safeOrg}</strong> organization on GTFS·X as a <strong>${safeRole}</strong>.</p>
+      <p><strong>${safeInviter}</strong> has invited you to join the <strong>${safeOrg}</strong> organization on GTFS·X as ${/^[aeiou]/i.test(role) ? 'an' : 'a'} <strong>${safeRole}</strong>.</p>
       <p>Click the link below to accept the invitation. If you don't already have a GTFS·X account you'll be asked to sign up with this email address first.</p>
       <p><a href="${link}" style="display: inline-block; background: #8a5a3b; color: white; padding: 10px 18px; border-radius: 6px; text-decoration: none;">Accept invitation</a></p>
       <p style="color: #666; font-size: 13px;">Or paste this URL into your browser: <br /><code>${link}</code></p>
       <p style="color: #666; font-size: 13px;">This link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
     `),
-    text: `${inviterName} has invited you to join ${orgName} on GTFS·X as a ${role}.\n\nAccept the invitation: ${link}\n\nThis link expires in 7 days.`,
+    text: `${inviterName} has invited you to join ${orgName} on GTFS·X as ${withArticle(role)}.\n\nAccept the invitation: ${link}\n\nThis link expires in 7 days.`,
   });
 }
 

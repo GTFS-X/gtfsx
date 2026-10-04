@@ -11,7 +11,7 @@ export function pickInvitePreview(invitations: PendingInvitation[]): PendingInvi
 
 export function invitationSubtitle(invite: PendingInvitation | null): string {
   return invite
-    ? `You've been invited to join ${invite.orgName} as a ${invite.role}.`
+    ? `You've been invited to join ${invite.orgName} as ${/^[aeiou]/i.test(invite.role) ? 'an' : 'a'} ${invite.role}.`
     : 'Review and accept your invitation below.';
 }
 

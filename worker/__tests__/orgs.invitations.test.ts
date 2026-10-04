@@ -59,6 +59,9 @@ describe('/api/orgs invitations', () => {
     expect(invRes.status).toBe(204);
     expect(capture.emails).toHaveLength(1);
     expect(capture.emails[0].to).toBe('invitee@example.com');
+    // E2E A7: "as an editor", not "as a editor".
+    expect(capture.emails[0].text).toContain('as an editor.');
+    expect(capture.emails[0].html).toContain('as an <strong>editor</strong>');
 
     const token = capture.tokenFor('invitee@example.com');
     expect(token).toBeTruthy();

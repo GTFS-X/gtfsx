@@ -34,7 +34,7 @@ import {
   consumeAuthToken,
   invalidateAuthTokensForUser,
 } from './auth/tokens';
-import { sendEmailChangedNotice, sendVerifyEmail } from './email';
+import { sendEmailChangeConfirm, sendEmailChangedNotice } from './email';
 import { projectsRouter } from './projects/routes';
 import { registerAlertRoutes } from './projects/alerts';
 import { computeUserUsage } from './me/usage';
@@ -267,7 +267,7 @@ apiRouter.post('/me/change-email', requireAuth, async (c) => {
     metadata: { targetEmail: body.newEmail, flow: 'change_email' },
   });
   const link = `${c.env.APP_ORIGIN}/change-email?token=${token}`;
-  await sendVerifyEmail(c.env, body.newEmail, link);
+  await sendEmailChangeConfirm(c.env, body.newEmail, link);
 
   await logAudit(c.env, {
     actorUserId: user.id,
