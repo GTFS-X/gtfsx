@@ -1,8 +1,8 @@
 import type { StateCreator } from 'zustand';
-import type { Level, Translation } from '../types/gtfs';
+import type { Level, Stop, Translation } from '../types/gtfs';
 import { renameTranslationRecord, withoutTranslationsFor } from '../services/translations';
 
-type WithTranslations = { translations?: Translation[] };
+type WithTranslations = { translations?: Translation[]; stops?: Stop[] };
 
 export interface LevelsSlice {
   levels: Level[];
@@ -20,10 +20,16 @@ export const createLevelsSlice: StateCreator<LevelsSlice, [['zustand/immer', nev
       const oldId = state.levels[index].level_id;
       Object.assign(state.levels[index], updates);
       const newId = state.levels[index].level_id;
-      // level_id edits are live (per keystroke), so translations follow each step.
+      // level_id edits are live (per keystroke), so translations and the stops
+      // on this level (stops.level_id) follow each step. Skipped when another
+      // level still carries the old id: those references are then ambiguous.
       if (updates.level_id !== undefined && oldId !== newId
           && !state.levels.some((l, i) => i !== index && l.level_id === oldId)) {
-        renameTranslationRecord((state as unknown as WithTranslations).translations, 'levels', oldId, newId);
+        const cross = state as unknown as WithTranslations;
+        renameTranslationRecord(cross.translations, 'levels', oldId, newId);
+        for (const s of cross.stops ?? []) {
+          if (s.level_id === oldId) s.level_id = newId;
+        }
       }
     }
   }),
@@ -33,6 +39,10 @@ export const createLevelsSlice: StateCreator<LevelsSlice, [['zustand/immer', nev
       if (!state.levels.some((l) => l.level_id === removed.level_id)) {
         const cross = state as unknown as WithTranslations;
         cross.translations = withoutTranslationsFor(cross.translations, 'levels', new Set([removed.level_id]));
+        // Stops on the deleted level no longer have one.
+        for (const s of cross.stops ?? []) {
+          if (s.level_id === removed.level_id) s.level_id = undefined;
+        }
       }
     }
   }),

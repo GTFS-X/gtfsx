@@ -35,6 +35,26 @@ export interface TripRemovalSnapshot {
  *  cascade-remove/restore frequencies (which live in FrequenciesSlice). */
 type TripWithFreqState = TripSlice & { frequencies?: Frequency[]; translations?: Translation[] };
 
+/**
+ * Drop the rows in OTHER tables that hang off a set of trips being removed:
+ * frequencies.txt windows and translations.txt rows (trip + its stop_times).
+ * Operates on an Immer draft (or any mutable state object). The caller removes
+ * the trips and their stop_times itself.
+ *
+ * Shared by removeTrip, removeRoute and removeShapeFromRoute so a deleted trip
+ * can never leave a frequency window pointing at a trip_id that no longer
+ * exists (the exporter would write it, and the validator flags it).
+ */
+export function cascadeTripRemoval(state: object, tripIds: ReadonlySet<string>): void {
+  if (tripIds.size === 0) return;
+  const cross = state as { frequencies?: Frequency[]; translations?: Translation[] };
+  if (cross.frequencies && cross.frequencies.some((f) => tripIds.has(f.trip_id))) {
+    cross.frequencies = cross.frequencies.filter((f) => !tripIds.has(f.trip_id));
+  }
+  const translations = withoutTranslationsFor(cross.translations, 'trips', tripIds);
+  if (translations !== cross.translations) cross.translations = translations;
+}
+
 export interface TripSlice {
   trips: Trip[];
   stopTimes: StopTime[];
@@ -45,7 +65,16 @@ export interface TripSlice {
   setStopTime: (trip_id: string, stop_id: string, stop_sequence: number, updates: Partial<StopTime>) => void;
   setStopTimes: (stopTimes: StopTime[]) => void;
   renameTripId: (oldId: string, newId: string) => void;
-  duplicateTrip: (trip_id: string, newTripId: string, offsetMinutes: number) => void;
+  /** Copy a trip (and its stop_times) under `newTripId`, shifted by
+   *  `offsetMinutes`. With `cloneFrequencies`, the source trip's frequencies.txt
+   *  windows are copied to the new trip too (shifted by the same offset), so a
+   *  frequency-based template copies as a template rather than as one lone trip. */
+  duplicateTrip: (
+    trip_id: string,
+    newTripId: string,
+    offsetMinutes: number,
+    opts?: { cloneFrequencies?: boolean },
+  ) => void;
   /** Re-lay each target trip's stop_times to match the template trip's stop
    *  sequence + relative timings, shifted so each target keeps its own start
    *  time. Used to push a schedule edit (added stop / changed timing) to all
@@ -127,8 +156,7 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
   removeTrip: (trip_id) => set((state) => {
     state.trips = state.trips.filter((t) => t.trip_id !== trip_id);
     state.stopTimes = state.stopTimes.filter((st) => st.trip_id !== trip_id);
-    const cross = state as unknown as TripWithFreqState;
-    cross.translations = withoutTranslationsFor(cross.translations, 'trips', new Set([trip_id]));
+    cascadeTripRemoval(state, new Set([trip_id]));
   }),
   setTrips: (trips) => set((state) => { state.trips = trips; }),
   setStopTime: (trip_id, stop_id, stop_sequence, updates) => set((state) => {
@@ -159,10 +187,14 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
     for (const st of state.stopTimes) {
       if (st.trip_id === oldId) st.trip_id = newId;
     }
+    // frequencies.txt windows are keyed by trip_id — they follow the rename.
+    for (const f of (state as unknown as TripWithFreqState).frequencies ?? []) {
+      if (f.trip_id === oldId) f.trip_id = newId;
+    }
     // Trip and stop_times translations both use the trip_id as record_id.
     renameTranslationRecord((state as unknown as TripWithFreqState).translations, 'trips', oldId, newId);
   }),
-  duplicateTrip: (trip_id, newTripId, offsetMinutes) => set((state) => {
+  duplicateTrip: (trip_id, newTripId, offsetMinutes, opts) => set((state) => {
     const trip = state.trips.find((t) => t.trip_id === trip_id);
     if (!trip) return;
     state.trips.push({ ...trip, trip_id: newTripId });
@@ -174,6 +206,20 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
         arrival_time: st.arrival_time ? addMinutesToGtfsTime(st.arrival_time, offsetMinutes) : '',
         departure_time: st.departure_time ? addMinutesToGtfsTime(st.departure_time, offsetMinutes) : '',
       });
+    }
+    if (opts?.cloneFrequencies) {
+      const cross = state as unknown as TripWithFreqState;
+      const windows = (cross.frequencies ?? []).filter((f) => f.trip_id === trip_id);
+      if (cross.frequencies && windows.length > 0) {
+        for (const f of windows) {
+          cross.frequencies.push({
+            ...f,
+            trip_id: newTripId,
+            start_time: f.start_time ? addMinutesToGtfsTime(f.start_time, offsetMinutes) : f.start_time,
+            end_time: f.end_time ? addMinutesToGtfsTime(f.end_time, offsetMinutes) : f.end_time,
+          });
+        }
+      }
     }
   }),
   applyTripPattern: (templateTripId, targetTripIds) => set((state) => {
@@ -213,9 +259,20 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
     const trip = state.trips.find((t) => t.trip_id === tripId);
     if (!trip) return;
 
-    // Get the ordered route stops for this trip's direction
-    const orderedRouteStops = fullState.routeStops
-      .filter((rs) => rs.route_id === trip.route_id && rs.direction_id === trip.direction_id)
+    // The trip's own pattern: route stops are keyed per shape, so when the
+    // trip has a shape that the route's stop patterns use, take only that
+    // shape's stops. Filtering by direction alone interleaves every variant's
+    // stops in one direction (two shapes both at seq 1 → the wrong stop's
+    // distance). Shapeless/legacy patterns keep the direction-only filter.
+    const sameDir = fullState.routeStops.filter(
+      (rs) => rs.route_id === trip.route_id && rs.direction_id === trip.direction_id,
+    );
+    const byShape = trip.shape_id
+      ? fullState.routeStops.filter(
+        (rs) => rs.route_id === trip.route_id && rs.shape_id === trip.shape_id,
+      )
+      : [];
+    const orderedRouteStops = (byShape.length > 0 ? byShape : sameDir)
       .sort((a, b) => a.stop_sequence - b.stop_sequence);
 
     if (orderedRouteStops.length < 2) return;

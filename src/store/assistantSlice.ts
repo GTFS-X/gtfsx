@@ -44,6 +44,10 @@ export interface AssistantSlice {
   assistantOpen: boolean;
   assistantMessages: AssistantMessage[];
   assistantStreaming: boolean;
+  /** Id of the reply currently streaming, or null. Only that reply's
+   *  finish/error clears assistantStreaming, so a stale stream from a
+   *  previous conversation can't re-enable Send mid-reply. */
+  assistantActiveReplyId: string | null;
   // Set when the daily quota is exhausted (drives the upgrade card); cleared on
   // a new conversation or a fresh day's successful send.
   assistantQuota: AssistantQuotaInfo | null;
@@ -84,6 +88,7 @@ export const createAssistantSlice: StateCreator<
   assistantOpen: false,
   assistantMessages: [],
   assistantStreaming: false,
+  assistantActiveReplyId: null,
   assistantQuota: null,
 
   openAssistant: () => set((s) => { s.assistantOpen = true; }),
@@ -92,6 +97,7 @@ export const createAssistantSlice: StateCreator<
   newAssistantConversation: () => set((s) => {
     s.assistantMessages = [];
     s.assistantStreaming = false;
+    s.assistantActiveReplyId = null;
     s.assistantQuota = null;
   }),
 
@@ -103,6 +109,7 @@ export const createAssistantSlice: StateCreator<
     set((s) => {
       s.assistantMessages.push({ id, role: 'assistant', text: '', streaming: true, docs: [], actions: [] });
       s.assistantStreaming = true;
+      s.assistantActiveReplyId = id;
     });
     return id;
   },
@@ -137,13 +144,22 @@ export const createAssistantSlice: StateCreator<
   finishAssistantReply: (id, answerClass) => set((s) => {
     const m = s.assistantMessages.find((x) => x.id === id);
     if (m) { m.streaming = false; m.answerClass = answerClass; }
-    s.assistantStreaming = false;
+    if (s.assistantActiveReplyId === id) {
+      s.assistantStreaming = false;
+      s.assistantActiveReplyId = null;
+    }
   }),
   setAssistantReplyError: (id, message) => set((s) => {
     const m = s.assistantMessages.find((x) => x.id === id);
     if (m) { m.streaming = false; m.error = message; }
-    s.assistantStreaming = false;
+    if (s.assistantActiveReplyId === id) {
+      s.assistantStreaming = false;
+      s.assistantActiveReplyId = null;
+    }
   }),
-  setAssistantStreaming: (v) => set((s) => { s.assistantStreaming = v; }),
+  setAssistantStreaming: (v) => set((s) => {
+    s.assistantStreaming = v;
+    if (!v) s.assistantActiveReplyId = null;
+  }),
   setAssistantQuota: (q) => set((s) => { s.assistantQuota = q; }),
 });

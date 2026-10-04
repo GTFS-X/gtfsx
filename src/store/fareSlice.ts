@@ -1,12 +1,17 @@
 import type { StateCreator } from 'zustand';
 import type { FareAttribute, FareRule } from '../types/gtfs';
+import type { FlexZone } from './flexSlice';
+
+/** Flex zones carry a fare_id (exported as their fare_rules row). */
+type WithFlexZones = { flexZones?: FlexZone[] };
 
 export interface FareSlice {
   fareAttributes: FareAttribute[];
   fareRules: FareRule[];
   addFareAttribute: (fare: FareAttribute) => void;
   updateFareAttribute: (fare_id: string, updates: Partial<FareAttribute>) => void;
-  /** Rename a fare_id and cascade the change to any referencing fare_rules. */
+  /** Rename a fare_id and cascade the change to any referencing fare_rules
+   *  and flex zones. */
   renameFareId: (oldId: string, newId: string) => void;
   removeFareAttribute: (fare_id: string) => void;
   /** Clone a fare attribute (and its fare_rules) under a new unique fare_id.
@@ -57,10 +62,16 @@ export const createFareSlice: StateCreator<FareSlice, [['zustand/immer', never]]
     for (const r of state.fareRules) {
       if (r.fare_id === oldId) r.fare_id = newId;
     }
+    for (const z of (state as unknown as WithFlexZones).flexZones ?? []) {
+      if (z.fareId === oldId) z.fareId = newId;
+    }
   }),
   removeFareAttribute: (fare_id) => set((state) => {
     state.fareAttributes = state.fareAttributes.filter((f) => f.fare_id !== fare_id);
     state.fareRules = state.fareRules.filter((r) => r.fare_id !== fare_id);
+    for (const z of (state as unknown as WithFlexZones).flexZones ?? []) {
+      if (z.fareId === fare_id) z.fareId = undefined;
+    }
   }),
   setFareAttributes: (fares) => set((state) => { state.fareAttributes = fares; }),
   addFareRule: (rule) => set((state) => { state.fareRules.push(rule); }),

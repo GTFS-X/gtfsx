@@ -1,5 +1,7 @@
 import type { StateCreator } from 'zustand';
-import type { Stop, StopTime, RouteStop, Transfer, Translation } from '../types/gtfs';
+import { current, isDraft, type Draft } from 'immer';
+import type { Stop, StopTime, RouteStop, Transfer, Translation, Pathway, StopArea } from '../types/gtfs';
+import type { FlexZone } from './flexSlice';
 import { translationsForRecords, withoutTranslationsFor } from '../services/translations';
 import type { TripSlice } from './tripSlice';
 import type { RouteSlice } from './routeSlice';
@@ -24,6 +26,82 @@ export interface StopRemovalSnapshot {
   transfers: Transfer[];
   /** translations.txt rows naming the stop (optional: older snapshots). */
   translations?: Translation[];
+  /** pathways.txt rows with the stop at either end. */
+  pathways?: Pathway[];
+  /** stop_areas.txt rows assigning the stop to a fare area. */
+  stopAreas?: StopArea[];
+  /** Stops whose parent_station was this stop (cleared by the delete). */
+  childStopIds?: string[];
+  /** Flex zones whose stop group listed this stop, with its position there. */
+  flexMemberships?: { zoneId: string; index: number }[];
+}
+
+/** The cross-slice tables a stop delete cascades into. */
+type StopCascadeState = {
+  stops: Stop[];
+  stopTimes?: StopTime[];
+  routeStops?: RouteStop[];
+  transfers?: Transfer[];
+  pathways?: Pathway[];
+  stopAreas?: StopArea[];
+  flexZones?: FlexZone[];
+  translations?: Translation[];
+};
+
+/** A plain (non-proxy) view of a draft value, for fast bulk reads. Returns the
+ *  base object itself when the draft is unmodified. */
+function plain<T>(v: T): T {
+  return isDraft(v) ? (current(v as Draft<T>) as T) : v;
+}
+
+/** `list` without the rows matching `drop`, or `list` itself (same reference)
+ *  when nothing matched, so an untouched table doesn't register as changed. */
+function without<T>(list: T[] | undefined, drop: (row: T) => boolean): T[] | undefined {
+  if (!list) return list;
+  const src = plain(list);
+  const next = src.filter((row) => !drop(row));
+  return next.length === src.length ? list : next;
+}
+
+/**
+ * Remove every reference to the stops in `ids` from the rest of the feed:
+ * stop_times, route_stops, transfers, pathways and stop_areas rows that name
+ * them are dropped; surviving stops whose parent_station was one of them get
+ * it cleared; flex zones' stop groups lose them; their translations go.
+ *
+ * Operates on an Immer draft (or any mutable state). Does NOT remove the stops
+ * themselves; callers do that first. Shared by removeStop, removeStops,
+ * removeStopWithSnapshot and removeRoute's orphaned-stop path so the cascade
+ * can't drift between them.
+ */
+export function cascadeStopRemoval(state: object, ids: ReadonlySet<string>): void {
+  if (ids.size === 0) return;
+  const st = state as StopCascadeState;
+  const hit = (id: string | undefined) => id !== undefined && ids.has(id);
+  const assign = <K extends keyof StopCascadeState>(key: K, next: StopCascadeState[K]) => {
+    if (next !== st[key]) st[key] = next;
+  };
+  assign('stopTimes', without(st.stopTimes, (r) => hit(r.stop_id)));
+  assign('routeStops', without(st.routeStops, (r) => hit(r.stop_id)));
+  assign('transfers', without(st.transfers, (r) => hit(r.from_stop_id) || hit(r.to_stop_id)));
+  assign('pathways', without(st.pathways, (r) => hit(r.from_stop_id) || hit(r.to_stop_id)));
+  assign('stopAreas', without(st.stopAreas, (r) => hit(r.stop_id)));
+  // Children of a deleted station (platforms, entrances, nodes) survive as
+  // stops, but must not keep pointing at a parent that no longer exists.
+  // Rows are replaced (not mutated) because the caller may already have
+  // swapped in a plain array of frozen store objects.
+  plain(st.stops).forEach((s, i) => {
+    if (hit(s.parent_station)) st.stops[i] = { ...s, parent_station: undefined };
+  });
+  if (st.flexZones) {
+    plain(st.flexZones).forEach((z, i) => {
+      if (z.stopIds?.some((id) => ids.has(id))) {
+        st.flexZones![i] = { ...z, stopIds: z.stopIds.filter((id) => !ids.has(id)) };
+      }
+    });
+  }
+  const translations = withoutTranslationsFor(st.translations, 'stops', ids);
+  if (translations !== st.translations) st.translations = translations;
 }
 
 export interface StopSlice {
@@ -31,6 +109,10 @@ export interface StopSlice {
   addStop: (stop: Stop) => void;
   updateStop: (stop_id: string, updates: Partial<Stop>) => void;
   removeStop: (stop_id: string) => void;
+  /** Delete many stops (and everything that references them) in ONE store
+   *  update, so it is one undo step and one pass over stop_times however many
+   *  stops are removed. */
+  removeStops: (stop_ids: string[]) => void;
   /** Clone a stop as a new standalone stop (no route/time associations),
    * nudged slightly so it doesn't sit exactly under the original. Returns the
    * new stop_id, or null if the source doesn't exist. */
@@ -55,9 +137,15 @@ export interface StopSlice {
   setStops: (stops: Stop[]) => void;
 }
 
-// removeStop cascades into other slices (stop_times, route_stops, transfers);
-// widen the state view to cover those fields without resorting to `any`.
-type CrossSliceState = StopSlice & TripSlice & RouteSlice & { transfers?: Transfer[]; translations?: Translation[] };
+// removeStop cascades into other slices (stop_times, route_stops, transfers,
+// pathways, stop_areas, flex zones, translations); widen the state view to cover those fields without resorting to `any`.
+type CrossSliceState = StopSlice & TripSlice & RouteSlice & {
+  transfers?: Transfer[];
+  translations?: Translation[];
+  pathways?: Pathway[];
+  stopAreas?: StopArea[];
+  flexZones?: FlexZone[];
+};
 
 export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]], [], StopSlice> = (set, get) => ({
   stops: [],
@@ -67,25 +155,17 @@ export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]]
     if (idx !== -1) Object.assign(state.stops[idx], updates);
   }),
   removeStop: (stop_id) => set((state) => {
-    state.stops = state.stops.filter((s) => s.stop_id !== stop_id);
-
-    // Cascade: remove stop_times referencing this stop
-    const fullState = get() as unknown as CrossSliceState;
-    (state as CrossSliceState).stopTimes = fullState.stopTimes.filter((st) => st.stop_id !== stop_id);
-
-    // Remove route-stop associations
-    (state as CrossSliceState).routeStops = fullState.routeStops.filter((rs) => rs.stop_id !== stop_id);
-
-    // Remove transfers referencing this stop on either side
-    const cross = state as CrossSliceState;
-    if (cross.transfers) {
-      cross.transfers = cross.transfers.filter(
-        (t) => t.from_stop_id !== stop_id && t.to_stop_id !== stop_id,
-      );
-    }
-
-    // Translations of the deleted stop (stop_name in Spanish, …).
-    cross.translations = withoutTranslationsFor(fullState.translations, 'stops', new Set([stop_id]));
+    state.stops = get().stops.filter((s) => s.stop_id !== stop_id);
+    cascadeStopRemoval(state, new Set([stop_id]));
+  }),
+  removeStops: (stop_ids) => set((state) => {
+    const ids = new Set(stop_ids);
+    if (ids.size === 0) return;
+    const before = get().stops;
+    const next = before.filter((s) => !ids.has(s.stop_id));
+    if (next.length === before.length) return;
+    state.stops = next;
+    cascadeStopRemoval(state, ids);
   }),
   duplicateStop: (stop_id) => {
     const orig = get().stops.find((s) => s.stop_id === stop_id);
@@ -128,6 +208,7 @@ export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]]
   removeStopWithSnapshot: (stop_id) => {
     const snapshot: StopRemovalSnapshot = {
       stop: undefined, stopTimes: [], routeStops: [], transfers: [], translations: [],
+      pathways: [], stopAreas: [], childStopIds: [], flexMemberships: [],
     };
     set((state) => {
       // Capture a clean (pre-mutation) view of the store via get() so we store
@@ -141,19 +222,20 @@ export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]]
         (t) => t.from_stop_id === stop_id || t.to_stop_id === stop_id,
       );
       snapshot.translations = translationsForRecords(cur.translations, 'stops', new Set([stop_id]));
-      // Mutate draft — mirrors removeStop's cascade exactly.
-      state.stops = state.stops.filter((s) => s.stop_id !== stop_id);
-      (state as CrossSliceState).stopTimes = cur.stopTimes.filter((st) => st.stop_id !== stop_id);
-      (state as CrossSliceState).routeStops = cur.routeStops.filter((rs) => rs.stop_id !== stop_id);
-      const cross = state as CrossSliceState;
-      if (cross.transfers) {
-        cross.transfers = (cur.transfers ?? []).filter(
-          (t) => t.from_stop_id !== stop_id && t.to_stop_id !== stop_id,
-        );
-      }
-      if (snapshot.translations!.length > 0) {
-        cross.translations = withoutTranslationsFor(cur.translations, 'stops', new Set([stop_id]));
-      }
+      snapshot.pathways = (cur.pathways ?? []).filter(
+        (p) => p.from_stop_id === stop_id || p.to_stop_id === stop_id,
+      );
+      snapshot.stopAreas = (cur.stopAreas ?? []).filter((sa) => sa.stop_id === stop_id);
+      snapshot.childStopIds = cur.stops
+        .filter((s) => s.parent_station === stop_id)
+        .map((s) => s.stop_id);
+      snapshot.flexMemberships = (cur.flexZones ?? []).flatMap((z) => {
+        const index = z.stopIds?.indexOf(stop_id) ?? -1;
+        return index === -1 ? [] : [{ zoneId: z.id, index }];
+      });
+      // Mutate draft — the same cascade removeStop runs.
+      state.stops = cur.stops.filter((s) => s.stop_id !== stop_id);
+      cascadeStopRemoval(state, new Set([stop_id]));
     });
     return snapshot;
   },
@@ -169,6 +251,26 @@ export const createStopSlice: StateCreator<StopSlice, [['zustand/immer', never]]
     }
     if (snapshot.translations && snapshot.translations.length > 0) {
       cross.translations = [...(cur.translations ?? []), ...snapshot.translations];
+    }
+    const stopId = snapshot.stop.stop_id;
+    if (cross.pathways && snapshot.pathways && snapshot.pathways.length > 0) {
+      cross.pathways = [...(cur.pathways ?? []), ...snapshot.pathways];
+    }
+    if (cross.stopAreas && snapshot.stopAreas && snapshot.stopAreas.length > 0) {
+      cross.stopAreas = [...(cur.stopAreas ?? []), ...snapshot.stopAreas];
+    }
+    if (snapshot.childStopIds && snapshot.childStopIds.length > 0) {
+      const children = new Set(snapshot.childStopIds);
+      for (const s of state.stops) {
+        if (children.has(s.stop_id) && !s.parent_station) s.parent_station = stopId;
+      }
+    }
+    for (const m of snapshot.flexMemberships ?? []) {
+      const zone = cross.flexZones?.find((z) => z.id === m.zoneId);
+      if (!zone || zone.stopIds?.includes(stopId)) continue;
+      const list = zone.stopIds ?? [];
+      list.splice(Math.min(m.index, list.length), 0, stopId);
+      zone.stopIds = list;
     }
   }),
   setStops: (stops) => set((state) => { state.stops = stops; }),
