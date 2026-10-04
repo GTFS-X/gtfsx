@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { ulid } from 'ulidx';
 import type { AppContext, AuthedUser } from '../env';
@@ -11,7 +11,7 @@ import {
   twofaRequired,
   validationFailed,
 } from '../util/errors';
-import { hashPassword, verifyPassword } from '../util/crypto';
+import { generateToken, hashPassword, sha256Hex, verifyPassword } from '../util/crypto';
 import { rateLimit, clientIp } from '../util/rateLimit';
 import { logAudit } from '../util/audit';
 import {
@@ -186,6 +186,85 @@ function clickId(value: string | undefined): string | null {
   return trimmed && trimmed.length > 0 ? trimmed : null;
 }
 
+// ─── Unproven-signup protection (account pre-hijacking) ──────────────────
+//
+// A pending_verification account was created by whoever submitted the signup
+// form; nothing proves they control the address. Anyone can therefore
+// pre-register a victim's email with a password of their choosing. When the
+// account is later activated by someone who DOES prove control of the inbox,
+// the pre-existing password and profile fields must not carry over unless the
+// activation also proves it is the same person who chose them.
+//
+//  - Magic-link consume: proves inbox control only → always drop.
+//  - Verify-email link: the verify mail is sent on signup (and resend), so the
+//    clicker proves inbox control; it is the same person as the signup only if
+//    the click happens in the browser that requested that mail. That browser
+//    holds the gb_signup cookie whose hash is stored on the verify token.
+//    Unbound clicks still activate + sign in, but drop the password and
+//    squatter-chosen fields (the owner can set a password via reset / sign in
+//    via magic link).
+//  - Google: handled in ./google.ts.
+
+const SIGNUP_BINDING_COOKIE = 'gb_signup';
+const SIGNUP_BINDING_MAX_AGE_SEC = 24 * 60 * 60; // verify_email token TTL
+
+function readCookie(req: Request, name: string): string | null {
+  const header = req.headers.get('Cookie');
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const [k, v] = part.trim().split('=');
+    if (k === name && v) return v;
+  }
+  return null;
+}
+
+/**
+ * Bind a verify mail to the requesting browser: reuse (or mint) the
+ * gb_signup nonce, append its cookie to the response, and return the hash to
+ * store in the verify token's metadata.
+ */
+async function signupBinding(c: Context<AppContext>): Promise<string> {
+  const existing = readCookie(c.req.raw, SIGNUP_BINDING_COOKIE);
+  const nonce = existing && /^[A-Za-z0-9_-]{16,128}$/.test(existing) ? existing : generateToken();
+  c.header(
+    'Set-Cookie',
+    `${SIGNUP_BINDING_COOKIE}=${nonce}; Max-Age=${SIGNUP_BINDING_MAX_AGE_SEC}; Path=/auth; HttpOnly; Secure; SameSite=Lax`,
+    { append: true },
+  );
+  return sha256Hex(nonce);
+}
+
+async function isSignupBound(req: Request, metadata: Record<string, unknown> | null): Promise<boolean> {
+  const expected = metadata?.signupBinding;
+  if (typeof expected !== 'string' || !expected) return false;
+  const nonce = readCookie(req, SIGNUP_BINDING_COOKIE);
+  if (!nonce) return false;
+  return (await sha256Hex(nonce)) === expected;
+}
+
+function clearSignupBindingCookie(): string {
+  return `${SIGNUP_BINDING_COOKIE}=; Max-Age=0; Path=/auth; HttpOnly; Secure; SameSite=Lax`;
+}
+
+/**
+ * Drop state chosen by whoever pre-registered a still-unproven account: the
+ * password credential, the display name (reset to the email's local part),
+ * and any outstanding verify-email links. Call BEFORE flipping
+ * pending_verification → active on an activation that does not prove the
+ * activator chose that state.
+ */
+async function dropUnprovenSignupState(env: AppContext['Bindings'], userId: string, email: string): Promise<void> {
+  const now = Date.now();
+  await env.DB.prepare(`DELETE FROM credential WHERE user_id = ? AND kind = 'password'`)
+    .bind(userId)
+    .run();
+  const local = email.split('@')[0]?.trim().slice(0, 120) || 'Member';
+  await env.DB.prepare(`UPDATE user SET display_name = ?, updated_at = ? WHERE id = ?`)
+    .bind(local, now, userId)
+    .run();
+  await invalidateAuthTokensForUser(env, userId, 'verify_email');
+}
+
 export const authRouter = new Hono<AppContext>();
 
 authRouter.get('/ping', (c) => c.json({ ok: true }));
@@ -309,7 +388,7 @@ authRouter.post('/signup', async (c) => {
       const token = await createAuthToken(c.env, {
         kind: 'verify_email',
         userId: existing.id,
-        metadata: { flow: 'signup', next: safeNext(body.next) },
+        metadata: { flow: 'signup', next: safeNext(body.next), signupBinding: await signupBinding(c) },
       });
       const link = `${c.env.APP_ORIGIN}/auth/verify?token=${token}`;
       try {
@@ -367,7 +446,7 @@ authRouter.post('/signup', async (c) => {
       const token = await createAuthToken(c.env, {
         kind: 'verify_email',
         userId,
-        metadata: { flow: 'signup', next: safeNext(body.next) },
+        metadata: { flow: 'signup', next: safeNext(body.next), signupBinding: await signupBinding(c) },
       });
       const link = `${c.env.APP_ORIGIN}/auth/verify?token=${token}`;
       await sendVerifyEmail(c.env, body.email, link);
@@ -508,6 +587,14 @@ authRouter.get('/verify', async (c) => {
     return alreadyVerifiedRedirect();
   }
 
+  // Clicked in the browser that requested this verify mail? If not, the
+  // clicker owns the inbox but did not choose the password / profile fields
+  // on this pending account — drop them, and ignore the stored redirect.
+  const bound = await isSignupBound(c.req.raw, resolved.metadata);
+  if (!bound) {
+    await dropUnprovenSignupState(c.env, userRow.id, userRow.email);
+  }
+
   const now = Date.now();
   await c.env.DB.prepare(
     `UPDATE user SET status = 'active', updated_at = ? WHERE id = ? AND status = 'pending_verification'`,
@@ -523,12 +610,14 @@ authRouter.get('/verify', async (c) => {
     userAgent: c.req.header('User-Agent') ?? null,
   });
   c.header('Set-Cookie', sessionCookie(session.token, session.expiresAt));
+  c.header('Set-Cookie', clearSignupBindingCookie(), { append: true });
 
   await logAudit(c.env, {
     actorUserId: resolved.userId,
     subjectType: 'user',
     subjectId: resolved.userId,
     action: 'user.verify_email',
+    metadata: bound ? undefined : { unboundActivation: true },
     ip,
   });
   await logAudit(c.env, {
@@ -555,7 +644,7 @@ authRouter.get('/verify', async (c) => {
   // automatically, or an invitee accepting an org invite goes straight to the
   // accept page). Other verify-email flows fall back to the editor.
   const isSignupFlow = resolved.metadata?.flow === 'signup';
-  const next = typeof resolved.metadata?.next === 'string'
+  const next = bound && typeof resolved.metadata?.next === 'string'
     ? safeNext(resolved.metadata.next)
     : undefined;
   const target = next
@@ -575,6 +664,9 @@ authRouter.post('/verify-resend', async (c) => {
   await rateLimit(c.env, { key: `auth:verify-resend:ip:${ip}`, limit: 10, windowSec: 3600 });
   await rateLimit(c.env, { key: `auth:verify-resend:email:${body.email}`, limit: 6, windowSec: 3600 });
 
+  // Always bind (and set the cookie) so the response doesn't reveal whether
+  // the address has a pending account.
+  const binding = await signupBinding(c);
   const user = await findUserByEmail(c.env, body.email);
   if (user && user.status === 'pending_verification') {
     await invalidateAuthTokensForUser(c.env, user.id, 'verify_email');
@@ -583,7 +675,7 @@ authRouter.post('/verify-resend', async (c) => {
     const token = await createAuthToken(c.env, {
       kind: 'verify_email',
       userId: user.id,
-      metadata: { flow: 'signup' },
+      metadata: { flow: 'signup', signupBinding: binding },
     });
     const link = `${c.env.APP_ORIGIN}/auth/verify?token=${token}`;
     try {
@@ -784,6 +876,9 @@ authRouter.get('/magic-link/consume', async (c) => {
 
   const now = Date.now();
   if (userRow.status === 'pending_verification') {
+    // A magic link proves inbox control, not that this person chose the
+    // password / profile on the pending account (see dropUnprovenSignupState).
+    await dropUnprovenSignupState(c.env, userRow.id, userRow.email);
     await c.env.DB.prepare(`UPDATE user SET status = 'active', updated_at = ? WHERE id = ?`)
       .bind(now, userRow.id)
       .run();
