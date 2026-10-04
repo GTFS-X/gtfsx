@@ -1,5 +1,6 @@
 import { type RefObject, useEffect, useLayoutEffect, useState } from 'react';
-import { normalizeTimeInput } from '../../utils/time';
+import { formatTimeShort, gtfsTimeToSeconds, normalizeTimeInput, secondsToGtfsTime } from '../../utils/time';
+import { validateFrequencyWindows, type FrequencyWindow } from '../../services/frequencyExpansion';
 
 /* ============================================================================
    Layout constants + content-based column widths (HANDOFF §5)
@@ -90,8 +91,11 @@ function hmsToSec(hms: string): number {
   return h * 3600 + m * 60 + s;
 }
 
-/** Mark a cell red when its time is unparseable or ≤ the previous non-blank time
- *  in the row (typo / inversion catch). Arr/dep pairs are checked in order. */
+/** Mark a cell red when its time is unparseable or earlier than the previous
+ *  non-blank time in the row (typo / inversion catch). Equal consecutive times
+ *  are legal (GTFS times are non-decreasing along a trip; a zero dwell or two
+ *  stops in the same minute is fine). Arr/dep pairs (`arr/dep`) are checked in
+ *  order. */
 export function computeRowErrors(times: (string | null)[]): boolean[] {
   let prev = -1;
   return times.map((t) => {
@@ -102,11 +106,212 @@ export function computeRowErrors(times: (string | null)[]): boolean[] {
       const norm = normalizeTimeInput(part);
       if (!norm) { bad = true; continue; }
       const sec = hmsToSec(norm);
-      if (sec <= prev) bad = true;
+      if (sec < prev) bad = true;
       else prev = sec;
     }
     return bad;
   });
+}
+
+/** The value a row-order check sees for one stop_time: the arr/dep pair when
+ *  they differ (so a departure before its arrival, or a next arrival before this
+ *  departure, is caught), else the single time. null = no stop_time (skipped). */
+export function rowTimeValue(st: { arrival_time?: string; departure_time?: string } | undefined): string | null {
+  if (!st) return null;
+  const a = st.arrival_time || '';
+  const d = st.departure_time || '';
+  if (a && d && a !== d) return `${a}/${d}`;
+  return a || d;
+}
+
+/* ============================================================================
+   Cell commit decision (pure)
+   ========================================================================== */
+
+export type CellCommitDecision =
+  | { kind: 'skip' }
+  | { kind: 'commit'; value: string }
+  | { kind: 'invalid' };
+
+/** What leaving a time cell should do. `focusDisplay` is the text the cell
+ *  showed when it took focus. Leaving it unchanged is navigation, not an edit:
+ *  the display is lossy (HH:MM drops seconds, single mode hides the dwell,
+ *  unpadded times get padded), so committing it would rewrite the stop_time.
+ *  Otherwise: '' clears, a parseable time commits normalized, else invalid. */
+export function cellCommitDecision(raw: string, focusDisplay: string | null): CellCommitDecision {
+  const trimmed = raw.trim();
+  if (focusDisplay !== null && trimmed === focusDisplay.trim()) return { kind: 'skip' };
+  if (!trimmed) return { kind: 'commit', value: '' };
+  const normalized = normalizeTimeInput(trimmed);
+  return normalized ? { kind: 'commit', value: normalized } : { kind: 'invalid' };
+}
+
+/* ============================================================================
+   Service selection (pure)
+   ========================================================================== */
+
+/** The service a pane shows: the requested one if it exists (calendar.txt or
+ *  calendar_dates.txt), else the first service, else null. */
+export function resolveActiveServiceId(requested: string | null, serviceIds: readonly string[]): string | null {
+  if (requested && serviceIds.includes(requested)) return requested;
+  return serviceIds[0] ?? null;
+}
+
+/** A default calendar is only materialized for a feed with no service at all.
+ *  A calendar_dates-only feed already has services. */
+export function needsDefaultCalendar(state: { calendars: readonly unknown[]; calendarDates: readonly unknown[] }): boolean {
+  return state.calendars.length === 0 && state.calendarDates.length === 0;
+}
+
+/* ============================================================================
+   Cell edit → stop_time update (pure)
+   ========================================================================== */
+
+export type CellField = 'both' | 'arrival_time' | 'departure_time';
+
+/** The arrival/departure pair to store after a cell edit. `normalized` is a
+ *  GTFS time, or '' for an explicit clear.
+ *  - 'both' (single-time column): the shown time is the arrival, so the arrival
+ *    becomes the new time and the departure moves by the same delta, keeping
+ *    any existing dwell. A clear empties both.
+ *  - one half (arr/dep column): set that half. Clearing one half collapses the
+ *    stop to the other half's time (a stop_time with only one of the two is not
+ *    valid GTFS); clearing it when the other half is blank empties both. */
+export function cellEditUpdate(
+  st: { arrival_time?: string; departure_time?: string } | undefined,
+  field: CellField,
+  normalized: string,
+): { arrival_time: string; departure_time: string } {
+  const a = st?.arrival_time || '';
+  const d = st?.departure_time || '';
+  if (field === 'both') {
+    if (!normalized) return { arrival_time: '', departure_time: '' };
+    if (a && d && a !== d) {
+      const dwell = gtfsTimeToSeconds(d) - gtfsTimeToSeconds(a);
+      return { arrival_time: normalized, departure_time: secondsToGtfsTime(gtfsTimeToSeconds(normalized) + dwell) };
+    }
+    return { arrival_time: normalized, departure_time: normalized };
+  }
+  if (field === 'arrival_time') {
+    if (!normalized) return { arrival_time: d, departure_time: d };
+    return { arrival_time: normalized, departure_time: d || normalized };
+  }
+  if (!normalized) return { arrival_time: a, departure_time: a };
+  return { arrival_time: a || normalized, departure_time: normalized };
+}
+
+/** The pre-edit time a cascade delta is measured from: the edited half (falling
+ *  back to the other half when it was blank). */
+export function cascadePrevTime(
+  st: { arrival_time?: string; departure_time?: string } | undefined,
+  field: CellField,
+): string {
+  if (field === 'departure_time') return st?.departure_time || st?.arrival_time || '';
+  return st?.arrival_time || st?.departure_time || '';
+}
+
+/* ============================================================================
+   Trip ordering (numeric — GTFS times may be unpadded, e.g. 8:05:00)
+   ========================================================================== */
+
+/** Start second of a trip: the departure (else arrival) of its lowest-sequence
+ *  timed stop_time, or null when it has no times. */
+export function tripStartSec(stopTimes: readonly { stop_sequence: number; arrival_time?: string; departure_time?: string }[] | undefined): number | null {
+  let best: { seq: number; t: string } | null = null;
+  for (const st of stopTimes ?? []) {
+    const t = st.departure_time || st.arrival_time;
+    if (!t) continue;
+    if (!best || st.stop_sequence < best.seq) best = { seq: st.stop_sequence, t };
+  }
+  return best ? gtfsTimeToSeconds(best.t) : null;
+}
+
+/** Sort trips by numeric start second; untimed trips go last (stable). */
+export function sortTripsByStart<T extends { trip_id: string }>(trips: readonly T[], startSecOf: (tripId: string) => number | null): T[] {
+  const keyed = trips.map((t, i) => ({ t, i, s: startSecOf(t.trip_id) }));
+  keyed.sort((x, y) => {
+    if (x.s == null || y.s == null) return (x.s == null ? 1 : 0) - (y.s == null ? 1 : 0) || x.i - y.i;
+    return x.s - y.s || x.i - y.i;
+  });
+  return keyed.map((k) => k.t);
+}
+
+/** Repeat-last's source: the last trip (in display order) that has a start
+ *  time, skipping trailing blank trips. null when none is timed. */
+export function lastTimedTrip<T extends { trip_id: string }>(trips: readonly T[], startSecOf: (tripId: string) => number | null): { trip: T; startSec: number } | null {
+  for (let i = trips.length - 1; i >= 0; i--) {
+    const s = startSecOf(trips[i].trip_id);
+    if (s != null) return { trip: trips[i], startSec: s };
+  }
+  return null;
+}
+
+/* ============================================================================
+   Timepoint columns (per pane, keyed by stop_sequence)
+   ========================================================================== */
+
+/** Which pane columns (by stop_sequence) are timepoints. A column is on when any
+ *  of the pane's trips has timepoint=1 there. When none of the pane's trips sets
+ *  timepoint explicitly at a column (no 0/1 value), the first and last columns
+ *  default on — so marking a middle stop keeps the endpoints flagged. */
+export function timepointSeqs(
+  columnSeqs: readonly number[],
+  tripIds: readonly string[],
+  stopTimesOf: (tripId: string) => readonly { stop_sequence: number; timepoint?: number }[] | undefined,
+): Set<number> {
+  const on = new Set<number>();
+  const explicit = new Set<number>();
+  const cols = new Set(columnSeqs);
+  for (const id of tripIds) {
+    for (const st of stopTimesOf(id) ?? []) {
+      if (!cols.has(st.stop_sequence)) continue;
+      if (st.timepoint === 1) { on.add(st.stop_sequence); explicit.add(st.stop_sequence); }
+      else if (st.timepoint === 0) explicit.add(st.stop_sequence);
+    }
+  }
+  if (columnSeqs.length >= 2) {
+    const first = columnSeqs[0];
+    const last = columnSeqs[columnSeqs.length - 1];
+    if (!explicit.has(first)) on.add(first);
+    if (!explicit.has(last)) on.add(last);
+  }
+  return on;
+}
+
+/* ============================================================================
+   Edit-frequency drawer (pure)
+   ========================================================================== */
+
+/** A stored frequency time as the drawer's text input shows it: HH:MM (with the
+ *  "+1d" suffix past midnight), or full HH:MM:SS when the seconds aren't zero. */
+export function frequencyTimeLabel(t: string): string {
+  const n = normalizeTimeInput(t);
+  if (!n) return t;
+  return n.endsWith(':00') ? formatTimeShort(n) : n;
+}
+
+export interface FrequencyDrawerCheck {
+  /** Windows with start/end normalized to HH:MM:SS ('' when unparseable). */
+  normalized: FrequencyWindow[];
+  errors: { badRange: boolean; badHeadway: boolean; badTime: boolean }[];
+  overlaps: number[];
+  /** Apply is allowed: zero windows (remove), or every window well-formed and
+   *  none overlapping (the validator errors on overlapping windows). */
+  canApply: boolean;
+}
+
+/** Parse the drawer's typed windows through normalizeTimeInput and validate.
+ *  Garbage ("abc", "630") is a bad time and blocks Apply instead of being
+ *  stored verbatim. */
+export function checkFrequencyDrawer(windows: readonly FrequencyWindow[]): FrequencyDrawerCheck {
+  const normalized = windows.map((w) => ({ ...w, start_time: normalizeTimeInput(w.start_time), end_time: normalizeTimeInput(w.end_time) }));
+  const badTimes = normalized.map((w) => !w.start_time || !w.end_time);
+  // Only parseable windows take part in the overlap sweep.
+  const parseable = normalized.map((w, i) => (badTimes[i] ? { ...w, start_time: '00:00:00', end_time: '00:00:00' } : w));
+  const base = validateFrequencyWindows(parseable);
+  const errors = base.errors.map((e, i) => ({ ...e, badTime: badTimes[i] }));
+  const ok = errors.every((e) => !e.badRange && !e.badHeadway && !e.badTime);
+  return { normalized, errors, overlaps: base.overlaps, canApply: windows.length === 0 || (ok && base.overlaps.length === 0) };
 }
 
 /* ============================================================================

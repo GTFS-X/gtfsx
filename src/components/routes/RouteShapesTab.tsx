@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
+import { isShapeSharedWithOtherRoute, routeStopsToCopy } from './routePanelHelpers';
 import { generateId } from '../../services/idGenerator';
 import { snapToRoadDetailed, pathLengthMeters } from '../../services/snapToRoad';
 import { SnapWarningDialog } from '../map/SnapWarningDialog';
@@ -21,18 +23,37 @@ import { computeShapePatterns } from '../ui/shapePatterns';
  *      'trim_shape' map mode. MapView's click handler reads the shape id
  *      and side from window globals and rewrites the points.
  */
+/** Write the window-global handoff flags MapView reads (see
+ *  src/types/window.d.ts). Module-level so the component body doesn't mutate
+ *  a global directly. */
+function setWindowFlags(flags: Partial<Pick<Window,
+  '__suppressNextRouteFit' | '__drawingDirection' | '__trimShapeId' | '__trimShapeSide'>>) {
+  Object.assign(window, flags);
+}
+
 export function RouteShapesTab() {
   const {
-    routes, trips, shapes, removeTrip,
+    routes, trips, shapes,
     routeStops, addRouteStop,
     selectedRouteId,
     setMapMode, setDrawingRouteId, setDrawingNewRoute,
     setEditingShapeId, setRouteDetailTab, setStopsPanelShapeId, setStopPlacementDirection,
     addShape, addTrip,
-    removeShape, renameShape,
+    removeShapeFromRoute, renameShape,
     updateShapePoints, recalcShapeDistances,
     hiddenShapeIds, toggleShapeVisibility,
-  } = useStore();
+  } = useStore(useShallow((s) => ({
+    routes: s.routes, trips: s.trips, shapes: s.shapes,
+    routeStops: s.routeStops, addRouteStop: s.addRouteStop,
+    selectedRouteId: s.selectedRouteId,
+    setMapMode: s.setMapMode, setDrawingRouteId: s.setDrawingRouteId, setDrawingNewRoute: s.setDrawingNewRoute,
+    setEditingShapeId: s.setEditingShapeId, setRouteDetailTab: s.setRouteDetailTab,
+    setStopsPanelShapeId: s.setStopsPanelShapeId, setStopPlacementDirection: s.setStopPlacementDirection,
+    addShape: s.addShape, addTrip: s.addTrip,
+    removeShapeFromRoute: s.removeShapeFromRoute, renameShape: s.renameShape,
+    updateShapePoints: s.updateShapePoints, recalcShapeDistances: s.recalcShapeDistances,
+    hiddenShapeIds: s.hiddenShapeIds, toggleShapeVisibility: s.toggleShapeVisibility,
+  })));
 
   const [snappingShapeId, setSnappingShapeId] = useState<string | null>(null);
   // Set when a per-shape Snap couldn't fully match the road network, so the user
@@ -105,7 +126,7 @@ export function RouteShapesTab() {
     setStopPlacementDirection(dir);
     // Don't pan/zoom the map when jumping to a shape's stops (Mark: the auto-fit
     // to the whole route is disorienting mid-edit). Reuse the one-shot fit guard.
-    window.__suppressNextRouteFit = true;
+    setWindowFlags({ __suppressNextRouteFit: true });
     setRouteDetailTab('stops');
   };
 
@@ -141,7 +162,7 @@ export function RouteShapesTab() {
         .filter((t) => t.route_id === route.route_id && t.shape_id)
         .map((t) => t.direction_id),
     );
-    window.__drawingDirection = dirsUsed.has(0) && !dirsUsed.has(1) ? 1 : 0;
+    setWindowFlags({ __drawingDirection: dirsUsed.has(0) && !dirsUsed.has(1) ? 1 : 0 });
     setDrawingNewRoute(false); // adding a shape to this existing route
     setDrawingRouteId(route.route_id);
     setMapMode('draw_route');
@@ -156,10 +177,11 @@ export function RouteShapesTab() {
   const handleSaveShapeEdit = () => { window.__shapeEditSave?.(); };
   const handleCancelShapeEdit = () => { window.__shapeEditDiscard?.(); };
 
+  // Remove the shape from THIS route only, as one undo step: this route's
+  // trips on it (with stop_times, frequencies, translations) and its stops on
+  // it go; the shape itself is kept while another route still uses it.
   const handleDeleteShape = (shapeId: string) => {
-    const shapeTrips = trips.filter((t) => t.shape_id === shapeId);
-    for (const trip of shapeTrips) removeTrip(trip.trip_id);
-    removeShape(shapeId);
+    removeShapeFromRoute(shapeId, route.route_id);
     setConfirmDeleteShapeId(null);
   };
 
@@ -222,7 +244,11 @@ export function RouteShapesTab() {
   ) => {
     const shape = shapes.find((s) => s.shape_id === shapeId);
     if (!shape) return;
-    const sourceTrip = trips.filter((t) => t.shape_id === shapeId)[0];
+    // Only this route's trips and stops are copied: a shape shared with another
+    // route must not hand the copy that route's trip or pattern.
+    const routeTrips = trips.filter((t) => t.route_id === route.route_id);
+    const sourceTrip = routeTrips.find((t) => t.shape_id === shapeId);
+    const stopsToCopy = routeStopsToCopy(routeStops, route.route_id, shapeId);
     const newShapeId = generateId('shape');
 
     // Optionally reverse the vertex order (re-sequenced). This flips geometry
@@ -236,7 +262,7 @@ export function RouteShapesTab() {
     // A copy that gets no stub trip and no copied stops (the source has no
     // trips, and either no stops or "Copy stops" is off) only belongs to the
     // route via _route_id; without it the copy would vanish from this list.
-    const routeLink = duplicateShapeRouteLink(shapeId, selectedRouteId, opts.copyStops, trips, routeStops);
+    const routeLink = duplicateShapeRouteLink(shapeId, route.route_id, opts.copyStops, routeTrips, stopsToCopy);
     addShape({
       shape_id: newShapeId,
       points,
@@ -259,11 +285,8 @@ export function RouteShapesTab() {
     // Optionally copy the shape's stops onto the copy, reversing their order to
     // match when the vertices are reversed.
     if (opts.copyStops) {
-      const ordered = routeStops
-        .filter((rs) => rs.shape_id === shapeId)
-        .sort((a, b) => a.stop_sequence - b.stop_sequence);
-      const n = ordered.length;
-      ordered.forEach((rs, i) => {
+      const n = stopsToCopy.length;
+      stopsToCopy.forEach((rs, i) => {
         // Drop _uid so each copied instance gets its own fresh handle
         // (addRouteStop only stamps one when absent).
         const { _uid: _drop, ...base } = rs;
@@ -277,8 +300,7 @@ export function RouteShapesTab() {
   // The shape id + side are stashed on window globals so MapView's click
   // handler can read them without subscribing to a transient piece of UI state.
   const beginTrim = (shapeId: string, side: 'start' | 'end') => {
-    window.__trimShapeId = shapeId;
-    window.__trimShapeSide = side;
+    setWindowFlags({ __trimShapeId: shapeId, __trimShapeSide: side });
     setTrimPromptShapeId(null);
     setMapMode('trim_shape');
   };
@@ -353,9 +375,14 @@ export function RouteShapesTab() {
                     </>
                   ) : (
                     <>
+                      {/* While another shape is being edited, Save or Cancel it
+                          first: switching shapes mid-edit would leave the first
+                          shape's edits with no Cancel. */}
                       <button
                         onClick={() => handleEditShape(shape!.shape_id)}
-                        className="flex-1 px-2 py-1.5 bg-sand text-brown rounded text-[11px] font-semibold hover:bg-coral-light hover:text-coral transition-colors"
+                        disabled={mapMode === 'edit_shape'}
+                        title={mapMode === 'edit_shape' ? 'Save or cancel the shape being edited first' : undefined}
+                        className="flex-1 px-2 py-1.5 bg-sand text-brown rounded text-[11px] font-semibold hover:bg-coral-light hover:text-coral transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-sand disabled:hover:text-brown"
                       >
                         Edit Shape
                       </button>
@@ -544,7 +571,9 @@ export function RouteShapesTab() {
                 {confirmDeleteShapeId === shape!.shape_id && (
                   <div className="mx-3 mb-2 p-2 bg-red-50 border border-red-200 rounded-lg">
                     <p className="text-[11px] text-red-700 mb-2">
-                      Delete this shape and its {shapeTrips.length} trip{shapeTrips.length !== 1 ? 's' : ''}?
+                      {isShapeSharedWithOtherRoute(shape!.shape_id, route.route_id, { trips, routeStops, shapes })
+                        ? <>Remove this shape and its {shapeTrips.length} trip{shapeTrips.length !== 1 ? 's' : ''} from this route? Another route also uses the shape, so the shape itself is kept.</>
+                        : <>Delete this shape and its {shapeTrips.length} trip{shapeTrips.length !== 1 ? 's' : ''}?</>}
                     </p>
                     <div className="flex gap-1">
                       <button

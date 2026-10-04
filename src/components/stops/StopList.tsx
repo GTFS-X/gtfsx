@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { EmptyState } from '../ui/EmptyState';
+import { StopListRow } from './StopListRow';
 import { WHEELCHAIR_BOARDING, LOCATION_TYPES, directionName } from '../../utils/constants';
 import type { Stop } from '../../types/gtfs';
 
@@ -30,7 +31,7 @@ export function StopList() {
   const setCreatingStop = useStore((s) => s.setCreatingStop);
   const selectStop = useStore((s) => s.selectStop);
   const setMapStopFilter = useStore((s) => s.setMapStopFilter);
-  const removeStop = useStore((s) => s.removeStop);
+  const removeStops = useStore((s) => s.removeStops);
   const hiddenStopIds = useStore((s) => s.hiddenStopIds);
   const toggleStopVisibility = useStore((s) => s.toggleStopVisibility);
   const setHiddenStopIds = useStore((s) => s.setHiddenStopIds);
@@ -171,10 +172,10 @@ export function StopList() {
   };
 
   const deleteAllShown = () => {
-    // Snapshot ids first — removeStop mutates the store and cascades into
-    // stop_times / route_stops / transfers per stop.
-    const ids = sortedStops.map((s) => s.stop_id);
-    for (const id of ids) removeStop(id);
+    // One batched removal: a single store update and a single undo step,
+    // however many stops are shown (a per-stop loop flooded the 100-entry
+    // undo history, so the earliest deletions could not be undone).
+    removeStops(sortedStops.map((s) => s.stop_id));
     setConfirmingDelete(false);
     setEditingStopId(null);
     selectStop(null);
@@ -377,46 +378,15 @@ export function StopList() {
             </div>
           </div>
           <div className="flex flex-col gap-0.5">
-            {sortedStops.map((stop) => {
-              const isHidden = hiddenStopIds.includes(stop.stop_id);
-              return (
-                <button
-                  key={stop.stop_id}
-                  onClick={() => openStopEditor(stop.stop_id)}
-                  className="flex items-center gap-2 w-full px-2 py-1.5 rounded-lg transition-colors text-left hover:bg-cream group"
-                >
-                  {/* Dot — click to toggle stop visibility on the map */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleStopVisibility(stop.stop_id);
-                    }}
-                    className={`w-2.5 h-2.5 rounded-full border-2 shrink-0 transition-all ${
-                      isHidden
-                        ? 'opacity-40 hover:opacity-70'
-                        : 'opacity-100 hover:scale-110'
-                    }`}
-                    style={{
-                      borderColor: '#E8734A',
-                      backgroundColor: isHidden ? 'transparent' : 'white',
-                    }}
-                    title={isHidden ? 'Show on map' : 'Hide from map'}
-                  />
-                  <div className={`flex flex-col min-w-0 flex-1 transition-opacity ${isHidden ? 'opacity-40' : ''}`}>
-                    <span className="text-xs font-medium text-dark-brown truncate">
-                      {stop.stop_name || 'Unnamed Stop'}
-                    </span>
-                    {stop.stop_code && (
-                      <span className="text-[10px] text-warm-gray">Code: {stop.stop_code}</span>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-warm-gray opacity-0 group-hover:opacity-100 transition-opacity">
-                    Edit →
-                  </span>
-                </button>
-              );
-            })}
+            {sortedStops.map((stop) => (
+              <StopListRow
+                key={stop.stop_id}
+                stop={stop}
+                isHidden={hiddenStopIds.includes(stop.stop_id)}
+                onOpen={() => openStopEditor(stop.stop_id)}
+                onToggleVisibility={() => toggleStopVisibility(stop.stop_id)}
+              />
+            ))}
           </div>
 
           <div className="mt-3 pt-3 border-t border-sand">

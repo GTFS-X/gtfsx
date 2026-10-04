@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { VariantCompareDialog } from './VariantCompareDialog';
+import { DeleteVariantConfirm, DiscardVariantsConfirm } from './variantConfirms';
 import { useCanUseVariants } from './useCanUseVariants';
 import { relativeTime } from '../community/time';
 import {
@@ -16,7 +18,7 @@ import {
   priorBaselineName,
 } from '../../services/variants';
 import { peekVariantSpatialMetrics, type SpatialMetrics } from '../../services/variantSpatialMetrics';
-import { summarizeDiff, rowActions } from './variantPanelHelpers';
+import { summarizeDiff, rowActions, pickDiffInputs } from './variantPanelHelpers';
 import type { FeedVariant } from '../../store/variantSlice';
 import type { FeedDiff } from '../../services/feedDiff';
 
@@ -50,6 +52,16 @@ export function VariantsPanel() {
   const baseline = variants.find((v) => v.baseline) ?? null;
   const baselineId = baseline?.id ?? '';
 
+  // The active side of each diff reads the live store, so recompute when the
+  // feed data changes (C2-15). Debounced so a burst of edits (typing, a shape
+  // drag) costs one recompute, not one per keystroke.
+  const feedData = useStore(useShallow(pickDiffInputs));
+  const [feedRev, setFeedRev] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => setFeedRev((r) => r + 1), 300);
+    return () => clearTimeout(t);
+  }, [feedData]);
+
   // Per-variant entity delta vs baseline (cheap counts).
   const diffs = useMemo(() => {
     const m = new Map<string, FeedDiff | null>();
@@ -58,7 +70,7 @@ export function VariantsPanel() {
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [variants, baselineId, activeVariantId]);
+  }, [variants, baselineId, activeVariantId, feedRev]);
 
   if (!canUse) {
     return <p className="text-sm text-warm-gray">Variants aren't available on this plan.</p>;
@@ -143,17 +155,9 @@ export function VariantsPanel() {
       )}
 
       {confirmDelete && (
-        <ConfirmDialog
-          danger
-          title={`Delete "${confirmDelete.name}"?`}
-          body={
-            <>
-              This removes the variant and its edits from the set.
-              {confirmDelete.id === activeVariantId && ' You’ll be switched back to the baseline.'}
-              {' '}Nothing is written until you Save.
-            </>
-          }
-          confirmLabel="Delete variant"
+        <DeleteVariantConfirm
+          name={confirmDelete.name}
+          isActive={confirmDelete.id === activeVariantId}
           onCancel={() => setConfirmDelete(null)}
           onConfirm={() => {
             deleteVariant(confirmDelete.id);
@@ -192,11 +196,7 @@ export function VariantsPanel() {
       )}
 
       {confirmDiscard && (
-        <ConfirmDialog
-          danger
-          title="Discard all variants?"
-          body="This drops the whole variant set and returns the editor to the baseline feed. Nothing is written until you Save."
-          confirmLabel="Discard variants"
+        <DiscardVariantsConfirm
           onCancel={() => setConfirmDiscard(false)}
           onConfirm={() => {
             discardVariants();

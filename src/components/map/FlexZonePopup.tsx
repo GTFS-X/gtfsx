@@ -1,4 +1,5 @@
 import { Popup } from 'react-map-gl/mapbox';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
 import { openFlexZoneDetails } from '../flex/flexHelpers';
 
@@ -35,7 +36,13 @@ export function FlexZonePopup({ zoneId, lngLat, onClose }: Props) {
   const fare = useStore((s) =>
     zone?.fareId ? s.fareAttributes.find((f) => f.fare_id === zone.fareId) : undefined
   );
-  const { selectRoute, setEditingRouteId, setSidebarSection } = useStore();
+  // Actions only (stable references). A bare useStore() re-rendered this popup
+  // on every store change.
+  const { selectRoute, setEditingRouteId, setSidebarSection } = useStore(useShallow((s) => ({
+    selectRoute: s.selectRoute,
+    setEditingRouteId: s.setEditingRouteId,
+    setSidebarSection: s.setSidebarSection,
+  })));
 
   if (!zone) return null;
 

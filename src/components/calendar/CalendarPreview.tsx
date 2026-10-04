@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { Calendar, CalendarDate } from '../../types/gtfs';
+import { PREVIEW_DAY_CLASS, previewDayKind } from './calendarPreviewDay';
 
 interface CalendarPreviewProps {
   calendar: Calendar;
@@ -38,19 +39,6 @@ export function CalendarPreview({ calendar, calendarDates, onRemoveException }: 
     return map;
   }, [calendarDates]);
 
-  const serviceStart = gtfsDateToDate(calendar.start_date);
-  const serviceEnd = gtfsDateToDate(calendar.end_date);
-
-  const dayServiceFlags = [
-    calendar.monday,
-    calendar.tuesday,
-    calendar.wednesday,
-    calendar.thursday,
-    calendar.friday,
-    calendar.saturday,
-    calendar.sunday,
-  ];
-
   // Build the grid for the month
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const firstDayOfWeek = (() => {
@@ -68,39 +56,8 @@ export function CalendarPreview({ calendar, calendarDates, onRemoveException }: 
     cells.push({ day: d, gtfsDate: dateToGtfs(date) });
   }
 
-  function getDayColor(day: number, gtfsDate: string): string {
-    const date = new Date(viewYear, viewMonth, day);
-
-    // Outside service range
-    if (date < serviceStart || date > serviceEnd) {
-      return 'bg-sand/50 text-warm-gray/50';
-    }
-
-    // Check exceptions first
-    const exception = exceptionMap.get(gtfsDate);
-    if (exception) {
-      if (exception.exception_type === 2) {
-        return 'bg-gold-light text-brown border-2 border-gold';
-      }
-      // exception_type 1 = service added
-      return 'bg-teal-light text-teal border-2 border-teal/30';
-    }
-
-    // Regular service based on day of week
-    const jsDay = date.getDay();
-    const mondayBased = jsDay === 0 ? 6 : jsDay - 1;
-    const hasService = dayServiceFlags[mondayBased];
-
-    if (hasService) {
-      // Weekday vs weekend coloring
-      if (mondayBased >= 5) {
-        return 'bg-teal-light text-teal';
-      }
-      return 'bg-coral-light text-coral';
-    }
-
-    return 'bg-sand/40 text-warm-gray';
-  }
+  const getDayColor = (gtfsDate: string): string =>
+    PREVIEW_DAY_CLASS[previewDayKind(calendar, exceptionMap.get(gtfsDate), gtfsDate)];
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -160,7 +117,7 @@ export function CalendarPreview({ calendar, calendarDates, onRemoveException }: 
           }
 
           const isException = exceptionMap.has(cell.gtfsDate);
-          const colorClass = getDayColor(cell.day, cell.gtfsDate);
+          const colorClass = getDayColor(cell.gtfsDate);
 
           return (
             <button
@@ -222,8 +179,12 @@ export function CalendarPreview({ calendar, calendarDates, onRemoveException }: 
           <span className="text-[9px] text-warm-gray">Weekend service</span>
         </div>
         <div className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded-sm bg-teal border border-teal" />
+          <span className="text-[9px] text-warm-gray">Service added</span>
+        </div>
+        <div className="flex items-center gap-1">
           <span className="w-3 h-3 rounded-sm bg-gold-light border border-gold" />
-          <span className="text-[9px] text-warm-gray">Exception date</span>
+          <span className="text-[9px] text-warm-gray">Service removed</span>
         </div>
         <div className="flex items-center gap-1">
           <span className="w-3 h-3 rounded-sm bg-sand/40 border border-sand" />

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '../../store';
 import { generateId } from '../../services/idGenerator';
 import type { Pathway } from '../../types/gtfs';
+import { endpointOptions, pathwayEndpoints } from './pathwayHelpers';
 
 const PATHWAY_MODE_LABELS: Record<Pathway['pathway_mode'], string> = {
   1: 'Walkway',
@@ -15,8 +16,8 @@ const PATHWAY_MODE_LABELS: Record<Pathway['pathway_mode'], string> = {
 
 /**
  * pathways.txt editor — basic table of in-station connections. Each row links
- * two stop nodes (any location_type: station, platform, entrance, generic node,
- * boarding area) with a mode and direction. Optional length / traversal time /
+ * two stop nodes (platform, entrance, generic node or boarding area; GTFS
+ * doesn't allow a station as an endpoint) with a mode and direction. Optional length / traversal time /
  * stair count / signage are exposed; rarer columns (max_slope, min_width, the
  * reversed signpost) still round-trip on import/export. No map drawing here.
  */
@@ -29,14 +30,12 @@ export function PathwaysEditor() {
 
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
-  const stopOptions = [...stops]
-    .sort((a, b) => a.stop_name.localeCompare(b.stop_name))
-    .map((s) => ({ value: s.stop_id, label: s.stop_name || s.stop_id }));
+  const eligible = pathwayEndpoints(stops);
   const stopName = (id: string) => stops.find((s) => s.stop_id === id)?.stop_name || id || '—';
 
   const handleAdd = () => {
-    const first = stops[0]?.stop_id || '';
-    const second = stops[1]?.stop_id || first;
+    const first = eligible[0]?.stop_id || '';
+    const second = eligible[1]?.stop_id || first;
     addPathway({
       pathway_id: generateId('pathway'),
       from_stop_id: first,
@@ -54,10 +53,10 @@ export function PathwaysEditor() {
 
   return (
     <div>
-      {stops.length < 2 && (
+      {eligible.length < 2 && (
         <div className="mb-3 p-3 rounded-lg bg-gold-light border-2 border-amber-300">
           <p className="text-amber-700 text-sm font-semibold">
-            Add at least two stops (e.g. a station and its platforms) before defining pathways.
+            Add at least two platforms, entrances or nodes (a pathway can't start or end at a station itself) before defining pathways.
           </p>
         </div>
       )}
@@ -98,7 +97,7 @@ export function PathwaysEditor() {
                         onChange={(e) => updatePathway(idx, { from_stop_id: e.target.value })}
                         className="mt-1 w-full px-2 py-1.5 border border-sand rounded-md text-sm bg-cream"
                       >
-                        {stopOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        {endpointOptions(eligible, stops, p.from_stop_id).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </label>
                     <label className="text-[11px] font-semibold text-warm-gray uppercase tracking-wide">
@@ -108,7 +107,7 @@ export function PathwaysEditor() {
                         onChange={(e) => updatePathway(idx, { to_stop_id: e.target.value })}
                         className="mt-1 w-full px-2 py-1.5 border border-sand rounded-md text-sm bg-cream"
                       >
-                        {stopOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        {endpointOptions(eligible, stops, p.to_stop_id).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </label>
                     <label className="text-[11px] font-semibold text-warm-gray uppercase tracking-wide">
@@ -188,7 +187,7 @@ export function PathwaysEditor() {
 
       <button
         onClick={handleAdd}
-        disabled={stops.length < 2}
+        disabled={eligible.length < 2}
         className="w-full px-4 py-2 rounded-lg font-heading font-bold text-sm bg-coral text-white hover:bg-[#d4603a] transition-colors disabled:opacity-40"
       >
         + Add Pathway

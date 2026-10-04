@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Drawer } from '../ui/Drawer';
-import { formatTimeShort, gtfsTimeToSeconds, secondsToGtfsTime } from '../../utils/time';
+import { formatTimeShort, secondsToGtfsTime } from '../../utils/time';
+import { checkFrequencyDrawer, frequencyTimeLabel } from './timetableGridHelpers';
 import type { GenerateValidation, TimetableGenMode } from '../../services/timetableGen';
-import { windowDepartureCount, validateFrequencyWindows, type FrequencyWindow } from '../../services/frequencyExpansion';
+import { windowDepartureCount, type FrequencyWindow } from '../../services/frequencyExpansion';
 
 /** The raw inputs a Generate submission carries up to the orchestrator, which
  *  builds the full GenerateTripsParams (it owns the pattern's routeStops / stops
@@ -183,17 +184,20 @@ export function RuntimeDrawer({
 
 /* ---------- ↻ Repeat last trip ---------- */
 export function RepeatDrawer({
-  lastStart, tripCount, onApply, onCancel,
+  lastSec, tripCount, onApply, onCancel,
 }: {
-  lastStart: string; // formatted HH:MM, or '—'
+  /** Start of the trip Repeat copies (the last TIMED trip), in seconds; null
+   *  when no trip in scope has a time. Passed as a number, not a formatted
+   *  label, so an overnight start ("01:30 +1d") previews correctly. */
+  lastSec: number | null;
   tripCount: number;
   onApply: (input: { headway: number; copies: number }) => void;
   onCancel: () => void;
 }) {
   const [head, setHead] = useState(30);
   const [copies, setCopies] = useState(4);
-  const lastSec = lastStart === '—' ? null : gtfsTimeToSeconds(lastStart);
-  const ok = tripCount > 0 && head > 0 && copies > 0;
+  const lastStart = lastSec == null ? '—' : formatTimeShort(secondsToGtfsTime(lastSec));
+  const ok = tripCount > 0 && lastSec != null && head > 0 && copies > 0;
   const range = ok && lastSec != null
     ? `${formatTimeShort(secondsToGtfsTime(lastSec + head * 60))} → ${formatTimeShort(secondsToGtfsTime(lastSec + head * copies * 60))}`
     : '';
@@ -219,9 +223,9 @@ export function RepeatDrawer({
 }
 
 /* ---------- ⏲ Edit frequency windows ---------- */
-const DEFAULT_WINDOW: FrequencyWindow = { start_time: '06:00:00', end_time: '22:00:00', headway_secs: 1800, exact_times: 0 };
-const hhmm = (s: string) => s.slice(0, 5); // HH:MM:SS → HH:MM for the input
-const withSecs = (s: string) => { const t = s.trim(); return /^\d{1,2}:\d{2}$/.test(t) ? `${t}:00` : t; };
+// Windows hold the typed text while editing; checkFrequencyDrawer normalizes
+// (and rejects garbage) for validation and on Apply.
+const DEFAULT_WINDOW: FrequencyWindow = { start_time: '06:00', end_time: '22:00', headway_secs: 1800, exact_times: 0 };
 
 export function FrequencyDrawer({
   ctx, tripId, initialWindows, onApply, onCancel,
@@ -232,11 +236,15 @@ export function FrequencyDrawer({
   onApply: (windows: FrequencyWindow[]) => void;
   onCancel: () => void;
 }) {
+  // Seeded once per mount; the parent keys this drawer on the trip id so
+  // switching trips re-seeds instead of carrying one trip's windows to another.
   const [windows, setWindows] = useState<FrequencyWindow[]>(
-    () => (initialWindows.length ? initialWindows.map((w) => ({ ...w })) : [{ ...DEFAULT_WINDOW }]),
+    () => (initialWindows.length
+      ? initialWindows.map((w) => ({ ...w, start_time: frequencyTimeLabel(w.start_time), end_time: frequencyTimeLabel(w.end_time) }))
+      : [{ ...DEFAULT_WINDOW }]),
   );
-  const issues = validateFrequencyWindows(windows);
-  const departures = windowDepartureCount(windows);
+  const check = checkFrequencyDrawer(windows);
+  const departures = windowDepartureCount(check.normalized.filter((_, i) => !check.errors[i].badTime));
   const empty = windows.length === 0;
 
   const setW = (i: number, patch: Partial<FrequencyWindow>) =>
@@ -244,7 +252,7 @@ export function FrequencyDrawer({
 
   const count = empty
     ? <span className="text-amber-600 font-normal">Removes the frequency — {tripId} becomes a plain single trip.</span>
-    : <>→ {departures} departure{departures === 1 ? '' : 's'}{issues.overlaps.length > 0 && <span className="text-amber-600 font-normal"> · overlapping windows</span>}</>;
+    : <>→ {departures} departure{departures === 1 ? '' : 's'}{check.overlaps.length > 0 && <span className="text-red-500 font-normal"> · overlapping windows</span>}</>;
 
   return (
     <Drawer
@@ -254,28 +262,31 @@ export function FrequencyDrawer({
       sub={`${ctx} · ${tripId} — headway windows. The trip's stop times stay editable in the grid.`}
       count={count}
       applyLabel={empty ? 'Remove frequency' : 'Apply windows'}
-      canApply={empty || issues.ok}
-      onApply={() => onApply(windows.map((w) => ({ ...w, start_time: withSecs(w.start_time), end_time: withSecs(w.end_time) })))}
+      canApply={check.canApply}
+      onApply={() => onApply(check.normalized)}
       onCancel={onCancel}
     >
       {windows.map((w, i) => {
-        const err = issues.errors[i];
-        const overlap = issues.overlaps.includes(i);
-        const note = err.badHeadway ? 'headway must be > 0' : err.badRange ? 'end must be after start' : overlap ? 'overlaps another window' : null;
+        const err = check.errors[i];
+        const overlap = check.overlaps.includes(i);
+        const note = err.badTime ? 'enter times like 06:00'
+          : err.badHeadway ? 'headway must be > 0'
+          : err.badRange ? 'end must be after start'
+          : overlap ? 'overlaps another window' : null;
         return (
           <div key={i} className="basis-full flex items-center gap-2 flex-wrap">
             <span>Every</span>
             <input className={TIN_NUM} type="number" min={1} value={Math.max(1, Math.round(w.headway_secs / 60))}
               onChange={(e) => setW(i, { headway_secs: Math.max(1, Number(e.target.value) || 0) * 60 })} />
             <span>min from</span>
-            <input className={TIN_TIME} value={hhmm(w.start_time)} onChange={(e) => setW(i, { start_time: e.target.value })} />
+            <input className={TIN_TIME} aria-label={`Window ${i + 1} start`} value={w.start_time} onChange={(e) => setW(i, { start_time: e.target.value })} />
             <span>to</span>
-            <input className={TIN_TIME} value={hhmm(w.end_time)} onChange={(e) => setW(i, { end_time: e.target.value })} />
+            <input className={TIN_TIME} aria-label={`Window ${i + 1} end`} value={w.end_time} onChange={(e) => setW(i, { end_time: e.target.value })} />
             <label className="inline-flex items-center gap-1.5 cursor-pointer text-[12.5px]">
               <input type="checkbox" checked={w.exact_times === 1} onChange={(e) => setW(i, { exact_times: e.target.checked ? 1 : 0 })} className="accent-coral" />
               Exact times
             </label>
-            {note && <span className={`text-[11px] ${err.badHeadway || err.badRange ? 'text-red-500' : 'text-amber-600'}`}>{note}</span>}
+            {note && <span className="text-[11px] text-red-500">{note}</span>}
             <button type="button" onClick={() => setWindows((ws) => ws.filter((_, k) => k !== i))} title="Remove window"
               className="ml-auto w-6 h-6 flex items-center justify-center rounded text-warm-gray hover:text-red-500 hover:bg-red-50 text-base leading-none">×</button>
           </div>

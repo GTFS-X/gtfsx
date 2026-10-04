@@ -33,7 +33,6 @@ import {
   type DemandSelection,
 } from './demandCategories';
 import type { MapMouseEvent, MapboxGeoJSONFeature } from 'mapbox-gl';
-import type { ShapePoint } from '../../types/gtfs';
 import { generateId } from '../../services/idGenerator';
 import { ROUTE_COLORS, getContrastTextColor } from '../../utils/colors';
 import { snapToRoadDetailed, type SnapStatus } from '../../services/snapToRoad';
@@ -42,7 +41,19 @@ import { suggestStopName } from '../../services/suggestStopName';
 import { createDrawnShape } from '../../services/routeShapes';
 import { resolveStopPlacement } from '../../services/stopPlacement';
 import { trimShapeAtPoint } from '../../services/shapeHelpers';
-import { nextRouteStopSequence } from '../../services/routeStopMigration';
+import {
+  STOP_CIRCLES_LAYER_ID,
+  STOP_CLUSTERS_LAYER_ID,
+  STOP_CLUSTER_POINTS_LAYER_ID,
+  isStopPointLayer,
+} from './stopLayerIds';
+import {
+  expandStopCluster,
+  isTextEntryTarget,
+  nextShapeEditSnapshot,
+  pointerHitsStop,
+  type ShapeEditSnapshot,
+} from './mapInteractions';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -132,10 +143,18 @@ export function MapView() {
 
   // Track the last stop placed (for ESC undo)
   const lastPlacedStopRef = useRef<string | null>(null);
+  // The Esc-undo applies only to the current Add Stop session. Leaving the mode
+  // any way (toolbar toggle, "Done placing", a mode switch) forgets the stop,
+  // so a later session's Esc can't delete a stop placed long ago.
+  useEffect(() => {
+    if (mapMode !== 'place_stop') lastPlacedStopRef.current = null;
+  }, [mapMode]);
   // Track the draw feature ID for shape/zone editing
   const editDrawFeatureIdRef = useRef<string | null>(null);
-  // Snapshot of original shape points before editing (for discard)
-  const originalShapePointsRef = useRef<ShapePoint[] | null>(null);
+  // Snapshot of the edited shape's points before editing (for discard). Keyed
+  // by shape id so a re-run of the load effect for the same shape (Simplify,
+  // re-renders) can't overwrite it with already-edited points.
+  const originalShapePointsRef = useRef<ShapeEditSnapshot | null>(null);
   // Snapshot of original flex zone geojson before editing (for discard)
   const originalFlexZoneGeojsonRef = useRef<GeoJSON.FeatureCollection | null>(null);
   // Confirm discard dialog
@@ -268,7 +287,9 @@ export function MapView() {
       if (e.key === 'Escape') {
         const currentMode = useStore.getState().mapMode;
         if (currentMode === 'place_stop') {
-          if (lastPlacedStopRef.current) {
+          // Esc in a text field (the place-stop dialog's name box) still exits
+          // the mode, but must not delete the stop that was just placed.
+          if (lastPlacedStopRef.current && !isTextEntryTarget(e.target)) {
             const sid = lastPlacedStopRef.current;
             // removeStop cascades: it drops the stop's route_stops and
             // stop_times by stop_id, so undoing a just-placed stop needs no
@@ -473,8 +494,9 @@ export function MapView() {
 
   const discardShapeEdit = useCallback(() => {
     const currentEditingId = useStore.getState().editingShapeId;
-    if (currentEditingId && originalShapePointsRef.current) {
-      useStore.getState().updateShapePoints(currentEditingId, originalShapePointsRef.current);
+    const snapshot = originalShapePointsRef.current;
+    if (currentEditingId && snapshot && snapshot.shapeId === currentEditingId) {
+      useStore.getState().updateShapePoints(currentEditingId, snapshot.points);
       useStore.getState().recalcShapeDistances(currentEditingId);
     }
     if (drawRef.current) drawRef.current.deleteAll();
@@ -540,7 +562,9 @@ export function MapView() {
       duration: 0,
     });
     initialFitDoneRef.current = true;
-  }, [stops, shapes]);
+    // mapReady: the map is created asynchronously, after this component's first
+    // effects. Without it a feed already in the store at mount never fits.
+  }, [stops, shapes, mapReady]);
 
   // When a stop goes into edit mode, zoom in to a tight view centered on it —
   // past the cluster max-zoom, so on a large (clustered) feed the stop renders
@@ -598,7 +622,9 @@ export function MapView() {
     map.on('idle', recompute);
     recompute();
     return () => { map.off('moveend', recompute); map.off('idle', recompute); };
-  }, [shapes]);
+    // mapReady: see the initial-fit effect; otherwise the listeners are never
+    // attached when the shapes were loaded before the map.
+  }, [shapes, mapReady]);
 
   // Expose map flyTo on window for sidebar components
   useEffect(() => {
@@ -647,6 +673,9 @@ export function MapView() {
 
   // Load shape / flex zone into draw when entering the relevant editing mode
   useEffect(() => {
+    // Any mode other than edit_shape ends the shape edit; drop its snapshot so
+    // a later edit of the same shape can't restore stale points on Cancel.
+    if (useStore.getState().mapMode !== 'edit_shape') originalShapePointsRef.current = null;
     if (!drawRef.current) return;
     const currentMode = useStore.getState().mapMode;
     const currentEditingId = useStore.getState().editingShapeId;
@@ -656,8 +685,11 @@ export function MapView() {
       const shape = useStore.getState().shapes.find((s) => s.shape_id === currentEditingId);
       if (!shape) return;
 
-      // Snapshot original points for discard
-      originalShapePointsRef.current = JSON.parse(JSON.stringify(shape.points));
+      // Snapshot original points for discard (kept across re-runs for the
+      // same shape; see nextShapeEditSnapshot).
+      originalShapePointsRef.current = nextShapeEditSnapshot(
+        originalShapePointsRef.current, currentEditingId, shape.points,
+      );
 
       // Clear any existing draw features
       drawRef.current.deleteAll();
@@ -752,9 +784,7 @@ export function MapView() {
       if (useStore.getState().mapMode !== 'move_stop') return;
       const stopId = useStore.getState().selectedStopId;
       if (!stopId) return;
-      const features = map.queryRenderedFeatures(e.point, { layers: ['stop-circles', 'stop-circles-outer'] });
-      const hit = features.some((f: MapboxGeoJSONFeature) => f.properties?.stop_id === stopId);
-      if (!hit) return;
+      if (!pointerHitsStop(map, e.point, stopId)) return;
 
       e.preventDefault();
       draggingStopRef.current = true;
@@ -1131,15 +1161,12 @@ export function MapView() {
       }
 
       if (hasRoute && currentState.selectedRouteId) {
-        const existingStops = currentState.routeStops.filter(
-          (rs) => rs.route_id === currentState.selectedRouteId
-            && (bestShapeId ? rs.shape_id === bestShapeId : rs.direction_id === bestDirectionId)
-        );
-        currentState.addRouteStop({
+        // appendRouteStop picks a sequence past every existing route_stop AND
+        // stop_time in the pattern, so it can't collide with imported seqs.
+        currentState.appendRouteStop({
           route_id: currentState.selectedRouteId,
           stop_id: stopId,
           direction_id: bestDirectionId,
-          stop_sequence: nextRouteStopSequence(existingStops),
           _snapped: currentState.stopPlacementMode === 'snap_to_route',
           shape_id: bestShapeId,
         });
@@ -1166,24 +1193,16 @@ export function MapView() {
     // Select mode
     if (currentState.mapMode === 'select') {
       // Clicked a stop cluster (large-feed clustered mode) → zoom in to expand it.
-      const clusterFeature = e.features?.find((f: MapboxGeoJSONFeature) => f.layer?.id === 'stop-clusters');
+      const clusterFeature = e.features?.find((f: MapboxGeoJSONFeature) => f.layer?.id === STOP_CLUSTERS_LAYER_ID);
       if (clusterFeature?.properties) {
         const map = mapRef.current?.getMap?.();
-        const source = map?.getSource('stop-cluster') as
-          | { getClusterExpansionZoom: (id: number, cb: (err: unknown, zoom: number) => void) => void }
-          | undefined;
-        const clusterId = clusterFeature.properties.cluster_id;
-        if (map && source && typeof clusterId === 'number') {
-          source.getClusterExpansionZoom(clusterId, (err, zoom) => {
-            if (err) return;
-            map.easeTo({ center: [e.lngLat.lng, e.lngLat.lat], zoom, duration: 500 });
-          });
+        if (map) {
+          expandStopCluster(map, clusterFeature.properties.cluster_id, [e.lngLat.lng, e.lngLat.lat]);
         }
         return;
       }
 
-      const stopFeature = e.features?.find((f: MapboxGeoJSONFeature) =>
-        f.layer?.id === 'stop-circles' || f.layer?.id === 'stop-cluster-points');
+      const stopFeature = e.features?.find((f: MapboxGeoJSONFeature) => isStopPointLayer(f.layer?.id));
       if (stopFeature?.properties) {
         const sid = stopFeature.properties.stop_id;
         currentState.selectStop(sid);
@@ -1261,7 +1280,7 @@ export function MapView() {
       // switch to a grab affordance while in move mode. Skip updates during
       // an active drag so the cursor doesn't flicker between grab and grabbing.
       if (draggingStopRef.current) return;
-      const over = !!(e.features && e.features.some((f: MapboxGeoJSONFeature) => f.layer?.id === 'stop-circles'));
+      const over = !!(e.features && e.features.some((f: MapboxGeoJSONFeature) => isStopPointLayer(f.layer?.id)));
       setHoveringStop(over);
     }
   }, [mapMode]);
@@ -1302,7 +1321,7 @@ export function MapView() {
         doubleClickZoom={mapMode !== 'place_stop'}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        interactiveLayerIds={mapMode === 'edit_shape' || mapMode === 'edit_flex_zone' || mapMode === 'draw_flex_zone' || mapMode === 'draw_fare_zone' || mapMode === 'select_stops_polygon' ? [] : ['stop-circles', 'stop-cluster-points', 'stop-clusters', 'route-lines', 'flex-zone-hit']}
+        interactiveLayerIds={mapMode === 'edit_shape' || mapMode === 'edit_flex_zone' || mapMode === 'draw_flex_zone' || mapMode === 'draw_fare_zone' || mapMode === 'select_stops_polygon' ? [] : [STOP_CIRCLES_LAYER_ID, STOP_CLUSTER_POINTS_LAYER_ID, STOP_CLUSTERS_LAYER_ID, 'route-lines', 'flex-zone-hit']}
       >
         <NavigationControl position="bottom-right" />
         <DrawControl
@@ -1310,7 +1329,7 @@ export function MapView() {
           onCreate={handleDrawCreate}
           onUpdate={handleDrawUpdate}
         />
-        <DemandDotsLayer visible={showDemandDots} selection={demandSelection} />
+        <DemandDotsLayer visible={showDemandDots} selection={demandSelection} clustered={clusterStops} />
         <CoverageLayer />
         <AccessIsochroneLayer />
         <FlexLayer />

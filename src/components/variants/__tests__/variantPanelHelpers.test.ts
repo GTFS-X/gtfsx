@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeDiff, rowActions } from '../variantPanelHelpers';
+import { summarizeDiff, rowActions, pickDiffInputs, VARIANT_DIFF_KEYS } from '../variantPanelHelpers';
 import type { FeedDiff } from '../../../services/feedDiff';
 
 // Minimal FeedDiff shape for the summary — only the fields summarizeDiff reads.
@@ -64,5 +64,34 @@ describe('rowActions', () => {
       canDelete: true, canPromote: true, canCompare: true,
     });
     expect(rowActions({ baseline: false }, true).canSwitch).toBe(false);
+  });
+});
+
+describe('summarizeDiff schedule-only changes (S1-26)', () => {
+  it('names a re-timed schedule instead of reading "no changes"', () => {
+    expect(summarizeDiff(diff({ scheduleChanged: true }))).toEqual(['schedule changed']);
+  });
+
+  it('names service pattern edits', () => {
+    expect(summarizeDiff(diff({
+      calendars: { added: 0, removed: 0, changed: 1, addedIds: [], removedIds: [] },
+    }))).toEqual(['1 service pattern edit']);
+  });
+
+  it('never returns an empty list for a non-identical diff', () => {
+    expect(summarizeDiff(diff({ identical: false }))).toEqual(['service changed']);
+  });
+});
+
+describe('pickDiffInputs (C2-15)', () => {
+  it('picks exactly the arrays the variant diff reads', () => {
+    const state = {
+      routes: [], routeStops: [], trips: [], stopTimes: [], stops: [],
+      calendars: [], calendarDates: [], frequencies: [], unrelated: 1,
+    };
+    const picked = pickDiffInputs(state as never);
+    expect(Object.keys(picked).sort()).toEqual([...VARIANT_DIFF_KEYS].sort());
+    expect(picked.trips).toBe(state.trips);
+    expect('unrelated' in picked).toBe(false);
   });
 });

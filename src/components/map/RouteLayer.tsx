@@ -5,6 +5,7 @@ import { lineString } from '@turf/helpers';
 import { useStore } from '../../store';
 import { getArrowColor } from '../../utils/colors';
 import type { LayerProps } from 'react-map-gl/mapbox';
+import { firstTripByShape, routesById } from './routeLayerIndex';
 
 // Ramer–Douglas–Peucker tolerance (degrees, ~20 m) used only when rendering a
 // very large feed zoomed out. Display-only — drops vertices that aren't
@@ -57,6 +58,11 @@ export function RouteLayer({ simplified = false }: { simplified?: boolean }) {
     && routeDetailTab === 'stops'
     && !!editingRouteId;
 
+  // Lookup indexes, rebuilt only when their own inputs change, so selection /
+  // mode / visibility changes don't rescan every trip for every shape.
+  const tripByShape = useMemo(() => firstTripByShape(trips), [trips]);
+  const routeById = useMemo(() => routesById(routes), [routes]);
+
   const geojson = useMemo(() => {
     const hiddenRouteSet = new Set(hiddenRouteIds);
     const hiddenShapeSet = new Set(hiddenShapeIds);
@@ -65,12 +71,12 @@ export function RouteLayer({ simplified = false }: { simplified?: boolean }) {
     // Hide the shape being edited in draw (to avoid double-rendering)
     .filter((shape) => !(mapMode === 'edit_shape' && shape.shape_id === editingShapeId))
     .map((shape) => {
-      const trip = trips.find((t) => t.shape_id === shape.shape_id);
+      const trip = tripByShape.get(shape.shape_id);
       // Resolve the shape's route via its trip, falling back to the editor-only
       // draft association for a freshly drawn shape that has no trip yet — so it
       // still renders in its route color and highlights when selected.
       const routeId = trip?.route_id ?? shape._route_id;
-      const route = routeId ? routes.find((r) => r.route_id === routeId) : null;
+      const route = routeId ? routeById.get(routeId) ?? null : null;
       // Skip hidden routes or individually hidden shapes
       if (route && hiddenRouteSet.has(route.route_id)) return null;
       if (hiddenShapeSet.has(shape.shape_id)) return null;
@@ -102,7 +108,7 @@ export function RouteLayer({ simplified = false }: { simplified?: boolean }) {
     }).filter((f): f is NonNullable<typeof f> => f !== null);
 
     return { type: 'FeatureCollection' as const, features };
-  }, [shapes, routes, trips, selectedRouteId, editingShapeId, mapMode, hiddenRouteIds, hiddenRouteTypes, hiddenShapeIds, simplified]);
+  }, [shapes, routeById, tripByShape, selectedRouteId, editingShapeId, mapMode, hiddenRouteIds, hiddenRouteTypes, hiddenShapeIds, simplified]);
 
   const isEditing = mapMode === 'edit_shape';
   // Any route-editing context (detail panel open) — de-emphasize the other

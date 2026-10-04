@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Popup } from 'react-map-gl/mapbox';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
 import { ROUTE_TYPES } from '../../utils/constants';
 
@@ -18,13 +19,21 @@ export function RoutePopup({ routeId, directionId, shapeId, lngLat, onClose }: R
   const route = useStore((s) => s.routes.find((r) => r.route_id === routeId));
   const trips = useStore((s) => s.trips);
   const routeStops = useStore((s) => s.routeStops);
+  // Actions only (stable references). A bare useStore() re-rendered this popup
+  // on every store change.
   const {
     setSidebarSection,
     selectRoute,
     setEditingRouteId,
     setRouteDetailTab,
     setPendingShapeEditId,
-  } = useStore();
+  } = useStore(useShallow((s) => ({
+    setSidebarSection: s.setSidebarSection,
+    selectRoute: s.selectRoute,
+    setEditingRouteId: s.setEditingRouteId,
+    setRouteDetailTab: s.setRouteDetailTab,
+    setPendingShapeEditId: s.setPendingShapeEditId,
+  })));
 
   // Intentionally does NOT touch stopTimes. The old popup listed each trip's
   // first departure, which meant filtering the entire stop_times table once per

@@ -1,6 +1,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
+import { managedRouteList } from './routePanelHelpers';
 import { EmptyState } from '../ui/EmptyState';
 import { RouteDetailPanel } from './RouteDetailPanel';
 import { FlexRouteSection } from './FlexRouteSection';
@@ -15,7 +17,14 @@ export function RouteList() {
     editingRouteId, setEditingRouteId,
     hiddenRouteIds, toggleRouteVisibility, setHiddenRouteIds,
     hiddenRouteTypes, toggleRouteType,
-  } = useStore();
+  } = useStore(useShallow((s) => ({
+    routes: s.routes, addRoute: s.addRoute, trips: s.trips, routeStops: s.routeStops,
+    selectedRouteId: s.selectedRouteId, selectRoute: s.selectRoute,
+    editingRouteId: s.editingRouteId, setEditingRouteId: s.setEditingRouteId,
+    hiddenRouteIds: s.hiddenRouteIds, toggleRouteVisibility: s.toggleRouteVisibility,
+    setHiddenRouteIds: s.setHiddenRouteIds,
+    hiddenRouteTypes: s.hiddenRouteTypes, toggleRouteType: s.toggleRouteType,
+  })));
   const flexZones = useStore((s) => s.flexZones);
   // Signed-in users can pull routes from their other feeds. Surface that entry
   // point here (not only behind the top-bar Import button) so cross-feed route
@@ -30,11 +39,13 @@ export function RouteList() {
   // Flex zones are materialized as routes (route_type 715, long-name-only —
   // see flexRouteNames) so they export cleanly and the validator sees them,
   // but they're created/edited/deleted in the Flex Zones panel — keep them out
-  // of the Routes list so they don't read as regular routes here.
-  const managedRoutes = useMemo(() => {
-    const flexRouteIds = new Set(flexZones.map((z) => z.routeId).filter(Boolean));
-    return routes.filter((r) => !flexRouteIds.has(r.route_id));
-  }, [routes, flexZones]);
+  // of the Routes list so they don't read as regular routes here. Only a
+  // flex-ONLY route is hidden: a route that also runs fixed trips, or is shared
+  // by several zones, is a real route and stays listed (isFlexOnlyRoute).
+  const managedRoutes = useMemo(
+    () => managedRouteList(routes, { trips, flexZones }),
+    [routes, trips, flexZones],
+  );
 
   // Distinct route_types present in the feed, in a stable order. The type
   // pillbox only appears when there's more than one mode to filter between.

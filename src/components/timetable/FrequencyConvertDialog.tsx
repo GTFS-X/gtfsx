@@ -104,6 +104,12 @@ function confirmBody(r: ConversionResult) {
       {lead}{' '}
       The schedule looks the same, but every trip becomes real and editable — you can block them, edit
       each one, and their service-hours count toward cost. The <code>frequencies.txt</code> rows are removed.
+      {r.perTemplate.some((t) => t.retimed) && (
+        <span className="block mt-2">
+          {single ? 'The template trip' : 'Templates whose own times sit off the first departure'} will be
+          re-timed onto {single ? 'its' : 'their'} first departure, so no extra trip is added.
+        </span>
+      )}
       {r.anyApproximate && (
         <span className="block mt-2 text-amber-700">
           These are approximate (&ldquo;about every N minutes&rdquo;) headways — converting writes them as

@@ -9,6 +9,8 @@ import { PaywallOverlay } from '../billing/PaywallOverlay';
 import { useEditorPlan } from '../billing/useEditorPlan';
 import { TranslationsEditor } from '../translations/EntityTranslations';
 import { TABLE_SPEC } from '../../services/translations';
+import { CoordInput } from './CoordInput';
+import { parentStationCandidates, parentStationRequired } from './stopFormHelpers';
 
 /**
  * Stop edit sub-panel. Rendered by RightRail when `editingStopId` is set;
@@ -71,12 +73,12 @@ export function StopEditPanel() {
     }
   };
 
-  // parent_station can only be set on non-station stops, and only points to
-  // location_type=1 stations. Filter the candidate list accordingly.
-  const stationOptions = allStops
-    .filter((s) => s.location_type === 1 && s.stop_id !== stop.stop_id)
-    .sort((a, b) => a.stop_name.localeCompare(b.stop_name));
+  // parent_station can only be set on non-station stops. Boarding areas point
+  // to a platform; stops, entrances and nodes point to a station.
+  const stationOptions = parentStationCandidates(stop, allStops);
   const canHaveParent = stop.location_type !== 1;
+  const parentRequired = parentStationRequired(stop.location_type);
+  const isBoardingArea = stop.location_type === 4;
 
   return (
     <div>
@@ -104,18 +106,20 @@ export function StopEditPanel() {
         </label>
         <div className="grid grid-cols-2 gap-2 mb-2">
           <FormField label="Latitude" size="sub" containerClassName="">
-            <input
-              type="number"
-              value={String(stop.stop_lat)}
-              onChange={(e) => updateStop(stop.stop_id, { stop_lat: Number(e.target.value) })}
+            <CoordInput
+              key={`${stop.stop_id}-lat`}
+              kind="lat"
+              value={stop.stop_lat}
+              onCommit={(n) => updateStop(stop.stop_id, { stop_lat: n })}
               className="w-full px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
             />
           </FormField>
           <FormField label="Longitude" size="sub" containerClassName="">
-            <input
-              type="number"
-              value={String(stop.stop_lon)}
-              onChange={(e) => updateStop(stop.stop_id, { stop_lon: Number(e.target.value) })}
+            <CoordInput
+              key={`${stop.stop_id}-lon`}
+              kind="lon"
+              value={stop.stop_lon}
+              onCommit={(n) => updateStop(stop.stop_id, { stop_lon: n })}
               className="w-full px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
             />
           </FormField>
@@ -186,7 +190,7 @@ export function StopEditPanel() {
       </FormField>
 
       {canHaveParent && (
-        <FormField label="Parent Station">
+        <FormField label={isBoardingArea ? 'Parent Platform' : 'Parent Station'} testId="parent-station" required={parentRequired}>
           <select
             value={stop.parent_station || ''}
             onChange={(e) => updateStop(stop.stop_id, { parent_station: e.target.value || undefined })}
@@ -202,7 +206,9 @@ export function StopEditPanel() {
           </select>
           {stationOptions.length === 0 && (
             <p className="text-[11px] text-warm-gray mt-1">
-              Create a stop with Location Type "Station" to link this stop to it.
+              {isBoardingArea
+                ? 'Create a stop with Location Type "Stop" (a platform) to link this boarding area to it.'
+                : 'Create a stop with Location Type "Station" to link this stop to it.'}
             </p>
           )}
         </FormField>

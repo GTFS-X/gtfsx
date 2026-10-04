@@ -1,37 +1,5 @@
 import { useStore } from '../../store';
-import { generateId } from '../../services/idGenerator';
-import { ROUTE_COLORS, getContrastTextColor } from '../../utils/colors';
-
-/**
- * Ensure there's an active route to draw on / place stops against.
- * If one is already selected, reuse it; if there's exactly one in the feed,
- * select that; otherwise create a new blank route.
- */
-function ensureActiveRoute(): string {
-  const state = useStore.getState();
-  if (state.selectedRouteId && state.routes.some((r) => r.route_id === state.selectedRouteId)) {
-    return state.selectedRouteId;
-  }
-  if (state.routes.length === 1) {
-    state.selectRoute(state.routes[0].route_id);
-    return state.routes[0].route_id;
-  }
-
-  const usedColors = state.routes.map((r) => r.route_color);
-  const nextColor = ROUTE_COLORS.find((c) => !usedColors.includes(c)) || ROUTE_COLORS[0];
-  const id = generateId('route');
-  state.addRoute({
-    route_id: id,
-    agency_id: state.agencies[0]?.agency_id || '',
-    route_short_name: '',
-    route_long_name: '',
-    route_type: 3,
-    route_color: nextColor,
-    route_text_color: getContrastTextColor(nextColor),
-  });
-  state.selectRoute(id);
-  return id;
-}
+import { selectAddStopRoute } from './addStopRoute';
 
 export function MapToolbar() {
   const mapMode = useStore((s) => s.mapMode);
@@ -69,22 +37,9 @@ export function MapToolbar() {
       window.__cancelDrawRoute?.();
     }
 
-    // Default the place-stop dialog's "Assign to" target to the most recently
-    // drawn shape (its route + direction) if nothing's selected yet — that's
-    // almost always what the user is about to add stops to.
-    if (!state.selectedRouteId && state.shapes.length > 0) {
-      const latestShape = state.shapes[state.shapes.length - 1];
-      const trip = state.trips.find((t) => t.shape_id === latestShape.shape_id);
-      // A freshly drawn shape has no trip yet — fall back to its draft route
-      // association so Add Stop still defaults to the route just drawn.
-      const routeId = trip?.route_id ?? latestShape._route_id;
-      if (routeId) {
-        state.selectRoute(routeId);
-        state.setStopPlacementDirection(trip?.direction_id ?? 0);
-      }
-    } else {
-      ensureActiveRoute();
-    }
+    // Default the place-stop dialog's "Assign to" target (most recently drawn
+    // shape's route, else the selection). Never creates a route.
+    selectAddStopRoute();
 
     state.setSidebarSection('stops');
     state.setMapMode('place_stop');

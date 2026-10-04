@@ -5,7 +5,7 @@ import type { Trip, StopTime } from '../../types/gtfs';
 import { expandFrequencyTrip, type FrequencyWindow, type VirtualTrip } from '../../services/frequencyExpansion';
 import { ActionCell, ColResizer, ColumnMenu, HeadwayToggle, RowMenu, TimeCell, TripCell } from './timetableGridParts';
 import {
-  computeRowErrors, actColWidth, defaultColWidth,
+  computeRowErrors, rowTimeValue, actColWidth, defaultColWidth,
   COL_MIN, COL_MAX, TRIP_COL_MIN, TRIP_COL_DEFAULT,
   type RowActionStyle,
 } from './timetableGridHelpers';
@@ -16,7 +16,8 @@ interface PaneProps {
   orderedStops: OrderedStop[];
   routeTrips: Trip[];
   allTripIds: string[];
-  timepointStopIds: Set<string>;
+  /** Timepoint columns, keyed by stop_sequence (per pane). */
+  timepointSeqs: Set<number>;
   continuousOverrides: Map<string, { pickup?: 0 | 1 | 2 | 3; dropOff?: 0 | 1 | 2 | 3 }>;
   findStopTime: (tripId: string, seq: number) => StopTime | undefined;
   /** frequencies.txt windows per template trip_id in scope — drives the
@@ -48,7 +49,7 @@ interface PaneProps {
  *  presentation over the derived data + callbacks handed down by the orchestrator. */
 export function TimetableGridPane(props: PaneProps) {
   const {
-    orderedStops, routeTrips, allTripIds, timepointStopIds, continuousOverrides, findStopTime,
+    orderedStops, routeTrips, allTripIds, timepointSeqs, continuousOverrides, findStopTime,
     frequenciesByTrip, arrDepStops, rowActions, showHeadways, showColumnMenu, showContinuous, scrollRef,
     onCell, onSkip, onRestore, onRename, onRowAction, onAddTrip, onToggleRowActions, onToggleHeadways,
     onTimepoint, onArrDep, onContinuous,
@@ -66,7 +67,7 @@ export function TimetableGridPane(props: PaneProps) {
   useEffect(() => { setColW({}); }, [stopsSig]);
 
   const widthOf = (col: OrderedStop) =>
-    colW[col.uid] ?? defaultColWidth(col.stop.stop_name, timepointStopIds.has(col.stop.stop_id), arrDepSet.has(col.stop.stop_id));
+    colW[col.uid] ?? defaultColWidth(col.stop.stop_name, timepointSeqs.has(col.seq), arrDepSet.has(col.stop.stop_id));
 
   const resize = (col: OrderedStop) => (dx: number | null) => {
     if (dx === null) { delete dragBase.current[col.uid]; return; }
@@ -85,7 +86,7 @@ export function TimetableGridPane(props: PaneProps) {
   };
 
   const actW = actColWidth(rowActions);
-  const pinFirst = orderedStops.length > 0 && timepointStopIds.has(orderedStops[0].stop.stop_id);
+  const pinFirst = orderedStops.length > 0 && timepointSeqs.has(orderedStops[0].seq);
   const pinLeft = tripW + actW;
   const totalW = tripW + actW + orderedStops.reduce((sum, c) => sum + widthOf(c), 0);
 
@@ -187,7 +188,7 @@ export function TimetableGridPane(props: PaneProps) {
               </div>
             </th>
             {orderedStops.map((c, si) => {
-              const isTp = timepointStopIds.has(c.stop.stop_id);
+              const isTp = timepointSeqs.has(c.seq);
               const ov = continuousOverrides.get(c.stop.stop_id);
               const flagged = !!ov && (ov.pickup !== undefined || ov.dropOff !== undefined);
               const hl = hoverSi === si;
@@ -244,7 +245,7 @@ export function TimetableGridPane(props: PaneProps) {
                     const a = vst?.arrival_time || '';
                     const d = vst?.departure_time || '';
                     const text = !vst ? '–' : arrDep && a !== d ? `${formatTimeShort(a)} / ${formatTimeShort(d)}` : formatTimeShort(a || d || '');
-                    const isTp = timepointStopIds.has(col.stop.stop_id);
+                    const isTp = timepointSeqs.has(col.seq);
                     const pin = pinFirst && si === 0;
                     const bg = isTp ? 'bg-[#FCF4EC]' : 'bg-[#FBF6EF]';
                     return (
@@ -261,11 +262,7 @@ export function TimetableGridPane(props: PaneProps) {
               );
             }
             const trip = row.trip;
-            const rowTimes = orderedStops.map((col) => {
-              const st = findStopTime(trip.trip_id, col.seq);
-              if (!st) return null;
-              return st.arrival_time || st.departure_time || '';
-            });
+            const rowTimes = orderedStops.map((col) => rowTimeValue(findStopTime(trip.trip_id, col.seq)));
             const errors = computeRowErrors(rowTimes);
             const delta = deltaByTripId.get(trip.trip_id) ?? null;
             return (
@@ -305,7 +302,7 @@ export function TimetableGridPane(props: PaneProps) {
                       key={col.uid}
                       value={value}
                       arrDep={arrDep}
-                      isTimepoint={timepointStopIds.has(col.stop.stop_id)}
+                      isTimepoint={timepointSeqs.has(col.seq)}
                       pinned={pinFirst && si === 0}
                       pinnedLeft={pinLeft}
                       highlighted={hoverSi === si}
@@ -361,7 +358,7 @@ export function TimetableGridPane(props: PaneProps) {
           <ColumnMenu
             stopName={col.stop.stop_name}
             rect={colMenu.rect}
-            isTimepoint={timepointStopIds.has(col.stop.stop_id)}
+            isTimepoint={timepointSeqs.has(col.seq)}
             arrDepOn={arrDepSet.has(col.stop.stop_id)}
             showContinuous={showContinuous}
             continuousValue={continuousValue}

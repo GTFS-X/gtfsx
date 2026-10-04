@@ -15,7 +15,9 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
+import { serviceOptions } from '../../services/serviceIds';
 import { gtfsTimeToSeconds } from '../../utils/time';
 import { directionName } from '../../utils/constants';
 import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
@@ -71,9 +73,14 @@ export function ServiceSummary() {
 
 function SummaryView() {
   const {
-    routes, trips, calendars, routeStops,
+    routes, trips, calendars, calendarDates, routeStops,
     hiddenRouteIds,
-  } = useStore();
+  } = useStore(useShallow((s) => ({
+    routes: s.routes, trips: s.trips, calendars: s.calendars, calendarDates: s.calendarDates,
+    routeStops: s.routeStops, hiddenRouteIds: s.hiddenRouteIds,
+  })));
+  // Every service, including calendar_dates-only ones.
+  const services = useMemo(() => serviceOptions({ calendars, calendarDates }), [calendars, calendarDates]);
   const frequencies = useStore((s) => s.frequencies);
   const { byTrip: stopTimesByTrip } = useStopTimesIndex();
 
@@ -94,9 +101,9 @@ function SummaryView() {
   const hiddenSet = useMemo(() => new Set(hiddenRouteIds), [hiddenRouteIds]);
 
   const activeServiceId = useMemo(() => {
-    if (selectedServiceId && calendars.some((c) => c.service_id === selectedServiceId)) return selectedServiceId;
-    return calendars[0]?.service_id || null;
-  }, [selectedServiceId, calendars]);
+    if (selectedServiceId && services.some((o) => o.serviceId === selectedServiceId)) return selectedServiceId;
+    return services[0]?.serviceId || null;
+  }, [selectedServiceId, services]);
 
   // Visible routes
   const visibleRoutes = useMemo(
@@ -152,7 +159,12 @@ function SummaryView() {
     let earliest = 24;
     let latest = 0;
 
+    const labelById = new Map(services.map((o) => [o.serviceId, o.calendar?._description || o.serviceId]));
     for (const route of orderedVisibleRoutes) {
+      // Route-stop order is per route, not per trip: build it once.
+      const orderedRS = routeStops
+        .filter((rs) => rs.route_id === route.route_id && rs.direction_id === 0)
+        .sort((a, b) => a.stop_sequence - b.stop_sequence);
       const routeTrips = trips.filter(
         (t) => t.route_id === route.route_id && t.direction_id === 0
           && (!activeServiceId || t.service_id === activeServiceId),
@@ -161,10 +173,6 @@ function SummaryView() {
       const dots: TripDot[] = [];
       for (const trip of routeTrips) {
         // Find first stop time (departure) for this trip using route stop order
-        const orderedRS = routeStops
-          .filter((rs) => rs.route_id === route.route_id && rs.direction_id === 0)
-          .sort((a, b) => a.stop_sequence - b.stop_sequence);
-
         const tripSTs = stopTimesByTrip.get(trip.trip_id) || [];
 
         let firstTime = '';
@@ -189,14 +197,13 @@ function SummaryView() {
         if (hour < earliest) earliest = hour;
         if (hour > latest) latest = hour;
 
-        const cal = calendars.find((c) => c.service_id === trip.service_id);
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
 
         dots.push({
           routeName: route.route_short_name || route.route_long_name || route.route_id,
           routeColor: route.route_color,
-          serviceLabel: cal?._description || trip.service_id,
+          serviceLabel: labelById.get(trip.service_id) || trip.service_id,
           direction: directionName(route, 0),
           timeSeconds: seconds,
           timeLabel: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
@@ -213,7 +220,7 @@ function SummaryView() {
             dots.push({
               routeName: route.route_short_name || route.route_long_name || route.route_id,
               routeColor: route.route_color,
-              serviceLabel: cal?._description || trip.service_id,
+              serviceLabel: labelById.get(trip.service_id) || trip.service_id,
               direction: directionName(route, 0),
               timeSeconds: v.departureSec,
               timeLabel: `${String(Math.floor(v.departureSec / 3600)).padStart(2, '0')}:${String(Math.floor((v.departureSec % 3600) / 60)).padStart(2, '0')}`,
@@ -241,7 +248,7 @@ function SummaryView() {
       minHour: Math.floor(earliest),
       maxHour: Math.ceil(latest) + 1,
     };
-  }, [orderedVisibleRoutes, trips, stopTimesByTrip, calendars, routeStops, activeServiceId, windowsByTrip]);
+  }, [orderedVisibleRoutes, trips, stopTimesByTrip, services, routeStops, activeServiceId, windowsByTrip]);
 
   const hours = useMemo(() => {
     const h: number[] = [];
@@ -267,15 +274,15 @@ function SummaryView() {
           <h3 className="text-xs font-heading font-bold text-dark-brown whitespace-nowrap">
             Trip Start Times by Route (Outbound)
           </h3>
-          {calendars.length > 0 && (
+          {services.length > 0 && (
             <select
               value={activeServiceId || ''}
               onChange={(e) => setSelectedServiceId(e.target.value)}
               className="px-2 py-1 border border-sand rounded-md text-xs bg-cream focus:outline-none focus:border-coral"
             >
-              {calendars.map((cal) => (
-                <option key={cal.service_id} value={cal.service_id}>
-                  {cal._description || cal.service_id}
+              {services.map((o) => (
+                <option key={o.serviceId} value={o.serviceId}>
+                  {o.label}
                 </option>
               ))}
             </select>

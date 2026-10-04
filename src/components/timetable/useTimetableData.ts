@@ -3,7 +3,8 @@ import { useStore } from '../../store';
 import { ensureDefaultCalendar } from '../../services/defaultCalendar';
 import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 import { computeTimetablePatterns, isNoShapeBucket } from '../ui/shapePatterns';
-import { earliestDepartureDirection } from './timetableGridHelpers';
+import { earliestDepartureDirection, needsDefaultCalendar, resolveActiveServiceId, sortTripsByStart, timepointSeqs as computeTimepointSeqs, tripStartSec } from './timetableGridHelpers';
+import { allServiceIds } from '../../services/serviceIds';
 import { gtfsTimeToSeconds } from '../../utils/time';
 import type { Stop, StopTime } from '../../types/gtfs';
 
@@ -35,6 +36,7 @@ export function useTimetableData(scope: PaneScope, syncSelection: boolean) {
   const routeStops = useStore((s) => s.routeStops);
   const shapes = useStore((s) => s.shapes);
   const calendars = useStore((s) => s.calendars);
+  const calendarDates = useStore((s) => s.calendarDates);
   const setSelectedShapeId = useStore((s) => s.setTimetableShapeId);
   const setDirectionId = useStore((s) => s.setTimetableDirectionId);
   const { byTrip: stopTimesByTrip } = useStopTimesIndex();
@@ -42,18 +44,20 @@ export function useTimetableData(scope: PaneScope, syncSelection: boolean) {
   const { routeId, directionId, serviceId, shapeId } = scope;
   const route = routes.find((r) => r.route_id === routeId);
 
-  // Safety net: a feed with zero calendars gets a default one (main pane only).
+  // Safety net: a feed with no service at all (neither calendar.txt nor
+  // calendar_dates.txt) gets a default calendar (main pane only). A
+  // calendar_dates-only feed already has services and is left alone.
   useEffect(() => {
     if (!syncSelection) return;
-    if (calendars.length > 0) return;
+    if (!needsDefaultCalendar({ calendars, calendarDates })) return;
     if (!routeId || routes.length === 0) return;
     ensureDefaultCalendar();
-  }, [syncSelection, calendars.length, routeId, routes.length]);
+  }, [syncSelection, calendars, calendarDates, routeId, routes.length]);
 
-  const activeServiceId = useMemo(() => {
-    if (serviceId && calendars.some((c) => c.service_id === serviceId)) return serviceId;
-    return calendars[0]?.service_id || null;
-  }, [serviceId, calendars]);
+  // Services come from calendar.txt ∪ calendar_dates.txt (a dates-only service
+  // is a real service). Calendar rows first, then dates-only ids.
+  const serviceIdList = useMemo(() => [...allServiceIds({ calendars, calendarDates })], [calendars, calendarDates]);
+  const activeServiceId = useMemo(() => resolveActiveServiceId(serviceId, serviceIdList), [serviceId, serviceIdList]);
 
   const patterns = useMemo(
     () => computeTimetablePatterns(routeId, trips, routeStops, shapes),
@@ -132,22 +136,6 @@ export function useTimetableData(scope: PaneScope, syncSelection: boolean) {
     return list?.find((st) => st.stop_sequence === seq);
   }, [stopTimesByTrip]);
 
-  const timepointStopIds = useMemo(() => {
-    const ids = new Set<string>();
-    if (routeId) {
-      const routeTripIds = trips.filter((t) => t.route_id === routeId).map((t) => t.trip_id);
-      for (const tripId of routeTripIds) {
-        for (const st of stopTimesByTrip.get(tripId) ?? []) {
-          if (st.timepoint === 1) ids.add(st.stop_id);
-        }
-      }
-    }
-    if (ids.size === 0 && orderedStops.length >= 2) {
-      ids.add(orderedStops[0].stop.stop_id);
-      ids.add(orderedStops[orderedStops.length - 1].stop.stop_id);
-    }
-    return ids;
-  }, [stopTimesByTrip, orderedStops, routeId, trips]);
 
   const continuousOverrides = useMemo(() => {
     const map = new Map<string, { pickup?: 0 | 1 | 2 | 3; dropOff?: 0 | 1 | 2 | 3 }>();
@@ -165,26 +153,31 @@ export function useTimetableData(scope: PaneScope, syncSelection: boolean) {
 
   const routeTrips = useMemo(() => {
     if (!routeId) return [];
-    return trips
+    const filtered = trips
       .filter((t) => t.route_id === routeId
         && (!activeServiceId || t.service_id === activeServiceId)
         && (noShapeBucket
           ? (t.direction_id === directionId && (!t.shape_id || !realShapeIds.has(t.shape_id)))
-          : effectiveShapeId ? t.shape_id === effectiveShapeId : t.direction_id === directionId))
-      .sort((a, b) => {
-        const earliest = (tripId: string) => {
-          let best = '';
-          for (const st of stopTimesByTrip.get(tripId) ?? []) {
-            if (st.arrival_time && (!best || st.arrival_time.localeCompare(best) < 0)) best = st.arrival_time;
-          }
-          return best;
-        };
-        const aTime = earliest(a.trip_id);
-        const bTime = earliest(b.trip_id);
-        if (!aTime || !bTime) return (aTime ? 0 : 1) - (bTime ? 0 : 1);
-        return aTime.localeCompare(bTime);
-      });
+          : effectiveShapeId ? t.shape_id === effectiveShapeId : t.direction_id === directionId));
+    // Numeric start-second order (string compare mis-orders unpadded 8:05:00
+    // vs 10:00:00); untimed trips last.
+    return sortTripsByStart(filtered, (id) => tripStartSec(stopTimesByTrip.get(id)));
   }, [routeId, trips, stopTimesByTrip, directionId, activeServiceId, effectiveShapeId, noShapeBucket, realShapeIds]);
+
+  /** Start second of a trip (lowest-sequence timed stop), or null if untimed. */
+  const getStartSec = useCallback(
+    (tripId: string) => tripStartSec(stopTimesByTrip.get(tripId)),
+    [stopTimesByTrip],
+  );
+
+  // Timepoint columns for THIS pane's trips, keyed by stop_sequence (a stop that
+  // appears twice in a loop, or is a timepoint only on another service, doesn't
+  // leak in). The first/last default applies per column only where none of the
+  // pane's trips sets timepoint explicitly.
+  const timepointSeqs = useMemo(
+    () => computeTimepointSeqs(orderedStops.map((c) => c.seq), routeTrips.map((t) => t.trip_id), (id) => stopTimesByTrip.get(id)),
+    [orderedStops, routeTrips, stopTimesByTrip],
+  );
 
   const serviceIdsWithTrips = useMemo(() => {
     if (!routeId) return [];
@@ -212,7 +205,8 @@ export function useTimetableData(scope: PaneScope, syncSelection: boolean) {
     realShapeIds,
     orderedStops,
     routeTrips,
-    timepointStopIds,
+    timepointSeqs,
+    getStartSec,
     continuousOverrides,
     serviceIdsWithTrips,
     findStopTime,
