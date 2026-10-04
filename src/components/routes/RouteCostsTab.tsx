@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useStore } from '../../store';
-import { calculateRouteSpans, applyRouteCosts } from '../../services/costEstimation';
+import { calculateRouteSpans, DEFAULT_COST_PER_REVENUE_HOUR, DEFAULT_DEADHEAD_FACTOR } from '../../services/costEstimation';
+import { routeTabCosts } from '../costs/costRows';
 import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 import type { Route } from '../../types/gtfs';
 
@@ -32,12 +33,14 @@ export function RouteCostsTab() {
     [route, routes, trips, stopTimes, calendars, calendarDates, stopTimesByTrip, frequencies],
   );
 
-  const stats = useMemo(
-    () => (spans && route) ? applyRouteCosts(spans, route._cost_per_revenue_hour ?? 0, 1.2) : null,
+  // Same defaults as the Costs panel and the docs (C5-05).
+  const costs = useMemo(
+    () => (spans && route) ? routeTabCosts(spans, route._cost_per_revenue_hour) : null,
     [spans, route],
   );
 
-  if (!route || !stats) return null;
+  if (!route || !costs) return null;
+  const { stats, isDefault } = costs;
 
   return (
     <div>
@@ -56,11 +59,12 @@ export function RouteCostsTab() {
               _cost_per_revenue_hour: val === '' ? undefined : Number(val),
             });
           }}
-          placeholder="e.g., 125"
+          placeholder={`${DEFAULT_COST_PER_REVENUE_HOUR} (default)`}
           className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm text-dark-brown bg-cream focus:outline-none focus:border-coral focus:bg-white transition-colors"
         />
         <p className="mt-1.5 text-[11px] text-warm-gray">
-          Fully-loaded operating cost per hour of revenue service. Annual = weekly × 52.
+          Fully-loaded operating cost per hour of revenue service. Leave blank to use the
+          default (${DEFAULT_COST_PER_REVENUE_HOUR}/hr). Total hours include a {DEFAULT_DEADHEAD_FACTOR}× deadhead factor.
         </p>
       </div>
 
@@ -81,19 +85,17 @@ export function RouteCostsTab() {
           <span className="text-warm-gray">Peak Vehicles</span>
           <span className="font-semibold text-dark-brown">{stats.peakVehicles}</span>
         </div>
-        {route._cost_per_revenue_hour != null && route._cost_per_revenue_hour > 0 && (
-          <>
-            <div className="h-px bg-sand my-1" />
-            <div className="flex justify-between">
-              <span className="text-warm-gray">Weekly Cost</span>
-              <span className="font-semibold text-coral">{formatCurrency(stats.weeklyCost)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-warm-gray">Annual Cost</span>
-              <span className="font-semibold text-coral">{formatCurrency(stats.annualCost)}</span>
-            </div>
-          </>
-        )}
+        <div className="h-px bg-sand my-1" />
+        <div className="flex justify-between">
+          <span className="text-warm-gray">
+            Weekly Cost{isDefault && <span className="ml-1">(default rate)</span>}
+          </span>
+          <span className="font-semibold text-coral">{formatCurrency(stats.weeklyCost)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-warm-gray">Annual Cost</span>
+          <span className="font-semibold text-coral">{formatCurrency(stats.annualCost)}</span>
+        </div>
       </div>
     </div>
   );
