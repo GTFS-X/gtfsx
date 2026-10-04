@@ -8,6 +8,8 @@ import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 import { computeTripSpans, findBlockOverlaps, buildBlocks, classifyBlockScope } from '../../services/blockBuilder';
 import { calculateBlockCost, calculateSystemPeakVehicles } from '../../services/costEstimation';
 import { secondsToGtfsTime, formatTimeShort } from '../../utils/time';
+import { serviceOptions } from '../../services/serviceIds';
+import { commitBlockAssignment } from './blockAssign';
 import { EmptyState } from '../ui/EmptyState';
 import { Banner } from '../ui/Banner';
 
@@ -116,19 +118,24 @@ export function BlockGantt() {
   const stops = useStore((s) => s.stops);
   const routes = useStore((s) => s.routes);
   const calendars = useStore((s) => s.calendars);
+  const calendarDates = useStore((s) => s.calendarDates);
   const frequencies = useStore((s) => s.frequencies);
   const updateTrip = useStore((s) => s.updateTrip);
   const requestFrequencyConversion = useStore((s) => s.requestFrequencyConversion);
   useStopTimesIndex(); // keep the shared index warm
 
-  const [serviceId, setServiceId] = useState<string>(() => calendars[0]?.service_id ?? '');
+  // Every service, including calendar_dates-only ones (C2-03).
+  const services = useMemo(() => serviceOptions({ calendars, calendarDates }), [calendars, calendarDates]);
+  const [serviceId, setServiceId] = useState<string>(() => services[0]?.serviceId ?? '');
   const [interline, setInterline] = useState(false);
   const [costLayover, setCostLayover] = useState(true);
   const [costDeadhead, setCostDeadhead] = useState(true);
   const [reassign, setReassign] = useState<string | null>(null); // trip_id whose menu is open
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  const activeService = serviceId || calendars[0]?.service_id || '';
+  const activeService = (serviceId && services.some((o) => o.serviceId === serviceId))
+    ? serviceId
+    : services[0]?.serviceId || '';
   const dayTrips = useMemo(
     () => trips.filter((t) => t.service_id === activeService),
     [trips, activeService],
@@ -201,10 +208,10 @@ export function BlockGantt() {
   }, [dayFixedTrips, spans, routeById, overlapTripIds]);
 
   const cost = useMemo(
-    () => calculateBlockCost({ trips: dayTrips, stopTimes, stops, calendars, calendarDates: [] }, {
+    () => calculateBlockCost({ trips: dayTrips, stopTimes, stops, calendars, calendarDates }, {
       costPerHour: 100, costLayover, costDeadhead, deadheadSpeedMph: 25,
     }),
-    [dayTrips, stopTimes, stops, calendars, costLayover, costDeadhead],
+    [dayTrips, stopTimes, stops, calendars, calendarDates, costLayover, costDeadhead],
   );
   const svcCost = cost.perService.find((p) => p.serviceId === activeService);
   // Peak in service is a concurrency (service-operated) metric, so it must count
@@ -238,15 +245,15 @@ export function BlockGantt() {
 
   const blockIds = rows.map((r) => r.id).filter((id) => id !== UNASSIGNED);
 
+  // Both bulk actions commit the whole trips array once: one undo step, not
+  // one per trip (C2-27). Quick Block also clears a stale block_id from scope
+  // trips the builder could not place (no timed stop_times).
   const handleQuickBlock = () => {
     const map = buildBlocks(dayFixedTrips, stopTimes, stops, { serviceId: activeService, interline, deadheadSpeedMph: 25 });
-    for (const t of dayFixedTrips) {
-      const b = map.get(t.trip_id);
-      if (b && b !== t.block_id) updateTrip(t.trip_id, { block_id: b });
-    }
+    commitBlockAssignment('quick block', new Set(dayFixedTrips.map((t) => t.trip_id)), map);
   };
   const handleUnblock = () => {
-    for (const t of dayFixedTrips) if (t.block_id) updateTrip(t.trip_id, { block_id: undefined });
+    commitBlockAssignment('unblock all', new Set(dayFixedTrips.map((t) => t.trip_id)), new Map());
   };
   const reassignTrip = (tripId: string, target: string) => {
     updateTrip(tripId, { block_id: target === UNASSIGNED ? undefined : target });
@@ -268,7 +275,7 @@ export function BlockGantt() {
     if (target !== cur) reassignTrip(tripId, target);
   };
 
-  if (calendars.length === 0) {
+  if (services.length === 0) {
     return <div className="relative flex-1 min-h-0 bg-white flex items-center justify-center text-warm-gray text-sm">Add a calendar (service day) to start blocking.</div>;
   }
 
@@ -283,7 +290,7 @@ export function BlockGantt() {
             onChange={(e) => setServiceId(e.target.value)}
             className="px-2 py-1 border border-sand rounded-md text-xs font-semibold bg-cream focus:outline-none focus:border-coral"
           >
-            {calendars.map((c) => <option key={c.service_id} value={c.service_id}>{c._description || c.service_id}</option>)}
+            {services.map((o) => <option key={o.serviceId} value={o.serviceId}>{o.label}</option>)}
           </select>
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -318,7 +325,7 @@ export function BlockGantt() {
           onChange={(e) => setServiceId(e.target.value)}
           className="px-2 py-1 border border-sand rounded-md text-xs font-semibold bg-cream focus:outline-none focus:border-coral"
         >
-          {calendars.map((c) => <option key={c.service_id} value={c.service_id}>{c._description || c.service_id}</option>)}
+          {services.map((o) => <option key={o.serviceId} value={o.serviceId}>{o.label}</option>)}
         </select>
         <button onClick={handleQuickBlock} className="px-3 py-1 rounded-md text-xs font-bold bg-coral text-white hover:bg-[#d4603a] transition-colors whitespace-nowrap">⚡ Quick Block</button>
         <label className="flex items-center gap-1.5 text-xs text-dark-brown cursor-pointer whitespace-nowrap" title="Allow chaining trips on different routes onto one vehicle">
