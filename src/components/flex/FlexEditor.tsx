@@ -13,6 +13,8 @@ import {
   createFlexZoneWithRoute, deleteFlexZoneWithRoute, flexRouteNames, nextFlexZoneName,
 } from './flexHelpers';
 import { gtfsTimeToSeconds, secondsToGtfsTime } from '../../utils/time';
+import { historyTransaction } from '../../store/history';
+import { isFlexOnlyRoute } from '../../services/flexRoutes';
 
 const DEFAULT_FLEX_BUFFER_MILES = 0.75;
 
@@ -142,10 +144,20 @@ export function FlexEditor() {
     const next = nameDraft.trim();
     setRenamingZoneId(null);
     if (!next || next === zone.name) return;
-    updateFlexZone(zone.id, { name: next });
-    if (zone.routeId && routes.some((r) => r.route_id === zone.routeId)) {
-      updateRoute(zone.routeId, flexRouteNames(next));
-    }
+    // One undo step for zone + route (C3-17). The route is renamed only when
+    // it exists solely for this zone (C3-04): a mixed fixed + flex route keeps
+    // its own names.
+    historyTransaction('rename flex zone', () => {
+      updateFlexZone(zone.id, { name: next });
+      const state = useStore.getState();
+      if (
+        zone.routeId &&
+        state.routes.some((r) => r.route_id === zone.routeId) &&
+        isFlexOnlyRoute(state, zone.routeId)
+      ) {
+        updateRoute(zone.routeId, flexRouteNames(next));
+      }
+    });
   };
   // Persists only for the current session — the ref is re-initialized on reload.
   const skipDeleteConfirmRef = useRef(false);
@@ -444,7 +456,11 @@ export function FlexEditor() {
             onClose={() => setConfirmDeleteZoneId(null)}
             maxWidthClassName="max-w-xs"
             title="Delete this flex zone?"
-            description={`"${zone.name}" will be removed, along with its paired route. This can't be undone.`}
+            description={
+              isFlexOnlyRoute(useStore.getState(), zone.routeId)
+                ? `"${zone.name}" will be removed, along with its paired route.`
+                : `"${zone.name}" will be removed. Its route also runs fixed trips (or serves other zones), so the route stays.`
+            }
           >
             <div className="flex flex-col gap-2">
               <AuthButton variant="secondary" fullWidth onClick={() => setConfirmDeleteZoneId(null)}>

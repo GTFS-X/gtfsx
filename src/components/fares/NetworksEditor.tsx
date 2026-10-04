@@ -7,6 +7,8 @@ import { RailSubHeading } from '../ui/RailHeadings';
 import { EditActions } from '../ui/EditActions';
 import { generateId } from '../../services/idGenerator';
 import type { FareNetwork } from '../../types/gtfs';
+import { describeRemovalBlockers } from './fareEditorHelpers';
+import { RemovalBlockedNotice } from './RemovalBlockedNotice';
 
 /**
  * GTFS-Fares v2 Networks editor (networks.txt + route_networks.txt). A network
@@ -29,6 +31,8 @@ export function NetworksEditor() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [idDraft, setIdDraft] = useState('');
   const [idError, setIdError] = useState<string | undefined>();
+  // Why the last delete was refused (S1-16); cleared when the selection changes.
+  const [blocked, setBlocked] = useState<string | null>(null);
   const [routeFilter, setRouteFilter] = useState('');
 
   const selected = fareNetworks.find((n) => n.network_id === selectedId) ?? null;
@@ -54,6 +58,7 @@ export function NetworksEditor() {
 
   const open = (id: string | null) => {
     setSelectedId(id);
+    setBlocked(null);
     const n = fareNetworks.find((x) => x.network_id === id);
     setIdDraft(n?.network_id ?? '');
     setIdError(undefined);
@@ -165,10 +170,15 @@ export function NetworksEditor() {
           {selected.network_name || selected.network_id}
         </h2>
         <EditActions
-          onDelete={() => { removeFareNetwork(selected.network_id); open(null); }}
+          onDelete={() => {
+            const result = removeFareNetwork(selected.network_id);
+            if (result.removed) open(null);
+            else setBlocked(describeRemovalBlockers('this network', result, useStore.getState()));
+          }}
           deleteTitle="Delete this network"
         />
       </div>
+      <RemovalBlockedNotice message={blocked} onDismiss={() => setBlocked(null)} />
 
       <FormField
         label="Network ID"

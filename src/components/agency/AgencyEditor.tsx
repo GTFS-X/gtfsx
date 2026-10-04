@@ -6,7 +6,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { EditActions } from '../ui/EditActions';
 import { RailSubHeading, RailDivider } from '../ui/RailHeadings';
 import { US_TIMEZONES } from '../../utils/constants';
-import { agencyReferenceCount, newAgencyDraft } from './agencyHelpers';
+import { agencyReferenceCount, newAgencyDraft, timezoneOptions } from './agencyHelpers';
 import type { Agency } from '../../types/gtfs';
 import { TranslationsEditor, type TranslationTarget } from '../translations/EntityTranslations';
 import { LanguagePicker } from '../translations/LanguagePicker';
@@ -52,6 +52,8 @@ export function AgencyEditor() {
   const index = selectedIndex < agencies.length ? selectedIndex : 0;
   const agency = agencies[index] ?? null;
   const currentAgencyId = agency?.agency_id ?? '';
+  // Every IANA zone, US ones first, plus the stored value if neither has it (C3-15).
+  const tzOptions = timezoneOptions(agency?.agency_timezone, US_TIMEZONES);
 
   // Re-seed the id draft whenever the selection lands on a different agency (or
   // the feed underneath is replaced by an import). Reconciled during render (the
@@ -138,6 +140,7 @@ export function AgencyEditor() {
             {canDelete && (
               <div className="pb-0.5">
                 <EditActions
+                  key={index}
                   onDelete={() => { removeAgencyAt(index); setSelectedIndex(0); }}
                   deleteTitle="Delete this agency"
                 />
@@ -189,13 +192,24 @@ export function AgencyEditor() {
       />
       <FormField label="Timezone" required>
         <select
-          value={agency.agency_timezone}
+          value={agency.agency_timezone || ''}
           onChange={(e) => updateAgencyAt(index, { agency_timezone: e.target.value })}
           className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral focus:bg-white"
         >
-          {US_TIMEZONES.map((tz) => (
-            <option key={tz} value={tz}>{tz}</option>
-          ))}
+          {!agency.agency_timezone && <option value="">— Pick a timezone —</option>}
+          {tzOptions.extra && <option value={tzOptions.extra}>{tzOptions.extra}</option>}
+          <optgroup label="Common (US)">
+            {tzOptions.common.map((tz) => (
+              <option key={tz} value={tz}>{tz}</option>
+            ))}
+          </optgroup>
+          {tzOptions.all.length > 0 && (
+            <optgroup label="All time zones">
+              {tzOptions.all.map((tz) => (
+                <option key={tz} value={tz}>{tz}</option>
+              ))}
+            </optgroup>
+          )}
         </select>
       </FormField>
       <div className="grid grid-cols-2 gap-3">
@@ -214,8 +228,9 @@ export function AgencyEditor() {
       </div>
       <FormField
         label="Language"
-        value={agency.agency_lang || 'en-US'}
+        value={agency.agency_lang ?? ''}
         onChange={(v) => updateAgencyAt(index, { agency_lang: v })}
+        placeholder="e.g. en"
       />
 
       {/* The agency's external identifier — in the US, its FTA National Transit

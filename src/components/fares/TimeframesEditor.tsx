@@ -2,6 +2,9 @@ import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { RailSubHeading } from '../ui/RailHeadings';
 import type { Timeframe } from '../../types/gtfs';
+import { describeRemovalBlockers, timeframeRowIssue } from './fareEditorHelpers';
+import { RemovalBlockedNotice } from './RemovalBlockedNotice';
+import { TimeframeTimeInput } from './TimeframeTimeInput';
 
 /**
  * GTFS-Fares v2 Timeframes editor (timeframes.txt). A timeframe_group_id names
@@ -11,8 +14,9 @@ import type { Timeframe } from '../../types/gtfs';
  * not unique per row.
  *
  * Rows are grouped by timeframe_group_id in the UI; each row carries its own
- * start/end/service. service_id is required; start/end default to the full
- * service day when blank (per the spec).
+ * start/end/service. service_id is required; start and end are set together
+ * (each is required iff the other is) and blank means the full service day.
+ * Times are typed as HH:MM:SS text so 24:00:00 can be entered.
  */
 export function TimeframesEditor() {
   const timeframes = useStore((s) => s.timeframes);
@@ -23,6 +27,8 @@ export function TimeframesEditor() {
   const removeTimeframe = useStore((s) => s.removeTimeframe);
 
   const [newGroupId, setNewGroupId] = useState('');
+  // Why the last row delete was refused (S1-16), keyed to the group.
+  const [blocked, setBlocked] = useState<{ groupId: string; message: string } | null>(null);
 
   // service_ids come from both calendar.txt and calendar_dates.txt.
   const serviceIds = useMemo(() => {
@@ -83,23 +89,22 @@ export function TimeframesEditor() {
               </div>
 
               <div className="space-y-2">
-                {rows.map(({ tf, index }) => (
-                  <div key={index} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5 items-center">
-                    <input
-                      type="time"
-                      step={1}
-                      value={(tf.start_time ?? '').slice(0, 8)}
-                      onChange={(e) => updateTimeframe(index, { start_time: e.target.value || undefined })}
-                      title="Start time (blank = service day start)"
-                      className="px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-white focus:outline-none focus:border-coral"
+                {rows.map(({ tf, index }) => {
+                  const issue = timeframeRowIssue(tf);
+                  return (
+                  <div key={index}>
+                  <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5 items-center">
+                    <TimeframeTimeInput
+                      value={tf.start_time}
+                      onCommit={(v) => updateTimeframe(index, { start_time: v })}
+                      placeholder="Start"
+                      title="Start time, HH:MM:SS (blank with end blank = whole service day)"
                     />
-                    <input
-                      type="time"
-                      step={1}
-                      value={(tf.end_time ?? '').slice(0, 8)}
-                      onChange={(e) => updateTimeframe(index, { end_time: e.target.value || undefined })}
-                      title="End time (blank = service day end)"
-                      className="px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-white focus:outline-none focus:border-coral"
+                    <TimeframeTimeInput
+                      value={tf.end_time}
+                      onCommit={(v) => updateTimeframe(index, { end_time: v })}
+                      placeholder="End"
+                      title="End time, HH:MM:SS up to 24:00:00 (blank with start blank = whole service day)"
                     />
                     <select
                       value={tf.service_id}
@@ -116,15 +121,33 @@ export function TimeframesEditor() {
                       ))}
                     </select>
                     <button
-                      onClick={() => removeTimeframe(index)}
+                      onClick={() => {
+                        const result = removeTimeframe(index);
+                        if (result.removed) setBlocked(null);
+                        else {
+                          const message = describeRemovalBlockers(
+                            `the last window of "${groupId}"`, result, useStore.getState(),
+                          );
+                          if (message) setBlocked({ groupId, message });
+                        }
+                      }}
                       title="Remove this window"
                       className="text-warm-gray hover:text-red-500 text-xs font-bold transition-colors px-1"
                     >
                       ×
                     </button>
                   </div>
-                ))}
+                  {issue && <p className="text-amber-600 text-[11px] mt-0.5">{issue}</p>}
+                  </div>
+                  );
+                })}
               </div>
+
+              {blocked?.groupId === groupId && (
+                <div className="mt-2">
+                  <RemovalBlockedNotice message={blocked.message} onDismiss={() => setBlocked(null)} />
+                </div>
+              )}
 
               <button
                 onClick={() => handleAddRowToGroup(groupId)}

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { parseGtfsInWorker, inspectGtfsZip, loadImportIntoStore, mergeImportIntoStore, type ImportData } from '../../services/gtfsImport';
 import { useStore } from '../../store';
 import type { Route } from '../../types/gtfs';
@@ -13,6 +13,10 @@ import { parseMdbSourceId } from '../../services/mdbSourceId';
 import { downloadFeedZipViaImportApi } from '../../services/catalogDownload';
 import { ShapesFromStopsDialog } from '../shapes/ShapesFromStopsDialog';
 import { trackFeedImportFailed, trackFeedOpened, type FeedOrigin } from '../../services/trackBeacon';
+import {
+  checkpoint, createImportSession, isImportCancelled, sessionFetch, storeHasAnyFeedContent,
+  type ImportSession,
+} from './importGuards';
 
 type ImportSource = 'upload' | 'url' | 'catalog' | 'myfeeds';
 
@@ -146,9 +150,25 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
   const [persisting, setPersisting] = useState(false);
   const [persistError, setPersistError] = useState<string | null>(null);
 
+  // Cancel guard (C3-01). Cancel / backdrop / unmount close the session, which
+  // aborts in-flight downloads, and every step re-checks it after each await,
+  // so a parse that resolves after the user walked away never replaces the
+  // project or writes to the server. Re-created on mount so a StrictMode
+  // remount doesn't start out closed.
+  const sessionRef = useRef<ImportSession>(createImportSession());
+  useEffect(() => {
+    const session = createImportSession();
+    sessionRef.current = session;
+    return () => session.close();
+  }, []);
+  const handleClose = useCallback(() => {
+    sessionRef.current.close();
+    onClose();
+  }, [onClose]);
+
   const handleComplete = useCallback(async () => {
     if (!onComplete) {
-      onClose();
+      handleClose();
       return;
     }
     setCompleteError(null);
@@ -159,7 +179,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
       setCompleteError(e instanceof Error ? e.message : 'Could not save feed');
       setCompleting(false);
     }
-  }, [onComplete, onClose]);
+  }, [onComplete, handleClose]);
 
   /** Wholesale replace the current project with the imported feed. Matches
    * the first-time-import flow: clear all existing state, load the new feed,
@@ -184,6 +204,8 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
    * the unload guard re-arms, and the success screen says so out loud. Never
    * clean without a durable write. */
   const doReplaceImport = useCallback(async (data: ImportData, name: string, mdbSourceId: number | null = null, origin: FeedOrigin = 'upload') => {
+    // Dialog already closed: never replace the project behind the user's back.
+    if (sessionRef.current.closed) return;
     loadImportIntoStore(data);
     useStore.getState().setProjectName(name);
     // Stamp Mobility Database import provenance AFTER loadImportIntoStore, which
@@ -238,18 +260,21 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
    * feed itself — it survives untouched whether we replace immediately or the
    * user lands on the mode-selection screen first. */
   const presentImportData = useCallback(async (data: ImportData, name: string, sourceUrl: string | null = null, mdbSourceId: number | null = null, origin: FeedOrigin = 'upload') => {
+    if (sessionRef.current.closed) return;
     setImportWarnings(data.warnings);
     setImportSourceUrl(sourceUrl);
     setImportMdbSourceId(mdbSourceId);
     setImportOrigin(origin);
     // If the project is empty, skip the options screen and import immediately —
-    // there is nothing to merge into, so the choice is moot.
+    // there is nothing to merge into, so the choice is moot. "Empty" means no
+    // feed content at all (C3-02): a project with stops, calendars or fares but
+    // no routes yet still gets the options screen.
     //
     // EXCEPT for the "import from another feed" flow, whose whole purpose is
     // taking a SUBSET of another feed's routes. Skipping the picker there
     // silently imported the entire source feed, and a blank workspace is
     // exactly when you're most likely to be cherry-picking into it.
-    if (useStore.getState().routes.length === 0 && origin !== 'myfeeds') {
+    if (!storeHasAnyFeedContent(useStore.getState()) && origin !== 'myfeeds') {
       await doReplaceImport(data, name, mdbSourceId, origin);
       return;
     }
@@ -262,16 +287,19 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
   // The actual (expensive) parse. Always reached via parseFile so every entry
   // point — upload, URL, catalog — goes through the size pre-flight first.
   const runParse = useCallback(async (file: File, sourceUrl: string | null = null, mdbSourceId: number | null = null, origin: FeedOrigin = 'upload') => {
+    const session = sessionRef.current;
+    if (session.closed) return;
     setParsing(true);
     setProgress(null);
     setError(null);
     try {
-      const data = await parseGtfsInWorker(file, ({ phase, rows }) =>
-        setProgress(rows ? `${phase} ${rows.toLocaleString()} rows` : phase),
-      );
+      const data = await checkpoint(session, parseGtfsInWorker(file, ({ phase, rows }) => {
+        if (!session.closed) setProgress(rows ? `${phase} ${rows.toLocaleString()} rows` : phase);
+      }));
       const name = file.name.replace(/\.zip$/i, '');
       await presentImportData(data, name, sourceUrl, mdbSourceId, origin);
     } catch (e: unknown) {
+      if (isImportCancelled(e)) return;
       // We fetched (or were handed) bytes and they weren't a usable GTFS zip.
       // Only the stage is recorded — never the parser's message, which can
       // quote file names and row contents.
@@ -284,17 +312,19 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
   }, [presentImportData]);
 
   const parseFile = useCallback(async (file: File, sourceUrl: string | null = null, mdbSourceId: number | null = null, origin: FeedOrigin = 'upload') => {
+    const session = sessionRef.current;
     setError(null);
     // Cheap pre-flight: if stop_times is large, gate behind a confirmation
     // instead of charging into a parse that can hang or crash the tab. If the
     // inspection itself fails, fall through and let the real parse surface it.
     try {
-      const info = await inspectGtfsZip(file);
+      const info = await checkpoint(session, inspectGtfsZip(file));
       if (info.isLarge) {
         setPendingLarge({ file, info, sourceUrl, mdbSourceId, origin });
         return;
       }
-    } catch {
+    } catch (e) {
+      if (isImportCancelled(e)) return;
       /* ignore — proceed to the normal parse path */
     }
     await runParse(file, sourceUrl, mdbSourceId, origin);
@@ -338,11 +368,13 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     }
     // Same hardened fetch path as "Import from URL": SSRF checks per redirect
     // hop, streamed size cap, ZIP magic-byte check, no caching.
+    const session = sessionRef.current;
     setError(null);
     let blob: Blob;
     try {
-      blob = await downloadFeedZipViaImportApi(url);
+      blob = await checkpoint(session, downloadFeedZipViaImportApi(url, sessionFetch(session)));
     } catch (e) {
+      if (isImportCancelled(e)) return;
       trackFeedImportFailed('catalog', 'fetch');
       throw e;
     }
@@ -368,12 +400,14 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
   // project never clobbers or switches away from the one currently open.
   // Org-scoping is enforced server-side on the /working-state route.
   const handleMyFeedSelect = useCallback(async (feed: MyFeedItem) => {
+    const session = sessionRef.current;
     setError(null);
     let data: ImportData;
     let absent: WorkingStateAbsence | undefined;
     try {
-      ({ data, absent } = await resolveMyFeedImportData(feed.id));
+      ({ data, absent } = await checkpoint(session, resolveMyFeedImportData(feed.id)));
     } catch (e) {
+      if (isImportCancelled(e)) return;
       trackFeedImportFailed('myfeeds', 'fetch');
       throw e;
     }
@@ -401,27 +435,29 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
       setError('Paste a GTFS feed URL first.');
       return;
     }
+    const session = sessionRef.current;
     setError(null);
     setParsing(true);
     try {
-      const res = await fetch(
+      const res = await checkpoint(session, fetch(
         `/api/import/fetch?url=${encodeURIComponent(trimmed)}`,
-        { method: 'GET', headers: { 'X-GB-Client': 'web' }, credentials: 'omit' },
-      );
+        { method: 'GET', headers: { 'X-GB-Client': 'web' }, credentials: 'omit', signal: session.signal },
+      ));
       if (!res.ok) {
         const ct = res.headers.get('content-type') || '';
         let message = `Import failed (${res.status}).`;
         if (ct.includes('application/json')) {
           try {
-            const payload = (await res.json()) as { message?: string };
+            const payload = (await checkpoint(session, res.json())) as { message?: string };
             if (payload?.message) message = payload.message;
-          } catch {
+          } catch (e) {
+            if (isImportCancelled(e)) throw e;
             // fall through with default message
           }
         }
         throw new Error(message);
       }
-      const blob = await res.blob();
+      const blob = await checkpoint(session, res.blob());
       const stem =
         trimmed.split('/').pop()?.replace(/\.zip$/i, '') || 'imported-feed';
       const file = new File([blob], `${stem}.zip`, { type: 'application/zip' });
@@ -429,6 +465,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
       // provenance signal we have.
       await parseFile(file, trimmed, null, 'url');
     } catch (e) {
+      if (isImportCancelled(e)) return;
       // Only retrieval failures reach here — parseFile swallows parse errors
       // and records them itself. The pasted URL is deliberately NOT logged.
       trackFeedImportFailed('url', 'fetch');
@@ -522,7 +559,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
 
     return (
       <>
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={completing || persisting ? undefined : onClose}>
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={completing || persisting ? undefined : handleClose}>
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 bg-teal-light rounded-lg flex items-center justify-center text-xl">✓</div>
@@ -643,7 +680,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     );
     const rows = pendingLarge.info.estimatedRows;
     return (
-      <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={parsing ? undefined : onClose}>
+      <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={parsing ? undefined : handleClose}>
         <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center text-xl">⚠️</div>
@@ -679,10 +716,12 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
 
   // ── Step 2: Mode + route selection ────────────────────────────────────────
   if (parsedData) {
-    const hasExistingRoutes = useStore.getState().routes.length > 0;
+    // Merge is allowed into any project with content, not only one with
+    // routes (C3-02): a stops-only feed can take imported routes.
+    const hasExistingRoutes = storeHasAnyFeedContent(useStore.getState());
 
     return (
-      <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={handleClose}>
         <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
           <h3 className="font-heading font-bold text-lg text-dark-brown mb-1">
             {initialSource === 'myfeeds' ? 'Import routes' : 'Import Options'}
@@ -700,13 +739,16 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
               choice and go straight to the route picker. */}
           {initialSource !== 'myfeeds' && (
           <div className="flex gap-2 mb-4">
+            {/* A mode toggle like "Import selected routes" (C3-20). The replace
+                itself only runs from the confirm button below: it resets undo
+                history and, for a cloud feed, overwrites the server copy. */}
             <button
-              onClick={() => {
-                if (!parsedData) return;
-                setMode('replace');
-                void doReplaceImport(parsedData, fileName, importMdbSourceId, importOrigin);
-              }}
-              className="flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors bg-white text-warm-gray border-sand hover:border-coral hover:text-dark-brown"
+              onClick={() => setMode('replace')}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors
+                ${mode === 'replace'
+                  ? 'bg-coral text-white border-coral'
+                  : 'bg-white text-warm-gray border-sand hover:border-coral hover:text-dark-brown'
+                }`}
             >
               Replace project
             </button>
@@ -723,6 +765,12 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
               Import selected routes
             </button>
           </div>
+          )}
+
+          {mode === 'replace' && hasExistingRoutes && (
+            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">
+              Replacing discards everything in the current project. This can't be undone, though saved versions are kept.
+            </p>
           )}
 
           {/* Route list (merge mode) */}
@@ -787,6 +835,14 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
                 {`Import ${selectedRouteIds.size} route${selectedRouteIds.size !== 1 ? 's' : ''}`}
               </button>
             )}
+            {mode === 'replace' && (
+              <button
+                onClick={handleImport}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg font-heading font-bold text-sm hover:bg-red-700 transition-colors"
+              >
+                Replace current project
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -795,7 +851,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
 
   // ── Step 1: Drop zone OR catalog search ────────────────────────────────────
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={handleClose}>
       <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-heading font-bold text-lg text-dark-brown mb-3">
           {useStore.getState().routes.length > 0 ? 'Import GTFS feed or routes' : 'Import GTFS feed'}
@@ -915,7 +971,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
         )}
 
         <div className="flex justify-between mt-4">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-warm-gray hover:text-dark-brown">
+          <button onClick={handleClose} className="px-4 py-2 text-sm text-warm-gray hover:text-dark-brown">
             Cancel
           </button>
         </div>

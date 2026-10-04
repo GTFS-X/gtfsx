@@ -8,49 +8,8 @@ import { RailSubHeading, RailDivider } from '../ui/RailHeadings';
 import { EditActions } from '../ui/EditActions';
 import { generateId } from '../../services/idGenerator';
 import type { FareAttribute } from '../../types/gtfs';
-
-const FARE_TYPES = ['Regular', 'Reduced', 'Senior', 'Student', 'Free'] as const;
-type FareType = (typeof FARE_TYPES)[number];
-
-// GTFS spec has no fare_type field; we encode the type as a fare_id prefix
-// (e.g. "senior-fare1") so the choice survives export/import. "Regular" is
-// the default and stays prefix-less so feeds without typed fares look natural.
-const TYPE_PREFIXES: Record<Exclude<FareType, 'Regular'>, string> = {
-  Reduced: 'reduced',
-  Senior: 'senior',
-  Student: 'student',
-  Free: 'free',
-};
-
-function parseFareType(fareId: string): FareType {
-  const first = fareId.split('-')[0]?.toLowerCase() ?? '';
-  for (const [type, prefix] of Object.entries(TYPE_PREFIXES)) {
-    if (first === prefix) return type as FareType;
-  }
-  return 'Regular';
-}
-
-function applyTypePrefix(fareId: string, newType: FareType): string {
-  // Strip any existing recognized prefix first.
-  let suffix = fareId;
-  for (const prefix of Object.values(TYPE_PREFIXES)) {
-    if (fareId.startsWith(prefix + '-')) {
-      suffix = fareId.slice(prefix.length + 1);
-      break;
-    }
-  }
-  if (newType === 'Regular') return suffix;
-  return `${TYPE_PREFIXES[newType]}-${suffix}`;
-}
-
-function ensureUniqueFareId(base: string, existing: readonly string[], self: string): string {
-  if (base === self) return base;
-  if (!existing.includes(base)) return base;
-  for (let n = 2; ; n++) {
-    const cand = `${base}-${n}`;
-    if (!existing.includes(cand)) return cand;
-  }
-}
+import { FARE_TYPES, isRouteRule, parseFareType, routeRuleIndices } from './fareEditorHelpers';
+import { applyFareType, setFareAllRoutes } from './fareActions';
 
 const PAYMENT_METHODS: { value: 0 | 1; label: string }[] = [
   { value: 0, label: 'On board' },
@@ -72,11 +31,9 @@ export function FaresEditor() {
     stops,
     addFareAttribute,
     updateFareAttribute,
-    renameFareId,
     removeFareAttribute,
     duplicateFareAttribute,
     addFareRule,
-    removeFareRule,
     removeFareRuleAt,
   } = useStore();
 
@@ -117,26 +74,20 @@ export function FaresEditor() {
 
   const selectedFare = fareAttributes.find((f) => f.fare_id === selectedFareId);
 
-  const fareRulesForSelected = fareRules.filter((r) => r.fare_id === selectedFareId);
-  const hasAllRoutes = fareRulesForSelected.length === 0;
+  // Route rules only: zone-pair / contains rules for the same fare live in the
+  // Zone-pair section and must not be listed, counted or removed here (C3-05).
+  const routeRulesForSelected = selectedFareId
+    ? routeRuleIndices(fareRules, selectedFareId).map((idx) => ({ rule: fareRules[idx], idx }))
+    : [];
+  const hasAllRoutes = routeRulesForSelected.length === 0;
 
   const handleAddRouteRule = (routeId: string) => {
     if (!selectedFareId) return;
     addFareRule({ fare_id: selectedFareId, route_id: routeId });
   };
 
-  const handleRemoveRouteRule = (routeId: string) => {
-    if (!selectedFareId) return;
-    removeFareRule(selectedFareId, routeId);
-  };
-
   const handleSetAllRoutes = () => {
-    if (!selectedFareId) return;
-    // Remove all route-specific rules for this fare
-    const currentRules = fareRules.filter((r) => r.fare_id === selectedFareId);
-    for (const rule of currentRules) {
-      removeFareRule(selectedFareId, rule.route_id);
-    }
+    if (selectedFareId) setFareAllRoutes(selectedFareId);
   };
 
   return (
@@ -157,7 +108,7 @@ export function FaresEditor() {
       <div className="space-y-1.5 mb-3">
         {fareAttributes.map((fare) => {
           const isSelected = fare.fare_id === selectedFareId;
-          const ruleCount = fareRules.filter((r) => r.fare_id === fare.fare_id).length;
+          const ruleCount = fareRules.filter((r) => r.fare_id === fare.fare_id && isRouteRule(r)).length;
           return (
             <button
               key={fare.fare_id}
@@ -253,16 +204,10 @@ export function FaresEditor() {
                     key={type}
                     onClick={() => {
                       if (isSelected) return;
-                      const desired = applyTypePrefix(selectedFare.fare_id, type);
-                      const otherIds = fareAttributes.map((f) => f.fare_id);
-                      const newId = ensureUniqueFareId(desired, otherIds, selectedFare.fare_id);
-                      if (newId !== selectedFare.fare_id) {
-                        renameFareId(selectedFare.fare_id, newId);
-                        setSelectedFareId(newId);
-                      }
-                      if (type === 'Free' && selectedFare.price !== '0.00') {
-                        updateFareAttribute(newId, { price: '0.00' });
-                      }
+                      // One undo step: id rename (cascading to fare_rules and
+                      // flex zones) plus the Free price reset (C3-17).
+                      const newId = applyFareType(selectedFare.fare_id, type);
+                      if (newId !== selectedFare.fare_id) setSelectedFareId(newId);
                     }}
                     className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-colors
                       ${isSelected
@@ -359,18 +304,18 @@ export function FaresEditor() {
 
           {!hasAllRoutes && (
             <div className="space-y-1 mb-3">
-              {fareRulesForSelected.map((rule) => {
+              {routeRulesForSelected.map(({ rule, idx }) => {
                 const route = routes.find((r) => r.route_id === rule.route_id);
                 return (
                   <div
-                    key={rule.route_id}
+                    key={idx}
                     className="flex items-center justify-between px-3 py-2 bg-cream rounded-lg text-sm"
                   >
                     <span className="text-dark-brown">
-                      {route ? (route.route_short_name || route.route_long_name) : rule.route_id}
+                      {route ? (route.route_short_name || route.route_long_name) : `${rule.route_id} (missing)`}
                     </span>
                     <button
-                      onClick={() => handleRemoveRouteRule(rule.route_id!)}
+                      onClick={() => removeFareRuleAt(idx)}
                       className="text-warm-gray hover:text-red-500 text-xs font-bold transition-colors"
                     >
                       Remove
@@ -395,7 +340,7 @@ export function FaresEditor() {
               >
                 <option value="">Select a route...</option>
                 {routes
-                  .filter((r) => !fareRulesForSelected.some((rule) => rule.route_id === r.route_id))
+                  .filter((r) => !routeRulesForSelected.some(({ rule }) => rule.route_id === r.route_id))
                   .map((r) => (
                     <option key={r.route_id} value={r.route_id}>
                       {r.route_short_name || r.route_long_name || r.route_id}

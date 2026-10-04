@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../../store';
 import { featureEnabled } from '../../store/featuresSlice';
 import type { SidebarSection } from '../../types/ui';
+import { fareCount, visibleRouteCount } from './railCounts';
 
 interface NavItem {
   key: SidebarSection;
@@ -262,14 +263,12 @@ function useItemCounts(): ItemCounts {
     const a = s.agencies[0];
     return !!a && !!a.agency_name && !!a.agency_timezone && !!a.agency_url;
   });
-  const fares = useStore((s) => s.fareAttributes.length);
+  const fares = useStore((s) => fareCount(s));
   const calendars = useStore((s) => s.calendars.length);
-  // Exclude flex-backed routes — they're managed in the Flex Zones panel, not
-  // the Routes panel, so the badge should match the Routes list (which hides them).
-  const routes = useStore((s) => {
-    const flexRouteIds = new Set(s.flexZones.map((z) => z.routeId).filter(Boolean));
-    return s.routes.filter((r) => !flexRouteIds.has(r.route_id)).length;
-  });
+  // Exclude flex-only routes — they're managed in the Flex Zones panel, not
+  // the Routes panel, so the badge should match the Routes list (which hides
+  // them). A mixed fixed + flex route stays counted (C3-04).
+  const routes = useStore((s) => visibleRouteCount(s));
   const stops = useStore((s) => s.stops.length);
   const flex = useStore((s) => s.flexZones.length);
   return { agencyValid, fares, calendars, routes, stops, flex };

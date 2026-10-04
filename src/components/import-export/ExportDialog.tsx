@@ -1,10 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import { flexZoneHasGroup, flexZoneHasPolygons } from '../../store/flexSlice';
 import { exportGtfsZip, downloadBlob } from '../../services/gtfsExport';
 import { exportFeedGeoJSON, feedHasGeoJSONGeometry } from '../../services/geojsonExport';
-import { runValidation } from '../../services/validation';
+import { historyTransaction } from '../../store/history';
+import { useValidationMessages } from '../validation/validationView';
 import { trackExportAttempt, trackExportFailed, trackFeedExported } from '../../services/trackBeacon';
 import { useProNudge } from '../billing/useProNudge';
 import { useEditorPlan } from '../billing/useEditorPlan';
@@ -21,7 +23,15 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
   const [warningsExpanded, setWarningsExpanded] = useState(false);
   const fireNudge = useProNudge();
   const navigate = useNavigate();
-  const state = useStore();
+  // Only the slices this dialog renders from, so typing a file name or an
+  // unrelated store change doesn't re-render (or re-validate) the feed (C3-25).
+  const state = useStore(useShallow((s) => ({
+    projectName: s.projectName,
+    agencies: s.agencies, routes: s.routes, stops: s.stops, trips: s.trips,
+    stopTimes: s.stopTimes, calendars: s.calendars, calendarDates: s.calendarDates,
+    shapes: s.shapes, routeStops: s.routeStops, fareAttributes: s.fareAttributes,
+    fareRules: s.fareRules, feedInfo: s.feedInfo, flexZones: s.flexZones,
+  })));
   const [fileName, setFileName] = useState(
     () => state.projectName.replace(/\s+/g, '_').toLowerCase()
   );
@@ -33,7 +43,7 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
   const geoTargetPlan = planDisplayName(cheapestPlanFor('geojson_export'));
   const hasGeoGeometry = feedHasGeoJSONGeometry(state);
 
-  const messages = runValidation(state);
+  const messages = useValidationMessages();
   const errors = messages.filter((m) => m.severity === 'error');
   const warnings = messages.filter((m) => m.severity === 'warning');
   const hasErrors = errors.length > 0;
@@ -87,16 +97,19 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
     // Never delete shapes — they are user-created geometry and should persist
     // even if no trip currently references them.
 
-    s.setTrips(validTrips);
-    s.setStopTimes(validStopTimes);
-    s.setRouteStops(validRouteStops);
-    if (validFareRules.length !== s.fareRules.length) {
-      for (const fr of s.fareRules) {
-        if (fr.route_id && !routeIds.has(fr.route_id)) {
-          s.removeFareRule(fr.fare_id, fr.route_id);
+    // One undo step for the whole clean-up, not one per write (C3-17).
+    historyTransaction('remove orphaned trips', () => {
+      s.setTrips(validTrips);
+      s.setStopTimes(validStopTimes);
+      s.setRouteStops(validRouteStops);
+      if (validFareRules.length !== s.fareRules.length) {
+        for (const fr of s.fareRules) {
+          if (fr.route_id && !routeIds.has(fr.route_id)) {
+            s.removeFareRule(fr.fare_id, fr.route_id);
+          }
         }
       }
-    }
+    });
   }, []);
 
   const handleExport = async () => {

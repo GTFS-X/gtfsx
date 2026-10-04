@@ -12,7 +12,6 @@ import { listProjects } from './services/projectsApi';
 import { ApiError } from './services/authApi';
 import { useStore } from './store';
 import type { EmptyWorkingStateWarning } from './store/feedsSlice';
-import { importGtfsZip, loadImportIntoStore } from './services/gtfsImport';
 import { NotFoundPage } from './components/misc/NotFoundPage';
 import { ConflictDialog } from './components/snapshots/ConflictDialog';
 import { Banner } from './components/ui/Banner';
@@ -27,6 +26,7 @@ import {
   trackPageview,
 } from './services/trackBeacon';
 import { startDevAuthBadge } from './dev/devAuth';
+import { loadDemoFeed } from './components/layout/demoFeed';
 
 // Route-level code splitting. The homepage (`/`) renders the editor, so its
 // shell stays eager (imported above); every other route is loaded on demand
@@ -86,39 +86,6 @@ function PageviewTracker() {
   return null;
 }
 
-// /demo pulls from the canonical published feed at feeds.gtfsx.com/svt-demo/
-// rather than a bundled streamline.zip — keeps the demo in sync with the
-// published Sunny Valley Transit example and matches the slug the embed
-// example site uses, so /demo and /embed-demo always show the same data.
-async function loadDemoFeed() {
-  // Split fetch from parse so a failure records WHICH half broke. Until now a
-  // /demo that never loaded was logged to console.error and nowhere else — an
-  // ad click landing on a silently empty editor looked identical to a bounce.
-  let file: File;
-  try {
-    const res = await fetch('https://feeds.gtfsx.com/svt-demo/gtfs.zip');
-    if (!res.ok) throw new Error('Demo feed not found');
-    const blob = await res.blob();
-    file = new File([blob], 'svt-demo.zip', { type: 'application/zip' });
-  } catch (e) {
-    trackFeedImportFailed('demo', 'fetch');
-    throw e;
-  }
-  let data: Awaited<ReturnType<typeof importGtfsZip>>;
-  try {
-    data = await importGtfsZip(file);
-  } catch (e) {
-    trackFeedImportFailed('demo', 'parse');
-    throw e;
-  }
-  loadImportIntoStore(data);
-  useStore.getState().setProjectName('Sunny Valley Transit');
-  // Loading is not "editing" — clear the dirty flag so the beforeunload
-  // prompt doesn't fire on refresh until the user actually changes something.
-  useStore.getState().markSaved();
-  trackFeedOpened('demo');
-}
-
 function EditorRoute({ demo = false }: { demo?: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -147,14 +114,18 @@ function EditorRoute({ demo = false }: { demo?: boolean }) {
 
   useEffect(() => {
     if (demo) {
-      loadDemoFeed().catch(console.error);
+      const controller = new AbortController();
+      loadDemoFeed(controller.signal).catch(console.error);
       // /demo is a read-only preview of the published SVT feed loaded into the
       // shared editor store. Leaving it must tear that feed back out, or its
       // geometry (route shapes, flex zones, half-drawn lines) leaks onto the
       // next feed the user opens — including a brand-new empty feed (#42).
       // loadingFeed() suppresses undo capture and clears the history stacks so
       // the teardown isn't itself undoable.
-      return () => loadingFeed(() => resetEditorState());
+      return () => {
+        controller.abort();
+        loadingFeed(() => resetEditorState());
+      };
     }
     // Refresh = fresh start. Anonymous drafts are NOT auto-restored from
     // IndexedDB on mount — the beforeunload prompt is the only line of
@@ -221,6 +192,10 @@ function ServerEditorRoute() {
     }
     let cancelled = false;
     let localUnsub: (() => void) | null = null;
+    // The route element stays mounted across /feeds/A → /feeds/B (and
+    // Back/Forward), so clear the previous slug's outcome (C3-19).
+    setError(null);
+    setProjectId(null);
     setLocked(false);
     const resolveAndLoad = async () => {
       try {
@@ -260,8 +235,11 @@ function ServerEditorRoute() {
         // the name/id assignment. Setting them after would re-mark dirty.
         useStore.getState().setProjectName(proj.name);
         useStore.getState().setProjectId(proj.id);
-        await loadProjectFromServer(proj.id);
-        if (cancelled) return;
+        // isCurrent: if the slug changed while this fetch was in flight, the
+        // stale snapshot must never be applied under the next feed's ids
+        // (C3-19). false = dropped because it went stale.
+        const applied = await loadProjectFromServer(proj.id, { isCurrent: () => !cancelled });
+        if (cancelled || !applied) return;
         // Keeps the funnel denominator honest: an editor session that opened a
         // saved cloud feed did get a feed in front of the user, so it must not
         // be counted alongside "opened the editor and saw nothing".
@@ -357,6 +335,9 @@ function ServerEditorRoute() {
 function EmptyWorkingStateBanner({ warning }: { warning: EmptyWorkingStateWarning }) {
   const setBottomPanelTab = useStore((s) => s.setBottomPanelTab);
   const setBottomPanelOpen = useStore((s) => s.setBottomPanelOpen);
+  // Version history lives in a server-only tab. A locked feed has no active
+  // server project, so the button would open an empty panel (C3-23).
+  const canOpenVersions = useStore((s) => !!s.activeServerProjectId);
   const { snapshotCount, reason } = warning;
   const openVersions = () => {
     setBottomPanelTab('snapshots');
@@ -367,7 +348,7 @@ function EmptyWorkingStateBanner({ warning }: { warning: EmptyWorkingStateWarnin
       variant={reason === 'blob_missing' ? 'alert' : 'warning'}
       icon={reason === 'blob_missing' ? '⚠️' : '📄'}
       actions={
-        snapshotCount > 0 ? (
+        snapshotCount > 0 && canOpenVersions ? (
           <button
             onClick={openVersions}
             className="shrink-0 text-xs font-semibold px-3 py-1 rounded-md bg-white/70 hover:bg-white border border-current/20 whitespace-nowrap"

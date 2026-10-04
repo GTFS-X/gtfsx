@@ -7,6 +7,8 @@ import { RailSubHeading } from '../ui/RailHeadings';
 import { EditActions } from '../ui/EditActions';
 import { generateId } from '../../services/idGenerator';
 import type { RiderCategory } from '../../types/gtfs';
+import { describeRemovalBlockers } from './fareEditorHelpers';
+import { RemovalBlockedNotice } from './RemovalBlockedNotice';
 
 /**
  * GTFS-Fares v2 Rider Categories editor (rider_categories.txt). A rider
@@ -26,11 +28,14 @@ export function RiderCategoriesEditor() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [idDraft, setIdDraft] = useState('');
   const [idError, setIdError] = useState<string | undefined>();
+  // Why the last delete was refused (S1-16); cleared when the selection changes.
+  const [blocked, setBlocked] = useState<string | null>(null);
 
   const selected = riderCategories.find((c) => c.rider_category_id === selectedId) ?? null;
 
   const open = (id: string | null) => {
     setSelectedId(id);
+    setBlocked(null);
     const c = riderCategories.find((x) => x.rider_category_id === id);
     setIdDraft(c?.rider_category_id ?? '');
     setIdError(undefined);
@@ -118,10 +123,15 @@ export function RiderCategoriesEditor() {
           {selected.rider_category_name || selected.rider_category_id}
         </h2>
         <EditActions
-          onDelete={() => { removeRiderCategory(selected.rider_category_id); open(null); }}
+          onDelete={() => {
+            const result = removeRiderCategory(selected.rider_category_id);
+            if (result.removed) open(null);
+            else setBlocked(describeRemovalBlockers('this rider category', result, useStore.getState()));
+          }}
           deleteTitle="Delete this rider category"
         />
       </div>
+      <RemovalBlockedNotice message={blocked} onDismiss={() => setBlocked(null)} />
 
       <FormField
         label="Rider Category ID"

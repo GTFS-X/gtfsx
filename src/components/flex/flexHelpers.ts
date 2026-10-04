@@ -2,6 +2,8 @@ import { useStore } from '../../store';
 import { generateId } from '../../services/idGenerator';
 import { ROUTE_COLORS, getContrastTextColor } from '../../utils/colors';
 import type { FlexZone } from '../../store/flexSlice';
+import { historyTransaction } from '../../store/history';
+import { isFlexOnlyRoute } from '../../services/flexRoutes';
 
 /** The subset of a route we need to name it or pair it back to a zone. */
 interface RouteNames {
@@ -85,6 +87,13 @@ export function findFlexZoneRoute<T extends RouteNames & { route_id: string }>(
 export function createFlexZoneWithRoute(
   zone: Omit<FlexZone, 'routeId'> & { routeId?: string },
 ) {
+  // One undo step for the route + zone pair (C3-17).
+  historyTransaction('add flex zone', () => createFlexZoneWithRouteNow(zone));
+}
+
+function createFlexZoneWithRouteNow(
+  zone: Omit<FlexZone, 'routeId'> & { routeId?: string },
+) {
   const state = useStore.getState();
   let routeId = zone.routeId;
   if (!routeId) {
@@ -121,20 +130,29 @@ export function createFlexZoneWithRoute(
 
 /**
  * Inverse of createFlexZoneWithRoute. Removes the flex zone AND the route
- * that was materialized for it (along with the route's trips, stop_times,
- * and any stops that become orphaned — handled by removeRoute's existing
- * cascade). Without this, deleting a zone from the FlexEditor leaves the
- * "Service Area N" entry behind in the Routes subpanel.
+ * that was materialized for it (along with any stops that become orphaned —
+ * handled by removeRoute's existing cascade). Without this, deleting a zone
+ * from the FlexEditor leaves the "Service Area N" entry behind in the Routes
+ * subpanel.
+ *
+ * The route goes too ONLY when it is flex-only (C3-04): a mixed fixed + flex
+ * route (an imported feed whose route also runs fixed trips) or a route shared
+ * by several zones is a real route, and deleting it would take its whole
+ * timetable with it. One undo step (C3-17).
  */
 export function deleteFlexZoneWithRoute(zoneId: string) {
-  const state = useStore.getState();
-  const zone = state.flexZones.find((z) => z.id === zoneId);
-  // Belt-and-braces: drop the zone first so cross-store snapshots can't
-  // observe a route-less zone. Then cascade the route delete.
-  state.removeFlexZone(zoneId);
-  if (zone?.routeId) {
-    state.removeRoute(zone.routeId);
-  }
+  historyTransaction('delete flex zone', () => {
+    const state = useStore.getState();
+    const zone = state.flexZones.find((z) => z.id === zoneId);
+    // Decide before the zone goes: isFlexOnlyRoute counts the zones on it.
+    const dropRoute = !!zone?.routeId && isFlexOnlyRoute(state, zone.routeId);
+    // Belt-and-braces: drop the zone first so cross-store snapshots can't
+    // observe a route-less zone. Then cascade the route delete.
+    state.removeFlexZone(zoneId);
+    if (dropRoute && zone?.routeId) {
+      state.removeRoute(zone.routeId);
+    }
+  });
 }
 
 /** Outcome of parsing an uploaded boundary file. Never throws — the caller
