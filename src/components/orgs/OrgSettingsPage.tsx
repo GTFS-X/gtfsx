@@ -399,7 +399,9 @@ export function OrgSettingsPage() {
     }
   };
 
-  const handleDeleteOrg = async () => {
+  // Returns the error copy (shown inside the confirm dialog, which would
+  // otherwise cover a page-level banner) or null on success.
+  const handleDeleteOrg = async (): Promise<string | null> => {
     setActionError(null);
     try {
       await deleteOrg(org.id);
@@ -411,8 +413,9 @@ export function OrgSettingsPage() {
         setActiveWorkspace({ type: 'personal' });
       }
       navigate('/feeds');
+      return null;
     } catch (err) {
-      setActionError(deleteBlockedMessage(err, 'organization', 'Could not delete organization'));
+      return deleteBlockedMessage(err, 'organization', 'Could not delete organization');
     }
   };
 
@@ -1120,17 +1123,19 @@ function DeleteOrgDialog({
 }: {
   slug: string;
   onCancel: () => void;
-  onConfirm: () => Promise<void>;
+  onConfirm: () => Promise<string | null>;
 }) {
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (typed !== slug) return;
     setBusy(true);
+    setError(null);
     try {
-      await onConfirm();
+      setError(await onConfirm());
     } finally {
       setBusy(false);
     }
@@ -1158,6 +1163,11 @@ function DeleteOrgDialog({
           placeholder={slug}
           required
         />
+        {error && (
+          <p role="alert" className="mt-2 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
+            {error}
+          </p>
+        )}
         <div className="flex justify-end gap-2 mt-2">
           <AuthButton type="button" variant="secondary" onClick={onCancel}>
             Cancel
