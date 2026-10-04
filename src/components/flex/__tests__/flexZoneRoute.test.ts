@@ -86,3 +86,28 @@ describe('formatFarePrice (C3-26)', () => {
     expect(formatFarePrice('1', '')).toBe('1.00');
   });
 });
+
+describe('updateRoute rename and the paired zone (C3-04, both directions)', () => {
+  it('renames the zone of a flex-only route', () => {
+    s().setRoutes([route('RF', 'Old')]);
+    s().setFlexZones([zone('Z', 'RF')]);
+    s().updateRoute('RF', { route_long_name: 'Downtown Flex' });
+    expect(s().flexZones[0].name).toBe('Downtown Flex');
+  });
+
+  it('leaves the zone alone when a mixed fixed + flex route is renamed', () => {
+    s().setRoutes([route('R5', '5')]);
+    s().setTrips([{ trip_id: 'T1', route_id: 'R5', service_id: 'WK', direction_id: 0 } as Trip]);
+    s().setFlexZones([zone('G', 'R5')]);
+    s().updateRoute('R5', { route_short_name: '5X' });
+    expect(s().routes[0].route_short_name).toBe('5X');
+    expect(s().flexZones[0].name).toBe('G');
+  });
+
+  it('leaves both zones alone when a route shared by two zones is renamed', () => {
+    s().setRoutes([route('RS')]);
+    s().setFlexZones([zone('A', 'RS'), zone('B', 'RS')]);
+    s().updateRoute('RS', { route_long_name: 'Shared' });
+    expect(s().flexZones.map((z) => z.name)).toEqual(['A', 'B']);
+  });
+});

@@ -8,6 +8,7 @@ import type { ShapeSlice } from './shapeSlice';
 import type { FareSlice } from './fareSlice';
 import { cascadeStopRemoval, type StopSlice } from './stopSlice';
 import type { FlexSlice } from './flexSlice';
+import { isFlexOnlyRoute } from '../services/flexRoutes';
 
 // Cross-slice mutations need to see fields from neighbouring slices.
 // Casting state to this intersection is narrower than `any` and surfaces
@@ -142,11 +143,13 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
     // (The reverse direction — the Flex panel's inline rename writing back to the
     // route — lives in FlexEditor.commitRename; the `name !== newName` guard makes
     // that path a no-op here rather than a loop.)
+    // Only a flex-only route is the zone's alter ego (C3-04). A mixed fixed +
+    // flex route, or one shared by several zones, is a real route: renaming it
+    // must not rename a zone, just as renaming the zone no longer renames it.
     const renamed = updates.route_short_name?.trim() || updates.route_long_name?.trim();
-    if (renamed) {
-      const zone = (state as unknown as CrossSliceState).flexZones.find(
-        (z) => z.routeId === route_id,
-      );
+    const cs = state as unknown as CrossSliceState;
+    if (renamed && isFlexOnlyRoute(cs, route_id)) {
+      const zone = cs.flexZones.find((z) => z.routeId === route_id);
       if (zone && zone.name !== renamed) zone.name = renamed;
     }
   }),
