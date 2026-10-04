@@ -14,7 +14,7 @@ import { downloadFeedZipViaImportApi } from '../../services/catalogDownload';
 import { ShapesFromStopsDialog } from '../shapes/ShapesFromStopsDialog';
 import { trackFeedImportFailed, trackFeedOpened, type FeedOrigin } from '../../services/trackBeacon';
 import {
-  checkpoint, createImportSession, isImportCancelled, sessionFetch, storeHasAnyFeedContent,
+  checkpoint, createImportSession, isImportCancelled, isImportOptionsStep, sessionFetch, storeHasAnyFeedContent,
   type ImportSession,
 } from './importGuards';
 
@@ -165,6 +165,18 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     sessionRef.current.close();
     onClose();
   }, [onClose]);
+
+  // Import Options (E2E E5): Escape cancels, like the × and Cancel buttons.
+  // Nothing has been written yet on this step, so the project is untouched.
+  const onOptionsStep = isImportOptionsStep(parsedData, importedCounts);
+  useEffect(() => {
+    if (!onOptionsStep) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onOptionsStep, handleClose]);
 
   const handleComplete = useCallback(async () => {
     if (!onComplete) {
@@ -727,9 +739,19 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     return (
       <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={handleClose}>
         <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-          <h3 className="font-heading font-bold text-lg text-dark-brown mb-1">
-            {initialSource === 'myfeeds' ? 'Import routes' : 'Import Options'}
-          </h3>
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <h3 className="font-heading font-bold text-lg text-dark-brown">
+              {initialSource === 'myfeeds' ? 'Import routes' : 'Import Options'}
+            </h3>
+            <button
+              type="button"
+              onClick={handleClose}
+              aria-label="Cancel import"
+              className="-mt-1 -mr-2 w-8 h-8 flex items-center justify-center rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream text-xl leading-none"
+            >
+              ×
+            </button>
+          </div>
           <p className="text-xs text-warm-gray mb-4">{fileName}.zip — {parsedData.routes.length} route{parsedData.routes.length !== 1 ? 's' : ''}</p>
 
           {importWarnings.length > 0 && (
@@ -829,6 +851,12 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
               className="px-4 py-2 text-sm text-warm-gray hover:text-dark-brown"
             >
               ← Back
+            </button>
+            <button
+              onClick={handleClose}
+              className="px-4 py-2 text-sm text-warm-gray hover:text-dark-brown"
+            >
+              Cancel
             </button>
             {mode === 'merge' && (
               <button

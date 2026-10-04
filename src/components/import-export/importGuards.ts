@@ -91,3 +91,10 @@ export function storeHasAnyFeedContent(state: FeedContentState): boolean {
     state.agencies.some((a) => (a.agency_name ?? '').trim() !== '')
   );
 }
+
+/** The dialog is on Import Options (mode + route picker): a feed is parsed
+ *  but nothing has been imported yet, so cancelling leaves the project as it
+ *  was. Escape cancels only on this step. */
+export function isImportOptionsStep(parsedData: unknown, importedCounts: unknown): boolean {
+  return parsedData != null && importedCounts == null;
+}
