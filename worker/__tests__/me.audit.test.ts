@@ -8,6 +8,7 @@ import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { makeClient, type TestClient } from './_client';
 import {
   applyMigrations,
+  dbRun,
   resetDb,
   seedUser,
   setupEmailCapture,
@@ -143,5 +144,33 @@ describe('/api/me/audit', () => {
     // Pages must not overlap.
     const firstIds = new Set(first.events.map((e) => e.id));
     for (const e of second.events) expect(firstIds.has(e.id)).toBe(false);
+  });
+
+  it('includes publication and snapshot events on the user\'s own projects, not others\' (W2-10)', async () => {
+    const { client } = await loggedInClient('audit-pub@example.com');
+    const { client: other } = await loggedInClient('audit-pub-other@example.com');
+    const mine = await client.json<{ id: string }>(await client.post('/api/projects', { name: 'Mine' }));
+    const theirs = await other.json<{ id: string }>(await other.post('/api/projects', { name: 'Theirs' }));
+
+    // Actor-less events (e.g. the scheduled-publish cron) keyed the way the
+    // publication/snapshot routes log them.
+    const now = Date.now();
+    const insert = (id: string, subjectType: string, subjectId: string, action: string, meta: unknown) =>
+      dbRun(
+        `INSERT INTO audit_event (id, actor_user_id, subject_type, subject_id, action, metadata_json, created_at)
+         VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+        id, subjectType, subjectId, action, meta ? JSON.stringify(meta) : null, now,
+      );
+    await insert('01ZZAUDITPUBMINE0000000000', 'publication', mine.id, 'project.publish', null);
+    await insert('01ZZAUDITSNAPMINE000000000', 'snapshot', 'snap-mine', 'project.create_snapshot', { projectId: mine.id });
+    await insert('01ZZAUDITPUBTHEIRS0000000', 'publication', theirs.id, 'project.publish', null);
+    await insert('01ZZAUDITSNAPTHEIRS000000', 'snapshot', 'snap-theirs', 'project.create_snapshot', { projectId: theirs.id });
+
+    const body = await client.json<{ events: AuditEvent[] }>(await client.get('/api/me/audit'));
+    const ids = body.events.map((e) => e.id);
+    expect(ids).toContain('01ZZAUDITPUBMINE0000000000');
+    expect(ids).toContain('01ZZAUDITSNAPMINE000000000');
+    expect(ids).not.toContain('01ZZAUDITPUBTHEIRS0000000');
+    expect(ids).not.toContain('01ZZAUDITSNAPTHEIRS000000');
   });
 });

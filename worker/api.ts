@@ -614,7 +614,8 @@ apiRouter.delete('/me', requireAuth, async (c) => {
 // Visibility rule: events where
 //   (a) the user IS the subject (subject_type='user' AND subject_id=user.id),
 //   (b) the user is the actor (actor_user_id=user.id),
-//   (c) the event is about a project the user owns (subject_type='project'
+//   (c) the event is about a project the user owns: subject_type 'project' or
+//       'publication' (subject_id = project id), or 'snapshot' (metadata.projectId),
 //       joined to feed_project.owner_type='user' AND owner_id=user.id).
 // Paginated by ULID id: pass `before=<last_id_seen>` for the next page.
 apiRouter.get('/me/audit', requireAuth, async (c) => {
@@ -637,11 +638,15 @@ apiRouter.get('/me/audit', requireAuth, async (c) => {
     SELECT e.id, e.actor_user_id, e.subject_type, e.subject_id, e.action,
            e.metadata_json, e.created_at
       FROM audit_event e
-      LEFT JOIN feed_project p ON e.subject_type = 'project' AND p.id = e.subject_id
+      LEFT JOIN feed_project p ON p.id = CASE
+             WHEN e.subject_type IN ('project', 'publication') THEN e.subject_id
+             WHEN e.subject_type = 'snapshot' THEN json_extract(e.metadata_json, '$.projectId')
+           END
      WHERE (
              (e.subject_type = 'user' AND e.subject_id = ?)
           OR e.actor_user_id = ?
-          OR (e.subject_type = 'project' AND p.owner_type = 'user' AND p.owner_id = ?)
+          OR (e.subject_type IN ('project', 'publication', 'snapshot')
+              AND p.owner_type = 'user' AND p.owner_id = ?)
            )
        ${beforeClause}
      ORDER BY e.id DESC
