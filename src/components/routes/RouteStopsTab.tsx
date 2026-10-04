@@ -24,7 +24,7 @@ import { PatternSelector } from '../ui/ShapePatternSelector';
 import { computeShapePatterns, activeStopsShapeId } from '../ui/shapePatterns';
 import { directionName } from '../../utils/constants';
 import type { Stop } from '../../types/gtfs';
-import { nextRouteStopSequence } from '../../services/routeStopMigration';
+import { releaseStopPlacementShape } from './routePanelHelpers';
 
 function SortableStopItem({
   uid,
@@ -133,7 +133,7 @@ export function RouteStopsTab() {
   const shapes = useStore((s) => s.shapes);
   const selectedStopId = useStore((s) => s.selectedStopId);
   const selectStop = useStore((s) => s.selectStop);
-  const addRouteStop = useStore((s) => s.addRouteStop);
+  const appendRouteStop = useStore((s) => s.appendRouteStop);
   const removeRouteStop = useStore((s) => s.removeRouteStop);
   const reorderRouteStops = useStore((s) => s.reorderRouteStops);
   const removeStop = useStore((s) => s.removeStop);
@@ -158,9 +158,11 @@ export function RouteStopsTab() {
 
   // While the Stops tab is open, the next placed stop attaches to the selected
   // shape (so it snaps to the right one even when out-and-back shapes overlap).
+  // "+ Create new stop" swaps this tab for CreateStopPanel; the shape is kept
+  // for that panel (it clears it itself when it closes).
   useEffect(() => {
     setStopPlacementShapeId(effectiveShapeId);
-    return () => setStopPlacementShapeId(null);
+    return releaseStopPlacementShape;
   }, [effectiveShapeId, setStopPlacementShapeId]);
 
 
@@ -362,11 +364,13 @@ export function RouteStopsTab() {
             <button
               onClick={() => {
                 if (!addExistingStopId) return;
-                addRouteStop({
+                // appendRouteStop picks a sequence past every one the pattern
+                // and its trips' stop_times already use (imported feeds can be
+                // 1-based or have gaps), so the new stop never shares a column.
+                appendRouteStop({
                   route_id: routeId,
                   stop_id: addExistingStopId,
                   direction_id: directionId,
-                  stop_sequence: nextRouteStopSequence(orderedRouteStops),
                   _snapped: false,
                   shape_id: effectiveShapeId ?? undefined,
                 });
