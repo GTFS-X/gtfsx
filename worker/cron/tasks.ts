@@ -42,10 +42,9 @@ export const PROJECT_DELETE_GRACE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 // end-date. Run once a day to downgrade anything past its window. Idempotent.
 //
 // Guarded on `plan_expires_at IS NOT NULL`, which only ever matches comp
-// grants: the Stripe webhook for paid subs sets plan/plan_status/
-// plan_renewal_at but NEVER plan_expires_at (it stays NULL), so a paying
-// Agency/Enterprise customer is never caught here. (Verified against
-// worker/billing/webhooks.ts.)
+// grants: when the Stripe webhook syncs a paid subscription it explicitly
+// clears plan_expires_at (sets it NULL), so a paying Agency/Enterprise
+// customer is never caught here. (See worker/billing/webhooks.ts.)
 export async function expireEnterpriseGrants(env: Env): Promise<{ users: number; orgs: number }> {
   const now = Date.now();
 
@@ -195,7 +194,69 @@ export interface ReapSummary {
   orgMembershipsRemoved: number;
   /** `event.oci_email_sha256` values nulled because they hashed to a reaped address. */
   conversionHashesCleared: number;
+  /** Users left for a later run because reaping them would delete an org that
+   *  still has a live Stripe subscription (see orgsBlockingReap). */
+  skipped: number;
   errors: number;
+}
+
+/**
+ * Forum content a reaped user authored is reassigned to this placeholder
+ * account rather than deleted: deleting a post would cascade into other
+ * people's replies, solved markers and upvotes. It is a `disabled` user with
+ * no credentials and an undeliverable address, so it can never sign in.
+ */
+export const DELETED_USER_SENTINEL_ID = 'deleted-user';
+const DELETED_USER_SENTINEL_EMAIL = 'deleted-user@invalid';
+
+// Created lazily (only when a reaped user actually authored forum content),
+// with created_at = 0 so it never shows up as a signup in any reporting window.
+async function ensureDeletedUserSentinel(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO user (id, email, display_name, status, staff, created_at, updated_at)
+     VALUES (?, ?, 'Deleted user', 'disabled', 0, 0, 0)`,
+  )
+    .bind(DELETED_USER_SENTINEL_ID, DELETED_USER_SENTINEL_EMAIL)
+    .run();
+}
+
+async function hasForumContent(env: Env, userId: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT 1 AS x FROM forum_thread WHERE author_user_id = ?1
+     UNION ALL SELECT 1 FROM forum_post WHERE author_user_id = ?1
+     UNION ALL SELECT 1 FROM forum_image WHERE user_id = ?1
+     LIMIT 1`,
+  )
+    .bind(userId)
+    .first<{ x: number }>();
+  return !!row;
+}
+
+// Stripe statuses that still bill (or may resume billing).
+const LIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'past_due', 'unpaid'];
+
+/**
+ * Orgs this user is the LAST member of that still carry a live subscription.
+ * Reaping the user would hard-delete such an org while Stripe keeps charging
+ * it, with nobody left who could reach its billing portal. Those users are
+ * skipped (and logged) until the subscription is cancelled.
+ */
+export async function orgsBlockingReap(env: Env, userId: string): Promise<string[]> {
+  const placeholders = LIVE_SUBSCRIPTION_STATUSES.map(() => '?').join(', ');
+  const rows = await env.DB.prepare(
+    `SELECT DISTINCT m.org_id
+       FROM organization_membership m
+       JOIN subscription s ON s.owner_type = 'org' AND s.owner_id = m.org_id
+      WHERE m.user_id = ?
+        AND s.status IN (${placeholders})
+        AND NOT EXISTS (
+          SELECT 1 FROM organization_membership o
+           WHERE o.org_id = m.org_id AND o.user_id != m.user_id
+        )`,
+  )
+    .bind(userId, ...LIVE_SUBSCRIPTION_STATUSES)
+    .all<{ org_id: string }>();
+  return (rows.results ?? []).map((r) => r.org_id);
 }
 
 /**
@@ -221,11 +282,21 @@ export async function reapDeletedUsers(env: Env): Promise<ReapSummary> {
     orgsDeleted: 0,
     orgMembershipsRemoved: 0,
     conversionHashesCleared: 0,
+    skipped: 0,
     errors: 0,
   };
 
   for (const row of rows) {
     try {
+      const blocking = await orgsBlockingReap(env, row.id);
+      if (blocking.length > 0) {
+        summary.skipped += 1;
+        console.warn(
+          `[reaper] skipped user ${row.id}: last member of org(s) ${blocking.join(', ')} ` +
+            `with a live subscription; cancel it in Stripe, then the next run purges the account`,
+        );
+        continue;
+      }
       const result = await reapOne(env, row.id);
       summary.reaped += 1;
       summary.r2Projects += result.r2Projects;
@@ -247,6 +318,7 @@ export async function reapDeletedUsers(env: Env): Promise<ReapSummary> {
     `[reaper] ${summary.reaped}/${summary.candidates} users reaped, ` +
       `${summary.r2Projects} project blob sets removed, ` +
       `${summary.conversionHashesCleared} conversion email hashes cleared, ` +
+      `${summary.skipped} skipped (live org subscription), ` +
       `${summary.errors} errors`,
   );
   return summary;
@@ -380,6 +452,36 @@ async function reapOne(env: Env, userId: string): Promise<PerUserReap> {
   // 4) Audit events: drop rows where this user is the actor, but KEEP events
   //    where they're the subject — those may matter for orgs/admins later.
   await env.DB.prepare(`DELETE FROM audit_event WHERE actor_user_id = ?`).bind(userId).run();
+
+  // 4b) Every other row that references the user. The forum, image and
+  //     checkout tables reference user(id) with NO ACTION, so any one of them
+  //     made step 5 fail (and the reap retried, and failed, every night).
+  //     worker/__tests__/cron.reaper.test.ts enumerates the schema's foreign
+  //     keys to `user` so a new NO ACTION reference can't silently re-block
+  //     this; handle it here when that test fails.
+  if (await hasForumContent(env, userId)) await ensureDeletedUserSentinel(env);
+  await env.DB.batch([
+    // Billing checkout attempts (initiated_by_user is NOT NULL — even for an
+    // org checkout, any member who ever opened Checkout blocked the reap).
+    env.DB.prepare(`DELETE FROM checkout_session WHERE initiated_by_user = ?`).bind(userId),
+    // Their upvotes go, and the denormalized counts with them.
+    env.DB.prepare(
+      `UPDATE forum_post SET upvote_count = MAX(upvote_count - 1, 0)
+        WHERE id IN (SELECT post_id FROM forum_post_upvote WHERE user_id = ?)`,
+    ).bind(userId),
+    env.DB.prepare(`DELETE FROM forum_post_upvote WHERE user_id = ?`).bind(userId),
+    env.DB.prepare(`DELETE FROM forum_subscription WHERE user_id = ?`).bind(userId),
+    // Authored threads, posts and images stay, attributed to "Deleted user".
+    env.DB.prepare(`UPDATE forum_thread SET author_user_id = ? WHERE author_user_id = ?`)
+      .bind(DELETED_USER_SENTINEL_ID, userId),
+    env.DB.prepare(`UPDATE forum_post SET author_user_id = ? WHERE author_user_id = ?`)
+      .bind(DELETED_USER_SENTINEL_ID, userId),
+    env.DB.prepare(`UPDATE forum_image SET user_id = ? WHERE user_id = ?`)
+      .bind(DELETED_USER_SENTINEL_ID, userId),
+    // Assistant telemetry stores the raw question text (no FK, so it never
+    // blocked the reap — it just outlived the account).
+    env.DB.prepare(`DELETE FROM assistant_messages WHERE user_id = ?`).bind(userId),
+  ]);
 
   // 5) The user row itself. Sessions, auth tokens etc. cascade via FK. Nothing
   //    that needs the email address may be added after this line — see step 0.
@@ -616,8 +718,20 @@ interface DueSchedule {
   ignore_agency_churn: number;
 }
 
+// A claim older than this was abandoned (the invocation died mid-publish).
+const STALE_RUNNING_MS = 60 * 60 * 1000;
+
 export async function publishDueSchedules(env: Env): Promise<{ published: number; failed: number }> {
   const now = Date.now();
+
+  // Release claims an earlier run never finished, so the row doesn't sit in
+  // 'running' (shown as pending) forever. Marked failed, not retried: whether
+  // the publish went through before the invocation died is unknown.
+  await env.DB.prepare(
+    `UPDATE scheduled_publish SET status = 'failed', failure_reason = 'interrupted: the scheduled publish did not finish'
+      WHERE status = 'running' AND executed_at < ?`,
+  ).bind(now - STALE_RUNNING_MS).run();
+
   const due = await env.DB.prepare(
     `SELECT id, project_id, snapshot_id, ignore_warnings, ignore_rt_breakage, ignore_agency_churn
        FROM scheduled_publish
@@ -631,19 +745,34 @@ export async function publishDueSchedules(env: Env): Promise<{ published: number
   let published = 0;
   let failed = 0;
   for (const row of due.results ?? []) {
+    // Claim the row before publishing. A cancel / reschedule / unpublish that
+    // landed after the SELECT moved it off 'pending', and must win: without
+    // the claim we published the old snapshot anyway and then overwrote the
+    // 'cancelled' status with 'executed'. ('running' is free TEXT; the API
+    // reports it as pending.)
+    const claim = await env.DB.prepare(
+      `UPDATE scheduled_publish SET status = 'running', executed_at = ? WHERE id = ? AND status = 'pending'`,
+    ).bind(Date.now(), row.id).run();
+    if ((claim.meta?.changes ?? 0) !== 1) continue;
+
     try {
       await runOneScheduledPublish(env, row);
       await env.DB.prepare(
-        `UPDATE scheduled_publish SET status = 'executed', executed_at = ? WHERE id = ?`,
+        `UPDATE scheduled_publish SET status = 'executed', executed_at = ? WHERE id = ? AND status = 'running'`,
       ).bind(Date.now(), row.id).run();
       published += 1;
     } catch (err) {
       failed += 1;
       const reason = scheduleFailureReason(err);
       console.error(`[scheduled-publish] ${row.id} failed:`, reason);
-      await env.DB.prepare(
-        `UPDATE scheduled_publish SET status = 'failed', failure_reason = ?, executed_at = ? WHERE id = ?`,
-      ).bind(reason.slice(0, 500), Date.now(), row.id).run();
+      // Guarded: a D1 error recording one failure must not abort the rest.
+      try {
+        await env.DB.prepare(
+          `UPDATE scheduled_publish SET status = 'failed', failure_reason = ?, executed_at = ? WHERE id = ? AND status = 'running'`,
+        ).bind(reason.slice(0, 500), Date.now(), row.id).run();
+      } catch (writeErr) {
+        console.error(`[scheduled-publish] ${row.id} could not record failure:`, writeErr);
+      }
     }
   }
   return { published, failed };

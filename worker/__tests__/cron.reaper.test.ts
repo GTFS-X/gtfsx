@@ -17,6 +17,7 @@ import {
   summarizeWeeklyMetrics,
   expireEnterpriseGrants,
   DELETE_GRACE_MS,
+  DELETED_USER_SENTINEL_ID,
   PROJECT_DELETE_GRACE_MS,
 } from '../cron/tasks';
 import { purgeProject } from '../projects/purge';
@@ -782,5 +783,190 @@ describe('summarizeWeeklyMetrics', () => {
     expect(cached).not.toBeNull();
     const parsed = JSON.parse(cached!) as { users: number };
     expect(parsed.users).toBe(3);
+  });
+});
+
+// ─── W2-03 / W2-15 / W1-03: everything that references a reaped user ───────
+
+// Foreign keys to user(id) WITHOUT a cascading/nulling ON DELETE action. Each
+// one blocks `DELETE FROM user` until reapOne clears it, so each must be
+// handled there. Adding a table with a new NO ACTION reference to `user` makes
+// the schema test below fail until reapOne handles it and it is listed here.
+const NO_ACTION_USER_FKS_HANDLED_BY_REAPER = [
+  'checkout_session.initiated_by_user',
+  'forum_image.user_id',
+  'forum_post.author_user_id',
+  'forum_post_upvote.user_id',
+  'forum_subscription.user_id',
+  'forum_thread.author_user_id',
+];
+
+describe('reapDeletedUsers: every user-referencing table', () => {
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+    await env.DB.prepare(`DELETE FROM checkout_session`).run();
+    await env.DB.prepare(`DELETE FROM subscription`).run();
+    await env.DB.prepare(`DELETE FROM assistant_messages`).run();
+  });
+
+  afterEach(async () => {
+    await env.DB.prepare(`DELETE FROM subscription`).run();
+  });
+
+  it('every NO ACTION foreign key to user is one reapOne handles', async () => {
+    const tables = await env.DB.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'`,
+    ).all<{ name: string }>();
+    const found: string[] = [];
+    for (const { name } of tables.results ?? []) {
+      // Virtual (FTS) tables have no foreign keys; skip anything pragma rejects.
+      let fks: { table: string; from: string; on_delete: string }[];
+      try {
+        fks = (await env.DB.prepare(`SELECT "table", "from", on_delete FROM pragma_foreign_key_list(?)`)
+          .bind(name)
+          .all<{ table: string; from: string; on_delete: string }>()).results ?? [];
+      } catch {
+        continue;
+      }
+      for (const fk of fks) {
+        if (fk.table !== 'user') continue;
+        if (fk.on_delete === 'CASCADE' || fk.on_delete === 'SET NULL') continue;
+        found.push(`${name}.${fk.from}`);
+      }
+    }
+    expect(found.sort()).toEqual([...NO_ACTION_USER_FKS_HANDLED_BY_REAPER].sort());
+  });
+
+  it('reaps a user with a row in every user-referencing table; forum content survives as "Deleted user"', async () => {
+    const now = Date.now();
+    const deletedAt = now - DELETE_GRACE_MS - 24 * 60 * 60 * 1000;
+    const { userId } = await seedSoftDeletedUser({ email: 'everything@example.com', deletedAt });
+
+    // Someone else, whose thread the reaped user replied to and upvoted.
+    const otherId = ulid();
+    await env.DB.prepare(
+      `INSERT INTO user (id, email, display_name, status, staff, created_at, updated_at)
+       VALUES (?, 'other@example.com', 'Other', 'active', 0, ?, ?)`,
+    ).bind(otherId, now, now).run();
+
+    const orgId = ulid();
+    const threadId = ulid();
+    const opId = ulid();
+    const ownThreadId = ulid();
+    const ownPostId = ulid();
+    const replyId = ulid();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR IGNORE INTO forum_category (id, title, created_at) VALUES ('reaper-cat', 'Reaper', ?)`).bind(now),
+      // The other user's thread + OP, upvoted by the reaped user.
+      env.DB.prepare(
+        `INSERT INTO forum_thread (id, category_id, slug, title, author_user_id, created_at, last_post_at, post_count)
+         VALUES (?, 'reaper-cat', 'other-thread', 'Other thread', ?, ?, ?, 2)`,
+      ).bind(threadId, otherId, now, now),
+      env.DB.prepare(
+        `INSERT INTO forum_post (id, thread_id, author_user_id, body_md, upvote_count, created_at)
+         VALUES (?, ?, ?, 'Question', 1, ?)`,
+      ).bind(opId, threadId, otherId, now),
+      env.DB.prepare(`INSERT INTO forum_post_upvote (post_id, user_id, created_at) VALUES (?, ?, ?)`).bind(opId, userId, now),
+      // The reaped user's reply in that thread, and their own thread.
+      env.DB.prepare(
+        `INSERT INTO forum_post (id, thread_id, author_user_id, body_md, created_at) VALUES (?, ?, ?, 'Reply', ?)`,
+      ).bind(replyId, threadId, userId, now),
+      env.DB.prepare(
+        `INSERT INTO forum_thread (id, category_id, slug, title, author_user_id, created_at, last_post_at)
+         VALUES (?, 'reaper-cat', 'own-thread', 'Own thread', ?, ?, ?)`,
+      ).bind(ownThreadId, userId, now, now),
+      env.DB.prepare(
+        `INSERT INTO forum_post (id, thread_id, author_user_id, body_md, created_at) VALUES (?, ?, ?, 'Own OP', ?)`,
+      ).bind(ownPostId, ownThreadId, userId, now),
+      env.DB.prepare(
+        `INSERT INTO forum_subscription (user_id, thread_id, source, created_at) VALUES (?, ?, 'reply', ?)`,
+      ).bind(userId, threadId, now),
+      env.DB.prepare(
+        `INSERT INTO forum_image (id, user_id, r2_key, content_type, bytes, created_at)
+         VALUES (?, ?, ?, 'image/png', 10, ?)`,
+      ).bind(ulid(), userId, `images/${userId}/x.png`, now),
+      env.DB.prepare(`INSERT INTO forum_user_state (user_id, created_at, updated_at) VALUES (?, ?, ?)`).bind(userId, now, now),
+      // Billing: an org checkout they opened (org has another member, so it survives).
+      env.DB.prepare(`INSERT INTO organization (id, slug, name, created_at) VALUES (?, 'reaper-org', 'Reaper Org', ?)`).bind(orgId, now),
+      env.DB.prepare(
+        `INSERT INTO organization_membership (org_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)`,
+      ).bind(orgId, otherId, now),
+      env.DB.prepare(
+        `INSERT INTO organization_membership (org_id, user_id, role, created_at) VALUES (?, ?, 'admin', ?)`,
+      ).bind(orgId, userId, now),
+      env.DB.prepare(
+        `INSERT INTO checkout_session (id, owner_type, owner_id, target_plan, target_interval, initiated_by_user, created_at)
+         VALUES ('cs_reaper', 'org', ?, 'agency', 'month', ?, ?)`,
+      ).bind(orgId, userId, now),
+      env.DB.prepare(`INSERT INTO pro_intent (id, user_id, ts, action) VALUES (?, ?, ?, 'feed_cap')`).bind(ulid(), userId, now),
+      env.DB.prepare(
+        `INSERT INTO assistant_messages (id, user_id, question, answer_class, created_at)
+         VALUES (?, ?, 'my secret question', 'supported', ?)`,
+      ).bind(ulid(), userId, now),
+    ]);
+
+    const summary = await reapDeletedUsers(env);
+    expect(summary.errors).toBe(0);
+    expect(summary.reaped).toBe(1);
+
+    expect(await env.DB.prepare(`SELECT id FROM user WHERE id = ?`).bind(userId).first()).toBeNull();
+    const userColumns: [string, string][] = [
+      ...NO_ACTION_USER_FKS_HANDLED_BY_REAPER.map((s) => s.split('.') as [string, string]),
+      ['assistant_messages', 'user_id'],
+      ['organization_membership', 'user_id'],
+      ['forum_user_state', 'user_id'],
+      ['pro_intent', 'user_id'],
+      ['credential', 'user_id'],
+    ];
+    for (const [table, col] of userColumns) {
+      const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${col} = ?`).bind(userId).first<{ n: number }>();
+      expect(n?.n, `${table}.${col}`).toBe(0);
+    }
+
+    // Threads and posts are still there, attributed to the placeholder.
+    const sentinel = await env.DB.prepare(`SELECT display_name, status FROM user WHERE id = ?`)
+      .bind(DELETED_USER_SENTINEL_ID)
+      .first<{ display_name: string; status: string }>();
+    expect(sentinel).toEqual({ display_name: 'Deleted user', status: 'disabled' });
+    const own = await env.DB.prepare(`SELECT author_user_id FROM forum_thread WHERE id = ?`).bind(ownThreadId).first<{ author_user_id: string }>();
+    expect(own?.author_user_id).toBe(DELETED_USER_SENTINEL_ID);
+    const reply = await env.DB.prepare(`SELECT author_user_id FROM forum_post WHERE id = ?`).bind(replyId).first<{ author_user_id: string }>();
+    expect(reply?.author_user_id).toBe(DELETED_USER_SENTINEL_ID);
+    // Their upvote is gone from the other user's post, and the count followed.
+    const op = await env.DB.prepare(`SELECT upvote_count, author_user_id FROM forum_post WHERE id = ?`).bind(opId).first<{ upvote_count: number; author_user_id: string }>();
+    expect(op).toEqual({ upvote_count: 0, author_user_id: otherId });
+    // The org (another member remains) is untouched.
+    expect(await env.DB.prepare(`SELECT id FROM organization WHERE id = ?`).bind(orgId).first()).not.toBeNull();
+  });
+
+  it('skips a user who is the last member of an org with a live subscription', async () => {
+    const now = Date.now();
+    const deletedAt = now - DELETE_GRACE_MS - 24 * 60 * 60 * 1000;
+    const { userId } = await seedSoftDeletedUser({ email: 'paying-org@example.com', deletedAt });
+    const orgId = ulid();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO organization (id, slug, name, created_at) VALUES (?, 'paying-org', 'Paying', ?)`).bind(orgId, now),
+      env.DB.prepare(
+        `INSERT INTO organization_membership (org_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)`,
+      ).bind(orgId, userId, now),
+      env.DB.prepare(
+        `INSERT INTO subscription (id, owner_type, owner_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
+                                   plan, status, current_period_start, current_period_end, created_at, updated_at)
+         VALUES (?, 'org', ?, 'sub_reaper', 'cus_reaper', 'price_x', 'agency', 'active', ?, ?, ?, ?)`,
+      ).bind(ulid(), orgId, now, now + 1e9, now, now),
+    ]);
+
+    const summary = await reapDeletedUsers(env);
+    expect(summary.skipped).toBe(1);
+    expect(summary.reaped).toBe(0);
+    expect(await env.DB.prepare(`SELECT id FROM user WHERE id = ?`).bind(userId).first()).not.toBeNull();
+    expect(await env.DB.prepare(`SELECT id FROM organization WHERE id = ?`).bind(orgId).first()).not.toBeNull();
+
+    // Once the subscription is canceled, the next run purges both.
+    await env.DB.prepare(`UPDATE subscription SET status = 'canceled' WHERE owner_id = ?`).bind(orgId).run();
+    const second = await reapDeletedUsers(env);
+    expect(second.reaped).toBe(1);
+    expect(await env.DB.prepare(`SELECT id FROM organization WHERE id = ?`).bind(orgId).first()).toBeNull();
   });
 });
