@@ -183,13 +183,26 @@ export interface RouteStop {
 }
 
 export interface Transfer {
+  /**
+   * Stop ids. Required for transfer_type 1–3 (and normally set for 0); may be
+   * empty for in-seat transfers (4/5), which are keyed by trip ids. Kept as
+   * `string` ('' when absent) so stop-keyed consumers stay simple; the
+   * exporter writes '' as a blank cell.
+   */
   from_stop_id: string;
   to_stop_id: string;
+  /** Optional route qualifiers (transfer applies only between these routes). */
+  from_route_id?: string;
+  to_route_id?: string;
+  /** Optional trip qualifiers; required for in-seat transfers (4/5). */
+  from_trip_id?: string;
+  to_trip_id?: string;
   /**
    * 0 = recommended transfer (default), 1 = timed transfer (vehicle waits),
-   * 2 = min_transfer_time required, 3 = transfer not possible.
+   * 2 = min_transfer_time required, 3 = transfer not possible,
+   * 4 = in-seat transfer (stay on board), 5 = in-seat transfer not allowed.
    */
-  transfer_type: 0 | 1 | 2 | 3;
+  transfer_type: 0 | 1 | 2 | 3 | 4 | 5;
   /** Seconds required to make the transfer. Required when transfer_type=2. */
   min_transfer_time?: number;
 }

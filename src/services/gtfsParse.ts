@@ -18,8 +18,104 @@ import { fillShapeDistances } from './shapeDistance';
 
 type CsvRow = Record<string, string>;
 
-function parseCSV<T = CsvRow>(text: string): T[] {
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** ZIP entries whose whole file name is `name` (in any folder), never a
+ *  suffix match, and never inside a macOS `__MACOSX/` resource-fork folder. */
+function findNested(zip: JSZip, name: string): JSZip.JSZipObject[] {
+  const re = new RegExp(`(^|/)${escapeRegExp(name)}$`);
+  return zip.file(re).filter((e) => !/(^|\/)__MACOSX\//.test(e.name));
+}
+
+/**
+ * The columns the importer reads, per file. Anything else in a file the editor
+ * reads is dropped on export, so the import reports it (S1-08; a passthrough
+ * for unmodelled columns is an open product decision).
+ */
+const FLEX_STOP_TIME_FIELDS = [
+  'location_id', 'location_group_id', 'start_pickup_drop_off_window', 'end_pickup_drop_off_window',
+  'pickup_booking_rule_id', 'drop_off_booking_rule_id', 'mean_duration_factor', 'mean_duration_offset',
+  'safe_duration_factor', 'safe_duration_offset',
+];
+export const KNOWN_FIELDS: Record<string, readonly string[]> = {
+  'agency.txt': ['agency_id', 'agency_name', 'agency_url', 'agency_timezone', 'agency_lang', 'agency_phone', 'agency_fare_url', 'agency_email', 'external_id'],
+  'calendar.txt': ['service_id', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'start_date', 'end_date'],
+  'calendar_dates.txt': ['service_id', 'date', 'exception_type'],
+  'routes.txt': ['route_id', 'agency_id', 'route_short_name', 'route_long_name', 'route_desc', 'route_type', 'route_url', 'route_color', 'route_text_color', 'continuous_pickup', 'continuous_drop_off'],
+  'shapes.txt': ['shape_id', 'shape_pt_lat', 'shape_pt_lon', 'shape_pt_sequence', 'shape_dist_traveled'],
+  'stops.txt': ['stop_id', 'stop_code', 'stop_name', 'stop_desc', 'stop_lat', 'stop_lon', 'zone_id', 'stop_url', 'location_type', 'parent_station', 'stop_timezone', 'wheelchair_boarding', 'level_id'],
+  'trips.txt': ['trip_id', 'route_id', 'service_id', 'trip_headsign', 'trip_short_name', 'direction_id', 'block_id', 'shape_id', 'wheelchair_accessible', 'safe_duration_factor', 'safe_duration_offset'],
+  'stop_times.txt': ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence', 'stop_headsign', 'pickup_type', 'drop_off_type', 'shape_dist_traveled', 'timepoint', 'continuous_pickup', 'continuous_drop_off', ...FLEX_STOP_TIME_FIELDS],
+  'feed_info.txt': ['feed_publisher_name', 'feed_publisher_url', 'feed_lang', 'default_lang', 'feed_start_date', 'feed_end_date', 'feed_version', 'feed_contact_email', 'feed_contact_url'],
+  'fare_attributes.txt': ['fare_id', 'price', 'currency_type', 'payment_method', 'transfers', 'transfer_duration', 'agency_id'],
+  'fare_rules.txt': ['fare_id', 'route_id', 'origin_id', 'destination_id', 'contains_id'],
+  'transfers.txt': ['from_stop_id', 'to_stop_id', 'from_route_id', 'to_route_id', 'from_trip_id', 'to_trip_id', 'transfer_type', 'min_transfer_time'],
+  'frequencies.txt': ['trip_id', 'start_time', 'end_time', 'headway_secs', 'exact_times'],
+  'levels.txt': ['level_id', 'level_index', 'level_name'],
+  'pathways.txt': ['pathway_id', 'from_stop_id', 'to_stop_id', 'pathway_mode', 'is_bidirectional', 'length', 'traversal_time', 'stair_count', 'max_slope', 'min_width', 'signposted_as', 'reversed_signposted_as'],
+  'areas.txt': ['area_id', 'area_name'],
+  'stop_areas.txt': ['area_id', 'stop_id'],
+  'networks.txt': ['network_id', 'network_name'],
+  'route_networks.txt': ['network_id', 'route_id'],
+  'timeframes.txt': ['timeframe_group_id', 'start_time', 'end_time', 'service_id'],
+  'rider_categories.txt': ['rider_category_id', 'rider_category_name', 'is_default_fare_category', 'eligibility_url'],
+  'fare_media.txt': ['fare_media_id', 'fare_media_name', 'fare_media_type'],
+  'fare_products.txt': ['fare_product_id', 'fare_product_name', 'rider_category_id', 'fare_media_id', 'amount', 'currency'],
+  'fare_leg_rules.txt': ['leg_group_id', 'network_id', 'from_area_id', 'to_area_id', 'from_timeframe_group_id', 'to_timeframe_group_id', 'fare_product_id', 'rule_priority'],
+  'fare_transfer_rules.txt': ['from_leg_group_id', 'to_leg_group_id', 'transfer_count', 'duration_limit', 'duration_limit_type', 'fare_transfer_type', 'fare_product_id'],
+  'directions.txt': ['route_id', 'direction_id', 'direction'],
+  'booking_rules.txt': ['booking_rule_id', 'booking_type', 'prior_notice_duration_min', 'prior_notice_duration_max', 'prior_notice_last_day', 'prior_notice_last_time', 'prior_notice_start_day', 'prior_notice_start_time', 'prior_notice_service_id', 'message', 'pickup_message', 'drop_off_message', 'phone_number', 'info_url', 'booking_url'],
+  'location_groups.txt': ['location_group_id', 'location_group_name'],
+  'location_group_stops.txt': ['location_group_id', 'stop_id'],
+  'translations.txt': ['table_name', 'field_name', 'language', 'translation', 'record_id', 'record_sub_id', 'field_value'],
+};
+
+/** Most parse-error warnings reported per file before summarizing the rest. */
+const MAX_PARSE_WARNINGS_PER_FILE = 5;
+
+/**
+ * Parse a CSV file. With `warnings`, PapaParse errors are reported per file
+ * (deduped, capped) instead of discarded: one unbalanced quote can swallow the
+ * rest of a file, and the user needs to know. With `knownFields`, columns the
+ * editor does not model are reported once per file (they are dropped on
+ * export).
+ */
+function parseCSV<T = CsvRow>(
+  text: string,
+  fileName?: string,
+  warnings?: string[],
+  knownFields?: readonly string[],
+): T[] {
   const result = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false });
+  if (warnings && fileName) {
+    const seen = new Set<string>();
+    let extra = 0;
+    let quoteError = false;
+    for (const e of result.errors) {
+      if (e.type === 'Quotes') quoteError = true;
+      // PapaParse's own row index is 0-based over data rows; +2 → 1-based line
+      // in the file counting the header.
+      const where = typeof e.row === 'number' ? ` at row ${e.row + 2}` : '';
+      const text = `${fileName}: ${e.code}${where}`;
+      if (seen.has(text)) continue;
+      if (seen.size >= MAX_PARSE_WARNINGS_PER_FILE) { extra++; continue; }
+      seen.add(text);
+    }
+    if (quoteError) {
+      warnings.push(`${fileName} has an unbalanced quote (") — everything after it may have been read as one value. Check the file in a text editor; rows after that point may be missing or merged.`);
+    }
+    for (const w of seen) warnings.push(`CSV parse problem in ${w}.`);
+    if (extra > 0) warnings.push(`${fileName}: ${extra} more CSV parse problem${extra === 1 ? '' : 's'} not shown.`);
+    if (knownFields && result.meta.fields) {
+      const known = new Set(knownFields);
+      const dropped = result.meta.fields.map((f) => f.trim()).filter((f) => f && !known.has(f));
+      if (dropped.length > 0) {
+        warnings.push(`${fileName}: column${dropped.length === 1 ? '' : 's'} ${dropped.join(', ')} ${dropped.length === 1 ? 'is' : 'are'} not supported by the editor and will not be included when the feed is exported.`);
+      }
+    }
+  }
   return result.data as T[];
 }
 
@@ -61,13 +157,13 @@ export async function inspectGtfsZip(file: File): Promise<{
   const zip = await JSZip.loadAsync(file);
   // JSZip records each entry's uncompressed size on the internal `_data`
   // record; it isn't part of the public type, hence the cast.
-  const uncompressedSize = (name: string, re: RegExp): number => {
-    const entry = zip.file(name) ?? zip.file(re)[0] ?? null;
+  const uncompressedSize = (name: string): number => {
+    const entry = zip.file(name) ?? findNested(zip, name)[0] ?? null;
     const meta = entry as unknown as { _data?: { uncompressedSize?: number } } | null;
     return meta?._data?.uncompressedSize ?? 0;
   };
-  const stopTimesBytes = uncompressedSize('stop_times.txt', /stop_times\.txt$/);
-  const shapesBytes = uncompressedSize('shapes.txt', /shapes\.txt$/);
+  const stopTimesBytes = uncompressedSize('stop_times.txt');
+  const shapesBytes = uncompressedSize('shapes.txt');
   // If stop_times metadata is somehow missing, fall back to ~4× the compressed
   // archive size as a rough proxy for the heavy-table footprint.
   const heavyBytes = stopTimesBytes > 0 ? stopTimesBytes + shapesBytes : Math.round(file.size * 4);
@@ -126,24 +222,28 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   const warnings: string[] = [];
   const hasRootAgency = !!zip.file('agency.txt');
   const hasRootRoutes = !!zip.file('routes.txt');
+  let subfolder = '';
   if (!hasRootAgency && !hasRootRoutes) {
-    const nestedAgency = zip.file(/agency\.txt$/);
-    const nestedRoutes = zip.file(/routes\.txt$/);
+    const nestedAgency = findNested(zip, 'agency.txt');
+    const nestedRoutes = findNested(zip, 'routes.txt');
     if (nestedAgency.length > 0 || nestedRoutes.length > 0) {
       const path = (nestedAgency[0] || nestedRoutes[0]).name;
       const folder = path.split('/').slice(0, -1).join('/');
+      subfolder = folder;
       warnings.push(`Feed files are inside a subfolder "${folder}/" in the ZIP. GTFS files should be at the root of the archive. This has been handled automatically and will be corrected on export.`);
     }
   }
 
+  const readNames = new Set<string>();
   const readFile = async (name: string): Promise<string | null> => {
-    // Try both with and without folder prefix
+    readNames.add(name);
+    // Exact root name, then the detected feed subfolder, then any folder — but
+    // always the WHOLE file name: a suffix match read route_networks.txt as
+    // networks.txt and stop_areas.txt as areas.txt. macOS resource forks
+    // (__MACOSX/) are never feed files.
     let entry = zip.file(name);
-    if (!entry) {
-      // Look in subdirectories
-      const entries = zip.file(new RegExp(`${name}$`));
-      entry = entries[0] || null;
-    }
+    if (!entry && subfolder) entry = zip.file(`${subfolder}/${name}`);
+    if (!entry) entry = findNested(zip, name)[0] ?? null;
     if (!entry) return null;
     return await entry.async('string');
   };
@@ -156,7 +256,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // column is entirely empty doesn't re-export an empty column.
   const agencyText = await readFile('agency.txt');
   const agencies: Agency[] = agencyText
-    ? parseCSV(agencyText).map((row) => ({
+    ? parseCSV(agencyText, 'agency.txt', warnings, KNOWN_FIELDS['agency.txt']).map((row) => ({
         agency_id: row.agency_id || '',
         agency_name: row.agency_name || '',
         agency_url: row.agency_url || '',
@@ -172,7 +272,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // Calendar
   const calendarText = await readFile('calendar.txt');
   const calendars: Calendar[] = calendarText
-    ? parseCSV(calendarText).map((row) => ({
+    ? parseCSV(calendarText, 'calendar.txt', warnings, KNOWN_FIELDS['calendar.txt']).map((row) => ({
         service_id: String(row.service_id),
         monday: (num(row.monday) as 0 | 1),
         tuesday: (num(row.tuesday) as 0 | 1),
@@ -190,7 +290,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // Calendar dates
   const calDatesText = await readFile('calendar_dates.txt');
   const calendarDates: CalendarDate[] = calDatesText
-    ? parseCSV(calDatesText).map((row) => ({
+    ? parseCSV(calDatesText, 'calendar_dates.txt', warnings, KNOWN_FIELDS['calendar_dates.txt']).map((row) => ({
         service_id: String(row.service_id),
         date: String(row.date),
         exception_type: num(row.exception_type) as 1 | 2,
@@ -200,7 +300,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // Routes
   const routesText = await readFile('routes.txt');
   const routes: Route[] = routesText
-    ? parseCSV(routesText).map((row) => ({
+    ? parseCSV(routesText, 'routes.txt', warnings, KNOWN_FIELDS['routes.txt']).map((row) => ({
         route_id: String(row.route_id),
         agency_id: String(row.agency_id || agencies[0]?.agency_id || ''),
         route_short_name: row.route_short_name || '',
@@ -221,7 +321,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   const shapesText = await readFile('shapes.txt');
   const shapesMap = new Map<string, ShapePoint[]>();
   if (shapesText) {
-    const rows = parseCSV(shapesText);
+    const rows = parseCSV(shapesText, 'shapes.txt', warnings, KNOWN_FIELDS['shapes.txt']);
     for (const row of rows) {
       const id = String(row.shape_id);
       if (!shapesMap.has(id)) shapesMap.set(id, []);
@@ -250,11 +350,15 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   report({ phase: 'Parsing stops…' });
   const stopsText = await readFile('stops.txt');
   const stops: Stop[] = stopsText
-    ? parseCSV(stopsText).map((row) => ({
+    ? parseCSV(stopsText, 'stops.txt', warnings, KNOWN_FIELDS['stops.txt']).map((row) => ({
         stop_id: String(row.stop_id),
         stop_code: row.stop_code || undefined,
         stop_name: row.stop_name || '',
         stop_desc: row.stop_desc || undefined,
+        // A blank coordinate (legal for generic nodes and boarding areas,
+        // location_type 3/4) is held as 0 so every map/geometry consumer keeps
+        // a finite number; the exporter writes 0,0 on those types back as
+        // blank cells and the validator doesn't require them (see S1-07).
         stop_lat: num(row.stop_lat),
         stop_lon: num(row.stop_lon),
         zone_id: row.zone_id || undefined,
@@ -270,7 +374,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // Trips
   report({ phase: 'Parsing trips…' });
   const tripsText = await readFile('trips.txt');
-  const tripRows = tripsText ? parseCSV(tripsText) : [];
+  const tripRows = tripsText ? parseCSV(tripsText, 'trips.txt', warnings, KNOWN_FIELDS['trips.txt']) : [];
   const trips: Trip[] = tripRows.map((row) => ({
     trip_id: String(row.trip_id),
     route_id: String(row.route_id),
@@ -302,7 +406,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // fixed-route stop_times table).
   report({ phase: 'Parsing stop times…' });
   const stopTimesText = await readFile('stop_times.txt');
-  const stopTimesAll = stopTimesText ? parseCSV(stopTimesText) : [];
+  const stopTimesAll = stopTimesText ? parseCSV(stopTimesText, 'stop_times.txt', warnings, KNOWN_FIELDS['stop_times.txt']) : [];
   const flexStopTimeRows: CsvRow[] = [];
   const stopTimes: StopTime[] = [];
   for (let i = 0; i < stopTimesAll.length; i++) {
@@ -325,7 +429,9 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
       pickup_type: row.pickup_type !== undefined ? num(row.pickup_type) : undefined,
       drop_off_type: row.drop_off_type !== undefined ? num(row.drop_off_type) : undefined,
       shape_dist_traveled: row.shape_dist_traveled ? num(row.shape_dist_traveled) : undefined,
-      timepoint: row.timepoint !== undefined ? (num(row.timepoint) as 0 | 1) : undefined,
+      // Blank = "times are exact" by default per spec; keep it blank rather than
+      // coercing to 0 (approximate) and re-exporting 0 on every row.
+      timepoint: row.timepoint !== undefined && row.timepoint !== '' ? (num(row.timepoint) as 0 | 1) : undefined,
       continuous_pickup: row.continuous_pickup !== undefined && row.continuous_pickup !== ''
         ? (num(row.continuous_pickup) as 0 | 1 | 2 | 3) : undefined,
       continuous_drop_off: row.continuous_drop_off !== undefined && row.continuous_drop_off !== ''
@@ -338,7 +444,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   const feedInfoText = await readFile('feed_info.txt');
   let feedInfo: FeedInfo | null = null;
   if (feedInfoText) {
-    const rows = parseCSV(feedInfoText);
+    const rows = parseCSV(feedInfoText, 'feed_info.txt', warnings, KNOWN_FIELDS['feed_info.txt']);
     if (rows[0]) {
       const r = rows[0];
       feedInfo = {
@@ -358,7 +464,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // Fare attributes
   const fareAttrText = await readFile('fare_attributes.txt');
   const fareAttributes: FareAttribute[] = fareAttrText
-    ? parseCSV(fareAttrText).map((row) => ({
+    ? parseCSV(fareAttrText, 'fare_attributes.txt', warnings, KNOWN_FIELDS['fare_attributes.txt']).map((row) => ({
         fare_id: String(row.fare_id),
         price: String(row.price),
         currency_type: String(row.currency_type || 'USD'),
@@ -372,7 +478,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // Fare rules
   const fareRulesText = await readFile('fare_rules.txt');
   const fareRules: FareRule[] = fareRulesText
-    ? parseCSV(fareRulesText).map((row) => ({
+    ? parseCSV(fareRulesText, 'fare_rules.txt', warnings, KNOWN_FIELDS['fare_rules.txt']).map((row) => ({
         fare_id: String(row.fare_id),
         route_id: row.route_id || undefined,
         origin_id: row.origin_id || undefined,
@@ -384,21 +490,35 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // Transfers
   const transfersText = await readFile('transfers.txt');
   const transfers: Transfer[] = transfersText
-    ? parseCSV(transfersText)
-        .filter((row) => row.from_stop_id && row.to_stop_id)
-        .map((row) => ({
-          from_stop_id: String(row.from_stop_id),
-          to_stop_id: String(row.to_stop_id),
-          transfer_type: (num(row.transfer_type) as 0 | 1 | 2 | 3),
-          min_transfer_time: row.min_transfer_time !== undefined && row.min_transfer_time !== ''
-            ? num(row.min_transfer_time) : undefined,
-        }))
+    ? parseCSV(transfersText, 'transfers.txt', warnings, KNOWN_FIELDS['transfers.txt'])
+        // Stop-keyed rows need both stop ids; in-seat transfers (types 4/5)
+        // are keyed by trip ids instead and may leave the stops blank.
+        .filter((row) => {
+          const type = num(row.transfer_type);
+          return type === 4 || type === 5
+            ? !!(row.from_trip_id && row.to_trip_id)
+            : !!(row.from_stop_id && row.to_stop_id);
+        })
+        .map((row) => {
+          const t: Transfer = {
+            from_stop_id: row.from_stop_id ? String(row.from_stop_id) : '',
+            to_stop_id: row.to_stop_id ? String(row.to_stop_id) : '',
+            transfer_type: (num(row.transfer_type) as Transfer['transfer_type']),
+            min_transfer_time: row.min_transfer_time !== undefined && row.min_transfer_time !== ''
+              ? num(row.min_transfer_time) : undefined,
+          };
+          if (row.from_route_id) t.from_route_id = String(row.from_route_id);
+          if (row.to_route_id) t.to_route_id = String(row.to_route_id);
+          if (row.from_trip_id) t.from_trip_id = String(row.from_trip_id);
+          if (row.to_trip_id) t.to_trip_id = String(row.to_trip_id);
+          return t;
+        })
     : [];
 
   // Frequencies — headway-based service per trip. Times may exceed 24:00:00.
   const frequenciesText = await readFile('frequencies.txt');
   const frequencies: Frequency[] = frequenciesText
-    ? parseCSV(frequenciesText)
+    ? parseCSV(frequenciesText, 'frequencies.txt', warnings, KNOWN_FIELDS['frequencies.txt'])
         .filter((row) => row.trip_id && row.start_time && row.end_time)
         .map((row) => ({
           trip_id: String(row.trip_id),
@@ -413,7 +533,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // Levels — station floors referenced by stops.level_id and pathways.
   const levelsText = await readFile('levels.txt');
   const levels: Level[] = levelsText
-    ? parseCSV(levelsText)
+    ? parseCSV(levelsText, 'levels.txt', warnings, KNOWN_FIELDS['levels.txt'])
         .filter((row) => row.level_id)
         .map((row) => ({
           level_id: String(row.level_id),
@@ -426,7 +546,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // so an imported feed round-trips without dropping data.
   const pathwaysText = await readFile('pathways.txt');
   const pathways: Pathway[] = pathwaysText
-    ? parseCSV(pathwaysText)
+    ? parseCSV(pathwaysText, 'pathways.txt', warnings, KNOWN_FIELDS['pathways.txt'])
         .filter((row) => row.pathway_id && row.from_stop_id && row.to_stop_id)
         .map((row) => ({
           pathway_id: String(row.pathway_id),
@@ -449,35 +569,35 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // sees exactly what the publisher uploaded.
   const fareAreas: FareArea[] = await readFile('areas.txt').then((t) =>
     t
-      ? parseCSV(t)
+      ? parseCSV(t, 'areas.txt', warnings, KNOWN_FIELDS['areas.txt'])
           .filter((r) => r.area_id)
           .map((r) => ({ area_id: String(r.area_id), area_name: r.area_name || undefined }))
       : []
   );
   const stopAreas: StopArea[] = await readFile('stop_areas.txt').then((t) =>
     t
-      ? parseCSV(t)
+      ? parseCSV(t, 'stop_areas.txt', warnings, KNOWN_FIELDS['stop_areas.txt'])
           .filter((r) => r.area_id && r.stop_id)
           .map((r) => ({ area_id: String(r.area_id), stop_id: String(r.stop_id) }))
       : []
   );
   const fareNetworks: FareNetwork[] = await readFile('networks.txt').then((t) =>
     t
-      ? parseCSV(t)
+      ? parseCSV(t, 'networks.txt', warnings, KNOWN_FIELDS['networks.txt'])
           .filter((r) => r.network_id)
           .map((r) => ({ network_id: String(r.network_id), network_name: r.network_name || undefined }))
       : []
   );
   const routeNetworks: RouteNetwork[] = await readFile('route_networks.txt').then((t) =>
     t
-      ? parseCSV(t)
+      ? parseCSV(t, 'route_networks.txt', warnings, KNOWN_FIELDS['route_networks.txt'])
           .filter((r) => r.network_id && r.route_id)
           .map((r) => ({ network_id: String(r.network_id), route_id: String(r.route_id) }))
       : []
   );
   const timeframes: Timeframe[] = await readFile('timeframes.txt').then((t) =>
     t
-      ? parseCSV(t)
+      ? parseCSV(t, 'timeframes.txt', warnings, KNOWN_FIELDS['timeframes.txt'])
           .filter((r) => r.timeframe_group_id && r.service_id)
           .map((r) => ({
             timeframe_group_id: String(r.timeframe_group_id),
@@ -489,7 +609,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   );
   const riderCategories: RiderCategory[] = await readFile('rider_categories.txt').then((t) =>
     t
-      ? parseCSV(t)
+      ? parseCSV(t, 'rider_categories.txt', warnings, KNOWN_FIELDS['rider_categories.txt'])
           .filter((r) => r.rider_category_id && r.rider_category_name)
           .map((r) => ({
             rider_category_id: String(r.rider_category_id),
@@ -503,7 +623,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   );
   const fareMedia: FareMedia[] = await readFile('fare_media.txt').then((t) =>
     t
-      ? parseCSV(t)
+      ? parseCSV(t, 'fare_media.txt', warnings, KNOWN_FIELDS['fare_media.txt'])
           .filter((r) => r.fare_media_id)
           .map((r) => ({
             fare_media_id: String(r.fare_media_id),
@@ -514,7 +634,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   );
   const fareProducts: FareProduct[] = await readFile('fare_products.txt').then((t) =>
     t
-      ? parseCSV(t)
+      ? parseCSV(t, 'fare_products.txt', warnings, KNOWN_FIELDS['fare_products.txt'])
           .filter((r) => r.fare_product_id)
           .map((r) => ({
             fare_product_id: String(r.fare_product_id),
@@ -528,7 +648,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   );
   const fareLegRules: FareLegRule[] = await readFile('fare_leg_rules.txt').then((t) =>
     t
-      ? parseCSV(t)
+      ? parseCSV(t, 'fare_leg_rules.txt', warnings, KNOWN_FIELDS['fare_leg_rules.txt'])
           .filter((r) => r.fare_product_id)
           .map((r) => ({
             leg_group_id: r.leg_group_id || undefined,
@@ -546,7 +666,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   );
   const fareTransferRules: FareTransferRule[] = await readFile('fare_transfer_rules.txt').then((t) =>
     t
-      ? parseCSV(t)
+      ? parseCSV(t, 'fare_transfer_rules.txt', warnings, KNOWN_FIELDS['fare_transfer_rules.txt'])
           .filter((r) => r.fare_transfer_type !== undefined && r.fare_transfer_type !== '')
           .map((r) => ({
             from_leg_group_id: r.from_leg_group_id || undefined,
@@ -569,38 +689,58 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // Build routeStops from stop_times: for each route, find unique stops in order
   const routeStops: RouteStop[] = [];
   const routeStopSet = new Set<string>();
+  const stopTimesByTripId = new Map<string, StopTime[]>();
+  for (const st of stopTimes) {
+    const arr = stopTimesByTripId.get(st.trip_id);
+    if (arr) arr.push(st); else stopTimesByTripId.set(st.trip_id, [st]);
+  }
+  const tripsByRoute = new Map<string, Trip[]>();
+  for (const t of trips) {
+    const arr = tripsByRoute.get(t.route_id);
+    if (arr) arr.push(t); else tripsByRoute.set(t.route_id, [t]);
+  }
   for (const route of routes) {
-    const routeTrips = trips.filter((t) => t.route_id === route.route_id);
+    const routeTrips = tripsByRoute.get(route.route_id) ?? [];
     for (const dir of [0, 1] as const) {
       const dirTrips = routeTrips.filter((t) => t.direction_id === dir);
       if (dirTrips.length === 0) continue;
-      // Use the first trip's stop_times as the canonical order. One route_stop
-      // per stop_time of that trip — including a stop the trip visits more than
-      // once (a loop returning to its start). The dedup key includes
-      // stop_sequence so a repeated stop_id at distinct sequences is preserved
-      // as two route_stops, not collapsed into one.
-      // NOTE: only this canonical trip contributes here. Trips on the same
+      // One pattern per (route, direction, shape): the editor keys a route's
+      // stops per shape, so a branch or short-turn on its own shape needs its
+      // own route_stops (a single pattern per direction left the other shapes'
+      // timetables empty).
+      // Within each shape, the first trip's stop_times give the canonical
+      // order. One route_stop per stop_time of that trip — including a stop the
+      // trip visits more than once (a loop returning to its start). The dedup
+      // key includes stop_sequence so a repeated stop_id at distinct sequences
+      // is preserved as two route_stops, not collapsed into one.
+      // NOTE: only the canonical trip contributes here. Trips on the same
       // pattern that serve MORE stops are covered by the backfill below —
       // without it their extra stop_times get no route_stop, and so no
       // timetable column (see backfillMissingRouteStops).
-      const firstTrip = dirTrips[0];
-      const tripStopTimes = stopTimes
-        .filter((st) => st.trip_id === firstTrip.trip_id)
-        .sort((a, b) => a.stop_sequence - b.stop_sequence);
-      for (const st of tripStopTimes) {
-        const key = `${route.route_id}-${st.stop_id}-${dir}-${st.stop_sequence}`;
-        if (!routeStopSet.has(key)) {
-          routeStopSet.add(key);
-          routeStops.push({
-            route_id: route.route_id,
-            stop_id: st.stop_id,
-            direction_id: dir,
-            stop_sequence: st.stop_sequence,
-            _snapped: true,
-            // Tag with the representative trip's shape so the editor keys stops
-            // per shape (the common one-shape-per-direction case is 1:1).
-            shape_id: firstTrip.shape_id,
-          });
+      const firstTripByShape = new Map<string, Trip>();
+      for (const t of dirTrips) {
+        const k = t.shape_id ?? '';
+        if (!firstTripByShape.has(k)) firstTripByShape.set(k, t);
+      }
+      // Shapeless trips alongside shaped ones don't get a pattern of their own
+      // (the backfill extends the direction's pattern for them, as before).
+      if (firstTripByShape.size > 1) firstTripByShape.delete('');
+      for (const [shapeKey, firstTrip] of firstTripByShape) {
+        const tripStopTimes = [...(stopTimesByTripId.get(firstTrip.trip_id) ?? [])]
+          .sort((a, b) => a.stop_sequence - b.stop_sequence);
+        for (const st of tripStopTimes) {
+          const key = `${route.route_id}-${st.stop_id}-${dir}-${st.stop_sequence}-${shapeKey}`;
+          if (!routeStopSet.has(key)) {
+            routeStopSet.add(key);
+            routeStops.push({
+              route_id: route.route_id,
+              stop_id: st.stop_id,
+              direction_id: dir,
+              stop_sequence: st.stop_sequence,
+              _snapped: true,
+              shape_id: firstTrip.shape_id,
+            });
+          }
         }
       }
     }
@@ -615,7 +755,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // directions.txt (non-standard but widely supported)
   const directionsText = await readFile('directions.txt');
   if (directionsText) {
-    const dirRows = parseCSV(directionsText);
+    const dirRows = parseCSV(directionsText, 'directions.txt', warnings, KNOWN_FIELDS['directions.txt']);
     for (const row of dirRows) {
       const route = routes.find((r) => r.route_id === String(row.route_id));
       if (!route) continue;
@@ -669,7 +809,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   const bookingRulesText = await readFile('booking_rules.txt');
   const bookingRuleMap = new Map<string, BookingRule>();
   if (bookingRulesText) {
-    for (const row of parseCSV(bookingRulesText)) {
+    for (const row of parseCSV(bookingRulesText, 'booking_rules.txt', warnings, KNOWN_FIELDS['booking_rules.txt'])) {
       const id = String(row.booking_rule_id || '');
       if (!id) continue;
       bookingRuleMap.set(id, {
@@ -734,14 +874,14 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   const groupNameById = new Map<string, string>();
   const groupStopsById = new Map<string, string[]>();
   if (locationGroupsText) {
-    for (const row of parseCSV(locationGroupsText)) {
+    for (const row of parseCSV(locationGroupsText, 'location_groups.txt', warnings, KNOWN_FIELDS['location_groups.txt'])) {
       const id = String(row.location_group_id || '');
       if (!id) continue;
       groupNameById.set(id, row.location_group_name || id);
     }
   }
   if (locationGroupStopsText) {
-    for (const row of parseCSV(locationGroupStopsText)) {
+    for (const row of parseCSV(locationGroupStopsText, 'location_group_stops.txt', warnings, KNOWN_FIELDS['location_group_stops.txt'])) {
       const id = String(row.location_group_id || '');
       const sid = String(row.stop_id || '');
       if (!id || !sid) continue;
@@ -1002,14 +1142,19 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   // create a duplicate (materializeFlex regenerates them from the zones).
   const flexZoneRouteIds = new Set(flexZones.map((z) => z.routeId).filter(Boolean) as string[]);
   const tripsWithoutFlex = trips.filter((t) => !flexTripIds.has(t.trip_id));
-  // Remove routes that ONLY existed to carry flex trips. If a route lost all
-  // of its trips AND belongs to a flex zone, drop it — the zone re-creates
-  // it on the next export.
-  const routesWithoutFlex = routes.filter((r) => {
-    if (!flexZoneRouteIds.has(r.route_id)) return true;
-    const remainingTrips = tripsWithoutFlex.filter((t) => t.route_id === r.route_id);
-    return remainingTrips.length > 0;
-  });
+  // Drop only the routes our own exporter SYNTHESIZED for a zone
+  // (`${zone.id}-route`, default flex styling, no fixed trips): materializeFlex
+  // re-creates those identically. Any other route a flex trip rides on is the
+  // publisher's — its id, colour, URL and translations must survive the round
+  // trip, so it stays and the zone keeps pointing at it.
+  const syntheticFlexRouteIds = new Set(flexZones.map((z) => `${z.id}-route`));
+  const isSyntheticFlexRoute = (r: Route) =>
+    syntheticFlexRouteIds.has(r.route_id)
+    && flexZoneRouteIds.has(r.route_id)
+    && (r.route_color || '').toUpperCase() === '7C3AED'
+    && !r.route_url && !r.route_desc
+    && !tripsWithoutFlex.some((t) => t.route_id === r.route_id);
+  const routesWithoutFlex = routes.filter((r) => !isSyntheticFlexRoute(r));
   // A zone's fare rides on its synthesized route, so dropping that route would
   // strand the fare_rules row pointing at it. Absorb the fare back onto the
   // zone and drop the row; materializeFlex re-emits both on the next export.
@@ -1022,19 +1167,23 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
     ? parseTranslationRows(parseCSV<Record<string, string>>(translationsText))
     : [];
 
-  const droppedFlexRouteIds = new Set(
+  // Flex-only routes (no fixed trips left) — whether dropped as synthetic or
+  // kept as the publisher's: a fare_rules row on one is the zone's fare, so it
+  // moves onto the zone and materializeFlex re-emits it against the zone's
+  // route. A route that also carries fixed trips keeps its fare_rules row.
+  const flexOnlyRouteIds = new Set(
     routes
       .filter((r) => flexZoneRouteIds.has(r.route_id))
-      .filter((r) => !routesWithoutFlex.some((kept) => kept.route_id === r.route_id))
+      .filter((r) => !tripsWithoutFlex.some((t) => t.route_id === r.route_id))
       .map((r) => r.route_id),
   );
   for (const zone of flexZones) {
-    if (!zone.routeId || !droppedFlexRouteIds.has(zone.routeId)) continue;
+    if (!zone.routeId || !flexOnlyRouteIds.has(zone.routeId)) continue;
     const rule = fareRules.find((f) => f.route_id === zone.routeId && f.fare_id);
     if (rule) zone.fareId = rule.fare_id;
   }
   const fareRulesWithoutFlex = fareRules.filter(
-    (f) => !(f.route_id && droppedFlexRouteIds.has(f.route_id)),
+    (f) => !(f.route_id && flexOnlyRouteIds.has(f.route_id)),
   );
 
   // Re-point flex zones that lost their route to the kept route (if any).
@@ -1042,6 +1191,19 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
     if (zone.routeId && !routesWithoutFlex.some((r) => r.route_id === zone.routeId)) {
       zone.routeId = undefined;
     }
+  }
+
+  // Files in the archive the importer never looked at are dropped on export.
+  const ignored = new Set<string>();
+  zip.forEach((path, entry) => {
+    if (entry.dir || /(^|\/)__MACOSX\//.test(path)) return;
+    const base = path.split('/').pop() ?? path;
+    if (!base || base.startsWith('.') || readNames.has(base)) return;
+    ignored.add(base);
+  });
+  if (ignored.size > 0) {
+    const list = [...ignored].sort();
+    warnings.push(`${list.join(', ')} ${list.length === 1 ? 'is' : 'are'} not supported by the editor and will not be included when the feed is exported.`);
   }
 
   return {

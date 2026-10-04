@@ -384,8 +384,13 @@ export async function exportGtfsZip(): Promise<Blob> {
     const round6 = (n: unknown) => (typeof n === 'number' ? Math.round(n * 1e6) / 1e6 : n);
     zip.file('stops.txt', toCSV(state.stops.map((s) => {
       const clean = stripUIFields(s);
-      clean.stop_lat = round6(clean.stop_lat);
-      clean.stop_lon = round6(clean.stop_lon);
+      // Generic nodes (3) and boarding areas (4) may have no coordinates; the
+      // importer holds a blank as 0,0, so write that back as blank cells.
+      const lt = s.location_type ?? 0;
+      const blankCoords = (lt === 3 || lt === 4)
+        && (!Number.isFinite(s.stop_lat) || !Number.isFinite(s.stop_lon) || (s.stop_lat === 0 && s.stop_lon === 0));
+      clean.stop_lat = blankCoords ? '' : round6(clean.stop_lat);
+      clean.stop_lon = blankCoords ? '' : round6(clean.stop_lon);
       return clean;
     })));
   }

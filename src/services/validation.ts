@@ -329,7 +329,17 @@ export function runValidation(state: AppStore): ValidationMessage[] {
   for (const s of state.stops) {
     const lt = s.location_type ?? 0;
     if (!s.stop_name && lt <= 2) messages.push(msg('error', `Stop "${s.stop_id}" is missing a name`, 'stop', s.stop_id));
-    if (!s.stop_lat || !s.stop_lon) messages.push(msg('error', `Stop "${s.stop_name || s.stop_id}" has invalid coordinates`, 'stop', s.stop_id));
+    // Coordinates are required only for location_type 0–2; nodes and boarding
+    // areas may leave them blank (held as 0,0). A single 0 (a stop on the
+    // equator or prime meridian) is a real coordinate, so only non-finite
+    // values or the 0,0 "blank" sentinel are invalid.
+    if (lt <= 2) {
+      const finite = Number.isFinite(s.stop_lat) && Number.isFinite(s.stop_lon);
+      if (!finite || (s.stop_lat === 0 && s.stop_lon === 0)
+        || Math.abs(s.stop_lat) > 90 || Math.abs(s.stop_lon) > 180) {
+        messages.push(msg('error', `Stop "${s.stop_name || s.stop_id}" has invalid coordinates`, 'stop', s.stop_id));
+      }
+    }
   }
 
   // Accessibility completeness — aggregate (one message, not one per stop) so

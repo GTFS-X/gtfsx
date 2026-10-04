@@ -175,8 +175,10 @@ export function backfillMissingRouteStops(
   const byDirShape = new Map<string, Set<number>>();
   const byDir = new Map<string, Set<number>>();
   const shapeOfDir = new Map<string, string | undefined>();
+  const shapedDirs = new Set<string>();
   for (const rs of routeStops) {
     const dirKey = `${rs.route_id}|${rs.direction_id}`;
+    if (rs.shape_id) shapedDirs.add(dirKey);
     const shapeKey = `${dirKey}|${rs.shape_id ?? ''}`;
     if (!byDirShape.has(shapeKey)) byDirShape.set(shapeKey, new Set());
     byDirShape.get(shapeKey)!.add(rs.stop_sequence);
@@ -197,7 +199,13 @@ export function backfillMissingRouteStops(
     if (!times) continue;
     const dirKey = `${t.route_id}|${t.direction_id}`;
     const own = byDirShape.get(`${dirKey}|${t.shape_id ?? ''}`);
-    const covered = own ?? byDir.get(dirKey);
+    // Fall back to the direction as a whole only for a shapeless trip or a
+    // legacy direction whose route_stops carry no shape_id. A shaped trip in a
+    // per-shape direction must never extend ANOTHER shape's pattern: that
+    // filed a branch's stops under the wrong shape (a phantom column there,
+    // and nothing under the branch's own shape).
+    const dirIsLegacy = !shapedDirs.has(dirKey);
+    const covered = own ?? (!t.shape_id || dirIsLegacy ? byDir.get(dirKey) : undefined);
     if (!covered) continue; // no pattern to extend — leave it alone
     // Extending the trip's own pattern keeps that trip's shape; extending the
     // direction's keeps the direction's existing tag, so the added stops stay
