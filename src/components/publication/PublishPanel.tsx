@@ -22,7 +22,7 @@ import { exportGtfsZip } from '../../services/gtfsExport';
 import { withTransientSnapshot } from '../../db/serverPersistence';
 import { DraftLinksSection, toEditorDeepLink } from './DraftLinksPanel';
 import { NtdP50Panel } from './NtdP50Panel';
-import { unpublishConfirmBody, unpublishDoneMessage } from './unpublishCopy';
+import { notPublishedLabel, unpublishConfirmBody, unpublishDoneMessage } from './unpublishCopy';
 
 // SPDX identifiers publishers actually use for open transit data. "Leave unset"
 // is a first-class choice — we never guess a license on someone's behalf.
@@ -441,7 +441,7 @@ export function PublishPanel() {
               onUnpublish={() => setUnpublishConfirm(true)}
             />
           ) : (
-            <p className="text-sm text-warm-gray">Not published yet.</p>
+            <p className="text-sm text-warm-gray">{notPublishedLabel(publicationHistory.length > 0)}</p>
           )}
         </section>
 
