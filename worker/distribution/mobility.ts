@@ -1,6 +1,7 @@
-// Shared MobilityData access-token exchange. Used by both:
+// Shared MobilityData access-token exchange. Used by:
 //   - worker/legacy/imports.ts (the catalog search proxy on /_import/search)
-//   - worker/projects/routes.ts (outbound feed submissions on publish)
+//   - worker/import/routes.ts (resolving a Mobility Database feed id on import)
+//   - worker/publication/submit.ts (outbound feed submissions on publish)
 // The refresh token is long-lived but the access token rotates; we cache the
 // latter in-module so concurrent requests share a single round-trip.
 

@@ -20,7 +20,7 @@ import {
 import { getFeedBlob, publicationZipKey, putFeedBlob } from '../projects/r2';
 import { loadFeedStateFromKey, maybeRegenerateThumbnail } from '../embeds/thumbnail';
 import { logAudit } from '../util/audit';
-import { validationFailed, notFound } from '../util/errors';
+import { conflict, validationFailed, notFound } from '../util/errors';
 
 export interface PublishProject {
   id: string;
@@ -59,6 +59,14 @@ export interface PerformPublishInput {
   /** Interactive multipart path supplies the freshly-rendered ZIP; the cron
    *  omits it so we copy the snapshot's stored zip_r2_key. */
   incomingZip?: ArrayBuffer | null;
+  /** With no incomingZip: the R2 key to publish from, overriding the
+   *  snapshot's zip_r2_key. Rollback passes the snapshot's existing
+   *  publication slot when it is still there (then nothing is copied). */
+  sourceZipKey?: string | null;
+  /** What this publish is, for the history row and the audit's `rollback`
+   *  flag. Explicit, because "a different snapshot than the live one" is
+   *  every forward republish too. Default 'publish'. */
+  historyAction?: 'publish' | 'rollback';
   feedsOrigin: string;
   /** Defer catalog + thumbnail work. Route passes c.executionCtx.waitUntil;
    *  the cron passes a function that awaits inline (latency doesn't matter). */
@@ -70,7 +78,26 @@ export interface PerformPublishInput {
 export interface PerformPublishResult {
   publishedBytes: number;
   canonicalUrl: string;
-  wasRollback: boolean;
+}
+
+/**
+ * The public feed URL (FEEDS_ORIGIN/<slug>/gtfs.zip) is global, but project
+ * slugs are only unique per owner. Refuse to publish at a slug another project
+ * already publishes: otherwise the two would share one URL, and which ZIP is
+ * served would flip whenever the first owner unpublished and republished.
+ */
+export async function assertCanonicalSlugFree(env: Env, slug: string, projectId: string): Promise<void> {
+  const taken = await env.DB.prepare(
+    `SELECT project_id FROM publication WHERE canonical_slug = ? AND project_id <> ? LIMIT 1`,
+  )
+    .bind(slug, projectId)
+    .first<{ project_id: string }>();
+  if (taken) {
+    throw conflict(
+      `Another feed is already published at /${slug}. Change this feed's URL slug before publishing.`,
+      { reason: 'slug_taken', slug },
+    );
+  }
 }
 
 export async function performPublish(env: Env, input: PerformPublishInput): Promise<PerformPublishResult> {
@@ -78,7 +105,11 @@ export async function performPublish(env: Env, input: PerformPublishInput): Prom
   const ignoreWarnings = input.ignoreWarnings ?? false;
   const ignoreRtBreakage = input.ignoreRtBreakage ?? false;
   const ignoreAgencyChurn = input.ignoreAgencyChurn ?? false;
+  const historyAction = input.historyAction ?? 'publish';
   const now = input.now ?? Date.now();
+
+  // Global URL guard — before anything is written.
+  await assertCanonicalSlugFree(env, project.slug, project.id);
 
   // Validation gate: errors block publish unless ignoreWarnings=true.
   if (snapshot.validation_errors > 0 && !ignoreWarnings) {
@@ -111,14 +142,23 @@ export async function performPublish(env: Env, input: PerformPublishInput): Prom
     await putFeedBlob(env, pubKey, incomingZip, { contentType: 'application/zip' });
     publishedBytes = incomingZip.byteLength;
   } else {
-    if (!snapshot.zip_r2_key) {
+    const sourceKey = input.sourceZipKey ?? snapshot.zip_r2_key;
+    if (!sourceKey) {
       throw validationFailed('This snapshot has no rendered ZIP. Publish with multipart form instead.');
     }
-    const source = await getFeedBlob(env, snapshot.zip_r2_key);
-    if (!source) throw notFound('Rendered ZIP missing from storage');
-    const buf = await source.arrayBuffer();
-    publishedBytes = buf.byteLength;
-    await putFeedBlob(env, pubKey, buf, { contentType: 'application/zip' });
+    if (sourceKey === pubKey) {
+      // Already in the publication slot (rolling back onto a snapshot that
+      // was published before) — nothing to copy.
+      const head = await env.FEEDS.head(pubKey);
+      if (!head) throw notFound('Rendered ZIP missing from storage');
+      publishedBytes = head.size;
+    } else {
+      const source = await getFeedBlob(env, sourceKey);
+      if (!source) throw notFound('Rendered ZIP missing from storage');
+      const buf = await source.arrayBuffer();
+      publishedBytes = buf.byteLength;
+      await putFeedBlob(env, pubKey, buf, { contentType: 'application/zip' });
+    }
   }
 
   // Record the feed's license on feed_project (migration 0024) — the copy the
@@ -132,7 +172,6 @@ export async function performPublish(env: Env, input: PerformPublishInput): Prom
   }
 
   // Upsert publication + append history.
-  const wasRollback = !!existingPublication && existingPublication.snapshot_id !== snapshot.id;
   await env.DB.prepare(
     `INSERT INTO publication (project_id, snapshot_id, published_by_user_id, published_at, canonical_slug, zip_r2_key)
      VALUES (?, ?, ?, ?, ?, ?)
@@ -148,9 +187,9 @@ export async function performPublish(env: Env, input: PerformPublishInput): Prom
 
   await env.DB.prepare(
     `INSERT INTO publication_history (id, project_id, snapshot_id, action, actor_user_id, created_at)
-     VALUES (?, ?, ?, 'publish', ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?)`,
   )
-    .bind(ulid(), project.id, snapshot.id, actorUserId, now)
+    .bind(ulid(), project.id, snapshot.id, historyAction, actorUserId, now)
     .run();
 
   await logAudit(env, {
@@ -158,7 +197,7 @@ export async function performPublish(env: Env, input: PerformPublishInput): Prom
     subjectType: 'publication',
     subjectId: project.id,
     action: 'project.publish',
-    metadata: { snapshotId: snapshot.id, size: publishedBytes, rollback: wasRollback },
+    metadata: { snapshotId: snapshot.id, size: publishedBytes, rollback: historyAction === 'rollback' },
     ip: input.ip ?? null,
   });
 
@@ -187,13 +226,13 @@ export async function performPublish(env: Env, input: PerformPublishInput): Prom
   // loads N feed blobs per request (issue #47). Off the response path; failure
   // never breaks publish — the catalog just omits the fields it couldn't fill.
   runBackground(
-    computeAndStoreCatalogMeta(env, project.id, snapshot.state_r2_key).catch((err) =>
+    computeAndStoreCatalogMeta(env, project.id, snapshot.id, snapshot.state_r2_key).catch((err) =>
       console.error('[publish] catalog-meta error', err),
     ),
   );
 
   const canonicalUrl = `${feedsOrigin.replace(/\/$/, '')}/${project.slug}/gtfs.zip`;
-  return { publishedBytes, canonicalUrl, wasRollback };
+  return { publishedBytes, canonicalUrl };
 }
 
 function strOrNull(value: unknown): string | null {
@@ -208,8 +247,19 @@ function strOrNull(value: unknown): string | null {
  * Best-effort: a missing or unreadable state leaves the column untouched (the
  * catalog route degrades gracefully). Loads the state blob independently of the
  * thumbnail task so it stays fully decoupled from that path.
+ *
+ * Runs in the background, so two quick publishes can finish out of order: the
+ * UPDATE is keyed on the snapshot too, so an older snapshot's late result never
+ * overwrites the meta of the one that is live now.
+ *
+ * Exported for tests.
  */
-async function computeAndStoreCatalogMeta(env: Env, projectId: string, stateKey: string): Promise<void> {
+export async function computeAndStoreCatalogMeta(
+  env: Env,
+  projectId: string,
+  snapshotId: string,
+  stateKey: string,
+): Promise<void> {
   const blob = await getFeedBlob(env, stateKey);
   if (!blob) return;
   let raw: unknown;
@@ -230,8 +280,8 @@ async function computeAndStoreCatalogMeta(env: Env, projectId: string, stateKey:
     feedPublisherName: strOrNull(feedInfo?.feed_publisher_name),
     feedContactEmail: strOrNull(feedInfo?.feed_contact_email),
   };
-  await env.DB.prepare(`UPDATE publication SET catalog_meta_json = ? WHERE project_id = ?`)
-    .bind(JSON.stringify(meta), projectId)
+  await env.DB.prepare(`UPDATE publication SET catalog_meta_json = ? WHERE project_id = ? AND snapshot_id = ?`)
+    .bind(JSON.stringify(meta), projectId, snapshotId)
     .run();
 
   // Project the Mobility Database import provenance carried in the feed state
