@@ -86,18 +86,21 @@ export function buildRaptorIndex(feed: RaptorFeedInput, serviceIds: Set<string>)
 
   for (const [tripId, sts] of stopTimesByTrip) {
     const stopIds = sts.map((st) => st.stop_id);
-    // Prefer arrival_time for arrival, departure_time for departure; fall back to the other.
-    const baseArr = sts.map((st) =>
-      gtfsTimeToSeconds(st.arrival_time || st.departure_time),
-    );
-    const baseDep = sts.map((st) =>
-      gtfsTimeToSeconds(st.departure_time || st.arrival_time),
-    );
+    // Prefer arrival_time for arrival, departure_time for departure; fall back
+    // to the other. A row with neither (an untimed stop between timepoints) is
+    // NOT 00:00 — interpolate it by index between its timed neighbours; blanks
+    // before the first / after the last timed row stay NaN (never boardable,
+    // never reached).
+    const timed = (t: string) => (t ? gtfsTimeToSeconds(t) : Number.NaN);
+    const baseArr = sts.map((st) => timed(st.arrival_time || st.departure_time));
+    const baseDep = sts.map((st) => timed(st.departure_time || st.arrival_time));
+    interpolateBlankTimes(baseArr, baseDep);
 
     const freqs = freqByTrip.get(tripId);
     if (freqs && freqs.length > 0) {
       // Frequency-based: generate one instance per headway step in each window.
-      const templateFirstDep = baseDep[0] ?? 0;
+      const templateFirstDep = baseDep.find((t) => Number.isFinite(t));
+      if (templateFirstDep === undefined) continue;
       for (const freq of freqs) {
         const startSec = gtfsTimeToSeconds(freq.start_time);
         const endSec = gtfsTimeToSeconds(freq.end_time);
@@ -224,7 +227,7 @@ export function runRaptor(
         // Propagate: relax τ[stop] using the current trip's arrival.
         if (currentTrip !== null) {
           const arrival = currentTrip.arrivals[sIdx];
-          if (arrival <= cutoffSec) {
+          if (Number.isFinite(arrival) && arrival <= cutoffSec) {
             const curBest = tau.get(stopId) ?? Infinity;
             if (arrival < curBest) {
               tau.set(stopId, arrival);
@@ -269,6 +272,32 @@ export function runRaptor(
  * Linear scan — correct for any departure ordering; fast enough for real feeds
  * (patterns typically have < 200 trips and this is O(n) per stop per round).
  */
+/**
+ * Fill NaN entries (rows with no time) by linear interpolation on row index
+ * between the nearest timed rows on either side. A row counts as timed when
+ * its arrival or departure is finite. Leading/trailing blanks stay NaN.
+ * Mutates both arrays in place.
+ */
+export function interpolateBlankTimes(arr: number[], dep: number[]): void {
+  const n = arr.length;
+  let prev = -1;
+  for (let i = 0; i < n; i++) {
+    if (!Number.isFinite(arr[i]) && !Number.isFinite(dep[i])) continue;
+    if (!Number.isFinite(arr[i])) arr[i] = dep[i];
+    if (!Number.isFinite(dep[i])) dep[i] = arr[i];
+    if (prev >= 0 && i - prev > 1) {
+      const t0 = dep[prev];
+      const t1 = arr[i];
+      for (let k = prev + 1; k < i; k++) {
+        const t = t0 + ((t1 - t0) * (k - prev)) / (i - prev);
+        arr[k] = t;
+        dep[k] = t;
+      }
+    }
+    prev = i;
+  }
+}
+
 function findEarliestTrip(
   trips: PatternTrip[],
   stopIdx: number,
@@ -278,7 +307,7 @@ function findEarliestTrip(
   let bestDep = Infinity;
   for (const trip of trips) {
     const dep = trip.departures[stopIdx];
-    if (dep >= boardTime && dep < bestDep) {
+    if (Number.isFinite(dep) && dep >= boardTime && dep < bestDep) {
       best = trip;
       bestDep = dep;
     }

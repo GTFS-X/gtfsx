@@ -2,7 +2,8 @@
 // template's build-out into REAL, individually-editable trips: every projected
 // departure the timetable grid shows becomes a trip, the frequencies rows for
 // that template are dropped, and the template trip itself STAYS (it's the trip
-// at its own departure time — never duplicated). Net: the grid rows look
+// at its own departure time — never duplicated; a template off the window grid
+// is re-timed onto the first departure, see retimedTemplateStopTimes). Net: the grid rows look
 // identical afterwards, but every row is now a real trip, so blocking, per-trip
 // editing, and the (trip-only) cost engine all apply.
 //
@@ -13,7 +14,7 @@
 // pithy ids. Reuses both — no new expansion or naming math here.
 
 import type { Frequency, Route, StopTime, Trip } from '../types/gtfs';
-import { expandFrequencyTrip, type FrequencyWindow } from './frequencyExpansion';
+import { expandFrequencyTrip, windowDepartureCount, type FrequencyWindow } from './frequencyExpansion';
 import { mintTripIds, tripIdPrefixForRoute } from './tripNaming';
 
 export interface ConversionInput {
@@ -32,8 +33,12 @@ export interface TemplateConversion {
   /** How many NEW trips this template mints (the build-out MINUS the surviving
    *  template row). */
   newTripCount: number;
-  /** Resulting real trips for this template = newTripCount + 1 (the template). */
+  /** Resulting real trips for this template = newTripCount + 1 (the template)
+   *  = the number of departures its windows define. */
   totalTripCount: number;
+  /** True when the template was off the window grid and is re-timed onto the
+   *  first departure (see ConversionResult.retimedTemplateStopTimes). */
+  retimed: boolean;
   /** True when any window is exact_times ≠ 1 — converting turns an "approximate
    *  every N" promise into exact scheduled times (the dialog says so). */
   approximate: boolean;
@@ -44,6 +49,14 @@ export interface ConversionResult {
   newTrips: Trip[];
   /** Stop_times for the new trips (template's, shifted onto each departure). */
   newStopTimes: StopTime[];
+  /**
+   * Replacement stop_times for templates that sat off their windows' grid
+   * (same trip_id / stop_sequence / stop_id as the template's rows, times
+   * shifted onto the first departure). The consumer MUST apply these — replace
+   * each matching (trip_id, stop_sequence) row — or the template stays at its
+   * old time.
+   */
+  retimedTemplateStopTimes: StopTime[];
   /** Templates whose frequencies rows should be removed (only those actually
    *  converted — i.e. that had ≥1 window and a trip row). */
   removedTemplateIds: string[];
@@ -85,6 +98,7 @@ export function computeFrequencyConversion(input: ConversionInput): ConversionRe
 
   const newTrips: Trip[] = [];
   const newStopTimes: StopTime[] = [];
+  const retimedTemplateStopTimes: StopTime[] = [];
   const removedTemplateIds: string[] = [];
   const perTemplate: TemplateConversion[] = [];
   let anyApproximate = false;
@@ -105,11 +119,24 @@ export function computeFrequencyConversion(input: ConversionInput): ConversionRe
     const templateStops = stopsByTrip.get(tripId) ?? [];
     const projections = expandFrequencyTrip(tripId, templateStops, windows);
 
+    // expandFrequencyTrip skips the departure that coincides with the
+    // template's own start. When NOTHING was skipped, the template sits off
+    // every window's grid (e.g. an imported 00:00 template under a 06:00–07:00
+    // window): keeping it as-is would add a phantom trip at its own time. So
+    // the template takes over the FIRST projected departure (its stop_times
+    // are re-timed onto it) and only the rest are minted.
+    const windowCount = windowDepartureCount(windows);
+    const offGrid = projections.length > 0 && projections.length === windowCount;
+    const toMint = offGrid ? projections.slice(1) : projections;
+    if (offGrid) {
+      for (const st of projections[0].stopTimes) retimedTemplateStopTimes.push({ ...st, trip_id: tripId });
+    }
+
     const prefix = tripIdPrefixForRoute(routeById.get(template.route_id));
-    const ids = mintTripIds(prefix, projections.length, existing);
+    const ids = mintTripIds(prefix, toMint.length, existing);
     for (const id of ids) existing.add(id); // so the next template mints past these
 
-    projections.forEach((proj, i) => {
+    toMint.forEach((proj, i) => {
       const newId = ids[i];
       // Carry over route/direction/shape/service/headsign/accessibility from the
       // template. Two fields are deliberately NOT carried:
@@ -128,15 +155,17 @@ export function computeFrequencyConversion(input: ConversionInput): ConversionRe
     removedTemplateIds.push(tripId);
     perTemplate.push({
       templateTripId: tripId,
-      newTripCount: projections.length,
-      totalTripCount: projections.length + 1,
+      newTripCount: toMint.length,
+      totalTripCount: toMint.length + 1,
       approximate,
+      retimed: offGrid,
     });
   }
 
   return {
     newTrips,
     newStopTimes,
+    retimedTemplateStopTimes,
     removedTemplateIds,
     perTemplate,
     totalNewTrips: newTrips.length,

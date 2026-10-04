@@ -173,7 +173,6 @@ export function buildMareyData(input: BuildMareyInput): MareyData {
     stopName: s.stop_name || s.stop_id,
     distanceKm: distances[i],
   }));
-  const distByStopId = new Map(stops.map((s) => [s.stopId, s.distanceKm]));
   const maxDistanceKm = stops.length ? Math.max(...distances) : 0;
 
   let minTimeSec = Infinity;
@@ -182,18 +181,26 @@ export function buildMareyData(input: BuildMareyInput): MareyData {
 
   // Project a trip's stop_times onto the chart, tracking the shared time bounds
   // and overnight flag. Shared by real trips and the derived frequency lines.
+  // Matched by OCCURRENCE, not just stop_id: a loop visits its first stop
+  // twice, so the i-th time the pattern lists a stop pairs with the trip's i-th
+  // stop_time at that stop (in stop_sequence order), and each point takes the
+  // distance of its own position in the pattern.
   const plotPoints = (sts: StopTime[]): MareyPoint[] => {
-    const byStop = new Map<string, StopTime>();
-    for (const st of sts) byStop.set(st.stop_id, st);
+    const queues = new Map<string, StopTime[]>();
+    for (const st of [...sts].sort((a, b) => a.stop_sequence - b.stop_sequence)) {
+      const q = queues.get(st.stop_id);
+      if (q) q.push(st); else queues.set(st.stop_id, [st]);
+    }
     const points: MareyPoint[] = [];
-    for (const s of stops) {
-      const st = byStop.get(s.stopId);
+    for (let i = 0; i < stops.length; i++) {
+      const s = stops[i];
+      const st = queues.get(s.stopId)?.shift();
       if (!st) continue;
       const timeStr = st.departure_time || st.arrival_time;
       if (!timeStr) continue;
       const timeSec = gtfsTimeToSeconds(timeStr);
       if (timeSec >= 24 * 3600) hasOvernight = true;
-      points.push({ stopId: s.stopId, timeSec, distanceKm: distByStopId.get(s.stopId) ?? 0 });
+      points.push({ stopId: s.stopId, timeSec, distanceKm: distances[i] ?? 0 });
       if (timeSec < minTimeSec) minTimeSec = timeSec;
       if (timeSec > maxTimeSec) maxTimeSec = timeSec;
     }

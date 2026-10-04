@@ -115,38 +115,28 @@ describe('the defect: route_stops that do not cover every stop_time', () => {
     expect(hiddenSeqs('long-1')).toEqual([11, 12, 13, 14, 15, 16]);
   });
 
-  it('corrupts the stored trip on a pattern re-time, leaving the grid looking right', () => {
+  it('a pattern re-time no longer corrupts the stored trip (S2-05: it re-times the trip\'s OWN last row)', () => {
     expect(isMonotonic('long-1')).toBe(true); // healthy to begin with
     retime();
 
-    // The write covered sequences 0–10 only; the last six rows kept the
-    // ORIGINAL times, so the stored trip now arrives before it departs.
-    const stored = storedTimes('long-1');
-    expect(isMonotonic('long-1')).toBe(false);
-    expect(stored.find((st) => st.stop_sequence === 10)!.arrival_time).toBe('07:36:00');
-    expect(stored.find((st) => st.stop_sequence === 11)!.arrival_time).toBe('07:20:00');
-
-    // ...while every cell the grid actually RENDERS is still monotonic — which
-    // is why this is invisible in the editor and only shows up on export.
-    const shown = new Set(renderedSeqs());
-    const rendered = stored.filter((st) => shown.has(st.stop_sequence))
-      .map((st) => gtfsTimeToSeconds(st.arrival_time));
-    expect(rendered.every((s, i) => i === 0 || s >= rendered[i - 1])).toBe(true);
+    // Before S2-05 the write anchored the PATTERN's last stop (seq 10) and the
+    // six uncovered rows kept their original times, so the stored trip ran
+    // backwards. The run time now ends on the trip's own last row, so even
+    // un-backfilled route_stops leave a monotonic trip.
+    expect(isMonotonic('long-1')).toBe(true);
   });
 
-  it('is propagated verbatim by duplicateTrip — Repeat copies it, never causes it', () => {
+  it('duplicateTrip shifts every row by the same offset (Repeat copies, never causes, a skew)', () => {
     retime();
     useStore.getState().duplicateTrip('long-1', 'long-1-copy', 60);
 
-    // Every row shifts by exactly the same offset, so a duplicate can only ever
-    // inherit a skew that already existed in its source.
     const src = storedTimes('long-1');
     const copy = storedTimes('long-1-copy');
     expect(copy.map((st) => st.stop_sequence)).toEqual(src.map((st) => st.stop_sequence));
     for (let i = 0; i < src.length; i++) {
       expect(gtfsTimeToSeconds(copy[i].arrival_time) - gtfsTimeToSeconds(src[i].arrival_time)).toBe(3600);
     }
-    expect(isMonotonic('long-1-copy')).toBe(false); // inherited, not introduced
+    expect(isMonotonic('long-1-copy')).toBe(isMonotonic('long-1'));
   });
 });
 

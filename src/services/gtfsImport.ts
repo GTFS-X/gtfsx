@@ -2,8 +2,8 @@
 // inspectGtfsZip) lives in gtfsParse.ts so it can run in a Web Worker; we
 // re-export it here so existing import sites keep importing from one place.
 import { useStore } from '../store';
-import type { Patch } from 'immer';
-import { loadingFeed, runWithoutHistory, recordChange, HISTORY_KEYS } from '../store/history';
+import { loadingFeed } from '../store/history';
+import { asOneUndoStep } from './undoStep';
 import { resetEditorState } from '../db/serverPersistence';
 import type { AdvancedFeature } from '../store/featuresSlice';
 import type { Calendar, CalendarDate, Translation } from '../types/gtfs';
@@ -118,29 +118,6 @@ function applyImportToStore(data: Awaited<ReturnType<typeof importGtfsZip>>) {
   // A freshly imported feed starts with nothing dismissed — validation
   // dismissals are per-feed, so the new feed surfaces every applicable rule.
   store.setDismissedValidations([]);
-}
-
-/**
- * INTEGRATION POINT (S1-19): run `fn`'s store mutations as ONE undo step.
- * B4 adds `historyTransaction(label, fn)` to store/history.ts with the same
- * semantics; once it lands, replace this local helper with it. Records
- * whole-key replace patches (references only, so cheap) for every history key
- * `fn` changed.
- */
-function asOneUndoStep(fn: () => void): void {
-  const before = useStore.getState() as unknown as Record<string, unknown>;
-  const snap = new Map<string, unknown>();
-  for (const k of HISTORY_KEYS) snap.set(k, before[k]);
-  runWithoutHistory(fn);
-  const after = useStore.getState() as unknown as Record<string, unknown>;
-  const patches: Patch[] = [];
-  const inverse: Patch[] = [];
-  for (const [k, v] of snap) {
-    if (after[k] === v) continue;
-    patches.push({ op: 'replace', path: [k], value: after[k] });
-    inverse.push({ op: 'replace', path: [k], value: v });
-  }
-  if (patches.length > 0) recordChange(patches, inverse);
 }
 
 type ServiceDef = {
