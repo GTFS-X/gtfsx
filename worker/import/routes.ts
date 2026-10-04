@@ -323,8 +323,8 @@ importRouter.get('/fetch', async (c) => {
     const draftMatch = sameZone ? DRAFT_URL_RE.exec(targetUrl.pathname) : null;
     const canonicalMatch = sameZone ? CANONICAL_URL_RE.exec(targetUrl.pathname) : null;
     if (draftMatch) {
-      const [, slug, token] = draftMatch;
-      const result = await loadDraftZipBytes(c.env, slug, token);
+      const [, , token] = draftMatch;
+      const result = await loadDraftZipBytes(c.env, token);
       if (!result.ok) {
         const status = result.reason === 'revoked' || result.reason === 'expired' ? 410 : 404;
         throw importError(status, 'fetch_failed', `Draft link ${result.reason.replace(/_/g, ' ')}.`);
