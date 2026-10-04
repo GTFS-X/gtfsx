@@ -66,6 +66,7 @@ async function resolveRtSource(
        FROM publication pub
        JOIN feed_project p ON p.id = pub.project_id AND p.deleted_at IS NULL
       WHERE pub.canonical_slug = ?
+      ORDER BY pub.published_at ASC, pub.project_id ASC
       LIMIT 1`,
   )
     .bind(slug)
