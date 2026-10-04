@@ -19,18 +19,19 @@ export interface CreateSessionOpts {
   userAgent?: string | null;
 }
 
-export async function createSession(env: Env, opts: CreateSessionOpts): Promise<{ token: string; expiresAt: number }> {
+export async function createSession(env: Env, opts: CreateSessionOpts): Promise<{ id: string; token: string; expiresAt: number }> {
   const token = generateToken();
   const tokenHash = await sha256Hex(token);
   const now = Date.now();
   const expiresAt = now + ABSOLUTE_TIMEOUT_MS;
+  const id = ulid();
   await env.DB.prepare(
     `INSERT INTO session (id, token_hash, user_id, ip, user_agent, created_at, last_used_at, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(ulid(), tokenHash, opts.userId, opts.ip ?? null, opts.userAgent ?? null, now, now, expiresAt)
+    .bind(id, tokenHash, opts.userId, opts.ip ?? null, opts.userAgent ?? null, now, now, expiresAt)
     .run();
-  return { token, expiresAt };
+  return { id, token, expiresAt };
 }
 
 export interface ResolvedSession {

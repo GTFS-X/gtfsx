@@ -1,10 +1,13 @@
 // /api/admin impersonation: start + end, cookie handling, audit entries.
 
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
-import { makeClient } from './_client';
+import { env } from 'cloudflare:test';
+import { makeClient, type TestClient } from './_client';
+import { impersonationKey } from '../admin/impersonation';
 import {
   applyMigrations,
   dbAll,
+  dbGet,
   resetDb,
   seedUser,
   setupEmailCapture,
@@ -154,5 +157,95 @@ describe('admin impersonation', () => {
 
     const res = await client.post(`/api/admin/users/${target.id}/impersonate`);
     expect(res.status).toBe(409);
+  });
+
+  // ─── Regression: the staff identity is bound server-side ────────────────
+  // end-impersonation must restore ONLY the staff user recorded when the
+  // impersonated session was created; a client-held gb_impersonator value is
+  // never trusted as an identity.
+
+  async function loginAs(email: string, password: string): Promise<TestClient> {
+    const c = makeClient();
+    const res = await c.post('/auth/login', { email, password });
+    expect(res.status).toBe(200);
+    return c;
+  }
+
+  function cookieValue(res: Response, name: string): string | null {
+    for (const sc of res.headers.getSetCookie?.() ?? []) {
+      const m = sc.match(new RegExp(`^${name}=([^;]*)`));
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  it('a non-staff session presenting gb_impersonator=<staffId> gets 4xx and no session', async () => {
+    const staff = await seedUser({ email: 'staff-forge@example.com', staff: true });
+    const plain = await seedUser({ email: 'plain-forge@example.com' });
+    const c = await loginAs(plain.email, plain.password);
+    const own = c.cookie!;
+
+    const res = await c.post('/api/admin/end-impersonation', undefined, {
+      headers: { Cookie: `${own}; gb_impersonator=${staff.id}` },
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(cookieValue(res, 'gb_session')).toBeFalsy();
+
+    // No new session was minted for the staff user, and the caller is
+    // still themselves with no admin access.
+    const staffSessions = await dbGet<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM session WHERE user_id = ?`,
+      staff.id,
+    );
+    expect(staffSessions?.n).toBe(0);
+    const me = (await (await c.get('/api/me')).json()) as { user: { id: string } };
+    expect(me.user.id).toBe(plain.id);
+    expect((await c.get('/api/admin/users')).status).toBe(404);
+  });
+
+  it('end-impersonation restores the bound staff user, not the cookie value', async () => {
+    const staffA = await seedUser({ email: 'staff-a@example.com', staff: true });
+    const staffB = await seedUser({ email: 'staff-b@example.com', staff: true });
+    const target = await seedUser({ email: 'target-ab@example.com' });
+    const c = await loginAs(staffA.email, staffA.password);
+    const imp = await c.post(`/api/admin/users/${target.id}/impersonate`);
+    expect(imp.status).toBe(200);
+    const tok = cookieValue(imp, 'gb_session')!;
+
+    // Tamper the hint cookie to name a different staff user.
+    c.setCookie(`gb_session=${tok}; gb_impersonator=${staffB.id}`);
+    const end = await c.post('/api/admin/end-impersonation');
+    expect(end.status).toBe(204);
+    const restored = makeClient();
+    restored.setCookie(`gb_session=${cookieValue(end, 'gb_session')}`);
+    const me = (await (await restored.get('/api/me')).json()) as { user: { id: string } };
+    expect(me.user.id).toBe(staffA.id);
+
+    // The binding is single-use: replaying against the (now revoked)
+    // impersonated session does nothing.
+    expect(await env.KV.get(impersonationKey((await dbGet<{ id: string }>(
+      `SELECT id FROM session WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`,
+      target.id,
+    ))!.id))).toBeNull();
+  });
+
+  it('logout during impersonation clears the binding and the gb_impersonator cookie', async () => {
+    const staff = await seedUser({ email: 'staff-lo@example.com', staff: true });
+    const target = await seedUser({ email: 'target-lo@example.com' });
+    const c = await loginAs(staff.email, staff.password);
+    const imp = await c.post(`/api/admin/users/${target.id}/impersonate`);
+    expect(imp.status).toBe(200);
+    const sess = await dbGet<{ id: string }>(
+      `SELECT id FROM session WHERE user_id = ? AND revoked_at IS NULL`,
+      target.id,
+    );
+    expect(await env.KV.get(impersonationKey(sess!.id))).not.toBeNull();
+
+    c.setCookie(`gb_session=${cookieValue(imp, 'gb_session')}; gb_impersonator=${staff.id}`);
+    const out = await c.post('/auth/logout');
+    expect(out.status).toBe(204);
+    expect(cookieValue(out, 'gb_impersonator')).toBe('');
+    expect(await env.KV.get(impersonationKey(sess!.id))).toBeNull();
   });
 });

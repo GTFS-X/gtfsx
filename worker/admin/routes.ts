@@ -22,6 +22,14 @@ import {
 } from '../auth/tokens';
 import { sendVerifyEmail } from '../email';
 import { buildWarmCohortCsv } from './warmCohort';
+import {
+  clearImpersonationBinding,
+  clearImpersonatorCookie,
+  impersonatorCookie,
+  readImpersonationBinding,
+  readImpersonatorCookie,
+  writeImpersonationBinding,
+} from './impersonation';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -42,29 +50,7 @@ async function parseJson<T extends z.ZodTypeAny>(
   return result.data;
 }
 
-const IMPERSONATOR_COOKIE = 'gb_impersonator';
-
-function impersonatorCookie(staffUserId: string): string {
-  // Mirror session cookie's attributes but scoped identically. Max-Age matches
-  // the absolute session window (90 days) — the impersonation session will
-  // typically expire first, but the cookie shouldn't linger past that.
-  const maxAge = 90 * 24 * 60 * 60;
-  return `${IMPERSONATOR_COOKIE}=${staffUserId}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=Lax`;
-}
-
-function clearImpersonatorCookie(): string {
-  return `${IMPERSONATOR_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`;
-}
-
-function readImpersonatorCookie(req: Request): string | null {
-  const header = req.headers.get('Cookie');
-  if (!header) return null;
-  for (const part of header.split(';')) {
-    const [k, v] = part.trim().split('=');
-    if (k === IMPERSONATOR_COOKIE && v) return v;
-  }
-  return null;
-}
+// Impersonation cookie + server-side binding helpers live in ./impersonation.
 
 function parsePage(raw: string | undefined, fallback = 1, max = 10_000): number {
   if (!raw) return fallback;
@@ -604,6 +590,14 @@ adminRouter.post('/users/:id/impersonate', async (c) => {
     userAgent,
   });
 
+  // Bind the staff identity to the new (impersonated) session server-side.
+  // This, not the gb_impersonator cookie, is what end-impersonation trusts.
+  await writeImpersonationBinding(c.env, newSession.id, {
+    staffUserId: staff.id,
+    targetUserId: target.id,
+    startedAt: Date.now(),
+  });
+
   c.header('Set-Cookie', sessionCookie(newSession.token, newSession.expiresAt), { append: true });
   c.header('Set-Cookie', impersonatorCookie(staff.id), { append: true });
 
@@ -636,20 +630,26 @@ adminRouter.post('/users/:id/impersonate', async (c) => {
 });
 
 adminRouter.post('/end-impersonation', async (c) => {
-  const staffUserId = readImpersonatorCookie(c.req.raw);
-  if (!staffUserId) {
-    throw validationFailed('No impersonation session in progress');
-  }
-
-  // The current session is the impersonated one. The staff user is the
-  // identity recorded in the impersonator cookie.
+  // The current session is the impersonated one. The staff identity to
+  // restore comes ONLY from the server-side binding written when this session
+  // was created by /users/:id/impersonate. A client-supplied gb_impersonator
+  // cookie is never trusted as an identity.
   const impersonatedSession = c.var.session;
   const impersonatedUser = c.var.user;
-
-  // Revoke impersonated session (best effort — may already be revoked).
-  if (impersonatedSession) {
-    await revokeSession(c.env, impersonatedSession.id);
+  const binding = impersonatedSession
+    ? await readImpersonationBinding(c.env, impersonatedSession.id)
+    : null;
+  if (!impersonatedSession || !binding || binding.targetUserId !== impersonatedSession.userId) {
+    // Drop the stale UI-hint cookie so the banner goes away; leave the
+    // caller's own session untouched.
+    c.header('Set-Cookie', clearImpersonatorCookie(), { append: true });
+    throw validationFailed('No impersonation session in progress');
   }
+  const staffUserId = binding.staffUserId;
+
+  // Revoke the impersonated session and drop its binding.
+  await revokeSession(c.env, impersonatedSession.id);
+  await clearImpersonationBinding(c.env, impersonatedSession.id);
 
   // Load the staff user to confirm they're still active + staff.
   const staffRow = await c.env.DB.prepare(

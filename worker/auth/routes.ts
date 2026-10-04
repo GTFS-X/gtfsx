@@ -28,6 +28,7 @@ import {
   invalidateAuthTokensForUser,
 } from './tokens';
 import { requireAuth } from './middleware';
+import { clearImpersonationBinding, clearImpersonatorCookie } from '../admin/impersonation';
 import { googleRouter } from './google';
 import {
   twofaRequirement,
@@ -902,7 +903,9 @@ authRouter.post('/password-reset/confirm', async (c) => {
 authRouter.post('/logout', requireAuth, async (c) => {
   const session = c.var.session!;
   await revokeSession(c.env, session.id);
+  await clearImpersonationBinding(c.env, session.id);
   c.header('Set-Cookie', clearSessionCookie());
+  c.header('Set-Cookie', clearImpersonatorCookie(), { append: true });
   await logAudit(c.env, {
     actorUserId: session.userId,
     subjectType: 'session',
@@ -917,7 +920,9 @@ authRouter.post('/logout', requireAuth, async (c) => {
 authRouter.post('/logout-all', requireAuth, async (c) => {
   const user = c.var.user!;
   await revokeAllSessions(c.env, user.id);
+  await clearImpersonationBinding(c.env, c.var.session!.id);
   c.header('Set-Cookie', clearSessionCookie());
+  c.header('Set-Cookie', clearImpersonatorCookie(), { append: true });
   await logAudit(c.env, {
     actorUserId: user.id,
     subjectType: 'session',
