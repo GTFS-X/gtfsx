@@ -205,9 +205,10 @@ export function getMySubscription(threadId: string): Promise<{ subscribed: boole
 
 export interface ForumSearchHit {
   thread: ForumThread;
-  // FTS5 snippet — already contains <mark>…</mark> around matched terms,
-  // safe to render with dangerouslySetInnerHTML since the worker generates
-  // it via SQLite's snippet() (no user-controlled HTML survives).
+  // FTS5 snippet of user-written text. The worker HTML-escapes it and adds
+  // only <mark>…</mark> around matched terms. Render it with
+  // parseSearchSnippet (components/community/searchSnippet.ts) as text nodes,
+  // never via innerHTML.
   snippet: string;
 }
 

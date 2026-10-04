@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { searchForum, type ForumSearchHit } from '../../services/forumApi';
 import { Avatar } from './Avatar';
 import { relativeTime } from './time';
+import { parseSearchSnippet } from './searchSnippet';
 
 export function SearchResults() {
   const [searchParams] = useSearchParams();
@@ -113,10 +114,11 @@ export function SearchResults() {
               <h2 className="font-heading font-bold text-base text-dark-brown hover:text-coral">
                 {hit.thread.title}
               </h2>
-              <div
-                className="forum-md text-sm text-warm-gray mt-1 line-clamp-2"
-                dangerouslySetInnerHTML={{ __html: hit.snippet }}
-              />
+              <div className="forum-md text-sm text-warm-gray mt-1 line-clamp-2">
+                {parseSearchSnippet(hit.snippet).map((seg, j) =>
+                  seg.mark ? <mark key={j}>{seg.text}</mark> : <span key={j}>{seg.text}</span>,
+                )}
+              </div>
               <div className="mt-2 flex items-center gap-2 text-xs text-warm-gray">
                 <Avatar
                   gravatarHash={hit.thread.author.gravatarHash}

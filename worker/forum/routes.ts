@@ -19,6 +19,7 @@ import {
   notifyThreadAuthorOfReply,
 } from './notify';
 import { uploadsRouter } from './uploads';
+import { formatSearchSnippet, SNIPPET_MARK_CLOSE, SNIPPET_MARK_OPEN } from './searchSnippet';
 import type {
   AuthorDto,
   CategoryDto,
@@ -241,27 +242,37 @@ forumRouter.get('/search', async (c) => {
     i === tokens.length - 1 && t.length >= 2 ? `"${t}"*` : `"${t}"`,
   ).join(' AND ');
 
-  // Rank by best per thread (lowest FTS rank), tie-break by recency.
-  // bm25() weights: title kind ('title') gets a 0.5 multiplier (lower is
-  // better in bm25), body 1.0. We do that by selecting the min rank per
-  // thread + a title bonus.
+  // Best-matching row per thread, tie-break by recency. FTS5 auxiliary
+  // functions (bm25, snippet) can't be used inside an aggregate, so score and
+  // snippet every matching row in a materialized CTE and pick each thread's
+  // best row with a window function. bm25() is negative with lower = better,
+  // so the title boost multiplies by 2 (more negative).
+  //
+  // snippet() copies the indexed text verbatim, and that text is raw user
+  // input (titles, markdown bodies). Mark matches with private-use sentinel
+  // characters, HTML-escape the whole snippet, then swap the sentinels for
+  // <mark> tags (formatSearchSnippet) so the only markup in the response is
+  // the highlighting this endpoint adds.
   const rows = await c.env.DB.prepare(
-    `WITH hits AS (
-       SELECT s.thread_id,
-              MIN(CASE WHEN s.kind='title' THEN bm25(forum_search) * 0.5 ELSE bm25(forum_search) END) AS score,
-              snippet(forum_search, 3, '<mark>', '</mark>', '…', 32) AS snippet,
-              s.kind AS best_kind
+    `WITH matches AS MATERIALIZED (
+       SELECT s.thread_id AS thread_id,
+              CASE WHEN s.kind = 'title' THEN bm25(forum_search) * 2.0 ELSE bm25(forum_search) END AS score,
+              snippet(forum_search, 3, ?, ?, '…', 32) AS snippet
          FROM forum_search s
         WHERE forum_search MATCH ?
-        GROUP BY s.thread_id
+     ),
+     best AS (
+       SELECT thread_id, score, snippet,
+              ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY score ASC) AS rn
+         FROM matches
      )
-     SELECT t.*, h.score, h.snippet
-       FROM hits h
-       JOIN forum_thread t ON t.id = h.thread_id
-      WHERE t.deleted_at IS NULL
-      ORDER BY h.score ASC, t.last_post_at DESC
+     SELECT t.*, b.score, b.snippet
+       FROM best b
+       JOIN forum_thread t ON t.id = b.thread_id
+      WHERE b.rn = 1 AND t.deleted_at IS NULL
+      ORDER BY b.score ASC, t.last_post_at DESC
       LIMIT ? OFFSET ?`,
-  ).bind(fts, limit + 1, offset).all<ThreadRow & { score: number; snippet: string }>();
+  ).bind(SNIPPET_MARK_OPEN, SNIPPET_MARK_CLOSE, fts, limit + 1, offset).all<ThreadRow & { score: number; snippet: string }>();
 
   const results = rows.results ?? [];
   const hasMore = results.length > limit;
@@ -271,7 +282,7 @@ forumRouter.get('/search', async (c) => {
   return c.json({
     results: page.map((r, i) => ({
       thread: threadDto(r, authors[i]),
-      snippet: r.snippet,
+      snippet: formatSearchSnippet(r.snippet),
     })),
     nextCursor: hasMore ? String(offset + limit) : null,
   });
