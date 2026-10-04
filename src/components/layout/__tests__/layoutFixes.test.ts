@@ -194,6 +194,27 @@ describe('C3-18: demo load after leaving /demo', () => {
     vi.unstubAllGlobals();
   });
 
+  it('an abort while the zip is parsing never touches the store', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Blob(['zip']))));
+    let resolveParse!: (d: unknown) => void;
+    importMocks.importGtfsZip.mockClear();
+    importMocks.importGtfsZip.mockImplementationOnce(() => new Promise((r) => { resolveParse = r; }));
+    importMocks.loadImportIntoStore.mockClear();
+    useStore.setState((st) => { st.projectName = 'My feed'; });
+
+    const controller = new AbortController();
+    const done = loadDemoFeed(controller.signal);
+    // The fetch resolved and the parse is in flight; the user leaves /demo now.
+    await vi.waitFor(() => expect(importMocks.importGtfsZip).toHaveBeenCalled());
+    controller.abort();
+    resolveParse({ routes: [] });
+    await done;
+
+    expect(importMocks.loadImportIntoStore).not.toHaveBeenCalled();
+    expect(s().projectName).toBe('My feed');
+    vi.unstubAllGlobals();
+  });
+
   it('a live load still applies the demo', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Blob(['zip']))));
     importMocks.importGtfsZip.mockResolvedValue({ routes: [] });

@@ -275,7 +275,20 @@ describe('Edit-frequency drawer (C2-04, C2-05, C2-06)', () => {
     }));
     expect(html).toContain('value="06:00"');
     expect(html).toContain('value="12:00"');
-    expect(html).toMatch(/<button[^>]*disabled[^>]*>Apply windows<\/button>/);
+    // Match the disabled ATTRIBUTE (React SSR emits disabled=""), not the
+    // Button's Tailwind `disabled:` classes, which every state carries.
+    expect(html).toMatch(/<button[^>]*\sdisabled=""[^>]*>Apply windows<\/button>/);
+  });
+
+  it('enables Apply when the windows do not overlap', () => {
+    const html = renderToStaticMarkup(createElement(FrequencyDrawer, {
+      ctx: 'R', tripId: 'B',
+      initialWindows: [w('06:00:00', '09:00:00'), w('09:00:00', '12:00:00')],
+      onApply: () => {}, onCancel: () => {},
+    }));
+    const apply = html.match(/<button[^>]*>Apply windows<\/button>/)?.[0];
+    expect(apply).toBeTruthy();
+    expect(apply).not.toMatch(/\sdisabled=""/);
   });
 
   it('the grid keys the drawer on the trip, so switching trips re-seeds it', () => {

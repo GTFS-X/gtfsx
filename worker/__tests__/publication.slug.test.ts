@@ -266,6 +266,36 @@ describe('publication integrity', () => {
     await beacon.arrayBuffer();
     const rows = await dbAll<{ project_id: string }>(`SELECT project_id FROM embed_impression`);
     expect(rows.map((r) => r.project_id)).toEqual([pb.id]);
+
+    // route-map thumbnail / og:image (serveThumbnail's publication lookup)
+    for (const [pid, label, version] of [[pa.id, 'A', 7], [pb.id, 'B', 3]] as const) {
+      await env.FEEDS.put(thumbnailKey(pid, 'lg'), new TextEncoder().encode(label));
+      await env.DB.prepare(`UPDATE feed_project SET thumbnail_version = ? WHERE id = ?`).bind(version, pid).run();
+    }
+    const thumb = await SELF.fetch('http://feeds.test/dup/thumbnail.png');
+    expect(thumb.status).toBe(200);
+    expect(thumb.headers.get('ETag')).toBe('"3-lg"');
+    expect(await thumb.text()).toBe('B');
+  });
+
+  it('an unpublished slug shared by two owners serves the OLDEST project\'s thumbnail', async () => {
+    const a = await loggedIn('thumb-old-a@example.com');
+    const b = await loggedIn('thumb-old-b@example.com');
+    // A's row is inserted first but B's project is the older one, so a
+    // rowid-order lookup and an oldest-wins lookup disagree.
+    const pa = await createProject(a.client, 'Shared Name');
+    const pb = await createProject(b.client, 'Shared Name');
+    expect(pa.slug).toBe(pb.slug);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE feed_project SET created_at = 2000000, thumbnail_version = 7 WHERE id = ?`).bind(pa.id),
+      env.DB.prepare(`UPDATE feed_project SET created_at = 1000000, thumbnail_version = 3 WHERE id = ?`).bind(pb.id),
+    ]);
+    await env.FEEDS.put(thumbnailKey(pa.id, 'lg'), new TextEncoder().encode('A'));
+    await env.FEEDS.put(thumbnailKey(pb.id, 'lg'), new TextEncoder().encode('B'));
+
+    const res = await SELF.fetch(`http://feeds.test/${pa.slug}/thumbnail.png`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('B');
   });
 
   // ─── W2-06 ─────────────────────────────────────────────────────────────────
