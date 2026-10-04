@@ -40,6 +40,8 @@ export interface AdminUserRow {
   planStatus: PlanStatus;
   /** Unix ms; only present on the detail endpoint. null = no comp expiry. */
   planExpiresAt?: number | null;
+  /** Detail endpoint only: a live Stripe subscription backs the plan. */
+  hasStripeSubscription?: boolean;
   createdAt: number;
   lastSessionAt: number | null;
   projectCount: number;
@@ -112,6 +114,8 @@ export interface AdminOrgDetailResponse {
     plan: Plan;
     planStatus: PlanStatus;
     planExpiresAt: number | null;
+    /** A live Stripe subscription backs the plan. */
+    hasStripeSubscription?: boolean;
     createdAt: number;
   };
   members: AdminOrgMember[];
@@ -255,6 +259,8 @@ export interface PlanGrantInput {
   /** Unix ms; null = open-ended (no expiry). */
   expiresAt: number | null;
   note?: string;
+  /** Override the 409 `active_subscription` guard on a Stripe-backed owner. */
+  force?: boolean;
 }
 
 export interface PlanGrantResult {
@@ -270,10 +276,13 @@ export function grantUserPlan(userId: string, input: PlanGrantInput): Promise<Pl
   );
 }
 
-export function revokeUserPlan(userId: string): Promise<{ ok: boolean }> {
+export function revokeUserPlan(
+  userId: string,
+  opts: { force?: boolean } = {},
+): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(
     `/api/admin/users/${encodeURIComponent(userId)}/enterprise-revoke`,
-    { method: 'POST' },
+    { method: 'POST', body: opts.force ? { force: true } : undefined },
   );
 }
 
@@ -284,10 +293,13 @@ export function grantOrgPlan(orgId: string, input: PlanGrantInput): Promise<Plan
   );
 }
 
-export function revokeOrgPlan(orgId: string): Promise<{ ok: boolean }> {
+export function revokeOrgPlan(
+  orgId: string,
+  opts: { force?: boolean } = {},
+): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(
     `/api/admin/orgs/${encodeURIComponent(orgId)}/enterprise-revoke`,
-    { method: 'POST' },
+    { method: 'POST', body: opts.force ? { force: true } : undefined },
   );
 }
 

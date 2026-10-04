@@ -9,6 +9,7 @@ import {
   listPendingInvitations,
   type PendingInvitation,
 } from '../../services/orgsApi';
+import { invitationSubtitle, isUnverifiedEmailMessage, pickInvitePreview } from './invitationPreview';
 
 export function AcceptInvitationPage() {
   const [searchParams] = useSearchParams();
@@ -51,14 +52,11 @@ export function AcceptInvitationPage() {
       navigate(`/signup?${q.toString()}`, { replace: true });
       return;
     }
-    // We don't have a single-invitation lookup endpoint, so fetch the pending
-    // list and surface the invite (if any) for this user's email. The server
-    // is the real gate — we only use this to show a nice preview.
-    listPendingInvitations()
+    // The server filters the pending list to the invitation matching this
+    // token. It is the real gate; this is only a preview.
+    listPendingInvitations(token || undefined)
       .then(({ invitations }) => {
-        // We can't match against the token client-side (server stores a hash),
-        // so just show the most recent pending invitation as the preview.
-        setInvite(invitations[0] ?? null);
+        setInvite(pickInvitePreview(invitations));
       })
       .catch(() => setInvite(null))
       .finally(() => setLoading(false));
@@ -79,7 +77,9 @@ export function AcceptInvitationPage() {
       navigate('/feeds');
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
-        setMismatchedEmail(true);
+        // Unverified email is not a wrong-address problem; show the server's
+        // message without the "sign in with a different email" branch.
+        setMismatchedEmail(!isUnverifiedEmailMessage(err.message));
         setError(err.message);
       } else {
         const msg = err instanceof ApiError ? err.message : 'Could not accept invitation';
@@ -114,11 +114,7 @@ export function AcceptInvitationPage() {
   return (
     <AuthLayout
       title="Accept invitation"
-      subtitle={
-        invite
-          ? `You've been invited to join ${invite.orgName} as a ${invite.role}.`
-          : 'Review and accept your invitation below.'
-      }
+      subtitle={invitationSubtitle(invite)}
     >
       <div className="text-sm text-warm-gray mb-4">
         Signed in as <span className="font-medium text-dark-brown">{currentUser.email}</span>.
@@ -144,6 +140,7 @@ export function AcceptInvitationPage() {
               } catch {
                 // ignore
               }
+              // TODO(C3-03, integrator): after merging B7, call signOutLocally() (layout/signOut.ts).
               clearAuth();
               const next = `/orgs/accept?token=${encodeURIComponent(token)}`;
               navigate(`/login?next=${encodeURIComponent(next)}`, { replace: true });

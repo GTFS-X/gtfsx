@@ -128,8 +128,12 @@ export function rescindInvitation(orgId: string, tokenHash: string): Promise<voi
   );
 }
 
-export function listPendingInvitations(): Promise<{ invitations: PendingInvitation[] }> {
-  return request<{ invitations: PendingInvitation[] }>('/api/orgs/invitations/pending');
+export function listPendingInvitations(
+  token?: string,
+): Promise<{ invitations: PendingInvitation[] }> {
+  // With a token the server narrows the list to that token's invitation.
+  const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+  return request<{ invitations: PendingInvitation[] }>(`/api/orgs/invitations/pending${qs}`);
 }
 
 export function acceptInvitation(input: { token: string }): Promise<AcceptInvitationResponse> {

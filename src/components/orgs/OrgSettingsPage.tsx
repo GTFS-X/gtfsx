@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { AuthLayout } from '../auth/AuthLayout';
 import { AuthButton } from '../auth/AuthButton';
@@ -40,8 +40,9 @@ import {
   type OrgBillingState,
 } from '../../services/billingApi';
 import { ImportDialog } from '../import-export/ImportDialog';
-import { createProject, saveWorkingState } from '../../services/projectsApi';
-import { buildSnapshot, setCurrentWorkingStateVersion } from '../../db/serverPersistence';
+import { resetEditorState } from '../../db/serverPersistence';
+import { saveCurrentFeedAsNew, type CreatedFeedRef } from '../feeds/saveNewFeed';
+import { deleteBlockedMessage } from '../billing/billingErrors';
 
 function formatDate(ms: number | null | undefined): string {
   if (!ms) return '—';
@@ -67,11 +68,6 @@ export function OrgSettingsPage() {
   const removeUserOrg = useStore((s) => s.removeUserOrg);
   const activeWorkspace = useStore((s) => s.activeWorkspace);
   const setActiveWorkspace = useStore((s) => s.setActiveWorkspace);
-  const setProjectId = useStore((s) => s.setProjectId);
-  const setProjectName = useStore((s) => s.setProjectName);
-  const setActiveServerProject = useStore((s) => s.setActiveServerProject);
-  const upsertFeedProject = useStore((s) => s.upsertFeedProject);
-  const markSaved = useStore((s) => s.markSaved);
 
   const [detail, setDetail] = useState<OrgDetail | null>(null);
   const [myRole, setMyRole] = useState<OrgRole | null>(null);
@@ -84,6 +80,8 @@ export function OrgSettingsPage() {
 
   const [editingMeta, setEditingMeta] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  // Project created by a failed import-save, reused on retry (no duplicates).
+  const createdImportRef = useRef<CreatedFeedRef['current']>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
@@ -252,20 +250,23 @@ export function OrgSettingsPage() {
     }
   }
 
-  if (!authChecked || (loading && !loadError)) {
+  // Signed-out visitors never start the detail fetch, so `loading` would stay
+  // true forever; check the user before the loading guard.
+  if (authChecked && !currentUser) {
+    return (
+      <Navigate
+        to={`/login?next=${encodeURIComponent(`/orgs/${slug ?? ''}`)}`}
+        replace
+      />
+    );
+  }
+
+  if (!authChecked || !currentUser || (loading && !loadError)) {
     return (
       <AuthLayout title="Organization">
         <p className="text-sm text-warm-gray">Loading…</p>
       </AuthLayout>
     );
-  }
-
-  if (!currentUser) {
-    navigate(
-      `/login?next=${encodeURIComponent(`/orgs/${slug ?? ''}`)}`,
-      { replace: true },
-    );
-    return null;
   }
 
   if (loadError === 'not_member' || !detail) {
@@ -411,8 +412,7 @@ export function OrgSettingsPage() {
       }
       navigate('/feeds');
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Could not delete organization';
-      setActionError(msg);
+      setActionError(deleteBlockedMessage(err, 'organization', 'Could not delete organization'));
     }
   };
 
@@ -443,20 +443,32 @@ export function OrgSettingsPage() {
   // failure, so we let exceptions propagate.
   const handleImportComplete = async () => {
     const name = useStore.getState().projectName?.trim() || 'Imported Feed';
-    const project = await createProject({
+    const { project } = await saveCurrentFeedAsNew({
       name,
       owner: { type: 'org', id: org.id },
+      created: createdImportRef,
     });
-    setProjectId(project.id);
-    setProjectName(project.name);
-    const snapshot = buildSnapshot();
-    const { workingStateVersion } = await saveWorkingState(project.id, snapshot, 0);
-    setCurrentWorkingStateVersion(project.id, workingStateVersion);
-    setActiveServerProject(project.id);
-    upsertFeedProject({ ...project, workingStateVersion });
-    markSaved();
     if (myRole) setActiveWorkspace({ type: 'org', orgId: org.id, role: myRole });
     navigate(`/feeds/${encodeURIComponent(project.slug)}`);
+  };
+
+  // Import always makes a new feed from the file alone: drop whatever feed is
+  // open in the editor so it can't be offered as a merge target, after
+  // confirming if it has unsaved edits.
+  const openImport = () => {
+    const st = useStore.getState();
+    if (
+      st.isDirty &&
+      !window.confirm(
+        'You have unsaved changes in the feed that is open in the editor. Importing will discard them. Continue?',
+      )
+    ) {
+      return;
+    }
+    resetEditorState();
+    st.setActiveServerProject(null);
+    createdImportRef.current = null;
+    setShowImport(true);
   };
 
   return (
@@ -487,7 +499,7 @@ export function OrgSettingsPage() {
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {myRole && roleAtLeast(myRole, 'editor') && (
-                <AuthButton onClick={() => setShowImport(true)}>Import feed</AuthButton>
+                <AuthButton onClick={openImport}>Import feed</AuthButton>
               )}
               {isAdmin && (
                 <button
@@ -565,7 +577,7 @@ export function OrgSettingsPage() {
                     </span>
                   </div>
                   <div className="text-sm text-warm-gray">
-                    {billing.plan === 'free' && 'No subscription on file — upgrade to invite teammates and publish feeds.'}
+                    {billing.plan === 'free' && 'No subscription on file — upgrade to invite teammates.'}
                     {billing.plan !== 'free' && billing.planRenewalAt && (
                       <>Next renewal: <span className="font-semibold text-brown">{formatDate(billing.planRenewalAt)}</span></>
                     )}
@@ -852,8 +864,10 @@ function MemberRow({
   const isAdmin = myRole ? roleAtLeast(myRole, 'admin') : false;
   const isOwner = myRole === 'owner';
   // Admins can change everyone except owners; owners can change anyone.
+  // Granting, changing or revoking the admin role needs an owner (the server
+  // 403s otherwise), so admins get a read-only badge for other admins.
   const canChangeRole =
-    isAdmin && !isSelf && (member.role !== 'owner' || isOwner);
+    isAdmin && !isSelf && (member.role !== 'owner' || isOwner) && (isOwner || member.role !== 'admin');
   // Admins can remove non-owners; owners can remove anyone but themselves (handled server-side).
   const canRemove =
     isAdmin && !isSelf && (member.role !== 'owner' || isOwner);
@@ -875,7 +889,7 @@ function MemberRow({
             className="text-xs px-2 py-1 rounded border border-sand bg-white"
           >
             {isOwner && <option value="owner">Owner</option>}
-            <option value="admin">Admin</option>
+            {isOwner && <option value="admin">Admin</option>}
             <option value="editor">Editor</option>
             <option value="viewer">Viewer</option>
           </select>

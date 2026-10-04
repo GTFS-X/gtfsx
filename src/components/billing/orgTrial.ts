@@ -106,3 +106,40 @@ export function resolveTrialStart<T extends Pick<OrgSummary, 'plan'>>(
   if (eligibleOrgs.length === 1) return { kind: 'use', org: eligibleOrgs[0] };
   return { kind: 'pick', orgs: eligibleOrgs };
 }
+
+/**
+ * An org that already has a plan checkout must not duplicate (C4-02): enterprise,
+ * or Planner that is not a live no-card trial. A trial org still converts via
+ * Checkout. The server's 409 `already_subscribed` is the authority; this only
+ * drives which CTA the pricing page offers.
+ */
+export function orgBlocksCheckout(org: TrialOrg, now: number): boolean {
+  if (org.plan === 'enterprise') return true;
+  if (org.plan === 'agency') return !isOrgOnTrial(org, now);
+  return false;
+}
+
+/**
+ * The org whose billing the pricing page should send the user to instead of
+ * Checkout: the pinned org when it already has a plan, otherwise the first
+ * admin org when EVERY admin org has one. Null means checkout is fine.
+ */
+export function orgToManageBilling<T extends TrialOrg>(
+  presetOrg: T | null,
+  adminOrgs: T[],
+  now: number,
+): T | null {
+  if (presetOrg) return orgBlocksCheckout(presetOrg, now) ? presetOrg : null;
+  if (adminOrgs.length > 0 && adminOrgs.every((o) => orgBlocksCheckout(o, now))) return adminOrgs[0];
+  return null;
+}
+
+/** The org a Planner checkout should bill: the pinned org, else an admin org that can still subscribe. */
+export function pickCheckoutOrg<T extends TrialOrg>(
+  presetOrg: T | null,
+  adminOrgs: T[],
+  now: number,
+): T | null {
+  if (presetOrg) return presetOrg;
+  return adminOrgs.find((o) => !orgBlocksCheckout(o, now)) ?? null;
+}

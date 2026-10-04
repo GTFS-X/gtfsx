@@ -122,6 +122,7 @@ export function AdminOrgDetailPage() {
             plan={data.org.plan}
             planStatus={data.org.planStatus}
             planExpiresAt={data.org.planExpiresAt}
+            hasStripeSubscription={data.org.hasStripeSubscription ?? false}
             onChanged={load}
           />
 

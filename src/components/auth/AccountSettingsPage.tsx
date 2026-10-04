@@ -26,6 +26,7 @@ import {
   type AuditEvent,
 } from '../../services/distributionApi';
 import { AuditTable } from '../audit/AuditTable';
+import { deleteBlockedMessage } from '../billing/billingErrors';
 import { useStore } from '../../store';
 
 export function AccountSettingsPage() {
@@ -114,6 +115,7 @@ export function AccountSettingsPage() {
       <TwoFactorSection email={currentUser.email} />
       <Divider />
       <SessionsSection onSignedOut={() => {
+        // TODO(C3-03, integrator): after merging B7, call signOutLocally() (layout/signOut.ts) instead of clearAuth().
         clearAuth();
         navigate('/');
       }} />
@@ -139,7 +141,7 @@ function Divider() {
 
 function StatusBadge({ status }: { status: string }) {
   if (status === 'active') return <Badge variant="success">Verified</Badge>;
-  if (status === 'pending') return <Badge variant="warning">Unverified</Badge>;
+  if (status === 'pending_verification') return <Badge variant="warning">Unverified</Badge>;
   return <Badge variant="info">{status}</Badge>;
 }
 
@@ -207,6 +209,7 @@ function ProfileSection({
 
 function ChangeEmailSection() {
   const [newEmail, setNewEmail] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -216,7 +219,11 @@ function ChangeEmailSection() {
     setError(null);
     setSubmitting(true);
     try {
-      await changeEmail({ newEmail: newEmail.trim() });
+      await changeEmail({
+        newEmail: newEmail.trim(),
+        // Password users must re-enter their password; OAuth-only users have none.
+        ...(currentPassword ? { currentPassword } : {}),
+      });
       setSent(true);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Could not submit';
@@ -245,6 +252,13 @@ function ChangeEmailSection() {
             onChange={setNewEmail}
             placeholder="new-email@example.com"
             required
+          />
+          <FormField
+            label="Current password (leave blank if you sign in with Google or a magic link)"
+            type="password"
+            value={currentPassword}
+            onChange={setCurrentPassword}
+            autoComplete="current-password"
             error={error ?? undefined}
           />
           <AuthButton type="submit" disabled={submitting || !newEmail}>
@@ -872,8 +886,7 @@ function DeleteAccountSection({
       await deleteAccount(password ? { password } : {});
       onDeleted();
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Could not delete account';
-      setError(msg);
+      setError(deleteBlockedMessage(err, 'account', 'Could not delete account'));
     } finally {
       setWorking(false);
     }
@@ -883,7 +896,7 @@ function DeleteAccountSection({
     <section>
       <SectionHeader
         title="Delete account"
-        description="Your data will be permanently removed 30 days after deletion (grace period). Published feeds remain available unless you take them down. Sign back in within 30 days to cancel."
+        description="Your data will be permanently removed 30 days after deletion (grace period). Published feeds remain available unless you take them down. Deletion can't be undone from the app. Email hello@gtfsx.com within 30 days if you change your mind."
       />
       {step === 'idle' ? (
         <AuthButton variant="danger" onClick={() => setStep('confirm')}>

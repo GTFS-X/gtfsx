@@ -6,6 +6,7 @@ import { AuthButton } from './AuthButton';
 import { GoogleSignInButton, AuthDivider } from './GoogleSignInButton';
 import { login, requestMagicLink, resendVerification, verify2fa, resend2fa, ApiError } from '../../services/authApi';
 import { useStore } from '../../store';
+import { loginRedirectErrorMessage } from './loginErrors';
 
 type Tab = 'password' | 'magic';
 
@@ -50,7 +51,7 @@ export function LoginPage() {
   const [resendingTwofa, setResendingTwofa] = useState(false);
   const [twofaResent, setTwofaResent] = useState(false);
 
-  const magicLinkInvalid = searchParams.get('error') === 'magic_link_invalid';
+  const redirectError = loginRedirectErrorMessage(searchParams.get('error'));
   const resetSuccess = searchParams.get('reset') === '1';
 
   // Preserve `next` when sending the user to sign up — e.g. a /pricing card
@@ -282,9 +283,12 @@ export function LoginPage() {
         </>
       }
     >
-      {magicLinkInvalid && (
-        <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-          That sign-in link is invalid or has expired. Request a new one below.
+      {redirectError && (
+        <div
+          role="alert"
+          className="mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm"
+        >
+          {redirectError}
         </div>
       )}
       {resetSuccess && (
