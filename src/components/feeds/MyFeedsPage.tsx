@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as Popover from '@radix-ui/react-popover';
 import { useStore } from '../../store';
@@ -28,7 +28,8 @@ import { ApiError } from '../../services/authApi';
 import { fireProNudge } from '../../services/proIntent';
 import { roleAtLeast } from '../../services/orgsApi';
 import { ImportDialog } from '../import-export/ImportDialog';
-import { buildSnapshot, resetEditorState, setCurrentWorkingStateVersion, wipeLocalProject } from '../../db/serverPersistence';
+import { buildWorkingStateSnapshot, captureSavedDataRefs, markSavedIfUnchanged, resetEditorState, setCurrentWorkingStateVersion, wipeLocalProject } from '../../db/serverPersistence';
+import { saveCurrentFeedAsNew, type CreatedFeedRef } from './saveNewFeed';
 import { generateId } from '../../services/idGenerator';
 import {
   formatPurgeCountdown,
@@ -82,15 +83,13 @@ export function MyFeedsPage() {
   const setProNudgeToast = useStore((s) => s.setProNudgeToast);
   const upsertFeedProject = useStore((s) => s.upsertFeedProject);
   const removeFeedProject = useStore((s) => s.removeFeedProject);
-  const setProjectId = useStore((s) => s.setProjectId);
-  const setProjectName = useStore((s) => s.setProjectName);
-  const setActiveServerProject = useStore((s) => s.setActiveServerProject);
-  const markSaved = useStore((s) => s.markSaved);
 
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  // Project created by a failed import-save, reused on retry (no duplicates).
+  const createdImportRef = useRef<CreatedFeedRef['current']>(null);
   const [includeArchived, setIncludeArchived] = useState(false);
 
   const [deleteFlow, setDeleteFlow] = useState<DeleteFlow | null>(null);
@@ -281,16 +280,27 @@ export function MyFeedsPage() {
         ? { type: 'org', id: activeWorkspace.orgId }
         : { type: 'user' };
     const name = useStore.getState().projectName?.trim() || 'Imported Feed';
-    const project = await createProject({ name, owner });
-    setProjectId(project.id);
-    setProjectName(project.name);
-    const snapshot = buildSnapshot();
-    const { workingStateVersion } = await saveWorkingState(project.id, snapshot, 0);
-    setCurrentWorkingStateVersion(project.id, workingStateVersion);
-    setActiveServerProject(project.id);
-    upsertFeedProject({ ...project, workingStateVersion });
-    markSaved();
+    const { project } = await saveCurrentFeedAsNew({ name, owner, created: createdImportRef });
     navigate(`/feeds/${encodeURIComponent(project.slug)}`);
+  };
+
+  // "Import feed" always creates a NEW feed from the file alone. Whatever feed
+  // was last open in the editor must not be offered as a merge target, and
+  // unsaved edits to it must not be silently dropped.
+  const openImport = () => {
+    const st = useStore.getState();
+    if (
+      st.isDirty &&
+      !window.confirm(
+        'You have unsaved changes in the feed that is open in the editor. Importing will discard them. Continue?',
+      )
+    ) {
+      return;
+    }
+    resetEditorState();
+    st.setActiveServerProject(null);
+    createdImportRef.current = null;
+    setShowImport(true);
   };
 
   if (!authChecked) {
@@ -321,10 +331,14 @@ export function MyFeedsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <AuthButton variant="secondary" onClick={() => setShowImport(true)}>
-              Import feed
-            </AuthButton>
-            <AuthButton onClick={() => setShowCreate(true)}>+ Create feed</AuthButton>
+            {canEdit && (
+              <>
+                <AuthButton variant="secondary" onClick={openImport}>
+                  Import feed
+                </AuthButton>
+                <AuthButton onClick={() => setShowCreate(true)}>+ Create feed</AuthButton>
+              </>
+            )}
           </div>
         </div>
 
@@ -376,10 +390,10 @@ export function MyFeedsPage() {
             <EmptyState
               title="No feeds yet"
               description="Create a feed, or import an existing GTFS feed to get started."
-              secondaryActionLabel="Import feed"
-              onSecondaryAction={() => setShowImport(true)}
-              actionLabel="Create feed"
-              onAction={() => setShowCreate(true)}
+              secondaryActionLabel={canEdit ? 'Import feed' : undefined}
+              onSecondaryAction={canEdit ? openImport : undefined}
+              actionLabel={canEdit ? 'Create feed' : undefined}
+              onAction={canEdit ? () => setShowCreate(true) : undefined}
             />
           </div>
         ) : (
@@ -493,11 +507,12 @@ export function MyFeedsPage() {
                 // would reset entities (per the recent leak fix) and the
                 // agency would only re-appear on the next reload.
                 try {
-                  const snapshot = buildSnapshot();
+                  const refs = captureSavedDataRefs();
+                  const snapshot = buildWorkingStateSnapshot();
                   const { workingStateVersion } = await saveWorkingState(p.id, snapshot, 0);
                   setCurrentWorkingStateVersion(p.id, workingStateVersion);
                   upsertFeedProject({ ...p, workingStateVersion });
-                  markSaved();
+                  markSavedIfUnchanged(refs);
                 } catch {
                   // If the seed save fails (offline, conflict, etc.) the
                   // editor still loads — just with no agency, same as the
@@ -700,6 +715,8 @@ function FeedCard({
             className="bg-white rounded-xl shadow-lg border border-sand p-1 w-44 z-50"
           >
             <PopoverItem onSelect={onOpen}>Open</PopoverItem>
+            {canEdit && (
+              <>
             <PopoverItem
               onSelect={onRename}
               disabled={locked}
@@ -708,6 +725,8 @@ function FeedCard({
               Rename
             </PopoverItem>
             <PopoverItem onSelect={onMove}>Move to…</PopoverItem>
+              </>
+            )}
             {canEdit && (
               <PopoverItem
                 keepOpen
@@ -725,20 +744,24 @@ function FeedCard({
                 {duplicating ? 'Duplicating…' : 'Duplicate'}
               </PopoverItem>
             )}
-            <PopoverItem onSelect={onLockToggle}>
-              {locked ? 'Unlock' : 'Lock'}
-            </PopoverItem>
-            <PopoverItem onSelect={onArchiveToggle}>
-              {archived ? 'Unarchive' : 'Archive'}
-            </PopoverItem>
-            <PopoverItem
-              onSelect={onDelete}
-              danger
-              disabled={locked}
-              title={locked ? 'Unlock the feed to delete it' : undefined}
-            >
-              Delete
-            </PopoverItem>
+            {canEdit && (
+              <>
+                <PopoverItem onSelect={onLockToggle}>
+                  {locked ? 'Unlock' : 'Lock'}
+                </PopoverItem>
+                <PopoverItem onSelect={onArchiveToggle}>
+                  {archived ? 'Unarchive' : 'Archive'}
+                </PopoverItem>
+                <PopoverItem
+                  onSelect={onDelete}
+                  danger
+                  disabled={locked}
+                  title={locked ? 'Unlock the feed to delete it' : undefined}
+                >
+                  Delete
+                </PopoverItem>
+              </>
+            )}
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>

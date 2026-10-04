@@ -11,14 +11,14 @@ interface SegmentedProps {
   'aria-label'?: string;
 }
 
-/** Segmented toggle — the two/three-way control language (direction picker,
+/** Segmented toggle (a radio group: exactly one option is active) — the two/three-way control language (direction picker,
  *  Northbound | Southbound │ ⇄ Both). `dividerBefore` draws a hairline before an
  *  option to set it apart from the primary choices. */
 export function Segmented({ value, onChange, options, dividerBefore, title, ...aria }: SegmentedProps) {
   return (
     <div
       className="inline-flex items-center h-[30px] p-0.5 bg-cream border border-sand rounded-md shrink-0"
-      role="tablist"
+      role="radiogroup"
       title={title}
       aria-label={aria['aria-label']}
     >
@@ -27,8 +27,8 @@ export function Segmented({ value, onChange, options, dividerBefore, title, ...a
           {i === dividerBefore && <span className="w-px self-stretch bg-sand mx-[3px] my-[3px]" aria-hidden="true" />}
           <button
             type="button"
-            role="tab"
-            aria-selected={i === value}
+            role="radio"
+            aria-checked={i === value}
             onClick={() => onChange(i)}
             className={`px-2.5 h-full rounded-md font-heading font-bold text-[12.5px] whitespace-nowrap shrink-0 transition-colors ${
               i === value ? 'bg-white text-[#d4603a] shadow-sm' : 'text-warm-gray hover:text-brown'

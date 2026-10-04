@@ -62,6 +62,6 @@ describe('Segmented keys', () => {
     const html = renderToStaticMarkup(
       createElement(Segmented, { value: 0, onChange: () => {}, options: ['Outbound', 'Outbound'] }),
     );
-    expect(html.match(/role="tab"/g)?.length).toBe(2);
+    expect(html.match(/role="radio"/g)?.length).toBe(2);
   });
 });

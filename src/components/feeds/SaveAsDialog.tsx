@@ -1,9 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import { ApiError } from '../../services/authApi';
-import { createProject, saveWorkingState } from '../../services/projectsApi';
-import { buildSnapshot, setCurrentWorkingStateVersion } from '../../db/serverPersistence';
+import { saveCurrentFeedAsNew, type CreatedFeedRef } from './saveNewFeed';
 import { roleAtLeast } from '../../services/orgsApi';
 import { db } from '../../db/dexie';
 import { LAST_PROJECT_KEY } from '../../db/persistence';
@@ -16,11 +15,9 @@ export function SaveAsDialog({ onClose }: { onClose: () => void }) {
   const userOrgs = useStore((s) => s.userOrgs);
   const activeWorkspace = useStore((s) => s.activeWorkspace);
   const setActiveWorkspace = useStore((s) => s.setActiveWorkspace);
-  const setActiveServerProject = useStore((s) => s.setActiveServerProject);
-  const upsertFeedProject = useStore((s) => s.upsertFeedProject);
-  const setProjectId = useStore((s) => s.setProjectId);
-  const setProjectName = useStore((s) => s.setProjectName);
-  const markSaved = useStore((s) => s.markSaved);
+  // A failed first save leaves the created project behind; a retry reuses it.
+  const createdRef = useRef<CreatedFeedRef['current']>(null);
+  const previousDraftIdRef = useRef<string | null | undefined>(undefined);
 
   const [name, setName] = useState(
     projectName && projectName !== 'Untitled Feed' ? projectName : '',
@@ -43,28 +40,22 @@ export function SaveAsDialog({ onClose }: { onClose: () => void }) {
     // server's. After a successful save we drop that IDB row so the same
     // draft doesn't reappear as a "local feed available for import" on the
     // /feeds dashboard (which used to surface it as a phantom duplicate).
-    const previousProjectId = useStore.getState().projectId;
+    // On a retry the store already holds the server id from the first
+    // attempt, so remember the draft id from the first submit only.
+    if (previousDraftIdRef.current === undefined) {
+      previousDraftIdRef.current = useStore.getState().projectId;
+    }
+    const previousProjectId = previousDraftIdRef.current;
     try {
       const ownerArg: { type: 'user' } | { type: 'org'; id: string } = owner === 'user'
         ? { type: 'user' }
         : { type: 'org', id: owner.slice('org:'.length) };
 
-      const project = await createProject({
+      const { project } = await saveCurrentFeedAsNew({
         name: name.trim(),
         owner: ownerArg,
+        created: createdRef,
       });
-
-      // Reflect the new server-backed identity in the store so the snapshot
-      // we serialize carries the right project id.
-      setProjectId(project.id);
-      setProjectName(project.name);
-
-      const snapshot = buildSnapshot();
-      const { workingStateVersion } = await saveWorkingState(project.id, snapshot, 0);
-      setCurrentWorkingStateVersion(project.id, workingStateVersion);
-      setActiveServerProject(project.id);
-      upsertFeedProject({ ...project, workingStateVersion });
-      markSaved();
 
       // Anonymous draft is now promoted to a server-backed project. Drop the
       // IDB rows + the localStorage pointer so it doesn't linger.

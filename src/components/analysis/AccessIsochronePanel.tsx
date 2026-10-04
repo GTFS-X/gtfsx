@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { representativeDay } from '../../services/stopAnalysis';
-import { fetchCensusData, lookupFips } from '../../services/demographics';
+import { serviceOptions } from '../../services/serviceIds';
+import { fetchServiceAreaBlockGroups } from '../coverage/serviceAreaCensus';
+import { beginAnalysis, bumpAnalysisEpoch } from '../coverage/analysisEpoch';
+import { effectiveServiceId } from './effectiveServiceId';
 import { runAccessIsochrone } from '../../services/accessIsochrone/orchestrator';
 import { accessRingColor } from '../../services/accessIsochrone/colors';
 import type { WalkMinutes } from '../../services/networkWalkshed';
@@ -25,7 +28,7 @@ const pct = (v: number | null) => (v == null ? '—' : `${Math.round(v * 100)}%`
  * Transit Access Isochrones (#40) — "from a pin, what can a rider reach in N
  * minutes?" Places an origin, runs a schedule-based RAPTOR pass over the
  * in-memory feed, draws time-budget contours on the map, and tallies the
- * population / jobs / equity populations inside each contour. Wrapped in an
+ * population / resident workers / equity populations inside each contour. Wrapped in an
  * access_isochrones PaywallOverlay by RightRail (free on every plan today).
  */
 export function AccessIsochronePanel() {
@@ -42,7 +45,17 @@ export function AccessIsochronePanel() {
   const mapMode = useStore((s) => s.mapMode);
   const setMapMode = useStore((s) => s.setMapMode);
   const calendars = useStore((s) => s.calendars);
+  const calendarDates = useStore((s) => s.calendarDates);
+  const trips = useStore((s) => s.trips);
   const stops = useStore((s) => s.stops);
+
+  // Every service the feed defines (calendar.txt rows AND calendar_dates-only
+  // ids), and the stored choice only when it still names one of them.
+  const options = useMemo(
+    () => serviceOptions({ calendars, calendarDates }),
+    [calendars, calendarDates],
+  );
+  const serviceChoice = effectiveServiceId(params.serviceId, options);
 
   const [loadingCensus, setLoadingCensus] = useState(false);
 
@@ -59,24 +72,23 @@ export function AccessIsochronePanel() {
     setError(null);
     if (!origin) { setError('Place an origin pin on the map first.'); return; }
     if (stops.length === 0) { setError('This feed has no stops to route over.'); return; }
+    // Dropped if the user presses Clear (or switches feeds) mid-run.
+    const isCurrent = beginAnalysis('access');
     setRunning(true);
     try {
       const state = useStore.getState();
-      const serviceIds = params.serviceId
-        ? [params.serviceId]
+      const serviceIds = serviceChoice
+        ? [serviceChoice]
         : [...representativeDay(state).serviceIds];
 
       // Opportunities reuse the Coverage panel's loaded block groups when present;
-      // otherwise fetch them once from the stops' centroid county (best-effort —
+      // otherwise fetch them once for every county the stops touch (best-effort —
       // the reach contours still render if this fails).
       let blockGroups = state.coverageData?.blockGroups ?? [];
       if (blockGroups.length === 0) {
         setLoadingCensus(true);
         try {
-          const avgLat = stops.reduce((s, st) => s + st.stop_lat, 0) / stops.length;
-          const avgLon = stops.reduce((s, st) => s + st.stop_lon, 0) / stops.length;
-          const { stateFips, countyFips } = await lookupFips(avgLat, avgLon);
-          blockGroups = await fetchCensusData(stateFips, countyFips);
+          blockGroups = await fetchServiceAreaBlockGroups(stops);
         } catch {
           blockGroups = [];
         } finally {
@@ -98,22 +110,32 @@ export function AccessIsochronePanel() {
         state,
         blockGroups,
       );
+      if (!isCurrent()) return;
       setResult(res);
       if (res.status === 'error') setError(res.message ?? 'Analysis failed.');
       else if (res.status === 'empty') setError(res.message ?? 'No stops were reachable from here.');
     } catch (e) {
+      if (!isCurrent()) return;
       setError(e instanceof Error ? e.message : 'Analysis failed.');
     } finally {
-      setRunning(false);
+      if (isCurrent()) setRunning(false);
     }
   };
 
-  // Label for the default "busiest weekday" service-day option.
+  // Clear aborts an in-flight run: its late result must not repaint contours
+  // for an origin that no longer exists.
+  const clear = () => {
+    bumpAnalysisEpoch('access');
+    clearAll();
+  };
+
+  // Label for the default service-day option: the busiest date in the next
+  // ~90 days (e.g. "Mon, Oct 5, 2026").
   const repDayLabel = useMemo(
+    // Reads the whole feed slice; recomputes when the service inputs change.
     () => representativeDay(useStore.getState()).label,
-    // Recompute when the calendar/trip set changes (the inputs to the choice).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [calendars.length],
+    [trips, calendars, calendarDates],
   );
 
   return (
@@ -123,7 +145,7 @@ export function AccessIsochronePanel() {
         <p className="text-xs text-warm-gray mt-0.5">
           From an origin pin, see where a rider can travel on your network within a
           time budget — walk access, wait, and in-vehicle time combined — and the
-          population, jobs, and equity populations they can reach.
+          population, resident workers, and equity populations they can reach.
         </p>
       </div>
 
@@ -148,7 +170,7 @@ export function AccessIsochronePanel() {
           </button>
           {origin && (
             <button
-              onClick={clearAll}
+              onClick={clear}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold text-warm-gray border border-sand hover:border-coral hover:text-coral transition-colors"
             >
               Clear
@@ -192,13 +214,13 @@ export function AccessIsochronePanel() {
           <label className="flex-1">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-warm-gray mb-1">Service day</div>
             <select
-              value={params.serviceId ?? ''}
+              value={serviceChoice ?? ''}
               onChange={(e) => setParams({ serviceId: e.target.value || null })}
               className="w-full px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
             >
-              <option value="">Busiest weekday ({repDayLabel})</option>
-              {calendars.map((c) => (
-                <option key={c.service_id} value={c.service_id}>{c._description || c.service_id}</option>
+              <option value="">Busiest day ({repDayLabel})</option>
+              {options.map((o) => (
+                <option key={o.serviceId} value={o.serviceId}>{o.label}</option>
               ))}
             </select>
           </label>
@@ -254,7 +276,7 @@ export function AccessIsochronePanel() {
                 {ring.coverage ? (
                   <>
                     <Stat label="Population" value={fmt(ring.coverage.totalPopulation)} />
-                    <Stat label="Jobs (workers)" value={fmt(ring.coverage.totalWorkers)} />
+                    <Stat label="Resident workers" value={fmt(ring.coverage.totalWorkers)} />
                     <Stat label="Minority" value={pct(shareMinority(ring.coverage))} />
                     <Stat label="Low-income" value={pct(shareLowIncome(ring.coverage))} />
                     <Stat label="Zero-vehicle HH" value={pct(shareZeroVeh(ring.coverage))} />
@@ -270,7 +292,8 @@ export function AccessIsochronePanel() {
           <p className="text-[10px] text-warm-gray/80 leading-snug">
             Estimate. Egress drawn as street-network walksheds (Mapbox walking isochrones)
             around each reached stop; schedule-based routing (RAPTOR) over the busiest
-            representative day. Equity shares are apportioned from ACS block groups overlapping
+            service day. Workers are employed residents (ACS), counted where they live, not
+            jobs at a workplace. Equity shares are apportioned from ACS block groups overlapping
             the reachable area.
           </p>
         </div>

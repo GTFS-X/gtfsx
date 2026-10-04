@@ -128,7 +128,7 @@
     "GOOGLE_CLIENT_ID": "304043605957-q5okm9i8jvdm4f6boha8fktjvi49h8oq.apps.googleusercontent.com",
     // Cloudflare Turnstile SITE key (public) for the worker-rendered /book-demo
     // lead form. SAME public value as the bundle's VITE_TURNSTILE_SITE_KEY (the
-    // signup widget). ⚠️ Empty here => the /book-demo widget is skipped AND the
+    // signup widget). ⚠️ If this is empty, the /book-demo widget is skipped AND the
     // POST /api/demo-leads handler skips Turnstile verification. Populate it
     // wherever TURNSTILE_SECRET_KEY is set so the form is bot-gated.
     "TURNSTILE_SITE_KEY": "0x4AAAAAADLpCWm4g4Q3zl6V"
@@ -221,7 +221,7 @@
         // Turnstile SITE key (public) for the /book-demo lead form; same public
         // value the staging SPA build bakes as VITE_TURNSTILE_SITE_KEY, so the
         // widget renders and (with the staging TURNSTILE_SECRET_KEY) the submit
-        // is verified server-side. See the prod block above (still empty there).
+        // is verified server-side. Same public value as the prod block above.
         "TURNSTILE_SITE_KEY": "0x4AAAAAADLpCWm4g4Q3zl6V"
       },
       "routes": [

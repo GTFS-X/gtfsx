@@ -108,10 +108,17 @@ export function AdminUsersPage() {
         await load();
       } else if (pending.type === 'impersonate') {
         const staffId = useStore.getState().currentUser?.id;
+        try {
+          await impersonateUser(pending.user.id);
+        } catch (err) {
+          // A failed attempt must not leave a stale flag behind (the banner
+          // would show on the next load).
+          localStorage.removeItem(STAFF_IMPERSONATOR_KEY);
+          throw err;
+        }
         if (staffId) {
           localStorage.setItem(STAFF_IMPERSONATOR_KEY, staffId);
         }
-        await impersonateUser(pending.user.id);
         await hydrateAuth();
         navigate('/feeds');
       }

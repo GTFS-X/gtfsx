@@ -95,7 +95,7 @@ export function updateProfile(input: { displayName?: string }): Promise<{ user: 
   return request<{ user: AuthedUser }>('/api/me', { method: 'PATCH', body: input });
 }
 
-export function changeEmail(input: { newEmail: string }): Promise<void> {
+export function changeEmail(input: { newEmail: string; currentPassword?: string }): Promise<void> {
   return request('/api/me/change-email', { method: 'POST', body: input });
 }
 

@@ -30,6 +30,7 @@ export function PlanGrantCard({
   plan,
   planStatus,
   planExpiresAt,
+  hasStripeSubscription = false,
   onChanged,
 }: {
   kind: 'user' | 'org';
@@ -37,6 +38,8 @@ export function PlanGrantCard({
   plan: Plan;
   planStatus: PlanStatus;
   planExpiresAt: number | null;
+  /** A live Stripe subscription backs the plan: comp grant/revoke would 409. */
+  hasStripeSubscription?: boolean;
   onChanged: () => void | Promise<void>;
 }) {
   const [showGrant, setShowGrant] = useState(false);
@@ -87,6 +90,12 @@ export function PlanGrantCard({
               <PlanPill plan={plan} planStatus={planStatus} />
               <span className="text-sm text-warm-gray">{describeExpiry(planExpiresAt)}</span>
             </div>
+            {hasStripeSubscription && (
+              <p className="text-xs text-amber-700 max-w-md" data-testid="plan-grant-stripe-note">
+                This {label} has a live Stripe subscription. Cancel it in the billing portal
+                before granting or revoking a comp plan.
+              </p>
+            )}
             <p className="text-xs text-warm-gray max-w-md">
               Comp grants bypass Stripe. A grant with an expiry auto-reverts this {label} to Free
               on its date; “No expiry” stays until revoked.
@@ -95,6 +104,7 @@ export function PlanGrantCard({
           <div className="flex items-center gap-2">
             <AuthButton
               variant="secondary"
+              disabled={hasStripeSubscription}
               onClick={() => {
                 setError(null);
                 setShowGrant(true);
@@ -105,6 +115,7 @@ export function PlanGrantCard({
             {granted && (
               <AuthButton
                 variant="danger"
+                disabled={hasStripeSubscription}
                 onClick={() => {
                   setError(null);
                   setShowRevoke(true);

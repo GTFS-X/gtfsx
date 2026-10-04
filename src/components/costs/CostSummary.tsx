@@ -1,6 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
-import { calculateRouteSpans, applyRouteCosts, calculateSystemPeakVehicles } from '../../services/costEstimation';
+import {
+  calculateRouteSpans,
+  applyRouteCosts,
+  calculateSystemPeakVehicles,
+  DEFAULT_COST_PER_REVENUE_HOUR,
+  DEFAULT_DEADHEAD_FACTOR,
+} from '../../services/costEstimation';
+import { downloadBlob } from '../../services/gtfsExport';
+import { costCsv, resolveRouteCost } from './costRows';
 import type { RouteStats } from '../../services/costEstimation';
 import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 import { RailSubHeading } from '../ui/RailHeadings';
@@ -24,8 +32,8 @@ export function CostSummary() {
   // below, which every plan holds since the Sep 2026 free-planning change.
   const plan = useEditorPlan();
 
-  const [defaultCostPerHour, setDefaultCostPerHour] = useState(100);
-  const [deadheadFactor, setDeadheadFactor] = useState(1.1);
+  const [defaultCostPerHour, setDefaultCostPerHour] = useState(DEFAULT_COST_PER_REVENUE_HOUR);
+  const [deadheadFactor, setDeadheadFactor] = useState(DEFAULT_DEADHEAD_FACTOR);
 
   const stateSlice = useMemo(
     () => ({ routes, trips, stopTimes, calendars, calendarDates, frequencies, stopTimesByTrip }),
@@ -50,9 +58,11 @@ export function CostSummary() {
   // Phase 2: Apply costs cheaply — recalculates when cost/deadhead inputs change
   const routeRows = useMemo(() => {
     return routeSpans.map(({ route, spans }) => {
-      const costPerHour = route._cost_per_revenue_hour ?? defaultCostPerHour;
+      const { costPerHour, isDefault } = resolveRouteCost(route._cost_per_revenue_hour, defaultCostPerHour);
       return {
         route,
+        costPerHour,
+        isDefault,
         stats: applyRouteCosts(spans, costPerHour, deadheadFactor),
       };
     });
@@ -164,16 +174,15 @@ export function CostSummary() {
       ) : (
         <>
           <div className="flex flex-col gap-2">
-            {routeRows.map(({ route, stats }) => {
-              const hasCustomCost = route._cost_per_revenue_hour != null && route._cost_per_revenue_hour > 0;
+            {routeRows.map(({ route, stats, costPerHour, isDefault }) => {
               return (
                 <RouteCard
                   key={route.route_id}
                   name={route.route_short_name || route.route_long_name || 'Untitled Route'}
                   color={route.route_color}
                   stats={stats}
-                  costPerHour={hasCustomCost ? route._cost_per_revenue_hour! : defaultCostPerHour}
-                  isDefault={!hasCustomCost}
+                  costPerHour={costPerHour}
+                  isDefault={isDefault}
                   onEditRoute={() => handleOpenRoute(route.route_id)}
                 />
               );
@@ -183,9 +192,7 @@ export function CostSummary() {
             onClick={() => {
               const rows = [
                 ['Route', 'Rev Hours/Wk', 'Total Hours/Wk', 'Trips/Wk', 'Peak Vehicles', 'Cost/Hour', 'Weekly Cost', 'Annual Cost'],
-                ...routeRows.map(({ route, stats }) => {
-                  const cph = (route._cost_per_revenue_hour != null && route._cost_per_revenue_hour > 0)
-                    ? route._cost_per_revenue_hour : defaultCostPerHour;
+                ...routeRows.map(({ route, stats, costPerHour: cph }) => {
                   return [
                     route.route_short_name || route.route_long_name || route.route_id,
                     stats.revenueHoursWeekly.toFixed(1),
@@ -204,14 +211,10 @@ export function CostSummary() {
                   String(systemStats.totalTripsPerWeek), String(systemPeakVehicles), '',
                   String(Math.round(systemStats.totalWeeklyCost)), String(Math.round(systemStats.totalAnnualCost))],
               ];
-              const csv = rows.map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
-              const blob = new Blob([csv], { type: 'text/csv' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = 'cost_analysis.csv';
-              a.click();
-              URL.revokeObjectURL(url);
+              downloadBlob(
+                new Blob([costCsv(rows)], { type: 'text/csv;charset=utf-8;' }),
+                'cost_analysis.csv',
+              );
             }}
             className="mt-4 w-full px-3 py-2 border-2 border-dashed border-sand rounded-lg text-xs font-semibold text-warm-gray hover:border-coral hover:text-coral hover:bg-coral-light transition-colors flex items-center justify-center gap-1.5"
           >

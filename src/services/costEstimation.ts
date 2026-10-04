@@ -567,3 +567,7 @@ export function calculateBlockCost(
   perService.sort((a, b) => b.dailyCost - a.dailyCost);
   return { hasBlocks, perService, maxVehicles, weeklyCost, annualCost };
 }
+
+/** Defaults shared by every cost surface (Costs panel, route Costs tab, docs). */
+export const DEFAULT_COST_PER_REVENUE_HOUR = 100;
+export const DEFAULT_DEADHEAD_FACTOR = 1.1;

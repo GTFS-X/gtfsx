@@ -99,8 +99,11 @@ export function Modal({
               <button
                 type="button"
                 aria-label="Close"
-                onClick={onClose}
-                className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-lg leading-none text-warm-gray hover:text-dark-brown hover:bg-sand/50 transition-colors"
+                // No onClick={onClose}: Dialog.Close routes through onOpenChange,
+                // which already calls onClose when dismissable. Calling it here
+                // too fired it twice and bypassed the dismissable lock.
+                disabled={!dismissable}
+                className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-lg leading-none text-warm-gray hover:text-dark-brown hover:bg-sand/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 ×
               </button>

@@ -28,12 +28,15 @@ import {
   type Plan,
 } from '../../services/billingApi';
 import { createOrg, roleAtLeast, type OrgSummary } from '../../services/orgsApi';
+import { isAlreadySubscribedError } from './billingErrors';
 import { ApiError } from '../../services/authApi';
 import { trackCtaClick } from '../../services/trackBeacon';
 import { planDisplayName, cheapestPlanFor, FEATURE_COPY, type FeatureKey } from './planConfig';
 import {
   canHostTrial,
   deriveTrialOrgName,
+  orgToManageBilling,
+  pickCheckoutOrg,
   resolveTrialStart,
   slugifyOrgName,
   trialWorkspaceSlug,
@@ -215,14 +218,15 @@ export function PricingPage() {
       });
   }, []);
 
-  const currentPlan: Plan = (currentUser?.plan as Plan | undefined) ?? 'free';
-  const onPaidPlan = currentPlan !== 'free' && currentPlan !== 'enterprise';
+  const userPlan: Plan = (currentUser?.plan as Plan | undefined) ?? 'free';
 
   // Orgs the user can administer — eligible to host a Planner subscription.
   const adminOrgs: OrgSummary[] = useMemo(
     () => userOrgs.filter((o) => roleAtLeast(o.role, 'admin')),
     [userOrgs],
   );
+  // Stable "now" for trial-vs-paid checks (keeps render pure).
+  const [nowMs] = useState(() => Date.now());
 
   // If the caller pinned an org owner (e.g. from /orgs/:slug/billing), require
   // Planner checkout to target that org; otherwise fall back to the user's first
@@ -231,6 +235,21 @@ export function PricingPage() {
     if (presetOwnerType !== 'org' || !presetOwnerId) return null;
     return adminOrgs.find((o) => o.id === presetOwnerId) ?? null;
   }, [presetOwnerType, presetOwnerId, adminOrgs]);
+
+  // An org that already has a plan must go to its billing page, not Checkout:
+  // /api/me reports only the PERSONAL plan, which is `free` for org subscribers
+  // (C4-02). Null when checkout is fine.
+  const managedOrg = useMemo(
+    () => orgToManageBilling(presetOrg, adminOrgs, nowMs),
+    [presetOrg, adminOrgs, nowMs],
+  );
+  const managedOrgPlan: Plan | null = managedOrg?.plan ?? null;
+  // The plan the user effectively holds: their own, or the plan of the org they
+  // would otherwise be sent to subscribe for.
+  const currentPlan: Plan =
+    userPlan !== 'free' ? userPlan : managedOrgPlan && managedOrgPlan !== 'free' ? managedOrgPlan : 'free';
+  const onPaidPlan = currentPlan !== 'free' && currentPlan !== 'enterprise';
+  const managedOrgBillingHref = managedOrg ? `/orgs/${managedOrg.slug}/billing` : null;
 
   const recommendedPlan = featureParam ? cheapestPlanFor(featureParam) : null;
 
@@ -318,6 +337,17 @@ export function PricingPage() {
       const result = await startCheckout({ ownerType: 'org', ownerId, plan, interval });
       window.location.href = result.url;
     } catch (e) {
+      if (isAlreadySubscribedError(e)) {
+        // 409 already_subscribed: the org has a live subscription (or an
+        // enterprise plan). Send the user to its billing page.
+        const org = userOrgs.find((o) => o.id === orgId);
+        setPendingPlan(null);
+        if (viaAuto) setAutoCheckoutPhase('idle');
+        if (org) {
+          navigate(`/orgs/${org.slug}/billing`);
+          return;
+        }
+      }
       setError(e instanceof ApiError ? e.message : (e as Error)?.message ?? 'Could not start checkout.');
       setPendingPlan(null);
       if (viaAuto) setAutoCheckoutPhase('error');
@@ -342,7 +372,10 @@ export function PricingPage() {
       if (presetOrg && presetOrg.plan && presetOrg.plan !== 'free' && presetOrg.plan !== 'enterprise') {
         portalOwnerType = 'org';
         portalOwnerId = presetOrg.id;
-      } else if (onPaidPlan && currentUser) {
+      } else if (!presetOrg && managedOrg && managedOrg.plan === 'agency') {
+        portalOwnerType = 'org';
+        portalOwnerId = managedOrg.id;
+      } else if (userPlan !== 'free' && userPlan !== 'enterprise' && currentUser) {
         portalOwnerType = 'user';
         portalOwnerId = currentUser.id;
       }
@@ -380,7 +413,12 @@ export function PricingPage() {
     }
     // Planner (internal id 'agency'): prefer a pinned org, then the user's
     // existing admin org, else prompt to create one.
-    const orgId = presetOrg?.id ?? adminOrgs[0]?.id;
+    if (managedOrgBillingHref) {
+      // The org already has a plan: a second Checkout would double-bill it.
+      navigate(managedOrgBillingHref);
+      return;
+    }
+    const orgId = pickCheckoutOrg(presetOrg, adminOrgs, nowMs)?.id;
     if (orgId) {
       void startPaidCheckout('agency', interval, orgId, opts?.viaAuto);
     } else {
@@ -403,7 +441,8 @@ export function PricingPage() {
       setAutoTriggered(true);
       return;
     }
-    if (currentPlan === directPlanParam) {
+    if (currentPlan === directPlanParam || managedOrg) {
+      // Already on the plan (personally or via an org): never auto-open Checkout.
       setAutoTriggered(true);
       return;
     }
@@ -420,7 +459,7 @@ export function PricingPage() {
     });
     // handlePick is recreated each render; the autoTriggered guard fires once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoTriggered, authChecked, currentUser, orgsLoaded, directPlanParam, currentPlan]);
+  }, [autoTriggered, authChecked, currentUser, orgsLoaded, directPlanParam, currentPlan, managedOrg]);
 
   // Re-run the deep-linked checkout after a create failure (Retry in the
   // redirect modal). Mirrors the auto-trigger effect's call, minus the run-once
@@ -894,12 +933,22 @@ export function PricingPage() {
                 </div>
                 <div className="mt-5">
                   {isCurrent ? (
-                    <Link
-                      to="/feeds"
-                      className="block w-full rounded-lg bg-teal py-2.5 text-center font-heading text-sm font-bold text-white hover:bg-[#1f7e72]"
-                    >
-                      Continue to my feeds
-                    </Link>
+                    <div className="space-y-2">
+                      <Link
+                        to="/feeds"
+                        className="block w-full rounded-lg bg-teal py-2.5 text-center font-heading text-sm font-bold text-white hover:bg-[#1f7e72]"
+                      >
+                        Continue to my feeds
+                      </Link>
+                      {managedOrgBillingHref && userPlan === 'free' && (
+                        <Link
+                          to={managedOrgBillingHref}
+                          className="block w-full rounded-lg bg-sand py-2 text-center font-heading text-xs font-bold text-brown hover:bg-coral-light hover:text-coral"
+                        >
+                          Manage billing
+                        </Link>
+                      )}
+                    </div>
                   ) : isFree ? (
                     currentUser ? (
                       onPaidPlan ? (

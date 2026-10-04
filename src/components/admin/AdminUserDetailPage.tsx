@@ -71,8 +71,15 @@ export function AdminUserDetailPage() {
         setBanner('Account soft-deleted');
       } else if (pending === 'impersonate') {
         const staffId = useStore.getState().currentUser?.id;
+        try {
+          await impersonateUser(u.id);
+        } catch (err) {
+          // A failed attempt must not leave a stale flag behind (the banner
+          // would show on the next load).
+          localStorage.removeItem(STAFF_IMPERSONATOR_KEY);
+          throw err;
+        }
         if (staffId) localStorage.setItem(STAFF_IMPERSONATOR_KEY, staffId);
-        await impersonateUser(u.id);
         await hydrateAuth();
         navigate('/feeds');
         return;
@@ -163,6 +170,7 @@ export function AdminUserDetailPage() {
             plan={data.user.plan}
             planStatus={data.user.planStatus}
             planExpiresAt={data.user.planExpiresAt ?? null}
+            hasStripeSubscription={data.user.hasStripeSubscription ?? false}
             onChanged={load}
           />
 

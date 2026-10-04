@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useRef, type ReactElement, type ReactNode } from 'react';
 
 interface FormFieldProps {
   label: ReactNode;
@@ -24,6 +24,8 @@ interface FormFieldProps {
    *  when two fields on the same panel would otherwise share a label, or
    *  when `label` isn't a plain string (no slug can be derived). */
   testId?: string;
+  /** Forwarded to the built-in input (e.g. `current-password`). */
+  autoComplete?: string;
 }
 
 const labelClasses: Record<'default' | 'sub', string> = {
@@ -31,11 +33,10 @@ const labelClasses: Record<'default' | 'sub', string> = {
   sub: 'block text-[10px] text-warm-gray mb-0.5',
 };
 
-// FormField has no htmlFor/id pairing (the label text carries formatting
-// hints inline, e.g. the required asterisk), so it isn't reachable via
-// getByLabel(). Every string-labeled instance gets a stable data-testid
-// derived from its label instead, without having to thread a prop through
-// every call site.
+// The label is associated with the control via a generated id (useId), so
+// getByLabelText() and screen readers work. Every string-labeled instance
+// also keeps a stable data-testid derived from its label, which existing
+// tests and e2e flows rely on.
 function slugify(label: string): string {
   return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
@@ -54,7 +55,14 @@ export function FormField({
   containerClassName = 'mb-3',
   children,
   testId,
+  autoComplete,
 }: FormFieldProps) {
+  const reactId = useId();
+  const inputId = `${reactId}-input`;
+  const labelId = `${reactId}-label`;
+  const errId = `${reactId}-err`;
+  const singleChild =
+    isValidElement(children) && (children as ReactElement<{ id?: string }>).props.id === undefined;
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (!autoFocus) return;
@@ -65,13 +73,38 @@ export function FormField({
   }, [autoFocus]);
   return (
     <div className={containerClassName}>
-      <label className={labelClasses[size]}>
+      <label id={labelId} htmlFor={children == null || singleChild ? inputId : undefined} className={labelClasses[size]}>
         {label}
-        {required && <span className="text-coral ml-0.5">*</span>}
+        {required && (
+          <span className="text-coral ml-0.5" aria-hidden="true">
+            *
+          </span>
+        )}
       </label>
-      {children ?? (
+      {children !== undefined && children !== null ? (
+        singleChild ? (
+          // Single control: give it an id and point the label at it.
+          <FieldChild
+            inputId={inputId}
+            errId={error ? errId : undefined}
+            required={required}
+            invalid={!!error}
+          >
+            {children as ReactElement<Record<string, unknown>>}
+          </FieldChild>
+        ) : (
+          <div role="group" aria-labelledby={labelId}>
+            {children}
+          </div>
+        )
+      ) : (
         <input
           ref={inputRef}
+          id={inputId}
+          aria-required={required || undefined}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errId : undefined}
+          autoComplete={autoComplete}
           data-testid={testId ?? (typeof label === 'string' ? `field-${slugify(label)}` : undefined)}
           type={type}
           value={value ?? ''}
@@ -84,9 +117,35 @@ export function FormField({
           disabled:opacity-50 disabled:cursor-not-allowed`}
         />
       )}
-      {error && <p className="text-red-500 text-xs mt-1">{error}</p>}
+      {error && (
+        <p id={errId} className="text-red-500 text-xs mt-1">
+          {error}
+        </p>
+      )}
     </div>
   );
+}
+
+function FieldChild({
+  children,
+  inputId,
+  errId,
+  required,
+  invalid,
+}: {
+  children: ReactElement<Record<string, unknown>>;
+  inputId: string;
+  errId?: string;
+  required?: boolean;
+  invalid: boolean;
+}) {
+  const p = children.props;
+  return cloneElement(children, {
+    id: inputId,
+    'aria-required': p['aria-required'] ?? (required || undefined),
+    'aria-invalid': p['aria-invalid'] ?? (invalid || undefined),
+    'aria-describedby': p['aria-describedby'] ?? errId,
+  });
 }
 
 interface CheckboxFieldProps {

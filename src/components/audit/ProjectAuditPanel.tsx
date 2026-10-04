@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store';
 import { AuthButton } from '../auth/AuthButton';
 import { ApiError } from '../../services/authApi';
@@ -16,19 +16,29 @@ export function ProjectAuditPanel() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
+  // Request counter: only the newest request may write state, so a slow
+  // response for a previous project (or an earlier refresh) is dropped.
+  const reqRef = useRef(0);
+
   const loadInitial = useCallback(async () => {
     if (!projectId) return;
+    const my = ++reqRef.current;
+    // New project: drop the previous project's events immediately.
+    setEvents([]);
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
     setDone(false);
     try {
       const res = await listProjectAudit(projectId, { limit: PAGE_SIZE });
+      if (my !== reqRef.current) return;
       setEvents(res.events);
       if (res.events.length < PAGE_SIZE) setDone(true);
     } catch (err) {
+      if (my !== reqRef.current) return;
       setError(err instanceof ApiError ? err.message : 'Could not load activity');
     } finally {
-      setLoading(false);
+      if (my === reqRef.current) setLoading(false);
     }
   }, [projectId]);
 
@@ -38,17 +48,20 @@ export function ProjectAuditPanel() {
 
   const loadMore = async () => {
     if (!projectId || events.length === 0 || done) return;
+    const my = ++reqRef.current;
     setLoadingMore(true);
     setError(null);
     try {
       const last = events[events.length - 1];
       const res = await listProjectAudit(projectId, { limit: PAGE_SIZE, before: last.id });
+      if (my !== reqRef.current) return;
       setEvents((prev) => [...prev, ...res.events]);
       if (res.events.length < PAGE_SIZE) setDone(true);
     } catch (err) {
+      if (my !== reqRef.current) return;
       setError(err instanceof ApiError ? err.message : 'Could not load more activity');
     } finally {
-      setLoadingMore(false);
+      if (my === reqRef.current) setLoadingMore(false);
     }
   };
 

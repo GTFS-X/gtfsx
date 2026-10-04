@@ -11,7 +11,9 @@ import { useEditorPlan } from '../billing/useEditorPlan';
 import { SignInRequiredLink } from '../billing/SignInRequired';
 import { planHasFeature, cheapestPlanFor, planDisplayName } from '../billing/planConfig';
 import { downloadBlob } from '../../services/gtfsExport';
-import { fetchCensusData, lookupFips } from '../../services/demographics';
+import { fetchServiceAreaBlockGroups } from './serviceAreaCensus';
+import { beginAnalysis } from './analysisEpoch';
+import { ACS_YEAR } from '../../generated/acsVintage';
 import type { CoverageData } from '../../store/coverageSlice';
 import {
   getBufferForRoute,
@@ -232,6 +234,8 @@ export function CoveragePanel() {
   const handleAnalyze = useCallback(async () => {
     if (stops.length === 0) return;
 
+    // Results are dropped if the user switches feeds or re-runs mid-analysis.
+    const isCurrent = beginAnalysis('coverage');
     setIsFetchingCoverage(true);
     setCoverageError(null);
     setWalkshedNotice(null);
@@ -241,15 +245,11 @@ export function CoveragePanel() {
     const networkMode = useNetworkWalksheds && canUseWalksheds;
 
     try {
-      // Compute centroid of all stops
-      const avgLat = stops.reduce((sum, s) => sum + s.stop_lat, 0) / stops.length;
-      const avgLon = stops.reduce((sum, s) => sum + s.stop_lon, 0) / stops.length;
-
-      // Look up FIPS codes
-      const { stateFips, countyFips } = await lookupFips(avgLat, avgLon);
-
-      // Fetch Census block group data
-      const blockGroups = await fetchCensusData(stateFips, countyFips);
+      // Census block groups for every county the stops fall in (not just the
+      // centroid's county).
+      const blockGroups = await fetchServiceAreaBlockGroups(stops);
+      if (!isCurrent()) return;
+      const stateFips = blockGroups[0]?.geoid.slice(0, 2) ?? '';
 
       // Get the full store state for headway calculations
       const state = useStore.getState();
@@ -374,6 +374,7 @@ export function CoveragePanel() {
         }
       }
 
+      if (!isCurrent()) return;
       setCoverageData({
         blockGroups,
         systemResult,
@@ -388,9 +389,10 @@ export function CoveragePanel() {
           : { mode: 'buffer' },
       });
     } catch (err) {
+      if (!isCurrent()) return;
       setCoverageError(err instanceof Error ? err.message : 'Failed to fetch coverage data');
     } finally {
-      setIsFetchingCoverage(false);
+      if (isCurrent()) setIsFetchingCoverage(false);
     }
   }, [
     stops,
@@ -488,7 +490,9 @@ export function CoveragePanel() {
                   ? coverageData.walkshed.auto
                     ? ' (auto walk network)'
                     : ` (${coverageData.walkshed.minutes}-min walk network)`
-                  : ' (1/4 mi buffer)'}
+                  : routes.some((r) => r.route_type === 0)
+                    ? ' (¼ mi buffer; ½ mi for tram)'
+                    : ' (¼ mi buffer)'}
               </h3>
               <CsvButton
                 onClick={() =>
@@ -773,7 +777,7 @@ function DemographicProfile({ coverage, baseline }: { coverage: DemographicShare
       </div>
       <p className="text-[10px] text-warm-gray">
         Ratio = coverage share ÷ county share. Above 1.0 means the served area over-represents that
-        group; below 0.8 may warrant a closer look. Source: ACS 5-year (2022), block-group level.
+        group; below 0.8 may warrant a closer look. Source: ACS 5-year ({ACS_YEAR}), block-group level.
       </p>
     </div>
   );
