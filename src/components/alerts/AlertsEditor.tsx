@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store';
 import { FormField } from '../ui/FormField';
 import {
@@ -18,6 +18,7 @@ import {
   type RtCoexistence,
 } from '../../services/alertsApi';
 import { ApiError } from '../../services/authApi';
+import { entityComplete, entityKind, expandEntities, type EntityKind } from './alertEntities';
 
 // ─── datetime-local ⇄ epoch-seconds helpers ──────────────────────────────────
 
@@ -53,36 +54,6 @@ function isCurrentlyActive(a: ServiceAlert, nowSec: number): boolean {
   });
 }
 
-// ─── Entity selector type ─────────────────────────────────────────────────────
-
-type EntityKind = 'route' | 'stop' | 'agency';
-
-// Key off which field is PRESENT, not truthy — an unselected Route row
-// (`{ route_id: '' }`) must stay "route", not collapse to "whole feed".
-function entityKind(e: InformedEntity): EntityKind {
-  if ('stop_id' in e) return 'stop';
-  if ('route_id' in e) return 'route';
-  return 'agency';
-}
-
-// "Whole feed" scope. On feeds whose single agency has a blank agency_id (valid
-// GTFS, common for small agencies), a GTFS-RT agency_id selector can't be
-// serialized — so resolve "whole feed" to the agency_id when present, else to
-// every route_id (the only entities a consumer can actually match).
-function expandEntities(entities: InformedEntity[], routes: RouteLite[]): InformedEntity[] {
-  return entities.flatMap((e) => {
-    if (entityKind(e) !== 'agency') return [e];
-    return e.agency_id ? [{ agency_id: e.agency_id }] : routes.map((r) => ({ route_id: r.route_id }));
-  });
-}
-
-function entityComplete(e: InformedEntity, hasRoutes: boolean): boolean {
-  const kind = entityKind(e);
-  if (kind === 'stop') return !!e.stop_id;
-  if (kind === 'route') return !!e.route_id;
-  return !!e.agency_id || hasRoutes; // whole feed: agency_id or expandable to routes
-}
-
 const EMPTY_INPUT: AlertInput = {
   cause: 'UNKNOWN_CAUSE',
   effect: 'SIGNIFICANT_DELAYS',
@@ -107,17 +78,33 @@ export function AlertsEditor() {
   const [editing, setEditing] = useState<ServiceAlert | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Only the newest listAlerts response may land: a slow response for the
+  // previous feed must not overwrite this one's list (C3-24).
+  const requestRef = useRef(0);
   const reload = useCallback(async () => {
     if (!projectId) return;
+    const mine = ++requestRef.current;
     try {
       const res = await listAlerts(projectId);
+      if (mine !== requestRef.current) return;
       setAlerts(res.alerts);
       setCoexistence(res.rt_coexistence);
       setError(null);
     } catch (e) {
+      if (mine !== requestRef.current) return;
       setError(e instanceof ApiError ? e.message : 'Could not load alerts.');
     }
   }, [projectId]);
+
+  // A different feed: drop the previous feed's list before its own loads.
+  const [shownProjectId, setShownProjectId] = useState(projectId);
+  if (shownProjectId !== projectId) {
+    setShownProjectId(projectId);
+    setAlerts(null);
+    setCoexistence(null);
+    setEditing(null);
+    setError(null);
+  }
 
   useEffect(() => {
     void reload();
@@ -397,7 +384,7 @@ function AlertForm({
     // "whole feed" scope to concrete entities the published feed can match.
     onSave({
       ...form,
-      informed_entities: expandEntities(form.informed_entities, routes),
+      informed_entities: expandEntities(form.informed_entities, routes, agencies),
       description_text: form.description_text?.trim() ? form.description_text : null,
       url: form.url?.trim() ? form.url : null,
     });

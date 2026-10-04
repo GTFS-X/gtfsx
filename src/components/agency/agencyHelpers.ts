@@ -41,3 +41,33 @@ export function agencyReferenceCount(
   const fareCount = fareAttributes.filter((f) => (f.agency_id ?? '') === id).length;
   return { routes: routeCount, fares: fareCount, total: routeCount + fareCount };
 }
+
+/**
+ * Timezone picker contents (C3-15). The picker used to offer six US zones with
+ * no fallback, so America/Phoenix, Puerto Rico, Canadian and every non-US zone
+ * rendered as America/New_York, and re-picking wrote the wrong zone.
+ *
+ * `common` is the short US list shown first; `all` is every IANA zone the
+ * browser knows (Intl.supportedValuesOf) minus the common ones; `extra` holds
+ * the current value when neither list has it (an alias such as "US/Arizona",
+ * or an older runtime), so the select always shows what is stored.
+ */
+export function timezoneOptions(
+  current: string | undefined,
+  common: readonly string[],
+  supported: readonly string[] | null = supportedTimeZones(),
+): { extra: string | null; common: string[]; all: string[] } {
+  const commonSet = new Set(common);
+  const all = (supported ?? []).filter((tz) => !commonSet.has(tz));
+  const known = current ? commonSet.has(current) || all.includes(current) : true;
+  return { extra: current && !known ? current : null, common: [...common], all };
+}
+
+function supportedTimeZones(): string[] | null {
+  try {
+    const fn = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
+    return fn ? fn('timeZone') : null;
+  } catch {
+    return null;
+  }
+}

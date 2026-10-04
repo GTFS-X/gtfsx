@@ -10,6 +10,7 @@ import {
 } from '../../services/translations';
 import { RailDivider, RailSubHeading } from '../ui/RailHeadings';
 import { Button } from '../ui/Button';
+import { pendingAfterEdit } from './pendingLanguages';
 import { LanguagePicker } from './LanguagePicker';
 
 /** One translatable value: a field of one record, or every occurrence of an
@@ -150,7 +151,12 @@ export function TranslationsEditor({ title, targets, hint, divider = true }: Tra
                 type="text"
                 lang={language}
                 value={valueFor(target, language)}
-                onChange={(e) => upsertTranslation({ ...refOf(target, language), translation: e.target.value })}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  // Clearing deletes the row; keep the card open (C3-14).
+                  setPending((p) => pendingAfterEdit(p, language, value));
+                  upsertTranslation({ ...refOf(target, language), translation: value });
+                }}
                 placeholder={target.original || 'Translation'}
                 data-testid={`translation-${target.id}-${language}`}
                 className="w-full px-3 py-1.5 border-2 border-sand rounded-lg text-sm text-dark-brown bg-cream focus:outline-none focus:border-coral focus:bg-white"
