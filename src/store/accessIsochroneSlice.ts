@@ -34,7 +34,10 @@ export interface AccessIsochroneSlice {
   setAccessResult: (result: AccessIsochroneResult | null) => void;
   setAccessRunning: (v: boolean) => void;
   setAccessError: (err: string | null) => void;
-  /** Reset the whole analysis (pin, result, error) — leaves params as-is. */
+  /** Reset the whole analysis (pin, result, error). Keeps the budgets, time
+   *  and walk settings, but drops the chosen service: a service_id from the
+   *  previous feed (or a since-deleted service) would otherwise stay selected
+   *  invisibly while the picker shows the default. */
   clearAccessIsochrone: () => void;
 }
 
@@ -59,5 +62,6 @@ export const createAccessIsochroneSlice: StateCreator<
     s.accessResult = null;
     s.accessError = null;
     s.accessRunning = false;
+    s.accessParams.serviceId = null;
   }),
 });

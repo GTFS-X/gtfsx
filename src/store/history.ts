@@ -14,8 +14,10 @@
 // The undo/redo stacks live in module scope (NOT in the Zustand store) so the
 // patch payloads never enter the autosave subscription or React's feed-data
 // reactivity. A tiny separate store (`useHistoryUi`) carries just the reactive
-// metadata the buttons + toast need. Session-scoped: nothing is persisted to
-// IndexedDB (Dexie remains the durability source of truth).
+// metadata the buttons + toast need. Session-scoped: nothing is persisted.
+// (Durability is the server working state for server feeds; the IndexedDB
+// autosave of an anonymous draft is a write-only cache that is never read back
+// on reload, so it is not a recovery path either.)
 
 import { applyPatches, enablePatches, type Patch } from 'immer';
 import { create } from 'zustand';
@@ -48,6 +50,25 @@ export const HISTORY_LIMIT = 100;
  *  collapse into a single undo step. */
 export const COALESCE_WINDOW_MS = 500;
 
+/**
+ * Payload budget for the undo/redo stacks, in array elements. A patch whose
+ * value is an array (a filter-replace of `stopTimes`, a transaction's
+ * whole-key replace) pins that whole array in memory for as long as the entry
+ * lives. On a multi-million-row feed, 100 bulk deletes would hold 100 distinct
+ * stop_times arrays, so the oldest entries are evicted while the summed weight
+ * of the stack exceeds this budget, on top of HISTORY_LIMIT. Small edits weigh
+ * ~1 each, so ordinary editing keeps the full 100-step depth.
+ */
+export const HISTORY_PAYLOAD_BUDGET = 20_000_000;
+let payloadBudget = HISTORY_PAYLOAD_BUDGET;
+
+/** Test hook: override the payload budget. Returns the previous value. */
+export function setHistoryPayloadBudget(elements: number): number {
+  const prev = payloadBudget;
+  payloadBudget = elements;
+  return prev;
+}
+
 interface HistoryEntry {
   /** Forward patches (redo): base → state-after-edit. */
   patches: Patch[];
@@ -58,6 +79,36 @@ interface HistoryEntry {
   /** Coalescing key, or null for a discrete (non-coalescing) edit. */
   coalesceKey: string | null;
   ts: number;
+  /** Retained payload size in array elements (see HISTORY_PAYLOAD_BUDGET). */
+  weight: number;
+  /**
+   * Set by historyTransaction: the top-level feed keys the transaction changed,
+   * by reference, before and after. Undo/redo swap those references back in
+   * directly instead of applying patches, so a transaction over a huge table
+   * neither deep-clones it nor re-runs per-row patches.
+   */
+  refs?: { before: Record<string, unknown>; after: Record<string, unknown> };
+}
+
+/** Elements an entry's payload pins in memory: array-valued patch values count
+ *  their length, any other value counts as one. */
+function payloadWeight(...lists: Patch[][]): number {
+  let w = 0;
+  for (const list of lists) {
+    for (const p of list) {
+      const v = (p as { value?: unknown }).value;
+      w += Array.isArray(v) ? v.length : 1;
+    }
+  }
+  return w;
+}
+
+function refsWeight(refs: { before: Record<string, unknown>; after: Record<string, unknown> }): number {
+  let w = 0;
+  for (const side of [refs.before, refs.after]) {
+    for (const v of Object.values(side)) w += Array.isArray(v) ? v.length : 1;
+  }
+  return w;
 }
 
 let undoStack: HistoryEntry[] = [];
@@ -120,6 +171,99 @@ export function runWithoutHistory<T>(fn: () => T): T {
   } finally {
     suppressDepth -= 1;
   }
+}
+
+/**
+ * Run `fn` as ONE undo step, however many store writes it makes.
+ *
+ * Bulk operations (merge import, delete-all-shown, copy-from-service, a
+ * multi-entity create) otherwise record one entry per `set()`, which both
+ * splits a single user action across many undos and, past HISTORY_LIMIT,
+ * evicts all the history that came before it. Here recording is suspended
+ * while `fn` runs; afterwards the top-level HISTORY_KEYS that changed are
+ * recorded as one entry of whole-key reference swaps (cheap: references only,
+ * no copies). A transaction nested inside another transaction, or inside
+ * runWithoutHistory / loadingFeed, just runs `fn` and lets the outer scope
+ * decide.
+ *
+ * `fn` must be synchronous: recording is suspended for its whole duration, so
+ * awaiting inside it would also swallow unrelated edits made meanwhile. If
+ * `fn` throws, whatever it already changed is still recorded (so the partial
+ * change can be undone) and the error is rethrown.
+ *
+ * `label` names the step in the undo toast ("Undo: <label>").
+ */
+export function historyTransaction<T>(label: string, fn: () => T): T {
+  if (suppressDepth > 0 || !bound) return fn();
+  const before = bound.getState();
+  suppressDepth += 1;
+  try {
+    return fn();
+  } finally {
+    suppressDepth -= 1;
+    recordTransaction(label, before, bound.getState());
+  }
+}
+
+function recordTransaction(
+  label: string,
+  prev: Record<string, unknown>,
+  next: Record<string, unknown>,
+): void {
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+  for (const key of HISTORY_KEYS) {
+    if (prev[key] !== next[key]) {
+      before[key] = prev[key];
+      after[key] = next[key];
+    }
+  }
+  const keys = Object.keys(before);
+  if (keys.length === 0) return; // nothing undoable changed
+  trackFirstFeedEdit(primaryKey(new Set(keys)));
+  const refs = { before, after };
+  pushEntry({
+    patches: [],
+    inverse: [],
+    label,
+    coalesceKey: null,
+    ts: Date.now(),
+    weight: refsWeight(refs),
+    refs,
+  });
+}
+
+/** Push a new undo entry, enforce the depth + payload caps, clear redo. */
+function pushEntry(entry: HistoryEntry): void {
+  undoStack.push(entry);
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  redoStack = [];
+  evictOverBudget();
+  syncUi();
+}
+
+/** Drop the oldest undo entries while the stacks' summed payload exceeds the
+ *  budget. Always keeps the newest entry so the latest edit stays undoable. */
+function evictOverBudget(): void {
+  let total = 0;
+  for (const e of undoStack) total += e.weight;
+  for (const e of redoStack) total += e.weight;
+  while (total > payloadBudget && undoStack.length > 1) {
+    total -= undoStack.shift()!.weight;
+  }
+}
+
+/** Apply one entry's change to the bound store, in either direction. */
+function applyEntry(entry: HistoryEntry, direction: 'undo' | 'redo'): void {
+  runWithoutHistory(() => {
+    const cur = bound!.getState();
+    if (entry.refs) {
+      const swap = direction === 'undo' ? entry.refs.before : entry.refs.after;
+      bound!.setState({ ...cur, ...swap }, true);
+    } else {
+      bound!.setState(applyPatches(cur, direction === 'undo' ? entry.inverse : entry.patches), true);
+    }
+  });
 }
 
 /** Clear both stacks — called when a different feed is imported/loaded so undo
@@ -253,24 +397,21 @@ export function recordChange(patches: Patch[], inverse: Patch[]): void {
     top.patches = [...top.patches, ...fwd];
     top.label = label;
     top.ts = now;
+    top.weight += payloadWeight(fwd, inv);
     redoStack = [];
+    evictOverBudget();
     syncUi();
     return;
   }
 
-  undoStack.push({ patches: fwd, inverse: inv, label, coalesceKey, ts: now });
-  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
-  redoStack = [];
-  syncUi();
+  pushEntry({ patches: fwd, inverse: inv, label, coalesceKey, ts: now, weight: payloadWeight(fwd, inv) });
 }
 
 /** Revert the most recent edit. Returns its label, or null if nothing to undo. */
 export function undo(): string | null {
   if (!bound || undoStack.length === 0) return null;
   const entry = undoStack.pop()!;
-  runWithoutHistory(() => {
-    bound!.setState(applyPatches(bound!.getState(), entry.inverse), true);
-  });
+  applyEntry(entry, 'undo');
   redoStack.push(entry);
   syncUi(`Undo: ${entry.label}`);
   return entry.label;
@@ -280,9 +421,7 @@ export function undo(): string | null {
 export function redo(): string | null {
   if (!bound || redoStack.length === 0) return null;
   const entry = redoStack.pop()!;
-  runWithoutHistory(() => {
-    bound!.setState(applyPatches(bound!.getState(), entry.patches), true);
-  });
+  applyEntry(entry, 'redo');
   undoStack.push(entry);
   syncUi(`Redo: ${entry.label}`);
   return entry.label;

@@ -13,6 +13,48 @@ import type {
 } from '../types/gtfs';
 
 /**
+ * Outcome of a Fares v2 delete. `removed` is false when other rows still
+ * reference the id; the arrays hold the indices of those rows (in
+ * fareLegRules / fareTransferRules / fareProducts) so the editor can say what
+ * is in the way. All empty when `removed` is true.
+ */
+export interface FareV2RemovalResult {
+  removed: boolean;
+  fareLegRules: number[];
+  fareTransferRules: number[];
+  fareProducts: number[];
+}
+
+function removedResult(): FareV2RemovalResult {
+  return { removed: true, fareLegRules: [], fareTransferRules: [], fareProducts: [] };
+}
+
+function indicesWhere<T>(rows: readonly T[], pred: (row: T) => boolean): number[] {
+  const out: number[] = [];
+  rows.forEach((r, i) => { if (pred(r)) out.push(i); });
+  return out;
+}
+
+/** A refusal when any of the reference lists is non-empty, else null. */
+function refusal(refs: Partial<Omit<FareV2RemovalResult, 'removed'>>): FareV2RemovalResult | null {
+  const r: FareV2RemovalResult = {
+    removed: false,
+    fareLegRules: refs.fareLegRules ?? [],
+    fareTransferRules: refs.fareTransferRules ?? [],
+    fareProducts: refs.fareProducts ?? [],
+  };
+  return r.fareLegRules.length + r.fareTransferRules.length + r.fareProducts.length > 0 ? r : null;
+}
+
+/** fare_products.txt's primary key is (fare_product_id, rider_category_id,
+ *  fare_media_id): one product id may have a row per rider category / medium. */
+function sameProductRow(a: FareProduct, b: FareProduct): boolean {
+  return a.fare_product_id === b.fare_product_id
+    && (a.rider_category_id ?? '') === (b.rider_category_id ?? '')
+    && (a.fare_media_id ?? '') === (b.fare_media_id ?? '');
+}
+
+/**
  * GTFS-Fares v2 store. Holds parsed entities so they round-trip through
  * import/export, plus authoring CRUD for the editors that have shipped.
  *
@@ -22,9 +64,12 @@ import type {
  *     fare_transfer_rules, networks/route_networks, timeframes — CRUD editors
  *     (shipped). The cross-file references (rider category / fare media on a
  *     product; networks/areas/timeframes/products on leg rules; leg groups /
- *     products on transfer rules) are kept consistent here: renames cascade and
- *     deletes either clear or drop dependent rows so the store never holds a
- *     dangling foreign key.
+ *     products on transfer rules) are kept consistent here: renames cascade,
+ *     and a delete is REFUSED while another row still references the id (it
+ *     returns a FareV2RemovalResult naming the blocking rows). Clearing the
+ *     reference instead would silently broaden a rule: a leg rule with no
+ *     network matches every network, a product with no rider category applies
+ *     to every rider, a transfer rule with no product is a free transfer.
  *
  * Row-keyed vs index-keyed CRUD: files with a unique id (areas, rider
  * categories, media, products, networks) are addressed by that id. Files with
@@ -59,11 +104,13 @@ export interface FareV2Slice {
   addFareArea: (area: FareArea) => void;
   /** Update area_name (and any other fields) for an existing area. */
   updateFareArea: (areaId: string, updates: Partial<Omit<FareArea, 'area_id'>>) => void;
-  /** Rename an area_id, cascading the change to its stop_areas mappings.
+  /** Rename an area_id, cascading the change to its stop_areas mappings and
+   *  to leg rules' from/to_area_id.
    *  No-op on collision (newId already in use) — merging areas is never silent. */
   renameFareAreaId: (oldId: string, newId: string) => void;
-  /** Delete an area and every stop_areas mapping that references it. */
-  removeFareArea: (areaId: string) => void;
+  /** Delete an area and every stop_areas mapping that references it.
+   *  Refused while a leg rule uses it as from/to area. */
+  removeFareArea: (areaId: string) => FareV2RemovalResult;
   /** Assign a stop to an area. No-op if the (area_id, stop_id) pair exists. */
   addStopToArea: (areaId: string, stopId: string) => void;
   /** Bulk-assign many stops to an area in one update, deduping against the
@@ -80,34 +127,45 @@ export interface FareV2Slice {
   updateRiderCategory: (id: string, updates: Partial<Omit<RiderCategory, 'rider_category_id'>>) => void;
   /** Rename a rider_category_id, cascading to fare_products that reference it. */
   renameRiderCategoryId: (oldId: string, newId: string) => void;
-  /** Delete a category; clears the reference on any fare_products that used it. */
-  removeRiderCategory: (id: string) => void;
+  /** Delete a category. Refused while a fare product is priced for it. */
+  removeRiderCategory: (id: string) => FareV2RemovalResult;
 
   // ── Fare media (fare_media.txt) ───────────────────────────────────────────
   addFareMediaItem: (media: FareMedia) => void;
   updateFareMediaItem: (id: string, updates: Partial<Omit<FareMedia, 'fare_media_id'>>) => void;
   /** Rename a fare_media_id, cascading to fare_products that reference it. */
   renameFareMediaId: (oldId: string, newId: string) => void;
-  /** Delete a medium; clears the reference on any fare_products that used it. */
-  removeFareMediaItem: (id: string) => void;
+  /** Delete a medium. Refused while a fare product is priced for it. */
+  removeFareMediaItem: (id: string) => FareV2RemovalResult;
 
   // ── Fare products (fare_products.txt) ─────────────────────────────────────
+  /** Add a product row. No-op when a row with the same primary key
+   *  (fare_product_id, rider_category_id, fare_media_id) exists; one product
+   *  id may carry a row per rider category / fare medium. */
   addFareProduct: (product: FareProduct) => void;
+  /** Update the FIRST row with this id. Prefer updateFareProductAt when a
+   *  product id has several rows. */
   updateFareProduct: (id: string, updates: Partial<Omit<FareProduct, 'fare_product_id'>>) => void;
-  /** Rename a fare_product_id, cascading to leg/transfer rules that reference it. */
+  /** Update one product row by its index in fareProducts. */
+  updateFareProductAt: (index: number, updates: Partial<Omit<FareProduct, 'fare_product_id'>>) => void;
+  /** Rename a fare_product_id on EVERY row that carries it, cascading to
+   *  leg/transfer rules. No-op when newId is already another product's id. */
   renameFareProductId: (oldId: string, newId: string) => void;
-  /** Delete a product; removes leg rules that point at it (fare_product_id is
-   *  required on a leg rule) and clears it from any transfer rules. */
-  removeFareProduct: (id: string) => void;
+  /** Delete every row of a product. Refused while a leg rule or transfer rule
+   *  is priced with it. */
+  removeFareProduct: (id: string) => FareV2RemovalResult;
+  /** Delete one product row by index. When it is the id's last row, the same
+   *  reference check as removeFareProduct applies. */
+  removeFareProductAt: (index: number) => FareV2RemovalResult;
 
   // ── Networks (networks.txt + route_networks.txt) ──────────────────────────
   addFareNetwork: (net: FareNetwork) => void;
   updateFareNetwork: (id: string, updates: Partial<Omit<FareNetwork, 'network_id'>>) => void;
   /** Rename a network_id, cascading to route_networks + leg rules. */
   renameFareNetworkId: (oldId: string, newId: string) => void;
-  /** Delete a network and its route_networks mappings; clears the reference on
-   *  any leg rules that used it. */
-  removeFareNetwork: (id: string) => void;
+  /** Delete a network and its route_networks mappings. Refused while a leg
+   *  rule is scoped to it. */
+  removeFareNetwork: (id: string) => FareV2RemovalResult;
   /** Assign a route to a network. No-op if the (network_id, route_id) pair exists.
    *  A route may belong to at most one network — assigning moves it. */
   addRouteToNetwork: (networkId: string, routeId: string) => void;
@@ -119,14 +177,18 @@ export interface FareV2Slice {
    *  timeframe_group_id spans many (start, end, service) windows. */
   addTimeframe: (tf: Timeframe) => void;
   updateTimeframe: (index: number, updates: Partial<Timeframe>) => void;
-  removeTimeframe: (index: number) => void;
+  /** Delete one timeframe row. Refused when it is the last row of its
+   *  timeframe_group_id and a leg rule references that group. */
+  removeTimeframe: (index: number) => FareV2RemovalResult;
   /** Rename a timeframe_group_id across every row, cascading to leg rules. */
   renameTimeframeGroupId: (oldId: string, newId: string) => void;
 
   // ── Fare leg rules (fare_leg_rules.txt) ───────────────────────────────────
   addFareLegRule: (rule: FareLegRule) => void;
   updateFareLegRule: (index: number, updates: Partial<FareLegRule>) => void;
-  removeFareLegRule: (index: number) => void;
+  /** Delete one leg rule. Refused when it is the last rule of its
+   *  leg_group_id and a transfer rule references that group. */
+  removeFareLegRule: (index: number) => FareV2RemovalResult;
 
   // ── Fare transfer rules (fare_transfer_rules.txt) ─────────────────────────
   addFareTransferRule: (rule: FareTransferRule) => void;
@@ -134,7 +196,18 @@ export interface FareV2Slice {
   removeFareTransferRule: (index: number) => void;
 }
 
-export const createFareV2Slice: StateCreator<FareV2Slice, [['zustand/immer', never]], [], FareV2Slice> = (set) => ({
+/** Leg and transfer rules priced with product `id`. */
+function productRefusal(
+  st: Pick<FareV2Slice, 'fareLegRules' | 'fareTransferRules'>,
+  id: string,
+): FareV2RemovalResult | null {
+  return refusal({
+    fareLegRules: indicesWhere(st.fareLegRules, (r) => r.fare_product_id === id),
+    fareTransferRules: indicesWhere(st.fareTransferRules, (r) => r.fare_product_id === id),
+  });
+}
+
+export const createFareV2Slice: StateCreator<FareV2Slice, [['zustand/immer', never]], [], FareV2Slice> = (set, get) => ({
   fareAreas: [],
   stopAreas: [],
   fareNetworks: [],
@@ -174,11 +247,22 @@ export const createFareV2Slice: StateCreator<FareV2Slice, [['zustand/immer', nev
     for (const sa of state.stopAreas) {
       if (sa.area_id === oldId) sa.area_id = newId;
     }
+    for (const r of state.fareLegRules) {
+      if (r.from_area_id === oldId) r.from_area_id = newId;
+      if (r.to_area_id === oldId) r.to_area_id = newId;
+    }
   }),
-  removeFareArea: (areaId) => set((state) => {
-    state.fareAreas = state.fareAreas.filter((a) => a.area_id !== areaId);
-    state.stopAreas = state.stopAreas.filter((sa) => sa.area_id !== areaId);
-  }),
+  removeFareArea: (areaId) => {
+    const blocked = refusal({
+      fareLegRules: indicesWhere(get().fareLegRules, (r) => r.from_area_id === areaId || r.to_area_id === areaId),
+    });
+    if (blocked) return blocked;
+    set((state) => {
+      state.fareAreas = state.fareAreas.filter((a) => a.area_id !== areaId);
+      state.stopAreas = state.stopAreas.filter((sa) => sa.area_id !== areaId);
+    });
+    return removedResult();
+  },
   addStopToArea: (areaId, stopId) => set((state) => {
     if (state.stopAreas.some((sa) => sa.area_id === areaId && sa.stop_id === stopId)) return;
     state.stopAreas.push({ area_id: areaId, stop_id: stopId });
@@ -218,12 +302,16 @@ export const createFareV2Slice: StateCreator<FareV2Slice, [['zustand/immer', nev
       if (p.rider_category_id === oldId) p.rider_category_id = newId;
     }
   }),
-  removeRiderCategory: (id) => set((state) => {
-    state.riderCategories = state.riderCategories.filter((c) => c.rider_category_id !== id);
-    for (const p of state.fareProducts) {
-      if (p.rider_category_id === id) p.rider_category_id = undefined;
-    }
-  }),
+  removeRiderCategory: (id) => {
+    const blocked = refusal({
+      fareProducts: indicesWhere(get().fareProducts, (p) => p.rider_category_id === id),
+    });
+    if (blocked) return blocked;
+    set((state) => {
+      state.riderCategories = state.riderCategories.filter((c) => c.rider_category_id !== id);
+    });
+    return removedResult();
+  },
 
   // ── Fare media ────────────────────────────────────────────────────────────
   addFareMediaItem: (media) => set((state) => {
@@ -244,28 +332,37 @@ export const createFareV2Slice: StateCreator<FareV2Slice, [['zustand/immer', nev
       if (p.fare_media_id === oldId) p.fare_media_id = newId;
     }
   }),
-  removeFareMediaItem: (id) => set((state) => {
-    state.fareMedia = state.fareMedia.filter((m) => m.fare_media_id !== id);
-    for (const p of state.fareProducts) {
-      if (p.fare_media_id === id) p.fare_media_id = undefined;
-    }
-  }),
+  removeFareMediaItem: (id) => {
+    const blocked = refusal({
+      fareProducts: indicesWhere(get().fareProducts, (p) => p.fare_media_id === id),
+    });
+    if (blocked) return blocked;
+    set((state) => {
+      state.fareMedia = state.fareMedia.filter((m) => m.fare_media_id !== id);
+    });
+    return removedResult();
+  },
 
   // ── Fare products ─────────────────────────────────────────────────────────
   addFareProduct: (product) => set((state) => {
-    if (state.fareProducts.some((p) => p.fare_product_id === product.fare_product_id)) return;
+    if (state.fareProducts.some((p) => sameProductRow(p, product))) return;
     state.fareProducts.push(product);
   }),
   updateFareProduct: (id, updates) => set((state) => {
     const p = state.fareProducts.find((x) => x.fare_product_id === id);
     if (p) Object.assign(p, updates);
   }),
+  updateFareProductAt: (index, updates) => set((state) => {
+    const p = state.fareProducts[index];
+    if (p) Object.assign(p, updates);
+  }),
   renameFareProductId: (oldId, newId) => set((state) => {
     if (oldId === newId) return;
     if (state.fareProducts.some((p) => p.fare_product_id === newId)) return;
-    const p = state.fareProducts.find((x) => x.fare_product_id === oldId);
-    if (!p) return;
-    p.fare_product_id = newId;
+    if (!state.fareProducts.some((p) => p.fare_product_id === oldId)) return;
+    for (const p of state.fareProducts) {
+      if (p.fare_product_id === oldId) p.fare_product_id = newId;
+    }
     for (const r of state.fareLegRules) {
       if (r.fare_product_id === oldId) r.fare_product_id = newId;
     }
@@ -273,15 +370,26 @@ export const createFareV2Slice: StateCreator<FareV2Slice, [['zustand/immer', nev
       if (r.fare_product_id === oldId) r.fare_product_id = newId;
     }
   }),
-  removeFareProduct: (id) => set((state) => {
-    state.fareProducts = state.fareProducts.filter((p) => p.fare_product_id !== id);
-    // A leg rule with no fare_product_id is invalid, so drop those rows.
-    state.fareLegRules = state.fareLegRules.filter((r) => r.fare_product_id !== id);
-    // fare_product_id is optional on a transfer rule — just clear it.
-    for (const r of state.fareTransferRules) {
-      if (r.fare_product_id === id) r.fare_product_id = undefined;
+  removeFareProduct: (id) => {
+    const blocked = productRefusal(get(), id);
+    if (blocked) return blocked;
+    set((state) => {
+      state.fareProducts = state.fareProducts.filter((p) => p.fare_product_id !== id);
+    });
+    return removedResult();
+  },
+  removeFareProductAt: (index) => {
+    const products = get().fareProducts;
+    const row = products[index];
+    if (!row) return removedResult();
+    const lastRow = !products.some((p, i) => i !== index && p.fare_product_id === row.fare_product_id);
+    if (lastRow) {
+      const blocked = productRefusal(get(), row.fare_product_id);
+      if (blocked) return blocked;
     }
-  }),
+    set((state) => { state.fareProducts.splice(index, 1); });
+    return removedResult();
+  },
 
   // ── Networks + route_networks ─────────────────────────────────────────────
   addFareNetwork: (net) => set((state) => {
@@ -305,13 +413,17 @@ export const createFareV2Slice: StateCreator<FareV2Slice, [['zustand/immer', nev
       if (r.network_id === oldId) r.network_id = newId;
     }
   }),
-  removeFareNetwork: (id) => set((state) => {
-    state.fareNetworks = state.fareNetworks.filter((n) => n.network_id !== id);
-    state.routeNetworks = state.routeNetworks.filter((rn) => rn.network_id !== id);
-    for (const r of state.fareLegRules) {
-      if (r.network_id === id) r.network_id = undefined;
-    }
-  }),
+  removeFareNetwork: (id) => {
+    const blocked = refusal({
+      fareLegRules: indicesWhere(get().fareLegRules, (r) => r.network_id === id),
+    });
+    if (blocked) return blocked;
+    set((state) => {
+      state.fareNetworks = state.fareNetworks.filter((n) => n.network_id !== id);
+      state.routeNetworks = state.routeNetworks.filter((rn) => rn.network_id !== id);
+    });
+    return removedResult();
+  },
   addRouteToNetwork: (networkId, routeId) => set((state) => {
     if (state.routeNetworks.some((rn) => rn.network_id === networkId && rn.route_id === routeId)) return;
     // A route belongs to at most one network — reassigning moves it.
@@ -332,9 +444,24 @@ export const createFareV2Slice: StateCreator<FareV2Slice, [['zustand/immer', nev
     const tf = state.timeframes[index];
     if (tf) Object.assign(tf, updates);
   }),
-  removeTimeframe: (index) => set((state) => {
-    if (index >= 0 && index < state.timeframes.length) state.timeframes.splice(index, 1);
-  }),
+  removeTimeframe: (index) => {
+    const { timeframes, fareLegRules } = get();
+    const row = timeframes[index];
+    if (!row) return removedResult();
+    const group = row.timeframe_group_id;
+    const lastRow = !timeframes.some((t, i) => i !== index && t.timeframe_group_id === group);
+    if (lastRow) {
+      const blocked = refusal({
+        fareLegRules: indicesWhere(
+          fareLegRules,
+          (r) => r.from_timeframe_group_id === group || r.to_timeframe_group_id === group,
+        ),
+      });
+      if (blocked) return blocked;
+    }
+    set((state) => { state.timeframes.splice(index, 1); });
+    return removedResult();
+  },
   renameTimeframeGroupId: (oldId, newId) => set((state) => {
     if (oldId === newId) return;
     for (const tf of state.timeframes) {
@@ -354,9 +481,25 @@ export const createFareV2Slice: StateCreator<FareV2Slice, [['zustand/immer', nev
     const r = state.fareLegRules[index];
     if (r) Object.assign(r, updates);
   }),
-  removeFareLegRule: (index) => set((state) => {
-    if (index >= 0 && index < state.fareLegRules.length) state.fareLegRules.splice(index, 1);
-  }),
+  removeFareLegRule: (index) => {
+    const { fareLegRules, fareTransferRules } = get();
+    const rule = fareLegRules[index];
+    if (!rule) return removedResult();
+    const group = rule.leg_group_id;
+    const lastOfGroup = group !== undefined && group !== ''
+      && !fareLegRules.some((r, i) => i !== index && r.leg_group_id === group);
+    if (lastOfGroup) {
+      const blocked = refusal({
+        fareTransferRules: indicesWhere(
+          fareTransferRules,
+          (t) => t.from_leg_group_id === group || t.to_leg_group_id === group,
+        ),
+      });
+      if (blocked) return blocked;
+    }
+    set((state) => { state.fareLegRules.splice(index, 1); });
+    return removedResult();
+  },
 
   // ── Fare transfer rules ───────────────────────────────────────────────────
   addFareTransferRule: (rule) => set((state) => {

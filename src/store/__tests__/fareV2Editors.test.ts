@@ -49,14 +49,22 @@ describe('rider categories CRUD', () => {
     expect(st.fareProducts[0].rider_category_id).toBe('reg');
   });
 
-  it('delete clears the reference on products', () => {
+  // Clearing the category would turn a senior price into everyone's price, so
+  // a referenced category can't be deleted (S1-16).
+  it('delete is refused while a product is priced for the category', () => {
     const s = useStore.getState();
     s.addRiderCategory({ rider_category_id: 'snr', rider_category_name: 'Senior' });
     s.addFareProduct({ fare_product_id: 'p1', amount: '1', currency: 'USD', rider_category_id: 'snr' });
-    s.removeRiderCategory('snr');
+    const res = s.removeRiderCategory('snr');
+    expect(res.removed).toBe(false);
+    expect(res.fareProducts).toEqual([0]);
     const st = useStore.getState();
-    expect(st.riderCategories).toHaveLength(0);
-    expect(st.fareProducts[0].rider_category_id).toBeUndefined();
+    expect(st.riderCategories).toHaveLength(1);
+    expect(st.fareProducts[0].rider_category_id).toBe('snr');
+
+    s.setFareProducts([]);
+    expect(s.removeRiderCategory('snr').removed).toBe(true);
+    expect(useStore.getState().riderCategories).toHaveLength(0);
   });
 });
 
@@ -71,9 +79,14 @@ describe('fare media CRUD', () => {
     s.renameFareMediaId('cash', 'coin');
     expect(useStore.getState().fareProducts[0].fare_media_id).toBe('coin');
 
-    s.removeFareMediaItem('coin');
+    // Referenced by a product → refused, product unchanged.
+    expect(s.removeFareMediaItem('coin').removed).toBe(false);
+    expect(useStore.getState().fareMedia).toHaveLength(1);
+    expect(useStore.getState().fareProducts[0].fare_media_id).toBe('coin');
+
+    s.setFareProducts([]);
+    expect(s.removeFareMediaItem('coin').removed).toBe(true);
     expect(useStore.getState().fareMedia).toHaveLength(0);
-    expect(useStore.getState().fareProducts[0].fare_media_id).toBeUndefined();
   });
 });
 
@@ -89,15 +102,51 @@ describe('fare products CRUD', () => {
     expect(st.fareTransferRules[0].fare_product_id).toBe('single');
   });
 
-  it('delete drops leg rules pointing at it and clears transfer-rule refs', () => {
+  // Blanking a transfer rule's product makes the transfer free; dropping leg
+  // rules removes a fare. Neither is a safe side effect of a product delete.
+  it('delete is refused while leg or transfer rules are priced with it', () => {
     const s = useStore.getState();
     s.addFareProduct({ fare_product_id: 'p1', amount: '2', currency: 'USD' });
     s.addFareLegRule({ leg_group_id: 'lg1', fare_product_id: 'p1' });
     s.addFareTransferRule({ fare_transfer_type: 2, fare_product_id: 'p1' });
-    s.removeFareProduct('p1');
+    const res = s.removeFareProduct('p1');
+    expect(res).toMatchObject({ removed: false, fareLegRules: [0], fareTransferRules: [0] });
     const st = useStore.getState();
-    expect(st.fareLegRules).toHaveLength(0);
-    expect(st.fareTransferRules[0].fare_product_id).toBeUndefined();
+    expect(st.fareProducts).toHaveLength(1);
+    expect(st.fareLegRules).toHaveLength(1);
+    expect(st.fareTransferRules[0].fare_product_id).toBe('p1');
+
+    s.setFareLegRules([]);
+    s.setFareTransferRules([]);
+    expect(s.removeFareProduct('p1').removed).toBe(true);
+    expect(useStore.getState().fareProducts).toHaveLength(0);
+  });
+
+  // fare_products.txt is keyed (fare_product_id, rider_category_id,
+  // fare_media_id): one product id may have an adult and a senior row.
+  it('keeps one row per rider category; rename moves every row; row-level edit and delete', () => {
+    const s = useStore.getState();
+    s.addFareProduct({ fare_product_id: 'p1', amount: '2', currency: 'USD', rider_category_id: 'adult' });
+    s.addFareProduct({ fare_product_id: 'p1', amount: '1', currency: 'USD', rider_category_id: 'snr' });
+    s.addFareProduct({ fare_product_id: 'p1', amount: '9', currency: 'USD', rider_category_id: 'snr' }); // same key
+    expect(useStore.getState().fareProducts).toHaveLength(2);
+
+    s.updateFareProductAt(1, { amount: '0.75' });
+    expect(useStore.getState().fareProducts.map((p) => p.amount)).toEqual(['2', '0.75']);
+
+    s.addFareLegRule({ leg_group_id: 'lg', fare_product_id: 'p1' });
+    s.renameFareProductId('p1', 'single');
+    let st = useStore.getState();
+    expect(st.fareProducts.map((p) => p.fare_product_id)).toEqual(['single', 'single']);
+    expect(st.fareLegRules[0].fare_product_id).toBe('single');
+
+    // Not the id's last row → the row goes even though a leg rule uses the id.
+    expect(s.removeFareProductAt(1).removed).toBe(true);
+    // The last row is guarded like removeFareProduct.
+    expect(s.removeFareProductAt(0).removed).toBe(false);
+    st = useStore.getState();
+    expect(st.fareProducts).toHaveLength(1);
+    expect(st.fareProducts[0].rider_category_id).toBe('adult');
   });
 });
 
@@ -123,11 +172,19 @@ describe('networks + route_networks CRUD', () => {
     expect(st.routeNetworks[0].network_id).toBe('express');
     expect(st.fareLegRules[0].network_id).toBe('express');
 
-    // Delete removes mappings and clears leg-rule ref.
-    s.removeFareNetwork('express');
+    // A leg rule scoped to the network blocks the delete (clearing it would
+    // make the rule match every network).
+    const res = s.removeFareNetwork('express');
+    expect(res).toMatchObject({ removed: false, fareLegRules: [0] });
     const st2 = useStore.getState();
-    expect(st2.routeNetworks).toHaveLength(0);
-    expect(st2.fareLegRules[0].network_id).toBeUndefined();
+    expect(st2.fareNetworks.map((n) => n.network_id)).toContain('express');
+    expect(st2.routeNetworks).toHaveLength(1);
+    expect(st2.fareLegRules[0].network_id).toBe('express');
+
+    // Unreferenced: removes the network and its mappings.
+    s.setFareLegRules([]);
+    expect(s.removeFareNetwork('express').removed).toBe(true);
+    expect(useStore.getState().routeNetworks).toHaveLength(0);
   });
 });
 
@@ -149,10 +206,24 @@ describe('timeframes CRUD', () => {
 
     s.removeTimeframe(0);
     expect(useStore.getState().timeframes).toHaveLength(1);
+
+    // The group's LAST row is still referenced by the leg rule → refused.
+    expect(s.removeTimeframe(0)).toMatchObject({ removed: false, fareLegRules: [0] });
+    expect(useStore.getState().timeframes).toHaveLength(1);
   });
 });
 
 describe('leg + transfer rules CRUD', () => {
+  it("refuses to delete a leg group's last rule while a transfer rule uses the group", () => {
+    const s = useStore.getState();
+    s.addFareLegRule({ leg_group_id: 'LG', fare_product_id: 'p1' });
+    s.addFareLegRule({ leg_group_id: 'LG', fare_product_id: 'p2' });
+    s.addFareTransferRule({ from_leg_group_id: 'LG', to_leg_group_id: 'LG', fare_transfer_type: 0 });
+    expect(s.removeFareLegRule(0).removed).toBe(true); // another LG rule remains
+    expect(s.removeFareLegRule(0)).toMatchObject({ removed: false, fareTransferRules: [0] });
+    expect(useStore.getState().fareLegRules).toHaveLength(1);
+  });
+
   it('adds, updates, and removes index-keyed rows', () => {
     const s = useStore.getState();
     s.addFareLegRule({ fare_product_id: 'p1' });

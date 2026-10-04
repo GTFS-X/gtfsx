@@ -1,18 +1,31 @@
 import type { StateCreator } from 'zustand';
-import type { Route, RouteStop, Translation } from '../types/gtfs';
+import type { Route, RouteStop, Translation, Frequency, RouteNetwork } from '../types/gtfs';
 import { withoutTranslationsFor } from '../services/translations';
 import { generateId } from '../services/idGenerator';
 import { nextRouteStopSequence, sameRouteStopPattern } from '../services/routeStopMigration';
-import type { TripSlice } from './tripSlice';
+import { cascadeTripRemoval, type TripSlice } from './tripSlice';
 import type { ShapeSlice } from './shapeSlice';
 import type { FareSlice } from './fareSlice';
-import type { StopSlice } from './stopSlice';
+import { cascadeStopRemoval, type StopSlice } from './stopSlice';
 import type { FlexSlice } from './flexSlice';
 
 // Cross-slice mutations need to see fields from neighbouring slices.
 // Casting state to this intersection is narrower than `any` and surfaces
 // real typos in field names.
-type CrossSliceState = RouteSlice & TripSlice & ShapeSlice & FareSlice & StopSlice & FlexSlice & { translations?: Translation[] };
+type CrossSliceState = RouteSlice & TripSlice & ShapeSlice & FareSlice & StopSlice & FlexSlice & {
+  translations?: Translation[];
+  frequencies?: Frequency[];
+  routeNetworks?: RouteNetwork[];
+};
+
+/** What removeShapeFromRoute did, for the caller's confirmation copy. */
+export interface ShapeFromRouteRemoval {
+  /** Trips of this route on the shape that were deleted (with their
+   *  stop_times, frequencies and translations). */
+  removedTripIds: string[];
+  /** False when another route still uses the shape, so it was kept. */
+  shapeRemoved: boolean;
+}
 
 export interface RouteSlice {
   routes: Route[];
@@ -23,6 +36,14 @@ export interface RouteSlice {
   duplicateRoute: (route_id: string) => string | null;
   setRoutes: (routes: Route[]) => void;
   addRouteStop: (rs: RouteStop) => void;
+  /** Append a stop to the END of its pattern (route + shape, or route +
+   *  direction when shapeless). The stop_sequence is one past the highest
+   *  sequence already used by that pattern's route_stops AND by the matching
+   *  trips' stop_times (0 when both are empty), so it can never land on an
+   *  existing column, whatever the pattern's numbering (1-based imports, gaps
+   *  left by removals). Like addRouteStop, it seeds a blank stop_time on every
+   *  matching trip. Returns the stop_sequence it assigned. */
+  appendRouteStop: (rs: Omit<RouteStop, 'stop_sequence'>) => number;
   /** Remove a single route_stop instance, identified by its `_uid`. A pattern
    *  may list the same stop_id more than once, so removal is per-instance. */
   removeRouteStop: (route_id: string, _uid: string) => void;
@@ -32,8 +53,72 @@ export interface RouteSlice {
   /** Flip a shape's direction: retag its trips + route stops to the new
    *  direction, optionally reversing the stop order. Powers the
    *  draw → add stops → duplicate → flip-to-inbound workflow. */
-  setShapeDirection: (shape_id: string, direction_id: 0 | 1, opts?: { invertStops?: boolean }) => void;
+  setShapeDirection: (
+    shape_id: string,
+    direction_id: 0 | 1,
+    opts?: {
+      invertStops?: boolean;
+      /** Scope the retag to this route's trips and route stops. A shape can be
+       *  shared by several routes; without a scope every route using it is
+       *  retagged (and, with invertStops, reordered). */
+      routeId?: string;
+    },
+  ) => void;
+  /** Delete a shape from ONE route, as a single undo step: that route's trips
+   *  on the shape (with their stop_times, frequencies and translations) and
+   *  its route_stops on the shape go. The shape itself is deleted only when
+   *  nothing else references it (no remaining trip or route_stop, and no other
+   *  route's draft `_route_id`); a shape shared with another route is kept. */
+  removeShapeFromRoute: (shape_id: string, route_id: string) => ShapeFromRouteRemoval;
   setRouteStops: (routeStops: RouteStop[]) => void;
+}
+
+/** Whether a trip belongs to a route_stop pattern (per shape when the pattern
+ *  is shape-keyed, else per direction) — the rule addRouteStop seeds by. */
+function tripMatchesPattern(
+  t: { route_id: string; shape_id?: string; direction_id: 0 | 1 },
+  rs: Pick<RouteStop, 'route_id' | 'shape_id' | 'direction_id'>,
+): boolean {
+  if (t.route_id !== rs.route_id) return false;
+  return rs.shape_id ? t.shape_id === rs.shape_id : t.direction_id === rs.direction_id;
+}
+
+/** addRouteStop's body, shared with appendRouteStop. Mutates the draft. */
+function insertRouteStop(cs: CrossSliceState, rs: RouteStop): void {
+  // Stamp a per-instance handle so a stop listed twice in one pattern stays
+  // individually addressable (remove/reorder one without touching the other).
+  let stamped = rs._uid ? rs : { ...rs, _uid: generateId('rs') };
+  // Never let two stops in one pattern share a stop_sequence: the timetable
+  // keys cells by (trip, stop_sequence), so a shared sequence makes the two
+  // columns edit together. A taken sequence means the caller wanted an append
+  // (count-as-sequence on a 1-based or gapped pattern) — put it at the end.
+  const pattern = cs.routeStops.filter((r) => sameRouteStopPattern(r, stamped));
+  if (pattern.some((r) => r.stop_sequence === stamped.stop_sequence)) {
+    stamped = { ...stamped, stop_sequence: nextRouteStopSequence(pattern) };
+  }
+  cs.routeStops.push(stamped);
+  // A stop added to a pattern that ALREADY has trips defaults to SERVED — we
+  // seed a blank (no-time) stop_time row on every matching trip. Without a
+  // row the timetable would render the new stop as "skipped" on those trips
+  // (a missing row = skipped). Import uses setRouteStops (not addRouteStop),
+  // so genuinely-skipped stops in an imported feed are preserved. When no
+  // trips exist yet (the normal draw → add stops → add trips order) this is
+  // a no-op.
+  const haveAtSeq = new Set(
+    cs.stopTimes
+      .filter((st) => st.stop_sequence === stamped.stop_sequence)
+      .map((st) => st.trip_id),
+  );
+  for (const t of cs.trips) {
+    if (!tripMatchesPattern(t, stamped) || haveAtSeq.has(t.trip_id)) continue;
+    cs.stopTimes.push({
+      trip_id: t.trip_id,
+      stop_id: stamped.stop_id,
+      stop_sequence: stamped.stop_sequence,
+      arrival_time: '',
+      departure_time: '',
+    });
+  }
 }
 
 export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never]], [], RouteSlice> = (set, get) => ({
@@ -128,6 +213,13 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
     (state as CrossSliceState).trips = fullState.trips.filter((t) => t.route_id !== route_id);
     // Remove stop_times for deleted trips
     (state as CrossSliceState).stopTimes = fullState.stopTimes.filter((st) => !tripIds.has(st.trip_id));
+    // ...and their frequency windows + translations (trip and stop_times rows).
+    cascadeTripRemoval(state, tripIds);
+    // route_networks.txt rows naming the deleted route.
+    const cs = state as CrossSliceState;
+    if (cs.routeNetworks && fullState.routeNetworks?.some((rn) => rn.route_id === route_id)) {
+      cs.routeNetworks = fullState.routeNetworks.filter((rn) => rn.route_id !== route_id);
+    }
     // Remove shapes only used by this route
     const shapesToRemove = new Set(
       [...routeShapeIds].filter((sid) => !otherShapeIds.has(sid))
@@ -148,28 +240,38 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
     // assign them to a different route.
     if (deleteOrphanedStops && uniqueStopIds.size > 0) {
       (state as CrossSliceState).stops = fullState.stops.filter((s) => !uniqueStopIds.has(s.stop_id));
+      // Everything else that names those stops (stop_times of other routes'
+      // trips, transfers, pathways, stop_areas, child parent_station, flex
+      // stop groups, translations) — the same cascade a stop delete runs.
+      cascadeStopRemoval(state, uniqueStopIds);
     }
 
-    // translations.txt: the route's own rows, its trips' (and their
-    // stop_times') rows, and — when they were deleted too — its unique stops'.
-    let translations = withoutTranslationsFor(fullState.translations, 'routes', new Set([route_id]));
-    translations = withoutTranslationsFor(translations, 'trips', tripIds);
-    if (deleteOrphanedStops) translations = withoutTranslationsFor(translations, 'stops', uniqueStopIds);
-    if (translations !== fullState.translations) (state as CrossSliceState).translations = translations;
+    // translations.txt: the route's own rows (trips' rows went with
+    // cascadeTripRemoval, the deleted stops' with cascadeStopRemoval).
+    const translations = withoutTranslationsFor(cs.translations, 'routes', new Set([route_id]));
+    if (translations !== cs.translations) cs.translations = translations;
   }),
   duplicateRoute: (route_id) => {
-    const fullState = get() as unknown as RouteSlice & TripSlice & ShapeSlice;
+    const fullState = get() as unknown as CrossSliceState;
     const original = fullState.routes.find((r) => r.route_id === route_id);
     if (!original) return null;
 
     const stamp = Date.now().toString(36);
     const newRouteId = `${original.route_id}-copy-${stamp}`;
 
-    // Map old shape_id → new shape_id (one new shape per shape used by this route).
+    // Map old shape_id → new shape_id (one new shape per shape used by this
+    // route). The route's shapes are those its trips use, its route_stops are
+    // keyed to, or that are drafted for it (`_route_id`) — the same set
+    // removeRoute collects. Taking only the trips' shapes left a trip-less
+    // route's copy pointing at the ORIGINAL's shapes, so flipping the copy's
+    // direction reordered the original's stops too.
+    const routeShapeIds = new Set<string>([
+      ...fullState.trips.filter((t) => t.route_id === route_id && t.shape_id).map((t) => t.shape_id!),
+      ...fullState.routeStops.filter((rs) => rs.route_id === route_id && rs.shape_id).map((rs) => rs.shape_id!),
+      ...fullState.shapes.filter((s) => s._route_id === route_id).map((s) => s.shape_id),
+    ]);
     const shapeIdMap = new Map<string, string>();
-    const originalShapes = fullState.shapes.filter((s) =>
-      fullState.trips.some((t) => t.route_id === route_id && t.shape_id === s.shape_id),
-    );
+    const originalShapes = fullState.shapes.filter((s) => routeShapeIds.has(s.shape_id));
     for (const s of originalShapes) {
       shapeIdMap.set(s.shape_id, `${s.shape_id}-copy-${stamp}`);
     }
@@ -209,12 +311,14 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
         });
       }
 
-      // Clone shapes (only those exclusively used by this route's trips).
+      // Clone the route's shapes, tied to the copy (`_route_id`) so a copy
+      // with no trips yet still lists and owns them.
       for (const s of originalShapes) {
         const newShapeId = shapeIdMap.get(s.shape_id)!;
         (state as CrossSliceState).shapes.push({
           ...s,
           shape_id: newShapeId,
+          _route_id: newRouteId,
           points: s.points.map((p) => ({ ...p })),
         });
       }
@@ -237,51 +341,44 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
           trip_id: tripIdMap.get(st.trip_id)!,
         });
       }
+
+      // Clone frequencies.txt windows, so a frequency-based template copies
+      // as a template rather than as a single trip.
+      const cs = state as CrossSliceState;
+      if (cs.frequencies) {
+        for (const f of fullState.frequencies ?? []) {
+          const newTripId = tripIdMap.get(f.trip_id);
+          if (newTripId) cs.frequencies.push({ ...f, trip_id: newTripId });
+        }
+      }
     });
     return newRouteId;
   },
   setRoutes: (routes) => set((state) => { state.routes = routes; }),
-  addRouteStop: (rs) => set((state) => {
-    // Stamp a per-instance handle so a stop listed twice in one pattern stays
-    // individually addressable (remove/reorder one without touching the other).
-    let stamped = rs._uid ? rs : { ...rs, _uid: generateId('rs') };
-    // Never let two stops in one pattern share a stop_sequence: the timetable
-    // keys cells by (trip, stop_sequence), so a shared sequence makes the two
-    // columns edit together. A taken sequence means the caller wanted an append
-    // (count-as-sequence on a 1-based or gapped pattern) — put it at the end.
-    const pattern = state.routeStops.filter((r) => sameRouteStopPattern(r, stamped));
-    if (pattern.some((r) => r.stop_sequence === stamped.stop_sequence)) {
-      stamped = { ...stamped, stop_sequence: nextRouteStopSequence(pattern) };
-    }
-    state.routeStops.push(stamped);
-    // A stop added to a pattern that ALREADY has trips defaults to SERVED — we
-    // seed a blank (no-time) stop_time row on every matching trip. Without a
-    // row the timetable would render the new stop as "skipped" on those trips
-    // (a missing row = skipped). Import uses setRouteStops (not addRouteStop),
-    // so genuinely-skipped stops in an imported feed are preserved. When no
-    // trips exist yet (the normal draw → add stops → add trips order) this is
-    // a no-op.
-    const cs = state as unknown as CrossSliceState;
-    const haveAtSeq = new Set(
-      cs.stopTimes
-        .filter((st) => st.stop_sequence === stamped.stop_sequence)
-        .map((st) => st.trip_id),
-    );
-    for (const t of cs.trips) {
-      if (t.route_id !== stamped.route_id) continue;
-      const matches = stamped.shape_id
-        ? t.shape_id === stamped.shape_id
-        : t.direction_id === stamped.direction_id;
-      if (!matches || haveAtSeq.has(t.trip_id)) continue;
-      cs.stopTimes.push({
-        trip_id: t.trip_id,
-        stop_id: stamped.stop_id,
-        stop_sequence: stamped.stop_sequence,
-        arrival_time: '',
-        departure_time: '',
-      });
-    }
-  }),
+  addRouteStop: (rs) => set((state) => { insertRouteStop(state as unknown as CrossSliceState, rs); }),
+  appendRouteStop: (rs) => {
+    let assigned = 0;
+    set((state) => {
+      const cs = state as unknown as CrossSliceState;
+      const cur = get() as unknown as CrossSliceState;
+      // The pattern's own sequences, plus any stop_times row its trips carry
+      // (an imported trip may have rows at sequences the pattern lacks).
+      const seqs = cur.routeStops
+        .filter((r) => sameRouteStopPattern(r, rs))
+        .map((r) => ({ stop_sequence: r.stop_sequence }));
+      const tripIds = new Set(
+        cur.trips.filter((t) => tripMatchesPattern(t, rs)).map((t) => t.trip_id),
+      );
+      if (tripIds.size > 0) {
+        for (const st of cur.stopTimes) {
+          if (tripIds.has(st.trip_id)) seqs.push({ stop_sequence: st.stop_sequence });
+        }
+      }
+      assigned = nextRouteStopSequence(seqs);
+      insertRouteStop(cs, { ...rs, stop_sequence: assigned });
+    });
+    return assigned;
+  },
   removeRouteStop: (route_id, _uid) => set((state) => {
     // Remove exactly one instance (by _uid). Capture it first so we know which
     // stop / shape / direction / sequence to clean up in stop_times.
@@ -352,13 +449,14 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
     }
   }),
   setShapeDirection: (shape_id, direction_id, opts) => set((state) => {
+    const inScope = (routeId: string) => !opts?.routeId || routeId === opts.routeId;
     // Retag trips on this shape to the new direction.
     for (const t of (state as unknown as CrossSliceState).trips) {
-      if (t.shape_id === shape_id) t.direction_id = direction_id;
+      if (t.shape_id === shape_id && inScope(t.route_id)) t.direction_id = direction_id;
     }
     // Retag this shape's route stops; optionally reverse their order so an
     // inbound copy reads end-to-start.
-    const shapeStops = state.routeStops.filter((rs) => rs.shape_id === shape_id);
+    const shapeStops = state.routeStops.filter((rs) => rs.shape_id === shape_id && inScope(rs.route_id));
     if (opts?.invertStops && shapeStops.length > 1) {
       const ordered = [...shapeStops].sort((a, b) => a.stop_sequence - b.stop_sequence);
       const n = ordered.length;
@@ -366,6 +464,40 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
     }
     for (const rs of shapeStops) rs.direction_id = direction_id;
   }),
+  removeShapeFromRoute: (shape_id, route_id) => {
+    const result: ShapeFromRouteRemoval = { removedTripIds: [], shapeRemoved: false };
+    set((state) => {
+      const cs = state as unknown as CrossSliceState;
+      const cur = get() as unknown as CrossSliceState;
+      const tripIds = new Set(
+        cur.trips
+          .filter((t) => t.route_id === route_id && t.shape_id === shape_id)
+          .map((t) => t.trip_id),
+      );
+      result.removedTripIds = [...tripIds];
+      if (tripIds.size > 0) {
+        cs.trips = cur.trips.filter((t) => !tripIds.has(t.trip_id));
+        cs.stopTimes = cur.stopTimes.filter((st) => !tripIds.has(st.trip_id));
+        cascadeTripRemoval(state, tripIds);
+      }
+      const isThis = (rs: RouteStop) => rs.route_id === route_id && rs.shape_id === shape_id;
+      if (cur.routeStops.some(isThis)) {
+        cs.routeStops = cur.routeStops.filter((rs) => !isThis(rs));
+      }
+      // Keep the shape while anything else still uses it.
+      const shape = cur.shapes.find((sh) => sh.shape_id === shape_id);
+      if (!shape) return;
+      const stillUsed =
+        cur.trips.some((t) => t.shape_id === shape_id && !tripIds.has(t.trip_id))
+        || cur.routeStops.some((rs) => rs.shape_id === shape_id && !isThis(rs))
+        || (shape._route_id != null && shape._route_id !== route_id);
+      if (!stillUsed) {
+        cs.shapes = cur.shapes.filter((sh) => sh.shape_id !== shape_id);
+        result.shapeRemoved = true;
+      }
+    });
+    return result;
+  },
   setRouteStops: (routeStops) => set((state) => {
     // Stamp a stable _uid on any route_stop that lacks one (imported feeds,
     // older snapshots). An imported feed may already repeat a stop within one
