@@ -11,21 +11,27 @@
 //      since the workerd runtime has no native image decode. JPEG/PNG/GIF/WebP
 //      headers are all small and well-defined.
 //   5. EXIF strip for JPEG (drops APP-segment metadata that may carry PII or
-//      malformed payloads). PNG/GIF/WebP are passed through — they don't have
-//      the same metadata exposure surface.
-//   6. KV rate limits: 20 uploads / hour and 100 / day per user.
+//      malformed payloads, keeping only the ICC profile, the Adobe color
+//      transform and the EXIF Orientation). PNG/GIF/WebP are passed through —
+//      they don't have the same metadata exposure surface.
+//   6. KV rate limits: 20 uploads / hour and 100 / day per user (fixed windows).
 //   7. Lifetime quota: 200 MB and/or 500 images per user. Hits return 429.
 //   8. Hash dedupe: SHA-256 the (potentially-stripped) bytes; on collision
 //      with a still-live row for the same user, reuse the existing URL.
+//
+// DELETE /api/forum/uploads/:id (owner or staff) soft-deletes the row, which
+// makes the public URL return 410, and removes the R2 object. Already-cached
+// copies at the CDN edge can outlive this (immutable cache headers) until
+// purged.
 
 import { Hono } from 'hono';
 import { ulid } from 'ulidx';
 import type { AppContext } from '../env';
 import { requireAuth } from '../auth/middleware';
-import { ApiError, validationFailed, rateLimited } from '../util/errors';
+import { ApiError, forbidden, notFound, validationFailed, rateLimited } from '../util/errors';
 import { logAudit } from '../util/audit';
 import { clientIp } from '../util/rateLimit';
-import { canWriteToForum } from './util';
+import { canWriteToForum, forumRateLimit } from './util';
 
 export const uploadsRouter = new Hono<AppContext>();
 
@@ -97,10 +103,10 @@ uploadsRouter.post('/image', requireAuth, async (c) => {
        FROM forum_image WHERE user_id = ? AND deleted_at IS NULL`,
   ).bind(user.id).first<{ n: number; bytes: number }>();
   if ((usage?.n ?? 0) >= QUOTA_COUNT) {
-    throw rateLimited('You have reached the lifetime image-upload count limit. Delete older images to free space.');
+    throw rateLimited('You have reached the lifetime image-upload count limit. Contact support to remove older images.');
   }
   if ((usage?.bytes ?? 0) + blob.size > QUOTA_BYTES) {
-    throw rateLimited('You have reached the lifetime image-storage limit. Delete older images to free space.');
+    throw rateLimited('You have reached the lifetime image-storage limit. Contact support to remove older images.');
   }
 
   // Read full bytes. Workerd has no native image decoder; we work directly
@@ -178,6 +184,35 @@ uploadsRouter.post('/image', requireAuth, async (c) => {
   });
 });
 
+// DELETE /:id — remove an uploaded image (its uploader or staff).
+uploadsRouter.delete('/:id', requireAuth, async (c) => {
+  const user = c.var.user!;
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare(
+    `SELECT id, user_id, r2_key, deleted_at FROM forum_image WHERE id = ?`,
+  ).bind(id).first<{ id: string; user_id: string; r2_key: string; deleted_at: number | null }>();
+  if (!row) throw notFound('Image not found');
+  if (row.user_id !== user.id && !user.staff) {
+    throw forbidden('Only the uploader or an admin can delete this image');
+  }
+  if (row.deleted_at) return c.body(null, 204);
+
+  await c.env.DB.prepare(
+    `UPDATE forum_image SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`,
+  ).bind(Date.now(), row.id).run();
+  await c.env.FORUM_IMAGES.delete(row.r2_key);
+
+  await logAudit(c.env, {
+    actorUserId: user.id,
+    subjectType: 'forum_image',
+    subjectId: row.id,
+    action: 'forum.image.delete',
+    metadata: { ownerUserId: row.user_id, byStaff: row.user_id !== user.id },
+    ip: clientIp(c.req.raw),
+  });
+  return c.body(null, 204);
+});
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function publicUrl(imagesOrigin: string, r2Key: string): string {
@@ -199,15 +234,10 @@ function extFor(type: ImageType): string {
 }
 
 async function checkUploadRateLimit(env: AppContext['Bindings'], userId: string): Promise<void> {
-  const hourKey = `forum:img:hour:${userId}`;
-  const dayKey  = `forum:img:day:${userId}`;
-  const hour = parseInt((await env.KV.get(hourKey)) ?? '0', 10);
-  const day  = parseInt((await env.KV.get(dayKey))  ?? '0', 10);
-  if (hour >= RATE_HOUR || day >= RATE_DAY) {
-    throw rateLimited(`You are uploading too quickly — try again later.`);
-  }
-  await env.KV.put(hourKey, String(hour + 1), { expirationTtl: 3600 });
-  await env.KV.put(dayKey,  String(day + 1),  { expirationTtl: 86400 });
+  await forumRateLimit(env, [
+    { key: `forum:img:hour:${userId}`, limit: RATE_HOUR, windowSec: 3600 },
+    { key: `forum:img:day:${userId}`, limit: RATE_DAY, windowSec: 86400 },
+  ], `You are uploading too quickly — try again later.`);
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -337,8 +367,59 @@ function parseWebpDimensions(b: Uint8Array): { width: number; height: number } |
   return null;
 }
 
+const JPEG_APP1 = 0xe1;
+const JPEG_APP2 = 0xe2;   // ICC color profile
+const JPEG_APP14 = 0xee;  // Adobe (color transform; needed for CMYK/YCCK)
+const EXIF_ORIENTATION_TAG = 0x0112;
+
+/**
+ * Read the EXIF Orientation (1-8) from an APP1 payload (the bytes after the
+ * 2-byte length), or null when absent or malformed.
+ */
+export function readExifOrientation(seg: Uint8Array): number | null {
+  // "Exif\0\0" then a TIFF header.
+  if (seg.length < 14) return null;
+  if (seg[0] !== 0x45 || seg[1] !== 0x78 || seg[2] !== 0x69 || seg[3] !== 0x66 || seg[4] !== 0 || seg[5] !== 0) return null;
+  const t = 6;
+  const le = seg[t] === 0x49 && seg[t + 1] === 0x49;
+  const be = seg[t] === 0x4d && seg[t + 1] === 0x4d;
+  if (!le && !be) return null;
+  const u16 = (o: number) => (le ? seg[o] | (seg[o + 1] << 8) : (seg[o] << 8) | seg[o + 1]);
+  const u32 = (o: number) =>
+    (le
+      ? seg[o] | (seg[o + 1] << 8) | (seg[o + 2] << 16) | (seg[o + 3] << 24)
+      : (seg[o] << 24) | (seg[o + 1] << 16) | (seg[o + 2] << 8) | seg[o + 3]) >>> 0;
+  const ifd = t + u32(t + 4);
+  if (ifd + 2 > seg.length) return null;
+  const count = u16(ifd);
+  for (let k = 0; k < count; k++) {
+    const e = ifd + 2 + k * 12;
+    if (e + 12 > seg.length) return null;
+    if (u16(e) !== EXIF_ORIENTATION_TAG) continue;
+    const v = u16(e + 8);
+    return v >= 1 && v <= 8 ? v : null;
+  }
+  return null;
+}
+
+/** A minimal APP1 segment (marker included) carrying only EXIF Orientation. */
+function orientationOnlyApp1(orientation: number): number[] {
+  return [
+    0xff, JPEG_APP1, 0x00, 0x22,                   // marker, length 34
+    0x45, 0x78, 0x69, 0x66, 0x00, 0x00,             // "Exif\0\0"
+    0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08, // TIFF big-endian, IFD0 at 8
+    0x00, 0x01,                                     // one entry
+    0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, // Orientation, SHORT, count 1
+    0x00, orientation, 0x00, 0x00,                  // value (left-justified)
+    0x00, 0x00, 0x00, 0x00,                         // no next IFD
+  ];
+}
+
 // Strip JPEG metadata (APPn + COM segments) while preserving DQT/DHT/SOF/SOS/RST.
-// Pure structural pass — does not touch image bytes.
+// Kept: APP2 (ICC profile) and APP14 (Adobe) since dropping them changes how
+// the image renders, and the EXIF Orientation (re-emitted alone, when it is
+// not 1) so phone photos stay upright. Everything else in EXIF, GPS included,
+// is dropped. Pure structural pass — does not touch image bytes.
 export function stripJpegMetadata(b: Uint8Array): Uint8Array {
   if (b[0] !== 0xff || b[1] !== 0xd8) return b;
   const out: number[] = [0xff, 0xd8];
@@ -371,7 +452,14 @@ export function stripJpegMetadata(b: Uint8Array): Uint8Array {
     // Marker with payload.
     if (i + 2 > b.length) return b;
     const segLen = readU16BE(b, i);
-    const skip = marker >= 0xe0 && marker <= 0xef; // APP0..APP15
+    if (marker === JPEG_APP1) {
+      const orientation = readExifOrientation(b.subarray(i + 2, i + segLen));
+      if (orientation !== null && orientation !== 1) out.push(...orientationOnlyApp1(orientation));
+      i += segLen;
+      continue;
+    }
+    const keepApp = marker === JPEG_APP2 || marker === JPEG_APP14;
+    const skip = marker >= 0xe0 && marker <= 0xef && !keepApp; // other APPn
     const isCom = marker === 0xfe;
     if (skip || isCom) {
       i += segLen;

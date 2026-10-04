@@ -4,6 +4,7 @@ import { searchForum, type ForumSearchHit } from '../../services/forumApi';
 import { Avatar } from './Avatar';
 import { relativeTime } from './time';
 import { parseSearchSnippet } from './searchSnippet';
+import { replyCountLabel } from './replyCount';
 
 export function SearchResults() {
   const [searchParams] = useSearchParams();
@@ -129,7 +130,7 @@ export function SearchResults() {
                 <span>·</span>
                 <span>{hit.thread.categoryId}</span>
                 <span>·</span>
-                <span>{hit.thread.postCount} repl{hit.thread.postCount === 1 ? 'y' : 'ies'}</span>
+                <span>{replyCountLabel(hit.thread.postCount)}</span>
                 <span>·</span>
                 <span>last activity {relativeTime(hit.thread.lastPostAt)}</span>
                 {hit.thread.solvedPostId && (

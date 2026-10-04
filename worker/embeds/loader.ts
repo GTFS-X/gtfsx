@@ -38,7 +38,10 @@ export async function loadEmbedFeed(env: Env, slug: string): Promise<LoadedEmbed
     `SELECT p.project_id, p.snapshot_id, p.published_at
        FROM publication p
        JOIN feed_project fp ON fp.id = p.project_id
-      WHERE p.canonical_slug = ? AND fp.deleted_at IS NULL`,
+      WHERE p.canonical_slug = ? AND fp.deleted_at IS NULL
+      -- Same resolution as the feeds handler: the oldest publication wins.
+      ORDER BY p.published_at ASC, p.project_id ASC
+      LIMIT 1`,
   )
     .bind(slug)
     .first<PublicationRow>();

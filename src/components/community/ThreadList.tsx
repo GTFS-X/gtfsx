@@ -9,14 +9,19 @@ import {
 } from '../../services/forumReadState';
 import { Avatar } from './Avatar';
 import { relativeTime } from './time';
+import { replyCountLabel } from './replyCount';
 
 type SortMode = 'active' | 'new' | 'unanswered';
+
+const PAGE_SIZE = 50;
 
 export function ThreadList() {
   const { catId } = useParams<{ catId: string }>();
   const navigate = useNavigate();
   const [cat, setCat] = useState<ForumCategory | null>(null);
   const [threads, setThreads] = useState<ForumThread[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [sort, setSort] = useState<SortMode>('active');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,12 +36,13 @@ export function ThreadList() {
       try {
         const [catsRes, threadRes] = await Promise.all([
           listCategories(),
-          listThreads({ category: catId, sort, limit: 50 }),
+          listThreads({ category: catId, sort, limit: PAGE_SIZE }),
         ]);
         if (cancelled) return;
         const found = catsRes.categories.find((c) => c.id === catId) ?? null;
         setCat(found);
         setThreads(threadRes.threads);
+        setNextCursor(threadRes.nextCursor);
         // Browsing a category clears its home-page green dot.
         markCategorySeen(catId);
         setSeenMap(getSeenMap());
@@ -50,6 +56,23 @@ export function ThreadList() {
       cancelled = true;
     };
   }, [catId, sort]);
+
+  async function loadMore() {
+    if (!catId || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await listThreads({ category: catId, sort, limit: PAGE_SIZE, cursor: nextCursor });
+      setThreads((prev) => {
+        const seen = new Set(prev.map((t) => t.id));
+        return [...prev, ...res.threads.filter((t) => !seen.has(t.id))];
+      });
+      setNextCursor(res.nextCursor);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load threads');
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   if (error) return <div className="text-red-700 text-sm">{error}</div>;
   if (!cat && !loading) {
@@ -104,6 +127,17 @@ export function ThreadList() {
           threads.map((t) => <ThreadRow key={t.id} t={t} seenMap={seenMap} />)
         )}
       </div>
+      {!loading && nextCursor && (
+        <div className="flex justify-center">
+          <button
+            onClick={() => void loadMore()}
+            disabled={loadingMore}
+            className="px-4 py-2 rounded-lg border border-sand bg-white text-sm text-warm-gray hover:border-coral hover:text-coral transition-colors disabled:opacity-60"
+          >
+            {loadingMore ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -136,7 +170,7 @@ function ThreadRow({ t, seenMap }: { t: ForumThread; seenMap: SeenMap }) {
           </div>
         )}
         <div className="text-xs text-warm-gray mt-1">
-          {t.author.displayName} · {t.postCount} repl{t.postCount === 1 ? 'y' : 'ies'} · {relativeTime(t.lastPostAt)}
+          {t.author.displayName} · {replyCountLabel(t.postCount)} · {relativeTime(t.lastPostAt)}
         </div>
       </div>
     </Link>

@@ -15,6 +15,7 @@ import { resolveLang, type EmbedStrings } from './i18n';
 import { parseTheme, themeCacheKey, themeStyle } from './theme';
 import { renderImpressionBeacon } from './beacon';
 import { hasRtSource, renderRtStopEnhancer } from './rt';
+import { safeHex } from './safe';
 
 /**
  * Per-stop page: shows the stop, a small map centred on it, and the
@@ -44,16 +45,22 @@ export async function renderStopEmbed(
   );
   const variant = `${themeCacheKey(theme)}-${lang}`;
 
+  // Today's departures depend on the date, and the live-RT enhancer on DB
+  // state outside the snapshot, so both are part of the ETag.
+  const tz = agency?.agency_timezone;
+  const today = todayInTimezone(tz);
+  // Live RT annotations are added client-side (cache-safe) when the feed has a
+  // trip_updates source. Each <li> carries data-trip so the enhancer can match.
+  const rtEnabled = await hasRtSource(env, feed.projectId, 'trip_updates');
+
   const ifNoneMatch = request.headers.get('If-None-Match');
-  const etag = `"${feed.snapshotId}-stop-${stopId}-${variant}"`;
+  const etag = `"${feed.snapshotId}-stop-${stopId}-${variant}-${today}-rt${rtEnabled ? 1 : 0}"`;
   if (ifNoneMatch && ifNoneMatch.includes(etag)) {
     const headers = embedHeaders(feed.snapshotId, feed.publishedAt);
     headers.set('ETag', etag);
     return new Response(null, { status: 304, headers });
   }
 
-  const tz = agency?.agency_timezone;
-  const today = todayInTimezone(tz);
   const dow = dayOfWeekInTimezone(tz);
   const activeToday = activeServicesOn(today, dow, feed.state.calendars, feed.state.calendarDates);
 
@@ -114,23 +121,19 @@ export async function renderStopEmbed(
   const expiryWarning = renderExpiryWarning(feed.state.feedInfo?.feed_end_date, today, t);
   const agencyName = agency?.agency_name ?? feed.projectName;
 
-  // Live RT annotations are added client-side (cache-safe) when the feed has a
-  // trip_updates source. Each <li> carries data-trip so the enhancer can match.
-  const rtEnabled = await hasRtSource(env, feed.projectId, 'trip_updates');
-
   const departuresList =
     departures.length === 0
-      ? html`<p class="empty">${t.noMoreDepartures}</p>`
+      ? html`<p class="empty">${t.noDeparturesToday}</p>`
       : html`
           <ol class="departures">
-            ${departures.slice(0, 60).map(
+            ${departures.map(
               (d) => html`
                 <li data-trip="${d.tripId}" data-stop="${stopId}">
                   <span class="dep-time">${formatGtfsTime(d.timeStr)}</span>
                   <a class="dep-route" href="${d.routeUrl}">
                     <span
                       class="route-badge"
-                      style="background: #${d.route.route_color || 'cccccc'}; color: #${d.route.route_text_color || '000000'};"
+                      style="background: #${safeHex(d.route.route_color, 'cccccc')}; color: #${safeHex(d.route.route_text_color, '000000')};"
                       >${d.route.route_short_name || d.route.route_id}</span
                     >
                     <span class="dep-headsign">${d.headsign}</span>
@@ -142,8 +145,8 @@ export async function renderStopEmbed(
         `;
 
   const routesList = routesServingStop.map((r) => {
-    const color = `#${r.route_color || 'cccccc'}`;
-    const text = `#${r.route_text_color || '000000'}`;
+    const color = `#${safeHex(r.route_color, 'cccccc')}`;
+    const text = `#${safeHex(r.route_text_color, '000000')}`;
     const short = r.route_short_name || r.route_id;
     return html`
       <a href="/${encodeURIComponent(slug)}/embed/route/${encodeURIComponent(r.route_id)}">

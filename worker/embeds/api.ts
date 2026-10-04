@@ -28,6 +28,7 @@ import { loadEmbedFeed } from './loader';
 import { planHasFeature } from '../billing/plans';
 import { buildServiceProfiles, expiredProfileIds, todayInTimezone } from './services';
 import type { LoadedEmbedFeed, Route, Stop, Trip, StopTime } from './types';
+import { safeDecode } from './safe';
 
 export const API_VERSION = 'v1';
 
@@ -61,7 +62,8 @@ export async function handleApiRequest(request: Request, env: Env): Promise<Resp
   if ((m = path.match(API_AGENCIES_RE))) return serve(request, env, m[1], apiAgencies);
   if ((m = path.match(API_ROUTES_RE))) return serve(request, env, m[1], apiRoutes);
   if ((m = path.match(API_ROUTE_RE))) {
-    const routeId = decodeURIComponent(m[2]);
+    const routeId = safeDecode(m[2]);
+    if (routeId === null) return apiError(404, 'not_found', 'No such route.');
     return serve(request, env, m[1], (f) => apiRoute(f, routeId), `route-${m![2]}`);
   }
   if ((m = path.match(API_SERVICES_RE))) {
@@ -71,11 +73,13 @@ export async function handleApiRequest(request: Request, env: Env): Promise<Resp
   }
   if ((m = path.match(API_STOPS_RE))) return serve(request, env, m[1], apiStops);
   if ((m = path.match(API_STOP_SCHEDULE_RE))) {
-    const stopId = decodeURIComponent(m[2]);
+    const stopId = safeDecode(m[2]);
+    if (stopId === null) return apiError(404, 'not_found', 'No such stop.');
     return serve(request, env, m[1], (f) => apiStopSchedule(f, stopId), `stop-${m![2]}-schedule`);
   }
   if ((m = path.match(API_STOP_RE))) {
-    const stopId = decodeURIComponent(m[2]);
+    const stopId = safeDecode(m[2]);
+    if (stopId === null) return apiError(404, 'not_found', 'No such stop.');
     return serve(request, env, m[1], (f) => apiStop(f, stopId), `stop-${m![2]}`);
   }
 

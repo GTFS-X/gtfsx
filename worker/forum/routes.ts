@@ -3,11 +3,12 @@ import { z } from 'zod';
 import { ulid } from 'ulidx';
 import type { AppContext } from '../env';
 import { requireAuth } from '../auth/middleware';
-import { forbidden, notFound, rateLimited, validationFailed, ApiError } from '../util/errors';
+import { forbidden, notFound, validationFailed, ApiError } from '../util/errors';
 import { logAudit } from '../util/audit';
 import { clientIp, rateLimit } from '../util/rateLimit';
 import {
   canWriteToForum,
+  forumRateLimit,
   loadForumProfile,
   slugify,
   userAuthorDto,
@@ -189,22 +190,16 @@ async function checkWriteGate(env: AppContext['Bindings'], userId: string): Prom
   }
 }
 
-// Naive per-user rate limit via KV counters. Two windows: 10-min and 24-hour.
+// Per-user posting limits: fixed 10-minute and 24-hour windows (the shared
+// rateLimit buckets), so a window resets on schedule rather than only after a
+// full idle period.
 async function checkPostRateLimit(env: AppContext['Bindings'], userId: string, kind: 'thread' | 'post'): Promise<void> {
-  const now = Date.now();
-  const shortKey = `forum:rate:${kind}:short:${userId}`;
-  const dayKey = `forum:rate:${kind}:day:${userId}`;
   const shortLimit = kind === 'thread' ? 3 : 5;     // 10 min
   const dayLimit = kind === 'thread' ? 20 : 50;     // 24 h
-
-  const short = parseInt((await env.KV.get(shortKey)) ?? '0', 10);
-  const day = parseInt((await env.KV.get(dayKey)) ?? '0', 10);
-  if (short >= shortLimit || day >= dayLimit) {
-    throw rateLimited(`You're posting too quickly — try again in a few minutes.`);
-  }
-  await env.KV.put(shortKey, String(short + 1), { expirationTtl: 600 });
-  await env.KV.put(dayKey, String(day + 1), { expirationTtl: 86400 });
-  void now; // silence "unused"
+  await forumRateLimit(env, [
+    { key: `forum:${kind}:short:${userId}`, limit: shortLimit, windowSec: 600 },
+    { key: `forum:${kind}:day:${userId}`, limit: dayLimit, windowSec: 86400 },
+  ], `You're posting too quickly — try again in a few minutes.`);
 }
 
 // ─── Search ─────────────────────────────────────────────────────────────────
@@ -331,17 +326,26 @@ forumRouter.get('/threads', async (c) => {
   if (sort === 'unanswered') {
     where.push('t.post_count <= 1 AND t.solved_post_id IS NULL');
   }
+  // Keyset pagination over the full ORDER BY (pinned, sort key, id). The
+  // sort key is created_at for sort=new and last_post_at otherwise.
+  const sortKey = sort === 'new' ? 't.created_at' : 't.last_post_at';
   if (cursor) {
-    // Cursor is opaque: "<ts>_<id>" matching the sort key
-    where.push('(t.last_post_at < ? OR (t.last_post_at = ? AND t.id < ?))');
-    const [tsStr, idStr] = cursor.split('_');
+    // Opaque cursor "<pinned>_<ts>_<id>" (a legacy "<ts>_<id>" reads as
+    // unpinned). After a pinned row, the rest of the pinned rows follow and
+    // then every unpinned row; after an unpinned row, only unpinned rows.
+    const parts = cursor.split('_');
+    const [pinStr, tsStr, idStr] = parts.length >= 3 ? parts : ['0', ...parts];
     const ts = parseInt(tsStr ?? '0', 10) || 0;
+    const after = `(${sortKey} < ? OR (${sortKey} = ? AND t.id < ?))`;
+    if (pinStr === '1') {
+      where.push(`((t.pinned = 1 AND ${after}) OR t.pinned = 0)`);
+    } else {
+      where.push(`(t.pinned = 0 AND ${after})`);
+    }
     binds.push(ts, ts, idStr ?? '');
   }
 
-  const orderBy = sort === 'new'
-    ? 't.pinned DESC, t.created_at DESC, t.id DESC'
-    : 't.pinned DESC, t.last_post_at DESC, t.id DESC';
+  const orderBy = `t.pinned DESC, ${sortKey} DESC, t.id DESC`;
 
   const stmt = `SELECT t.* FROM forum_thread t WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ?`;
   binds.push(limit + 1);
@@ -378,8 +382,9 @@ forumRouter.get('/threads', async (c) => {
 
   const authors = await Promise.all(page.map((r) => userAuthorDto(c.env, r.author_user_id)));
   const threads = page.map((r, i) => threadDto(r, authors[i], excerpts.get(r.id) ?? ''));
-  const nextCursor = hasMore && page.length > 0
-    ? `${page[page.length - 1].last_post_at}_${page[page.length - 1].id}`
+  const last = page[page.length - 1];
+  const nextCursor = hasMore && last
+    ? `${last.pinned === 1 ? 1 : 0}_${sort === 'new' ? last.created_at : last.last_post_at}_${last.id}`
     : null;
   return c.json({ threads, nextCursor });
 });
@@ -525,6 +530,8 @@ forumRouter.patch('/threads/:id', requireAuth, async (c) => {
   }
   if (body.solvedPostId !== undefined) {
     if (!isAdmin && !isAuthor) throw forbidden('Only the thread author or an admin can mark answers');
+    // A banned author can't keep acting on the thread (this also emails).
+    if (!isAdmin) await checkWriteGate(c.env, user.id);
     if (body.solvedPostId !== null) {
       const post = await c.env.DB.prepare(`SELECT id, thread_id, author_user_id, body_md FROM forum_post WHERE id = ? AND deleted_at IS NULL`).bind(body.solvedPostId).first<{ id: string; thread_id: string; author_user_id: string; body_md: string }>();
       if (!post || post.thread_id !== thread.id) throw notFound('Post not found in this thread');
@@ -641,6 +648,7 @@ forumRouter.patch('/posts/:id', requireAuth, async (c) => {
   const isAuthor = post.author_user_id === user.id;
   const isAdmin = user.staff;
   if (!isAuthor && !isAdmin) throw forbidden('Only the author or an admin can edit this post');
+  if (!isAdmin) await checkWriteGate(c.env, user.id);
 
   // Non-admin authors can only edit within 30 min of creation.
   if (isAuthor && !isAdmin && Date.now() - post.created_at > 30 * 60 * 1000) {
@@ -684,11 +692,24 @@ forumRouter.delete('/posts/:id', requireAuth, async (c) => {
   }
 
   const now = Date.now();
-  await c.env.DB.prepare(`UPDATE forum_post SET deleted_at = ? WHERE id = ?`).bind(now, post.id).run();
-  // If this was the accepted answer, clear it.
-  await c.env.DB.prepare(
-    `UPDATE forum_thread SET solved_post_id = NULL WHERE id = ? AND solved_post_id = ?`,
-  ).bind(post.thread_id, post.id).run();
+  // Soft-delete, then fix the thread's counters in the same batch: post_count
+  // drops by one (never below the OP), last_post_at falls back to the newest
+  // remaining post, and an accepted answer that was this post is cleared.
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE forum_post SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`,
+    ).bind(now, post.id),
+    c.env.DB.prepare(
+      `UPDATE forum_thread
+          SET post_count = MAX(1, post_count - 1),
+              last_post_at = COALESCE(
+                (SELECT MAX(created_at) FROM forum_post WHERE thread_id = ? AND deleted_at IS NULL),
+                last_post_at),
+              solved_post_id = CASE WHEN solved_post_id = ? THEN NULL ELSE solved_post_id END
+        WHERE id = ?
+          AND EXISTS (SELECT 1 FROM forum_post WHERE id = ? AND deleted_at = ?)`,
+    ).bind(post.thread_id, post.id, post.thread_id, post.id, now),
+  ]);
 
   await logAudit(c.env, {
     actorUserId: user.id,

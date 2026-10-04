@@ -8,6 +8,7 @@ import {
   type SeenMap,
 } from '../../services/forumReadState';
 import { relativeTime } from './time';
+import { replyCountLabel } from './replyCount';
 import { Avatar } from './Avatar';
 import { SearchBar } from './SearchBar';
 
@@ -141,7 +142,7 @@ function ThreadRow({ t, seenMap }: { t: ForumThread; seenMap: SeenMap }) {
           <span className="truncate">{t.title}</span>
         </div>
         <div className="text-xs text-warm-gray truncate">
-          {t.author.displayName} · {t.categoryId} · {t.postCount} repl{t.postCount === 1 ? 'y' : 'ies'} · {relativeTime(t.lastPostAt)}
+          {t.author.displayName} · {t.categoryId} · {replyCountLabel(t.postCount)} · {relativeTime(t.lastPostAt)}
         </div>
       </div>
     </Link>
