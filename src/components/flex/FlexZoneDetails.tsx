@@ -7,6 +7,8 @@ import {
 } from '../../store/flexSlice';
 import { RailSubHeading } from '../ui/RailHeadings';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { serviceOptions } from '../../services/serviceIds';
+import { formatFarePrice } from './flexFormat';
 
 interface Props {
   zone: FlexZone;
@@ -94,10 +96,9 @@ export function FlexZoneDetails({ zone }: Props) {
 
   // A service_id may be defined in calendar.txt, calendar_dates.txt, or both.
   // Surface everything so the user can attach a zone to a dates-only service.
-  const calendarIdSet = new Set(calendars.map((c) => c.service_id));
-  const datesOnlyServiceIds = Array.from(
-    new Set(calendarDates.map((d) => d.service_id)),
-  ).filter((id) => !calendarIdSet.has(id));
+  // One option list (calendar rows, then dates-only ids) shared by all three
+  // service pickers below (C3-26).
+  const services = serviceOptions({ calendars, calendarDates });
   const rule = zone.bookingRule;
   const b: Partial<BookingRule> = rule ?? { bookingType: 1 };
   // The booking-rule library: every rule any zone uses, so one call centre's
@@ -370,7 +371,7 @@ export function FlexZoneDetails({ zone }: Props) {
           </div>
         </div>
         <label className="block text-[10px] text-warm-gray mb-1">Service pattern</label>
-        {(calendars.length > 0 || datesOnlyServiceIds.length > 0) ? (
+        {services.length > 0 ? (
           <>
             <select
               value={zone.serviceId || ''}
@@ -378,20 +379,16 @@ export function FlexZoneDetails({ zone }: Props) {
               className="w-full px-2 py-1 border border-sand rounded text-xs bg-white focus:outline-none focus:border-purple"
             >
               <option value="">— Pick a service pattern —</option>
-              {calendars.map((c) => {
-                const exceptionCount = calendarDates.filter((d) => d.service_id === c.service_id).length;
-                return (
-                  <option key={c.service_id} value={c.service_id}>
-                    {(c._description ? c._description + ' · ' : '') + c.service_id + ' — ' + describeServicePattern(c)}
+              {services.map(({ serviceId: sid, calendar: c }) => {
+                const exceptionCount = calendarDates.filter((d) => d.service_id === sid).length;
+                return c ? (
+                  <option key={sid} value={sid}>
+                    {(c._description ? c._description + ' · ' : '') + sid + ' — ' + describeServicePattern(c)}
                     {exceptionCount > 0 ? ` (+${exceptionCount} exceptions)` : ''}
                   </option>
-                );
-              })}
-              {datesOnlyServiceIds.map((sid) => {
-                const dates = calendarDates.filter((d) => d.service_id === sid);
-                return (
+                ) : (
                   <option key={sid} value={sid}>
-                    {sid} — {dates.length} exception{dates.length !== 1 ? 's' : ''} only (calendar_dates)
+                    {sid} — {exceptionCount} exception{exceptionCount !== 1 ? 's' : ''} only (calendar_dates)
                   </option>
                 );
               })}
@@ -566,9 +563,9 @@ export function FlexZoneDetails({ zone }: Props) {
                     className="w-full px-2 py-1 border border-sand rounded text-xs bg-white focus:outline-none focus:border-purple"
                   >
                     <option value="">— Calendar days (default) —</option>
-                    {calendars.map((c) => (
-                      <option key={c.service_id} value={c.service_id}>
-                        {(c._description ? c._description + ' · ' : '') + c.service_id} — {describeServicePattern(c)}
+                    {services.map(({ serviceId: sid, calendar: c, label }) => (
+                      <option key={sid} value={sid}>
+                        {c ? `${(c._description ? c._description + ' · ' : '') + sid} — ${describeServicePattern(c)}` : label}
                       </option>
                     ))}
                   </select>
@@ -769,9 +766,9 @@ export function FlexZoneDetails({ zone }: Props) {
                   className="flex-1 px-2 py-1 border border-sand rounded text-xs bg-white focus:outline-none focus:border-purple"
                 >
                   <option value="">— Service pattern —</option>
-                  {calendars.map((c) => (
-                    <option key={c.service_id} value={c.service_id}>
-                      {(c._description ? c._description + ' · ' : '') + c.service_id}
+                  {services.map(({ serviceId: sid, calendar: c, label }) => (
+                    <option key={sid} value={sid}>
+                      {c ? (c._description ? c._description + ' · ' : '') + sid : label}
                     </option>
                   ))}
                 </select>
@@ -793,11 +790,11 @@ export function FlexZoneDetails({ zone }: Props) {
             onClick={() => {
               const next = [
                 ...(zone.additionalWindows ?? []),
-                { serviceId: zone.serviceId || calendars[0]?.service_id || '', pickupWindowStart: '', pickupWindowEnd: '' },
+                { serviceId: zone.serviceId || services[0]?.serviceId || '', pickupWindowStart: '', pickupWindowEnd: '' },
               ];
               setField('additionalWindows', next);
             }}
-            disabled={calendars.length === 0}
+            disabled={services.length === 0}
             className="w-full px-2 py-1.5 border border-purple text-purple rounded text-[11px] font-semibold hover:bg-purple-50 transition-colors disabled:opacity-40"
           >
             + Add another window
@@ -853,7 +850,7 @@ export function FlexZoneDetails({ zone }: Props) {
           <option value="">— No fare assigned —</option>
           {fareAttributes.map((f) => (
             <option key={f.fare_id} value={f.fare_id}>
-              {f.fare_id} — ${Number(f.price).toFixed(2)} {f.currency_type}
+              {f.fare_id} — {formatFarePrice(f.price, f.currency_type)}
             </option>
           ))}
         </select>
