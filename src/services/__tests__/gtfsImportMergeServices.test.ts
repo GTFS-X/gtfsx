@@ -78,6 +78,50 @@ describe('mergeImportIntoStore', () => {
     expect(s.calendarDates.some((d) => d.service_id === byOrig.t1.service_id && d.date === '20261225')).toBe(true);
   });
 
+  it('calendar_dates are part of the service signature (S1-17)', () => {
+    const s0 = useStore.getState();
+    s0.setCalendarDates([{ service_id: 'HOSTHOL', date: '20261225', exception_type: 1 }]);
+    resetHistory();
+    const trips: Trip[] = [
+      { trip_id: 'ta', route_id: 'R', service_id: 'HOL', direction_id: 0 }, // dates-only, other date
+      { trip_id: 'tb', route_id: 'R', service_id: 'CAL2', direction_id: 0 }, // host WEEKDAY + an exception
+      { trip_id: 'tc', route_id: 'R', service_id: 'WEEKDAY', direction_id: 0 }, // same id, other dates
+    ];
+    const dates: CalendarDate[] = [
+      { service_id: 'HOL', date: '20260704', exception_type: 1 },
+      { service_id: 'CAL2', date: '20260101', exception_type: 2 },
+      { service_id: 'WEEKDAY', date: '20260301', exception_type: 2 },
+    ];
+    mergeImportIntoStore(
+      source({
+        trips,
+        stopTimes: trips.flatMap((t) => [st(t.trip_id, 'P1', 1)]),
+        frequencies: [],
+        calendars: [cal('CAL2', '20260101', '20260630'), cal('WEEKDAY', '20260101', '20260630')],
+        calendarDates: dates,
+      }),
+      new Set(['R']),
+    );
+    const s = useStore.getState();
+    const byOrig = Object.fromEntries(
+      s.trips.filter((t) => t.route_id !== 'H1').map((t) => [t.trip_id.replace(/^i\d+_/, ''), t]),
+    );
+    for (const k of ['ta', 'tb', 'tc']) {
+      expect(['HOSTHOL', 'WEEKDAY'], k).not.toContain(byOrig[k].service_id);
+    }
+    // each imported service keeps exactly its own dates
+    const datesOf = (id: string) => s.calendarDates.filter((d) => d.service_id === id).map((d) => d.date);
+    expect(datesOf(byOrig.ta.service_id)).toEqual(['20260704']);
+    expect(datesOf(byOrig.tb.service_id)).toEqual(['20260101']);
+    expect(datesOf(byOrig.tc.service_id)).toEqual(['20260301']);
+    // the host's own services are untouched
+    expect(datesOf('HOSTHOL')).toEqual(['20261225']);
+    expect(datesOf('WEEKDAY')).toEqual([]);
+    // no two services share an id
+    const ids = s.calendars.map((c) => c.service_id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it('leaves no dangling references (parent station, level, agency, block, frequencies, stops)', () => {
     mergeImportIntoStore(source(), new Set(['R']));
     const s = useStore.getState();
