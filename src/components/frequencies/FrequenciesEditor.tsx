@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { normalizeTimeInput } from '../../utils/time';
+import { buildTripOptions } from './frequencyTripOptions';
 
 /**
  * frequencies.txt editor — headway-based (frequency) service. A trip listed
@@ -21,16 +22,13 @@ export function FrequenciesEditor() {
 
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
-  const tripLabel = (tripId: string) => {
-    const t = trips.find((x) => x.trip_id === tripId);
-    if (!t) return tripId;
-    const r = routes.find((rr) => rr.route_id === t.route_id);
-    const rn = r?.route_short_name || r?.route_long_name || t.route_id;
-    return `${rn} · ${t.trip_headsign || t.trip_id}`;
-  };
-  const tripOptions = [...trips]
-    .map((t) => ({ value: t.trip_id, label: tripLabel(t.trip_id) }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+  // Memoized on [trips, routes] so a headway keystroke doesn't rebuild every
+  // option label (C2-18).
+  const { labelById, options: tripOptions } = useMemo(
+    () => buildTripOptions(trips, routes),
+    [trips, routes],
+  );
+  const tripLabel = (tripId: string) => labelById.get(tripId) ?? tripId;
 
   const handleAdd = () => {
     const first = trips[0]?.trip_id || '';
