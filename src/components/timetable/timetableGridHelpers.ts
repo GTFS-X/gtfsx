@@ -290,6 +290,21 @@ export function frequencyTimeLabel(t: string): string {
   return n.endsWith(':00') ? formatTimeShort(n) : n;
 }
 
+/** The "Every N min" field's value: blank while the stored headway is unset
+ *  (the user cleared the field), never a made-up 1. */
+export function headwayMinutesInput(headwaySecs: number): number | '' {
+  return headwaySecs > 0 ? Math.max(1, Math.round(headwaySecs / 60)) : '';
+}
+
+/** Parse the "Every N min" field. Blank, zero, negative or garbage → 0, which
+ *  checkFrequencyDrawer flags as badHeadway and which blocks Apply (an empty
+ *  field used to become a silent 1-minute headway). */
+export function parseHeadwayMinutes(value: string): number {
+  if (value.trim() === '') return 0;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n * 60 : 0;
+}
+
 export interface FrequencyDrawerCheck {
   /** Windows with start/end normalized to HH:MM:SS ('' when unparseable). */
   normalized: FrequencyWindow[];
