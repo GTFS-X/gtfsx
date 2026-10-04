@@ -17,6 +17,7 @@ import {
   type SeededUser,
 } from './_setup';
 import { reapExpiredTwofaChallenges } from '../auth/twofa';
+import { fetchWithEnv, racingEnv } from './_race';
 
 // This file asserts the SMS-unconfigured state throughout. The test runner
 // loads the developer's .dev.vars, which may carry real TWILIO_* values —
@@ -217,6 +218,25 @@ describe('2FA — login challenge + verify', () => {
     expect([a.status, b.status].sort()).toEqual([200, 400]);
     const sessions = await dbGet<{ n: number }>(`SELECT COUNT(*) AS n FROM session WHERE user_id = ?`, user.id);
     expect(sessions?.n).toBe(1);
+  });
+
+  it('a correct code loses cleanly when a competing request consumes the challenge first (W1-07)', async () => {
+    // Promise.all submissions often serialise and so pass against a handler
+    // with no atomic consume. Land the competitor's consume deterministically
+    // between the code check and this request's own consume instead.
+    const user = await seedUser({ email: 'race-ok@example.com' });
+    await enableEmail2fa(user.id);
+    const { client, challenge } = await loginToChallenge(user);
+    const code = latestCode(capture, user.email);
+
+    const race = racingEnv(/UPDATE twofa_challenge SET consumed_at/);
+    const res = await fetchWithEnv(client, race.env, 'POST', '/auth/2fa/verify', { challenge, code });
+    expect(race.fired()).toBe(true);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('twofa_expired');
+    expect(res.headers.get('Set-Cookie') ?? '').not.toContain('gb_session=');
+    const sessions = await dbGet<{ n: number }>(`SELECT COUNT(*) AS n FROM session WHERE user_id = ?`, user.id);
+    expect(sessions?.n).toBe(0);
   });
 
   it('an expired challenge cannot be verified', async () => {
