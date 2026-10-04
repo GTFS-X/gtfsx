@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <title>Transit access isochrones — GTFS·X</title>
-    <meta name="description" content="From an origin pin, see where a rider can reach on your network in 15 / 30 / 45 minutes — schedule-based RAPTOR routing combining walk access, wait, and in-vehicle time — with the population, jobs, and equity populations inside each contour." />
+    <meta name="description" content="From an origin pin, see where a rider can reach on your network in 15 / 30 / 45 minutes — schedule-based RAPTOR routing combining walk access, wait, and in-vehicle time — with the population, resident workers, and equity populations inside each contour." />
     <link rel="canonical" href="https://www.gtfsx.com/docs/access-isochrones/" />
     <meta property="og:title" content="Transit access isochrones — GTFS·X" />
-    <meta property="og:description" content="Schedule-based travel-time reach analysis: drop a pin and see what a rider can reach on your network in N minutes, plus the population, jobs, and equity populations inside each contour." />
+    <meta property="og:description" content="Schedule-based travel-time reach analysis: drop a pin and see what a rider can reach on your network in N minutes, plus the population, resident workers, and equity populations inside each contour." />
     <meta property="og:type" content="article" />
     <meta property="og:url" content="https://www.gtfsx.com/docs/access-isochrones/" />
     <meta property="og:image" content="https://www.gtfsx.com/og-default.png" />
@@ -64,7 +64,7 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "headline": "Transit access isochrones — GTFS·X",
-  "description": "Schedule-based travel-time reach analysis over a GTFS feed: from an origin, where can a rider go in N minutes, and how many residents, jobs, and equity populations can they reach.",
+  "description": "Schedule-based travel-time reach analysis over a GTFS feed: from an origin, where can a rider go in N minutes, and how many residents, resident workers, and equity populations can they reach.",
   "image": "https://www.gtfsx.com/og-default.png",
   "author": { "@type": "Organization", "name": "GTFS·X", "url": "https://www.gtfsx.com/" },
   "publisher": {
@@ -96,12 +96,12 @@
     <main>
       <div class="crumbs"><a href="/docs/">Docs</a> · Analysis tools · Transit access isochrones</div>
       <h1>Transit access isochrones <span class="tier-badge free">Free</span></h1>
-      <p class="lede">Drop a pin and see where a rider can travel on your network within a time budget — combining the walk to a stop, the wait for service, the in-vehicle ride, and the walk from the final stop — drawn as 15 / 30 / 45-minute contours, with the population, jobs, and equity populations reachable inside each.</p>
+      <p class="lede">Drop a pin and see where a rider can travel on your network within a time budget — combining the walk to a stop, the wait for service, the in-vehicle ride, and the walk from the final stop — drawn as 15 / 30 / 45-minute contours, with the population, resident workers, and equity populations reachable inside each.</p>
       <p>Where <a href="/docs/demographic-coverage/">Demographic coverage</a> tells you <em>who lives near your stops</em>, access isochrones tell you <em>where a rider can go from a stop</em>: the temporal, schedule-aware companion to the buffer-based coverage analysis. It's free on every plan, but you need to be signed in to a (free) account to use it, because each run calls a metered street-routing service.</p>
 
       <figure>
-        <img src="/assets/docs/access-isochrones-hero.png" alt="The Access Isochrones panel in GTFS·X with an origin pin on the map, time-budget contours shaded in stepped blue saturation following the street network, and a sidebar listing the population, jobs, and equity populations reachable within each time band." loading="lazy" />
-        <figcaption>An access-isochrone run on the Sunny Valley feed. The blue contours show where a rider can reach from the origin pin within each time budget (darkest = closest), and the sidebar tallies the residents, jobs, and equity populations inside each.</figcaption>
+        <img src="/assets/docs/access-isochrones-hero.png" alt="The Access Isochrones panel in GTFS·X with an origin pin on the map, time-budget contours shaded in stepped blue saturation following the street network, and a sidebar listing the population, resident workers, and equity populations reachable within each time band." loading="lazy" />
+        <figcaption>An access-isochrone run on the Sunny Valley feed. The blue contours show where a rider can reach from the origin pin within each time budget (darkest = closest), and the sidebar tallies the residents, resident workers, and equity populations inside each.</figcaption>
       </figure>
 
       <h2 id="what-it-is">What it is</h2>
@@ -111,13 +111,13 @@
         <li><strong>Transit</strong> — riding the network: waiting for the next departure, the in-vehicle time, and any transfers, computed from your <code>stop_times</code> (and <code>frequencies.txt</code>) for the chosen service day and departure time.</li>
         <li><strong>Egress</strong> — the walk from each reachable stop out to the surrounding streets, drawn as a real routed walkshed.</li>
       </ul>
-      <p>The union of those reachable areas, clipped to each time budget, is the isochrone. Alongside the map contours, the panel tallies the <strong>population</strong>, <strong>jobs</strong>, and <strong>equity populations</strong> (minority, low-income, zero-vehicle households) inside each contour — the same Census plumbing as the coverage analysis.</p>
+      <p>The union of those reachable areas, clipped to each time budget, is the isochrone. Alongside the map contours, the panel tallies the <strong>population</strong>, <strong>resident workers</strong> (employed residents counted where they live, not jobs at a workplace), and <strong>equity populations</strong> (minority, low-income, zero-vehicle households) inside each contour — the same Census plumbing as the coverage analysis.</p>
 
       <h2 id="when-to-use-it">When to use it</h2>
       <ul>
-        <li><strong>Grant narratives and New/Small Starts.</strong> "How many jobs can a resident of this low-income tract reach in 45 minutes by transit?" is the standard accessibility framing in FTA filings and regional transportation plans. Access isochrones produce a defensible, documented number.</li>
+        <li><strong>Grant narratives and New/Small Starts.</strong> "How many people and workers can a resident of this low-income tract reach in 45 minutes by transit?" is the standard accessibility framing in FTA filings and regional transportation plans. Access isochrones produce a defensible, documented number.</li>
         <li><strong>Equity analysis with a temporal dimension.</strong> Title VI and coverage tell you who lives near service; isochrones tell you what destinations that service actually connects them to.</li>
-        <li><strong>Comparing a proposed change.</strong> Run the analysis from a key origin on today's network, then again with a proposed route on or off (via <a href="/docs/scenario-analysis/">route visibility</a>), and compare the residents and jobs reached.</li>
+        <li><strong>Comparing a proposed change.</strong> Run the analysis from a key origin on today's network, then again with a proposed route on or off (via <a href="/docs/scenario-analysis/">route visibility</a>), and compare the residents and resident workers reached.</li>
         <li><strong>Siting and outreach.</strong> Evaluate transit access from a proposed development, a job center, a hospital, or a neighborhood that's raised a service request.</li>
       </ul>
 
@@ -127,7 +127,7 @@
         <li>Click <strong>Set origin on map</strong> and click the map to drop the trip origin (drag the pin afterward to move it).</li>
         <li>Pick your <strong>time budgets</strong> (15 / 30 / 45 / 60 minutes — choose one or several), a <strong>departure time</strong>, the <strong>service day</strong> (defaults to the feed's busiest weekday), and the <strong>maximum walk</strong> for the access and egress legs.</li>
         <li>Click <strong>Run analysis</strong>. GTFS·X routes the network and draws the routed walksheds — because it makes a real walking-isochrone request per reachable stop, a run takes a few seconds (the button shows "Analyzing…").</li>
-        <li>Read the contours on the map (darkest = closest reach, each labeled with its time budget) and the per-budget readout in the sidebar: stops reached, population, jobs, and equity shares.</li>
+        <li>Read the contours on the map (darkest = closest reach, each labeled with its time budget) and the per-budget readout in the sidebar: stops reached, population, resident workers, and equity shares.</li>
       </ol>
 
       <h2 id="methodology">Methodology</h2>
@@ -135,7 +135,7 @@
         <li><strong>Routing engine.</strong> Reach is computed with <strong>RAPTOR</strong> (Round-Based Public Transit Routing), the standard algorithm for schedule-based travel-time analysis. It runs entirely in your browser over the feed's <code>stop_times</code>, one round per transfer, returning the earliest arrival time at every stop in the network from the chosen departure time. Frequency-based trips (<code>frequencies.txt</code>) are expanded to synthetic departures, and only the calendars active on the selected service day are considered.</li>
         <li><strong>Access leg.</strong> Stops within the walk-time budget of the origin (at an assumed walking speed) seed the router, so the trip clock includes the time it takes to reach the first stop.</li>
         <li><strong>Egress leg: routed walksheds.</strong> For each stop reachable within a budget, GTFS·X draws a <strong>street-network walkshed</strong> (a Mapbox walking isochrone that follows the actual pedestrian network), not a fixed-radius circle, and unions them into the contour. This is the same engine as the <a href="/docs/demographic-coverage/">network walksheds</a> in the Coverage panel.</li>
-        <li><strong>Opportunities.</strong> Population, jobs, and equity populations inside each contour are apportioned from US Census ACS block groups overlapping the polygon, through the same summation the coverage analysis uses, so the figures are consistent across the two tools.</li>
+        <li><strong>Opportunities.</strong> Population, resident workers, and equity populations inside each contour are apportioned from US Census ACS block groups overlapping the polygon, through the same summation the coverage analysis uses, so the figures are consistent across the two tools.</li>
         <li><strong>Contours.</strong> A single hue with stepped saturation — the closest (shortest-time) band is the most saturated, longer budgets lighter — the standard travel-time-isochrone convention.</li>
       </ul>
 
@@ -143,7 +143,7 @@
       <ul>
         <li><strong>One departure time.</strong> Each run is for a single departure moment, so the result is sensitive to which bus the rider just caught or missed. Run a few departure times to see the range; departure-window averaging is planned.</li>
         <li><strong>Walk legs.</strong> The access leg uses a straight-line walk-time to decide which stops are boardable; the egress contour drawn on the map is the real routed walkshed. Neither models elevation, crossing delays, or wait-to-cross.</li>
-        <li><strong>Opportunity counts are apportioned.</strong> Population, jobs, and equity figures are ACS estimates apportioned to the reachable area; they share the vintage and caveats of the <a href="/docs/demographic-coverage/">coverage analysis</a>, and ACS block-group data covers the 50 states plus DC.</li>
+        <li><strong>Opportunity counts are apportioned.</strong> Population, resident worker, and equity figures are ACS estimates apportioned to the reachable area; they share the vintage and caveats of the <a href="/docs/demographic-coverage/">coverage analysis</a>, and ACS block-group data covers the 50 states plus DC.</li>
         <li><strong>Schedule, not real time.</strong> Routing uses the published schedule; it does not apply real-time delays, and GTFS-Flex / demand-response zones are not routed.</li>
         <li><strong>Best on small and mid-size feeds.</strong> The router runs in the browser; very large feeds are slower, and each reachable stop adds a walking-isochrone request (capped per run).</li>
       </ul>

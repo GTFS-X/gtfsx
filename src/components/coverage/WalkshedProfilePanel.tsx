@@ -12,6 +12,12 @@ import {
   type WalkshedProfileResult,
 } from '../../services/walkshedProfile';
 import { useWalkshedProfile } from './useWalkshedProfile';
+import {
+  HIDDEN_ROUTE_HINT,
+  HIDDEN_STOP_HINT,
+  allRoutesServingStopHidden,
+  isRouteHidden,
+} from './hiddenRouteHints';
 import { WalkshedProfileTable, WalkshedProfileNotes } from './WalkshedProfileTable';
 
 /**
@@ -258,6 +264,7 @@ export function RouteWalkshedProfileTab() {
   const stops = useStore((s) => s.stops);
   const routeStops = useStore((s) => s.routeStops);
   const setEditingStopId = useStore((s) => s.setEditingStopId);
+  const hiddenRouteIds = useStore((s) => s.hiddenRouteIds);
 
   if (!route || !routeId) return null;
 
@@ -282,7 +289,9 @@ export function RouteWalkshedProfileTab() {
           if (!profile) {
             return (
               <p className="text-xs italic text-warm-gray">
-                This route has no stops to profile.
+                {isRouteHidden(routeId, hiddenRouteIds)
+                  ? HIDDEN_ROUTE_HINT
+                  : 'This route has no stops to profile.'}
               </p>
             );
           }
@@ -364,6 +373,8 @@ export function RouteWalkshedProfileTab() {
  * reads — opening ten stops in a row costs zero extra fetches.
  */
 export function StopWalkshedProfile({ stopId }: { stopId: string }) {
+  const allRouteStops = useStore((s) => s.routeStops);
+  const hiddenRouteIds = useStore((s) => s.hiddenRouteIds);
   return (
     <ProfileGate
       intro={
@@ -378,7 +389,9 @@ export function StopWalkshedProfile({ stopId }: { stopId: string }) {
         if (!profile) {
           return (
             <p className="text-xs italic text-warm-gray">
-              This stop wasn't in the last profile run — re-run it.
+              {allRoutesServingStopHidden(stopId, allRouteStops, hiddenRouteIds)
+                ? HIDDEN_STOP_HINT
+                : "This stop wasn't in the last profile run — re-run it."}
             </p>
           );
         }

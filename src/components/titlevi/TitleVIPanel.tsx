@@ -2,7 +2,9 @@ import { useState, useCallback } from 'react';
 import { EmptyState } from '../ui/EmptyState';
 import { useVisibleFeed } from '../../hooks/useVisibleFeed';
 import { RouteScopeNote } from '../ui/RouteScopeNote';
-import { fetchCensusData, lookupFips } from '../../services/demographics';
+import { useStore } from '../../store';
+import { fetchServiceAreaBlockGroups } from '../coverage/serviceAreaCensus';
+import { TITLE_VI_METHOD_NOTE, titleVIBasisLabel } from './titleVIText';
 import { calculateTitleVI, type TitleVIResult, type TitleVIGroup } from '../../services/titleVI';
 
 function fmt(n: number, decimals = 1): string {
@@ -62,7 +64,9 @@ function GroupColumn({ label, group, isMinority }: { label: string; group: Title
 
 export function TitleVIPanel() {
   // Analysis is scoped to the routes toggled visible on the map.
-  const { stops, stopTimes, visibleRouteCount, totalRouteCount } = useVisibleFeed();
+  const { stops, stopTimes, trips, visibleRouteCount, totalRouteCount } = useVisibleFeed();
+  const calendars = useStore((s) => s.calendars);
+  const calendarDates = useStore((s) => s.calendarDates);
   const [result, setResult] = useState<TitleVIResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,17 +77,17 @@ export function TitleVIPanel() {
     setError(null);
 
     try {
-      const avgLat = stops.reduce((sum, s) => sum + s.stop_lat, 0) / stops.length;
-      const avgLon = stops.reduce((sum, s) => sum + s.stop_lon, 0) / stops.length;
-      const { stateFips, countyFips } = await lookupFips(avgLat, avgLon);
-      const blockGroups = await fetchCensusData(stateFips, countyFips);
-      setResult(calculateTitleVI(stops, blockGroups, { stopTimes }));
+      // Every county the service area touches, not just the centroid's.
+      const blockGroups = await fetchServiceAreaBlockGroups(stops);
+      // trips + calendars let the analysis use one representative service day
+      // instead of summing every service pattern into "daily" trips.
+      setResult(calculateTitleVI(stops, blockGroups, { stopTimes, trips, calendars, calendarDates }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed');
     } finally {
       setLoading(false);
     }
-  }, [stops, stopTimes]);
+  }, [stops, stopTimes, trips, calendars, calendarDates]);
 
   if (stops.length === 0) {
     return totalRouteCount > 0 && visibleRouteCount === 0 ? (
@@ -133,6 +137,11 @@ export function TitleVIPanel() {
 
       {result && !loading && (
         <div className="space-y-3">
+          {titleVIBasisLabel(result.basis) && (
+            <p className="text-xs font-semibold text-dark-brown" data-testid="titlevi-basis">
+              {titleVIBasisLabel(result.basis)}
+            </p>
+          )}
           {/* ── Race / ethnicity ── */}
           <h3 className="font-heading font-bold text-sm text-dark-brown">Race / ethnicity</h3>
           <div className="bg-cream rounded-lg px-3 py-2 flex items-center justify-between">
@@ -177,9 +186,7 @@ export function TitleVIPanel() {
 
           {/* Methodology note */}
           <p className="text-[10px] text-warm-gray border-t border-sand pt-2">
-            Service metric: apportioned daily trips per block group (unique trip visits, weighted
-            by circle-overlap fraction with a 0.5 mi stop buffer). Source: ACS 5-Year B03002 (race)
-            and C17002 (income-to-poverty).
+            {TITLE_VI_METHOD_NOTE}
           </p>
         </div>
       )}

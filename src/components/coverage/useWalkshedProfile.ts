@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useStore } from '../../store';
 import { useVisibleFeed } from '../../hooks/useVisibleFeed';
 import { analyzeWalkshedProfiles } from '../../services/walkshedProfile';
+import { beginAnalysis } from './analysisEpoch';
 
 /**
  * Shared entry point for the walkshed demographic profile.
@@ -29,12 +30,16 @@ export function useWalkshedProfile() {
 
   const run = useCallback(async () => {
     if (stops.length === 0) return;
+    const isCurrent = beginAnalysis('walkshed');
     setIsFetching(true);
     setError(null);
     try {
       const result = await analyzeWalkshedProfiles({ stops, routes, routeStops });
+      // Dropped when the user switched feeds (or re-ran) while this was in flight.
+      if (!isCurrent()) return;
       setProfiles(result);
     } catch (err) {
+      if (!isCurrent()) return;
       setProfiles(null);
       setError(
         err instanceof Error
@@ -42,7 +47,7 @@ export function useWalkshedProfile() {
           : 'Could not load the census-block layer for this feed.',
       );
     } finally {
-      setIsFetching(false);
+      if (isCurrent()) setIsFetching(false);
     }
   }, [stops, routes, routeStops, setProfiles, setIsFetching, setError]);
 

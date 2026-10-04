@@ -49,7 +49,9 @@ function Section({
   return (
     <div className="border border-sand rounded-xl overflow-hidden bg-white">
       <button
+        type="button"
         onClick={onToggle}
+        aria-expanded={open}
         className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-cream transition-colors"
       >
         <span className="text-warm-gray text-xs w-3">{open ? '▾' : '▸'}</span>
