@@ -47,6 +47,7 @@ export interface CalendarSlice {
    *  the trips. Use calendarReferences() to tell the user what is in the way. */
   removeCalendar: (service_id: string) => boolean;
   /** Clone a calendar (and its exception dates) under a new unique service_id.
+   * A calendar_dates-only service is cloned as its dates alone.
    * Returns the new service_id, or null if the source doesn't exist. */
   duplicateCalendar: (service_id: string) => string | null;
   setCalendars: (calendars: Calendar[]) => void;
@@ -80,8 +81,13 @@ export const createCalendarSlice: StateCreator<CalendarSlice, [['zustand/immer',
   duplicateCalendar: (service_id) => {
     const s0 = get();
     const orig = s0.calendars.find((c) => c.service_id === service_id);
-    if (!orig) return null;
-    const existing = new Set(s0.calendars.map((c) => c.service_id));
+    // A calendar_dates-only service has no calendar.txt row: copy its dates.
+    const datesOnly = !orig && s0.calendarDates.some((cd) => cd.service_id === service_id);
+    if (!orig && !datesOnly) return null;
+    const existing = new Set([
+      ...s0.calendars.map((c) => c.service_id),
+      ...s0.calendarDates.map((cd) => cd.service_id),
+    ]);
     let newId = `${service_id}_copy`;
     let n = 2;
     while (existing.has(newId)) newId = `${service_id}_copy${n++}`;
@@ -89,11 +95,13 @@ export const createCalendarSlice: StateCreator<CalendarSlice, [['zustand/immer',
       .filter((cd) => cd.service_id === service_id)
       .map((cd) => ({ ...cd, service_id: newId }));
     set((state) => {
-      state.calendars.push({
-        ...orig,
-        service_id: newId,
-        _description: orig._description ? `${orig._description} (copy)` : orig._description,
-      });
+      if (orig) {
+        state.calendars.push({
+          ...orig,
+          service_id: newId,
+          _description: orig._description ? `${orig._description} (copy)` : orig._description,
+        });
+      }
       state.calendarDates.push(...dateCopies);
     });
     return newId;

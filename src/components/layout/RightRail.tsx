@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import type { SidebarSection, RouteDetailTab } from '../../types/ui';
 import { AgencyEditor } from '../agency/AgencyEditor';
@@ -29,7 +29,7 @@ import { useEditorPlan } from '../billing/useEditorPlan';
 import { EditActions } from '../ui/EditActions';
 import { Breadcrumb } from '../ui/Breadcrumb';
 import { calendarReferences } from '../../store/calendarSlice';
-import { calendarDeleteBlockedMessage } from './calendarDeleteMessage';
+import { calendarDeleteBlockedMessage, resolveCalendarHeaderService } from './calendarDeleteMessage';
 import { TabButton } from '../ui/Tabs';
 
 const RIGHT_RAIL_DEFAULT_WIDTH = 460;
@@ -459,8 +459,14 @@ function CreateStopHeader() {
 }
 
 function CalendarDetailHeader() {
-  const calendar = useStore((s) =>
-    s.calendars.find((c) => c.service_id === s.editingCalendarServiceId) ?? null,
+  const editingId = useStore((s) => s.editingCalendarServiceId);
+  const calendars = useStore((s) => s.calendars);
+  const calendarDates = useStore((s) => s.calendarDates);
+  // Resolve through serviceOptions so a calendar_dates-only service (no
+  // calendar.txt row) still gets its breadcrumb, title, Duplicate and Delete.
+  const service = useMemo(
+    () => resolveCalendarHeaderService({ calendars, calendarDates }, editingId),
+    [calendars, calendarDates, editingId],
   );
   const setEditingCalendarServiceId = useStore((s) => s.setEditingCalendarServiceId);
   const duplicateCalendar = useStore((s) => s.duplicateCalendar);
@@ -470,8 +476,8 @@ function CalendarDetailHeader() {
   // A refused delete (S1-14): keyed by service_id so switching calendars hides it.
   const [blocked, setBlocked] = useState<{ serviceId: string; message: string } | null>(null);
 
-  if (!calendar) return null;
-  const title = calendar._description || calendar.service_id;
+  if (!service) return null;
+  const { serviceId, title, datesOnly } = service;
 
   return (
     <div className="border-b border-sand bg-white shrink-0">
@@ -497,13 +503,13 @@ function CalendarDetailHeader() {
           {title}
         </h2>
         <EditActions
-          key={calendar.service_id}
+          key={serviceId}
           onDuplicate={() => {
-            const newId = duplicateCalendar(calendar.service_id);
+            const newId = duplicateCalendar(serviceId);
             if (newId) setEditingCalendarServiceId(newId);
           }}
           onDelete={() => {
-            const id = calendar.service_id;
+            const id = serviceId;
             if (removeCalendar(id)) {
               setBlocked(null);
               setEditingCalendarServiceId(null);
@@ -519,7 +525,7 @@ function CalendarDetailHeader() {
           deleteTitle="Delete this calendar"
         />
       </div>
-      {blocked && blocked.serviceId === calendar.service_id && (
+      {blocked && blocked.serviceId === serviceId && (
         <div
           role="alert"
           className="mx-5 mb-3 px-3 py-2 rounded-md border border-red-200 bg-red-50 text-[12px] text-red-700 flex items-start gap-2"
@@ -535,8 +541,9 @@ function CalendarDetailHeader() {
           </button>
         </div>
       )}
-      {/* Details / Routes / Exceptions tabs — scrollable on narrow viewports */}
-      <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Details / Routes / Exceptions tabs — scrollable on narrow viewports.
+          A dates-only service has one combined view (CalendarEditor), so no tabs. */}
+      {!datesOnly && <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex gap-1 px-3 -mb-px min-w-max">
           {(['details', 'routes', 'exceptions'] as const).map((t) => (
             <TabButton key={t} active={calendarDetailTab === t} onClick={() => setCalendarDetailTab(t)}>
@@ -544,7 +551,7 @@ function CalendarDetailHeader() {
             </TabButton>
           ))}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

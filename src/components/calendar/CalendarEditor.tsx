@@ -338,15 +338,10 @@ export function CalendarEditor() {
     const routesForService = routes.filter((r) => counts.has(r.route_id));
     return (
       <div className="flex flex-col gap-4">
+        {/* Breadcrumb, title, Duplicate and Delete live in RightRail's
+            CalendarDetailHeader, which resolves dates-only services too. */}
         <div>
-          <button
-            onClick={() => setEditingCalendarServiceId(null)}
-            className="text-[12px] font-semibold text-warm-gray hover:text-coral transition-colors mb-1"
-          >
-            ‹ All service patterns
-          </button>
-          <h3 className="font-heading font-extrabold text-lg text-dark-brown leading-tight truncate">{serviceId}</h3>
-          <p className="text-xs text-warm-gray mt-1">
+          <p className="text-xs text-warm-gray">
             This service is defined only by dated exceptions (calendar_dates.txt), with no weekly
             pattern. It runs on each “Service added” date.
           </p>
