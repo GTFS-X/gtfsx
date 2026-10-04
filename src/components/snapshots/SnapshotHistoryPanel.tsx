@@ -46,6 +46,9 @@ export function SnapshotHistoryPanel() {
   const [busy, setBusy] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<ProjectSnapshot | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProjectSnapshot | null>(null);
+  // Errors from the restore / delete confirms render inside the open dialog;
+  // the panel-level error would sit behind its overlay.
+  const [dialogError, setDialogError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
@@ -103,7 +106,7 @@ export function SnapshotHistoryPanel() {
 
   const handleRestore = async (snapshot: ProjectSnapshot) => {
     setBusy(true);
-    setError(null);
+    setDialogError(null);
     try {
       await restoreSnapshot(projectId, snapshot.id);
       await loadProjectFromServer(projectId);
@@ -114,7 +117,7 @@ export function SnapshotHistoryPanel() {
       await refresh();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Restore failed';
-      setError(msg);
+      setDialogError(msg);
     } finally {
       setBusy(false);
     }
@@ -122,14 +125,14 @@ export function SnapshotHistoryPanel() {
 
   const handleDelete = async (snapshot: ProjectSnapshot) => {
     setBusy(true);
-    setError(null);
+    setDialogError(null);
     try {
       await deleteSnapshot(projectId, snapshot.id);
       setDeleteTarget(null);
       await refresh();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Delete failed';
-      setError(msg);
+      setDialogError(msg);
     } finally {
       setBusy(false);
     }
@@ -247,9 +250,13 @@ export function SnapshotHistoryPanel() {
           title="Restore this snapshot?"
           body={`This will replace your current working draft with "${restoreTarget.label || restoreTarget.id.slice(0, 8)}". Your current draft will be lost unless you save it as a snapshot first.`}
           confirmLabel="Restore"
-          onCancel={() => setRestoreTarget(null)}
+          onCancel={() => {
+            setRestoreTarget(null);
+            setDialogError(null);
+          }}
           onConfirm={() => handleRestore(restoreTarget)}
           busy={busy}
+          error={dialogError}
         />
       )}
 
@@ -259,9 +266,13 @@ export function SnapshotHistoryPanel() {
           body={`"${deleteTarget.label || deleteTarget.id.slice(0, 8)}" will be permanently removed.`}
           confirmLabel="Delete"
           danger
-          onCancel={() => setDeleteTarget(null)}
+          onCancel={() => {
+            setDeleteTarget(null);
+            setDialogError(null);
+          }}
           onConfirm={() => handleDelete(deleteTarget)}
           busy={busy}
+          error={dialogError}
         />
       )}
     </div>
