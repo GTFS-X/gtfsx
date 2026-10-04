@@ -31,7 +31,7 @@ function findNested(zip: JSZip, name: string): JSZip.JSZipObject[] {
 
 /**
  * The columns the importer reads, per file. Anything else in a file the editor
- * reads is dropped on export, so the import reports it (S1-08; a passthrough
+ * reads is dropped on export, so the import reports it (a passthrough
  * for unmodelled columns is an open product decision).
  */
 const FLEX_STOP_TIME_FIELDS = [
@@ -358,7 +358,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
         // A blank coordinate (legal for generic nodes and boarding areas,
         // location_type 3/4) is held as 0 so every map/geometry consumer keeps
         // a finite number; the exporter writes 0,0 on those types back as
-        // blank cells and the validator doesn't require them (see S1-07).
+        // blank cells and the validator doesn't require them.
         stop_lat: num(row.stop_lat),
         stop_lon: num(row.stop_lon),
         zone_id: row.zone_id || undefined,

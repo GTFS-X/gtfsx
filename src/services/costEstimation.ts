@@ -71,8 +71,8 @@ const serviceDayCache = new WeakMap<object, WeakMap<object, Map<string, ServiceD
  *    the first..last date span, daysPerWeek = dates per week of that span.
  *  - An id defined in neither file falls back to 7 / 365.
  *
- * Annualization (scaling a short season to a full year) is unchanged; see
- * DEFERRED S2-20. Added (exception_type 1) dates outside the calendar range now
+ * Annualization (scaling a short season to a full year) is unchanged pending
+ * a separate product decision. Added (exception_type 1) dates outside the calendar range now
  * count, as the spec allows, and the span widens to include them.
  */
 export function serviceDayStats(

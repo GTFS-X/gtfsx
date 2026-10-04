@@ -66,32 +66,55 @@ export interface USHolidayDate {
   name: string;
   gtfsDate: string;   // YYYYMMDD
   dayOfWeek: number;  // 0=Sunday … 6=Saturday
+  /** For an observed date, the US_HOLIDAYS name it stands in for (so a
+   *  selection by holiday name picks up both the civil and observed dates). */
+  observedOf?: string;
 }
 
-/** Every US holiday in a single calendar year, as GTFS dates. */
+/** Fixed-date federal holidays: when one falls on a weekend, the federal
+ *  observance moves to the Friday before (Saturday) or Monday after (Sunday). */
+const FIXED_DATE_HOLIDAYS = new Set([
+  "New Year's Day", 'Juneteenth', 'Independence Day', 'Veterans Day', 'Christmas Day',
+]);
+
+/**
+ * Every US holiday of a given year (civil dates), plus the observed weekday for
+ * each fixed-date holiday that lands on a weekend, named "<name> (observed)".
+ * The observed date can fall in the previous year (New Year's Day on a
+ * Saturday is observed Fri Dec 31), so it is keyed to the holiday's year, not
+ * the date's.
+ */
 export function getUSHolidaysForYear(year: number): USHolidayDate[] {
-  return US_HOLIDAYS.map((h) => {
+  const out: USHolidayDate[] = [];
+  for (const h of US_HOLIDAYS) {
     const d = h.getDate(year);
-    return { name: h.name, gtfsDate: dateToGtfs(d), dayOfWeek: d.getDay() };
-  });
+    out.push({ name: h.name, gtfsDate: dateToGtfs(d), dayOfWeek: d.getDay() });
+    if (!FIXED_DATE_HOLIDAYS.has(h.name)) continue;
+    const shift = d.getDay() === 6 ? -1 : d.getDay() === 0 ? 1 : 0;
+    if (shift === 0) continue;
+    const obs = new Date(d.getFullYear(), d.getMonth(), d.getDate() + shift);
+    out.push({ name: `${h.name} (observed)`, gtfsDate: dateToGtfs(obs), dayOfWeek: obs.getDay(), observedOf: h.name });
+  }
+  return out;
 }
 
 /**
- * Every US holiday whose date falls within [startDate, endDate] inclusive
- * (GTFS YYYYMMDD strings), spanning every year the range touches. Handles
- * multi-year ranges and leap years (date math is real-calendar based).
+ * Every US holiday (and observed date) within [startDate, endDate] inclusive
+ * (GTFS YYYYMMDD strings), spanning every year the range touches — plus the
+ * following year, whose New Year's Day may be observed on Dec 31 of the
+ * range's last year. Handles multi-year ranges and leap years.
  */
 export function getUSHolidaysInRange(startDate: string, endDate: string): USHolidayDate[] {
   const startYear = parseInt(startDate.slice(0, 4), 10);
   const endYear = parseInt(endDate.slice(0, 4), 10);
   if (!Number.isFinite(startYear) || !Number.isFinite(endYear) || endYear < startYear) return [];
   const out: USHolidayDate[] = [];
-  for (let y = startYear; y <= endYear; y++) {
+  for (let y = startYear; y <= endYear + 1; y++) {
     for (const h of getUSHolidaysForYear(y)) {
       if (h.gtfsDate >= startDate && h.gtfsDate <= endDate) out.push(h);
     }
   }
-  return out;
+  return out.sort((a, b) => a.gtfsDate.localeCompare(b.gtfsDate));
 }
 
 // ── Service-day helpers ────────────────────────────────────────────────────
@@ -150,6 +173,6 @@ export function getEligibleHolidayExceptions(
   selectedNames: ReadonlySet<string>,
 ): USHolidayDate[] {
   return getUSHolidaysInRange(cal.start_date, cal.end_date).filter(
-    (h) => selectedNames.has(h.name) && serviceRunsOnDate(cal, h.gtfsDate),
+    (h) => selectedNames.has(h.observedOf ?? h.name) && serviceRunsOnDate(cal, h.gtfsDate),
   );
 }

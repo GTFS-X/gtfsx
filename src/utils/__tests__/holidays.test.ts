@@ -65,11 +65,12 @@ describe('getEligibleHolidayExceptions', () => {
     expect(onlyXmas.map((h) => h.name)).toEqual(['Christmas Day']);
   });
 
-  it('returns an empty list when every selected holiday is off-DOW (count = 0)', () => {
-    // Independence Day 2026 falls on a Saturday — a Mon–Fri pattern runs none of
-    // it, so the bulk-add button would show "(0)" / be disabled.
+  it('never offers the off-DOW civil date, only its observed weekday', () => {
+    // Independence Day 2026 falls on a Saturday — a Mon–Fri pattern doesn't run
+    // it, so the civil date is never offered; the federal observance (Fri Jul 3)
+    // is a running day and is.
     const offDow = getEligibleHolidayExceptions(calMonFri, new Set(['Independence Day']));
-    expect(offDow.length).toBe(0);
+    expect(offDow.map((h) => [h.name, h.gtfsDate])).toEqual([['Independence Day (observed)', '20260703']]);
   });
 
   it('weekend pattern picks up the weekend holiday the weekday pattern skipped', () => {

@@ -20,6 +20,11 @@ function randomId(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Fallback when sessionStorage is unavailable (blocked storage, some private
+// modes): one id for the life of the page, not a fresh one per beacon, which
+// would count every event as a separate visit.
+let memSessionId: string | null = null;
+
 function getSessionId(): string {
   try {
     let id = sessionStorage.getItem(SESSION_KEY);
@@ -29,7 +34,7 @@ function getSessionId(): string {
     }
     return id;
   } catch {
-    return randomId();
+    return (memSessionId ??= randomId());
   }
 }
 
@@ -206,8 +211,11 @@ export type BlockedGate =
 
 function send(kind: TrackKind, opts?: { path?: string; label?: string | null }): void {
   try {
-    const path =
-      opts?.path ?? (typeof window !== 'undefined' ? window.location.pathname : '/');
+    // The endpoint rejects paths over 512 chars (worker/events/routes.ts), and
+    // the failure is swallowed — truncate rather than lose the event.
+    const path = (
+      opts?.path ?? (typeof window !== 'undefined' ? window.location.pathname : '/')
+    ).slice(0, 512);
     void fetch('/api/events/track', {
       method: 'POST',
       headers: {

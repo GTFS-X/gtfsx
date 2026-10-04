@@ -5,8 +5,8 @@ import { HISTORY_KEYS, recordChange, runWithoutHistory } from '../store/history'
 /**
  * Run `fn`'s store mutations as ONE undo step.
  *
- * INTEGRATION POINT (S1-19): B4 adds `historyTransaction(label, fn)` to
- * store/history.ts with these semantics. Once it lands, make this a thin
+ * INTEGRATION POINT: a `historyTransaction(label, fn)` with these semantics is
+ * being added to store/history.ts. Once it lands, make this a thin
  * re-export of it (or replace the call sites) — do not keep two copies.
  *
  * Suspends recording while `fn` runs, then records a single entry of

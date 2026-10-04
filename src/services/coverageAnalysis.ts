@@ -138,10 +138,12 @@ export function circleOverlapFraction(d: number, bufferMiles: number, bgRadius: 
  * Compute apportioned coverage for a set of stops over a set of block groups.
  *
  * Rather than a binary centroid-in-buffer check, each block group is modelled
- * as a circle of radius BG_RADIUS_MILES. The fraction of that circle that
- * overlaps with any stop's walksheds is computed via the standard
- * circle-circle intersection formula, and population/households/workers are
- * scaled by that fraction before summing.
+ * as a circle of radius BG_RADIUS_MILES (adaptive per tract, see
+ * computeBgRadii). The covered fraction is the circle-circle overlap with the
+ * NEAREST stop's buffer only — not the union of every stop's walkshed — so a
+ * corridor of stops inside one large block group is credited as a single
+ * buffer (an acknowledged approximation). Population /
+ * households / workers are scaled by that fraction before summing.
  */
 /**
  * Sum apportioned demographic counts over a fractions map into a CoverageResult.

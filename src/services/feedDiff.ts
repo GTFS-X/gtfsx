@@ -71,8 +71,33 @@ export interface FeedDiff {
   trips: { a: number; b: number; delta: number };
   /** Per-route changeset, sorted by magnitude of impact (largest first). */
   routeChanges: RouteChange[];
-  /** True when the two states are identical across every tracked entity. */
+  /** True when calendar_dates or any trip's departure/arrival times differ
+   *  (changes the KPI deltas can miss, e.g. a uniform 15-minute shift). */
+  scheduleChanged: boolean;
+  /** True when the two states are identical across every tracked entity:
+   *  routes, stops, calendars, calendar_dates, frequencies, patterns, trip
+   *  count and times, and per-route KPIs. Shapes and fares are NOT compared,
+   *  so UI copy must not claim "no differences" outright. */
   identical: boolean;
+}
+
+/** One string per trip: its first departure and last arrival, sorted. */
+function scheduleFingerprint(s: FeedState): string {
+  const ends = new Map<string, { lo: number; dep: string; hi: number; arr: string }>();
+  for (const st of s.stopTimes) {
+    const e = ends.get(st.trip_id);
+    if (!e) {
+      ends.set(st.trip_id, { lo: st.stop_sequence, dep: st.departure_time, hi: st.stop_sequence, arr: st.arrival_time });
+      continue;
+    }
+    if (st.stop_sequence < e.lo) { e.lo = st.stop_sequence; e.dep = st.departure_time; }
+    if (st.stop_sequence > e.hi) { e.hi = st.stop_sequence; e.arr = st.arrival_time; }
+  }
+  return [...ends].map(([id, e]) => `${id}|${e.dep}|${e.arr}`).sort().join('\n');
+}
+
+function calendarDatesFingerprint(s: FeedState): string {
+  return (s.calendarDates ?? []).map((d) => `${d.service_id}|${d.date}|${d.exception_type}`).sort().join('\n');
 }
 
 const emptyChange = (): EntityChange => ({ added: 0, removed: 0, changed: 0, addedIds: [], removedIds: [] });
@@ -190,7 +215,12 @@ export function diffFeedState(a: FeedState, b: FeedState, opts: DiffOptions = {}
 
   const tripsDiff = { a: a.trips.length, b: b.trips.length, delta: b.trips.length - a.trips.length };
 
+  const scheduleChanged =
+    calendarDatesFingerprint(a) !== calendarDatesFingerprint(b) ||
+    scheduleFingerprint(a) !== scheduleFingerprint(b);
+
   const identical =
+    !scheduleChanged &&
     routes.added + routes.removed + routes.changed === 0 &&
     stops.added + stops.removed + stops.changed === 0 &&
     calendars.added + calendars.removed + calendars.changed === 0 &&
@@ -218,6 +248,7 @@ export function diffFeedState(a: FeedState, b: FeedState, opts: DiffOptions = {}
     patterns,
     trips: tripsDiff,
     routeChanges,
+    scheduleChanged,
     identical,
   };
 }
