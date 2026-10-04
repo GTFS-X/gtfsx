@@ -5,6 +5,7 @@ import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 import { computeTimetablePatterns, isNoShapeBucket } from '../ui/shapePatterns';
 import { earliestDepartureDirection } from './timetableGridHelpers';
 import { gtfsTimeToSeconds } from '../../utils/time';
+import { findOffPatternRows, stopTimeMatchesSlot, type OffPatternRow } from '../../services/patternMismatch';
 import type { Stop, StopTime } from '../../types/gtfs';
 
 /** A resolved scope for one timetable pane. The main pane's scope proxies the
@@ -127,10 +128,23 @@ export function useTimetableData(scope: PaneScope, syncSelection: boolean) {
       .filter((x): x is OrderedStop => x !== null);
   }, [routeId, effectiveShapeId, directionId, routeStops, stops, noShapeBucket, realShapeIds]);
 
+  // The row at a column's sequence, whatever stop it is for — what the cell
+  // DISPLAYS. An off-pattern row (#70) is returned too, so the grid can show it
+  // under its real stop name instead of hiding it.
   const findStopTime = useCallback((tripId: string, seq: number): StopTime | undefined => {
     const list = stopTimesByTrip.get(tripId);
     return list?.find((st) => st.stop_sequence === seq);
   }, [stopTimesByTrip]);
+
+  // The row that actually BELONGS to a column (sequence AND stop). Every read
+  // that feeds a write goes through this, so an edit on one stop's column never
+  // picks up another stop's row.
+  const findColumnStopTime = useCallback((tripId: string, seq: number, stopId: string): StopTime | undefined => {
+    const st = findStopTime(tripId, seq);
+    return stopTimeMatchesSlot(st, seq, stopId) ? st : undefined;
+  }, [findStopTime]);
+
+  const stopsById = useMemo(() => new Map(stops.map((s) => [s.stop_id, s])), [stops]);
 
   const timepointStopIds = useMemo(() => {
     const ids = new Set<string>();
@@ -186,6 +200,19 @@ export function useTimetableData(scope: PaneScope, syncSelection: boolean) {
       });
   }, [routeId, trips, stopTimesByTrip, directionId, activeServiceId, effectiveShapeId, noShapeBucket, realShapeIds]);
 
+  // Per visible trip, the stop_times this pattern can't show as-is (#70). Only
+  // trips with at least one such row get an entry.
+  const offPatternByTrip = useMemo(() => {
+    const m = new Map<string, OffPatternRow[]>();
+    const pattern = orderedStops.map((c) => ({ stop_sequence: c.seq, stop_id: c.stop.stop_id }));
+    if (pattern.length === 0) return m;
+    for (const t of routeTrips) {
+      const rows = findOffPatternRows(pattern, stopTimesByTrip.get(t.trip_id) ?? []);
+      if (rows.length > 0) m.set(t.trip_id, rows);
+    }
+    return m;
+  }, [orderedStops, routeTrips, stopTimesByTrip]);
+
   const serviceIdsWithTrips = useMemo(() => {
     if (!routeId) return [];
     return [...new Set(
@@ -216,6 +243,9 @@ export function useTimetableData(scope: PaneScope, syncSelection: boolean) {
     continuousOverrides,
     serviceIdsWithTrips,
     findStopTime,
+    findColumnStopTime,
+    offPatternByTrip,
+    stopsById,
     getFirstDisplayedTime,
     hasStops: orderedStops.length > 0,
   };

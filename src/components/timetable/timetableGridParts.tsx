@@ -114,12 +114,15 @@ interface TimeCellProps {
   onCommitDep: (v: string) => void;
   onSkip: () => void;
   onRestore: () => void;
+  /** Set when the trip's row at this column's sequence is for a DIFFERENT stop
+   *  (#70): the cell shows that row read-only, under its real stop name. */
+  offPattern?: { stopName: string; onOpen: () => void };
 }
 
 export function TimeCell(props: TimeCellProps) {
   const {
     value, arrDep, isTimepoint, pinned, pinnedLeft, highlighted, timeError,
-    ti, si, totalStops, onHover, onCommit, onCommitArr, onCommitDep, onSkip, onRestore,
+    ti, si, totalStops, onHover, onCommit, onCommitArr, onCommitDep, onSkip, onRestore, offPattern,
   } = props;
 
   const bg = isTimepoint
@@ -129,6 +132,28 @@ export function TimeCell(props: TimeCellProps) {
     pinned ? 'sticky z-[2] border-r-2 border-r-sand' : ''
   }`;
   const style = pinned ? { left: pinnedLeft } : undefined;
+
+  if (offPattern && value !== null) {
+    // Read-only: editing or skipping here would write through this column's
+    // stop onto another stop's row. The trip panel is where it gets resolved.
+    const shown = value.includes('/') ? value.split('/').map((t) => formatTimeShort(t)).join(' / ') : formatTimeShort(value);
+    return (
+      <td className={`${cls} bg-amber-50`} style={style} onMouseEnter={onHover}>
+        <button
+          type="button"
+          onClick={offPattern.onOpen}
+          title={`This trip stops at ${offPattern.stopName} here, not at this column's stop.${timeError ? ' Its time is out of order with the stops around it.' : ''} Click to review.`}
+          aria-label={`Off-pattern stop ${offPattern.stopName}${shown ? ` at ${shown}` : ''}${timeError ? ', time out of order' : ''}. Click to review.`}
+          className={`w-full h-full px-2 flex flex-col justify-center text-left rounded-[2px] border-[1.5px] border-dashed ${
+            timeError ? 'border-red-500 bg-red-50' : 'border-amber-400 hover:border-amber-600'
+          }`}
+        >
+          <span className="font-mono text-[12px] leading-tight tabular-nums text-amber-800">{shown || '--:--'}</span>
+          <span className="text-[9.5px] leading-tight text-amber-700 overflow-hidden text-ellipsis whitespace-nowrap">⚠ {offPattern.stopName}</span>
+        </button>
+      </td>
+    );
+  }
 
   if (value === null) {
     return (
@@ -200,9 +225,12 @@ interface TripCellProps {
   headway: string | null; // e.g. "+30m", or null when hints are off
   irregular: boolean;
   onRename: (id: string) => void;
+  /** Count of this trip's stop_times the pattern can't show as-is (#70); 0 hides the badge. */
+  offPatternCount?: number;
+  onOffPattern?: () => void;
 }
 
-export function TripCell({ tripId, isDuplicate, width, headway, irregular, onRename }: TripCellProps) {
+export function TripCell({ tripId, isDuplicate, width, headway, irregular, onRename, offPatternCount = 0, onOffPattern }: TripCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(tripId);
   return (
@@ -244,6 +272,16 @@ export function TripCell({ tripId, isDuplicate, width, headway, irregular, onRen
           >
             {headway}
           </span>
+        )}
+        {offPatternCount > 0 && onOffPattern && (
+          <button
+            type="button"
+            onClick={onOffPattern}
+            title={`${offPatternCount} stop time${offPatternCount === 1 ? '' : 's'} on this trip don't match this pattern's stops. Click to review.`}
+            className="font-heading font-bold text-[9.5px] leading-none px-1 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 hover:border-amber-600"
+          >
+            ⚠ {offPatternCount}
+          </button>
         )}
       </span>
     </th>
