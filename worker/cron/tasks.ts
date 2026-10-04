@@ -25,6 +25,7 @@ import { sendOwnerDigest, sendTrialEndingEmail, type OwnerDigestMetrics } from '
 import { insertEvent } from '../events/insert';
 import { hashEmailHex } from '../marketing/ads/userIdentifiers';
 import { PLAN_CATALOG } from '../billing/plans';
+import { hasLiveSubscription, orgsWithLiveSubscriptionSoleOwnedBy } from '../billing/liveSubscription';
 
 export const DELETE_GRACE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -195,7 +196,7 @@ export interface ReapSummary {
   /** `event.oci_email_sha256` values nulled because they hashed to a reaped address. */
   conversionHashesCleared: number;
   /** Users left for a later run because reaping them would delete an org that
-   *  still has a live Stripe subscription (see orgsBlockingReap). */
+   *  still has a live Stripe subscription (see reapBlockers). */
   skipped: number;
   errors: number;
 }
@@ -232,31 +233,18 @@ async function hasForumContent(env: Env, userId: string): Promise<boolean> {
   return !!row;
 }
 
-// Stripe statuses that still bill (or may resume billing).
-const LIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'past_due', 'unpaid'];
-
 /**
- * Orgs this user is the LAST member of that still carry a live subscription.
- * Reaping the user would hard-delete such an org while Stripe keeps charging
- * it, with nobody left who could reach its billing portal. Those users are
- * skipped (and logged) until the subscription is cancelled.
+ * Why this user can't be hard-purged yet: live Stripe subscriptions that the
+ * purge would orphan. Same rule as DELETE /api/me (worker/billing/
+ * liveSubscription.ts): an org with a live subscription where the user is the
+ * only member or the only owner, or a live subscription on the user itself.
+ * Such users are skipped (and logged) until the subscription is cancelled.
  */
-export async function orgsBlockingReap(env: Env, userId: string): Promise<string[]> {
-  const placeholders = LIVE_SUBSCRIPTION_STATUSES.map(() => '?').join(', ');
-  const rows = await env.DB.prepare(
-    `SELECT DISTINCT m.org_id
-       FROM organization_membership m
-       JOIN subscription s ON s.owner_type = 'org' AND s.owner_id = m.org_id
-      WHERE m.user_id = ?
-        AND s.status IN (${placeholders})
-        AND NOT EXISTS (
-          SELECT 1 FROM organization_membership o
-           WHERE o.org_id = m.org_id AND o.user_id != m.user_id
-        )`,
-  )
-    .bind(userId, ...LIVE_SUBSCRIPTION_STATUSES)
-    .all<{ org_id: string }>();
-  return (rows.results ?? []).map((r) => r.org_id);
+export async function reapBlockers(env: Env, userId: string): Promise<string[]> {
+  const orgNames = await orgsWithLiveSubscriptionSoleOwnedBy(env, userId);
+  const blockers = orgNames.map((name) => `org "${name}"`);
+  if (await hasLiveSubscription(env, 'user', userId)) blockers.push('personal subscription');
+  return blockers;
 }
 
 /**
@@ -288,12 +276,12 @@ export async function reapDeletedUsers(env: Env): Promise<ReapSummary> {
 
   for (const row of rows) {
     try {
-      const blocking = await orgsBlockingReap(env, row.id);
+      const blocking = await reapBlockers(env, row.id);
       if (blocking.length > 0) {
         summary.skipped += 1;
         console.warn(
-          `[reaper] skipped user ${row.id}: last member of org(s) ${blocking.join(', ')} ` +
-            `with a live subscription; cancel it in Stripe, then the next run purges the account`,
+          `[reaper] skipped user ${row.id}: live subscription on ${blocking.join(', ')}; ` +
+            `cancel it in Stripe, then the next run purges the account`,
         );
         continue;
       }

@@ -969,4 +969,49 @@ describe('reapDeletedUsers: every user-referencing table', () => {
     expect(second.reaped).toBe(1);
     expect(await env.DB.prepare(`SELECT id FROM organization WHERE id = ?`).bind(orgId).first()).toBeNull();
   });
+
+  // Same rule as DELETE /api/me (billing/liveSubscription.ts): the sole OWNER
+  // of a paying org blocks too, even when other (non-owner) members remain,
+  // and so does a live subscription on the user itself.
+  it('skips the sole owner of a paying org that has other members, and a user with a live personal subscription', async () => {
+    const now = Date.now();
+    const deletedAt = now - DELETE_GRACE_MS - 24 * 60 * 60 * 1000;
+    const { userId: ownerId } = await seedSoftDeletedUser({ email: 'sole-owner@example.com', deletedAt });
+    const { userId: personalId } = await seedSoftDeletedUser({ email: 'personal-sub@example.com', deletedAt });
+    const memberId = ulid();
+    const orgId = ulid();
+    const sub = (ownerType: 'org' | 'user', owner: string, stripeId: string) =>
+      env.DB.prepare(
+        `INSERT INTO subscription (id, owner_type, owner_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
+                                   plan, status, current_period_start, current_period_end, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'price_x', 'agency', 'past_due', ?, ?, ?, ?)`,
+      ).bind(ulid(), ownerType, owner, stripeId, `cus_${stripeId}`, now, now + 1e9, now, now);
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO user (id, email, display_name, status, created_at, updated_at) VALUES (?, 'member@example.com', 'M', 'active', ?, ?)`,
+      ).bind(memberId, now, now),
+      env.DB.prepare(`INSERT INTO organization (id, slug, name, created_at) VALUES (?, 'sole-owner-org', 'SoleOwner', ?)`).bind(orgId, now),
+      env.DB.prepare(
+        `INSERT INTO organization_membership (org_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)`,
+      ).bind(orgId, ownerId, now),
+      env.DB.prepare(
+        `INSERT INTO organization_membership (org_id, user_id, role, created_at) VALUES (?, ?, 'member', ?)`,
+      ).bind(orgId, memberId, now),
+      sub('org', orgId, 'sub_sole_owner'),
+      sub('user', personalId, 'sub_personal'),
+    ]);
+
+    const summary = await reapDeletedUsers(env);
+    expect(summary.skipped).toBe(2);
+    expect(summary.reaped).toBe(0);
+    for (const id of [ownerId, personalId]) {
+      expect(await env.DB.prepare(`SELECT id FROM user WHERE id = ?`).bind(id).first()).not.toBeNull();
+    }
+
+    await env.DB.prepare(`UPDATE subscription SET status = 'canceled'`).run();
+    const second = await reapDeletedUsers(env);
+    expect(second.reaped).toBe(2);
+    // The org keeps its remaining member.
+    expect(await env.DB.prepare(`SELECT id FROM organization WHERE id = ?`).bind(orgId).first()).not.toBeNull();
+  });
 });
