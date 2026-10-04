@@ -55,10 +55,19 @@ export interface AssistantStreamHandlers {
   onError: (err: AssistantError) => void;
 }
 
+/** A GTFS·X docs or learn page path (the assistant corpus has both),
+ *  optionally with an in-page anchor. */
+export const DOCS_LINK_RE = /^\/(docs|learn)\/[a-z0-9-]+\/(#[\w-]*)?$/;
+
 function parseTool(name: string, input: Record<string, unknown>, h: AssistantStreamHandlers): void {
   if (name === 'open_panel' && typeof input.target === 'string' && typeof input.label === 'string') {
     h.onOpenPanel({ target: input.target, label: input.label });
-  } else if (name === 'link_docs' && typeof input.url === 'string' && typeof input.title === 'string') {
+  } else if (
+    name === 'link_docs' && typeof input.url === 'string' && typeof input.title === 'string'
+    // Only our own docs pages: the model's tool input is not trusted to
+    // choose where a chip links (an off-site URL would render as a doc link).
+    && DOCS_LINK_RE.test(input.url)
+  ) {
     h.onLinkDocs({ url: input.url, title: input.title });
   } else if (name === 'suggest_feature_request' && typeof input.title === 'string' && typeof input.body === 'string') {
     h.onFeatureRequest({ title: input.title, body: input.body });
@@ -129,6 +138,10 @@ export function streamAssistantChat(
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
+    // The worker may still send `done` after a mid-stream `error`; once an
+    // error has been reported the reply is failed, so `done` must not also
+    // mark it complete (and classify it) on top of the error.
+    let errored = false;
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -156,12 +169,14 @@ export function streamAssistantChat(
           } else if (event === 'tool' && typeof data.name === 'string') {
             parseTool(data.name, (data.input as Record<string, unknown>) ?? {}, handlers);
           } else if (event === 'done') {
+            if (errored) continue;
             handlers.onDone({
               answerClass: (data.answerClass as AnswerClass) ?? 'supported',
               tokensIn: Number(data.tokensIn ?? 0),
               tokensOut: Number(data.tokensOut ?? 0),
             });
           } else if (event === 'error') {
+            errored = true;
             handlers.onError({ message: String(data.message ?? 'The assistant hit an error.'), code: 'stream_error' });
           }
         }

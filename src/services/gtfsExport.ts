@@ -1,24 +1,17 @@
 import JSZip from 'jszip';
 import Papa from 'papaparse';
-import length from '@turf/length';
-import { lineString } from '@turf/helpers';
 import { useStore } from '../store';
 import { flexRouteNames } from '../components/flex/flexHelpers';
 import { bookingRuleIdOf, flexZoneHasGroup, type FlexZone } from '../store/flexSlice';
-import type { Calendar, Route, ShapePoint, Trip } from '../types/gtfs';
+import type { Route, ShapePoint, Trip } from '../types/gtfs';
 import { exportableTranslations, translationCsvColumns } from './translations';
+import { allServiceIds } from './serviceIds';
+import { fillShapeDistances } from './shapeDistance';
 
-/** Mirror of shapeSlice.recalcShapeDistances used as a last-resort safety
- *  net when a shape arrives at the exporter without real distances. Returns
- *  a new array; does NOT mutate the store. */
+/** Last-resort safety net when a shape arrives at the exporter without real
+ *  distances. Returns a new array; does NOT mutate the store. */
 function fillShapeDistancesExport(points: ShapePoint[]): ShapePoint[] {
-  const out = points.map((p) => ({ ...p }));
-  const coords = out.map((p) => [p.shape_pt_lon, p.shape_pt_lat] as [number, number]);
-  out[0].shape_dist_traveled = 0;
-  for (let i = 1; i < out.length; i++) {
-    out[i].shape_dist_traveled = length(lineString(coords.slice(0, i + 1)), { units: 'meters' });
-  }
-  return out;
+  return fillShapeDistances(points.map((p) => ({ ...p })));
 }
 
 // CSV input rows are heterogeneous (GTFS entity types with varying field
@@ -98,8 +91,6 @@ type FlexTrip = Trip & {
 
 interface FlexMaterialized {
   routes: Route[];
-  /** Net-new calendar rows we had to synthesize (usually empty). */
-  calendars: Calendar[];
   trips: FlexTrip[];
   /** stop_times rows that reference a location_id or location_group_id. */
   flexStopTimes: Record<string, unknown>[];
@@ -179,7 +170,7 @@ function zoneLocationFeature(zone: FlexZone): GeoJSON.Feature | null {
  */
 function materializeFlex(state: ReturnType<typeof useStore.getState>): FlexMaterialized {
   const out: FlexMaterialized = {
-    routes: [], calendars: [], trips: [], flexStopTimes: [], fareRules: [],
+    routes: [], trips: [], flexStopTimes: [], fareRules: [],
     locationGroups: [], locationGroupStops: [], zones: [],
   };
 
@@ -187,15 +178,18 @@ function materializeFlex(state: ReturnType<typeof useStore.getState>): FlexMater
   if (eligibleZones.length === 0) return out;
 
   const defaultAgencyId = state.agencies[0]?.agency_id || '';
-  const defaultServiceId = state.calendars[0]?.service_id;
-  const knownServiceIds = new Set(state.calendars.map((c) => c.service_id));
+  // Services from either calendar file: a calendar_dates-only service is a real
+  // service, and a zone on one must export on it (not on calendars[0]).
+  const knownServiceIds = allServiceIds(state);
+  const defaultServiceId = state.calendars[0]?.service_id ?? state.calendarDates[0]?.service_id;
 
   for (const zone of eligibleZones) {
-    // Prefer the zone's picked service_id; fall back to the first calendar
-    // if the user hasn't chosen one yet. If there's no calendar at all, the
-    // zone can't be materialized into a spec-valid trip — skip it.
-    const serviceId = (zone.serviceId && knownServiceIds.has(zone.serviceId))
-      ? zone.serviceId
+    // Use the zone's picked service_id. Only a zone with NO pick falls back to
+    // the first calendar (else the first calendar_dates service). A pick that
+    // no longer exists is skipped rather than silently moved to another
+    // service; the validator reports it (flex-unknown-service-pattern).
+    const serviceId = zone.serviceId
+      ? (knownServiceIds.has(zone.serviceId) ? zone.serviceId : undefined)
       : defaultServiceId;
     if (!serviceId) continue;
 
@@ -348,10 +342,9 @@ export async function exportGtfsZip(): Promise<Blob> {
     zip.file('agency.txt', toCSV(state.agencies.map(stripUIFields)));
   }
 
-  // calendar.txt (+ flex-synthesized service patterns)
-  const allCalendars = [...state.calendars.map(stripUIFields), ...flex.calendars];
-  if (allCalendars.length > 0) {
-    zip.file('calendar.txt', toCSV(allCalendars));
+  // calendar.txt
+  if (state.calendars.length > 0) {
+    zip.file('calendar.txt', toCSV(state.calendars.map(stripUIFields)));
   }
 
   // calendar_dates.txt
@@ -391,8 +384,13 @@ export async function exportGtfsZip(): Promise<Blob> {
     const round6 = (n: unknown) => (typeof n === 'number' ? Math.round(n * 1e6) / 1e6 : n);
     zip.file('stops.txt', toCSV(state.stops.map((s) => {
       const clean = stripUIFields(s);
-      clean.stop_lat = round6(clean.stop_lat);
-      clean.stop_lon = round6(clean.stop_lon);
+      // Generic nodes (3) and boarding areas (4) may have no coordinates; the
+      // importer holds a blank as 0,0, so write that back as blank cells.
+      const lt = s.location_type ?? 0;
+      const blankCoords = (lt === 3 || lt === 4)
+        && (!Number.isFinite(s.stop_lat) || !Number.isFinite(s.stop_lon) || (s.stop_lat === 0 && s.stop_lon === 0));
+      clean.stop_lat = blankCoords ? '' : round6(clean.stop_lat);
+      clean.stop_lon = blankCoords ? '' : round6(clean.stop_lon);
       return clean;
     })));
   }

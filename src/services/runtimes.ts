@@ -12,6 +12,7 @@
 import { useStore } from '../store';
 import { gtfsTimeToSeconds, secondsToGtfsTime } from '../utils/time';
 import { layoutStopTimes } from './travelTime';
+import { asOneUndoStep } from './undoStep';
 import type { RouteStop, StopTime } from '../types/gtfs';
 
 export interface PatternRef {
@@ -70,29 +71,59 @@ export function currentPatternRunSecs(ref: PatternRef): number | null {
  */
 export function applyPatternRunTime(ref: PatternRef, runSecs: number): number {
   if (!(runSecs > 0)) return 0;
-  const st = useStore.getState();
-  const rs = patternRouteStops(ref.routeId, ref.directionId, ref.shapeId);
-  if (rs.length < 2) return 0;
-  const first = rs[0];
-  const last = rs[rs.length - 1];
   const trips = patternTrips(ref);
+  const byTrip = stopTimesByTrip(trips.map((t) => t.trip_id));
 
-  let updated = 0;
+  // Per trip: keep its OWN first timed row, re-time its OWN last row (timed
+  // if it has two, else its last served row) to start + the share of the run
+  // its span covers along the pattern, and leave every other row to the
+  // interpolation. A row the trip doesn't have (a short-turn's missing
+  // endpoint, a skipped stop) is never written, so nothing is un-skipped and a
+  // short-turn's start never moves.
+  const plans: { tripId: string; last: StopTime; endSec: number }[] = [];
   for (const trip of trips) {
-    const times = st.stopTimes.filter((s) => s.trip_id === trip.trip_id);
-    const start = tripStartSec(times);
-    if (start == null) continue;
-    // Anchor the endpoints to start and start+run, then interpolate the middle.
-    st.setStopTime(trip.trip_id, first.stop_id, first.stop_sequence, {
-      arrival_time: secondsToGtfsTime(start), departure_time: secondsToGtfsTime(start),
-    });
-    st.setStopTime(trip.trip_id, last.stop_id, last.stop_sequence, {
-      arrival_time: secondsToGtfsTime(start + runSecs), departure_time: secondsToGtfsTime(start + runSecs),
-    });
-    st.interpolateStopTimes(trip.trip_id);
-    updated++;
+    const rows = [...(byTrip.get(trip.trip_id) ?? [])].sort((a, b) => a.stop_sequence - b.stop_sequence);
+    const timedRows = rows.filter((r) => r.arrival_time || r.departure_time);
+    if (timedRows.length === 0 || rows.length < 2) continue;
+    const first = timedRows[0];
+    const last = timedRows.length > 1 ? timedRows[timedRows.length - 1] : rows[rows.length - 1];
+    if (last.stop_sequence <= first.stop_sequence) continue;
+    const start = gtfsTimeToSeconds(first.departure_time || first.arrival_time);
+    // The trip's own shape pattern when the caller didn't pin one.
+    const rs = patternRouteStops(ref.routeId, ref.directionId, ref.shapeId ?? trip.shape_id);
+    const pos = (seq: number) => rs.findIndex((r) => r.stop_sequence === seq);
+    const span = rs.length >= 2 ? rs.length - 1 : 0;
+    const pf = pos(first.stop_sequence);
+    const pl = pos(last.stop_sequence);
+    const frac = span > 0 && pf >= 0 && pl > pf ? (pl - pf) / span : 1;
+    plans.push({ tripId: trip.trip_id, last, endSec: start + Math.round(runSecs * frac) });
   }
-  return updated;
+  if (plans.length === 0) return 0;
+
+  asOneUndoStep(() => {
+    const ends = new Map(plans.map((p) => [`${p.tripId}\u0000${p.last.stop_sequence}`, p.endSec]));
+    const s = useStore.getState();
+    s.setStopTimes(s.stopTimes.map((row) => {
+      const end = ends.get(`${row.trip_id}\u0000${row.stop_sequence}`);
+      if (end === undefined) return row;
+      const t = secondsToGtfsTime(end);
+      return { ...row, arrival_time: t, departure_time: t };
+    }));
+    for (const p of plans) useStore.getState().interpolateStopTimes(p.tripId);
+  });
+  return plans.length;
+}
+
+/** stop_times for the given trips, in one pass. */
+function stopTimesByTrip(tripIds: string[]): Map<string, StopTime[]> {
+  const want = new Set(tripIds);
+  const out = new Map<string, StopTime[]>();
+  for (const st of useStore.getState().stopTimes) {
+    if (!want.has(st.trip_id)) continue;
+    const arr = out.get(st.trip_id);
+    if (arr) arr.push(st); else out.set(st.trip_id, [st]);
+  }
+  return out;
 }
 
 /**
@@ -111,26 +142,40 @@ export function applyPatternEstimate(
   opts: { dwellSec: number; speedFactor: number },
 ): number {
   if (orderedStops.length < 2 || cumSecs.length !== orderedStops.length) return 0;
-  const st = useStore.getState();
   const dwellSec = Math.max(0, opts.dwellSec);
   const speedFactor = Math.max(0.1, opts.speedFactor);
+  const trips = patternTrips(ref);
+  const byTrip = stopTimesByTrip(trips.map((t) => t.trip_id));
+  const seqIndex = new Map(orderedStops.map((os, i) => [os.seq, i]));
+
+  // Build every new time first, then commit ONCE (one undo step, and no
+  // per-row findIndex scans over the whole stop_times table).
+  const updates = new Map<string, { arrival_time: string; departure_time: string }>();
   let updated = 0;
-  for (const trip of patternTrips(ref)) {
-    const times = st.stopTimes.filter((s) => s.trip_id === trip.trip_id);
+  for (const trip of trips) {
+    const times = byTrip.get(trip.trip_id) ?? [];
     const start = tripStartSec(times);
     if (start == null) continue;
     const timings = layoutStopTimes(cumSecs, { startSec: start, dwellSec, speedFactor });
-    const timedSeqs = new Set(times.map((s) => s.stop_sequence));
     let changed = false;
-    orderedStops.forEach((os, i) => {
-      if (!timedSeqs.has(os.seq)) return; // skip-aware — don't un-skip a skipped stop
-      st.setStopTime(trip.trip_id, os.stopId, os.seq, {
+    for (const row of times) {
+      const i = seqIndex.get(row.stop_sequence);
+      if (i === undefined) continue; // skip-aware: only rows the trip already has
+      updates.set(`${trip.trip_id}\u0000${row.stop_sequence}`, {
         arrival_time: secondsToGtfsTime(timings[i].arrivalSec),
         departure_time: secondsToGtfsTime(timings[i].departureSec),
       });
       changed = true;
-    });
+    }
     if (changed) updated++;
   }
+  if (updates.size === 0) return 0;
+  asOneUndoStep(() => {
+    const s = useStore.getState();
+    s.setStopTimes(s.stopTimes.map((row) => {
+      const u = updates.get(`${row.trip_id}\u0000${row.stop_sequence}`);
+      return u ? { ...row, ...u } : row;
+    }));
+  });
   return updated;
 }

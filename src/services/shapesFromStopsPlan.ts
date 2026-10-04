@@ -4,7 +4,7 @@
 // feedNeedsShapes() inside the validation memo (i.e. on every store change), and
 // validation.ts must stay importable in a plain-Node context: the editor
 // integration harness (run-tests.ts, run through tsx) executes this source
-// directly, with no Vite. shapesFromStops.ts imports snapToRoad.ts, which reads
+// directly, with no Vite. shapesFromStops.ts imports routeGeometry.ts, which reads
 // `import.meta.env.VITE_MAPBOX_TOKEN` at module scope — a Vite-only construct
 // that throws the moment the module is merely LOADED under plain Node. Keeping
 // the pure functions here means a validation rule never drags a Mapbox HTTP

@@ -359,12 +359,17 @@ export function bufferMilesForStop(
   routeStops: readonly RouteStop[],
   routes: readonly Route[],
 ): number {
-  const routeById = new Map(routes.map((r) => [r.route_id, r]));
-  for (const rs of routeStops) {
-    if (rs.stop_id !== stopId) continue;
-    if (routeById.get(rs.route_id)?.route_type === 0) return RAIL_BUFFER_MILES;
-  }
-  return DEFAULT_BUFFER_MILES;
+  return railStopIds(routeStops, routes).has(stopId) ? RAIL_BUFFER_MILES : DEFAULT_BUFFER_MILES;
+}
+
+/** Stops served by any tram / light-rail route (route_type 0). Build once and
+ *  look stops up in it, rather than rescanning routeStops per stop. */
+export function railStopIds(routeStops: readonly RouteStop[], routes: readonly Route[]): Set<string> {
+  const rail = new Set(routes.filter((r) => r.route_type === 0).map((r) => r.route_id));
+  const out = new Set<string>();
+  if (rail.size === 0) return out;
+  for (const rs of routeStops) if (rail.has(rs.route_id)) out.add(rs.stop_id);
+  return out;
 }
 
 /** Miles → the "1/4 mi" / "1/2 mi" label the coverage UI already uses. */
@@ -583,9 +588,11 @@ export async function analyzeWalkshedProfiles(
   const t0 = Date.now();
   const index = buildBlockIndex(blocks);
 
+  const railStops = railStopIds(routeStops, routes);
+  const bufferFor = (stopId: string) => (railStops.has(stopId) ? RAIL_BUFFER_MILES : DEFAULT_BUFFER_MILES);
   const byStop: Record<string, WalkshedProfile> = {};
   for (const s of stops) {
-    byStop[s.stop_id] = stopProfile(index, s, bufferMilesForStop(s.stop_id, routeStops, routes));
+    byStop[s.stop_id] = stopProfile(index, s, bufferFor(s.stop_id));
   }
 
   const byRoute: Record<string, WalkshedProfile> = {};
@@ -597,7 +604,7 @@ export async function analyzeWalkshedProfiles(
   // stop at ITS OWN buffer rather than forcing one radius over the whole feed.
   const systemBlocks = new Map<string, BlockPoint>();
   for (const s of stops) {
-    const r = bufferMilesForStop(s.stop_id, routeStops, routes);
+    const r = bufferFor(s.stop_id);
     for (const b of blocksWithin(index, s.stop_lon, s.stop_lat, r)) {
       if (!systemBlocks.has(b.geoid)) systemBlocks.set(b.geoid, b);
     }

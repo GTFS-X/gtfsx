@@ -68,18 +68,19 @@ describe('computeFrequencyConversion', () => {
     expect(r.perTemplate[0].totalTripCount).toBe(5);
   });
 
-  it('handles an off-grid template: every grid slot is new and the template stays at its own time', () => {
-    // Template departs 06:10, window grid is 06:00 / 06:30 — neither coincides,
-    // so BOTH become new trips and the 06:10 template remains as a real trip.
+  it('handles an off-grid template: it takes the first grid slot, no phantom trip at its own time (S2-02)', () => {
+    // Template departs 06:10, window grid is 06:00 / 06:30 — neither coincides.
+    // The template is re-timed onto 06:00 and only 06:30 is minted: 2 trips,
+    // matching the 2 departures the window defines.
     const r = computeFrequencyConversion(baseInput({
       stopTimes: [st('FQ', 1, '06:10:00'), st('FQ', 2, '06:20:00')],
     }));
-    expect(r.newTrips).toHaveLength(2);
-    expect(r.perTemplate[0].totalTripCount).toBe(3);
+    expect(r.newTrips).toHaveLength(1);
+    expect(r.perTemplate[0].totalTripCount).toBe(2);
     const starts = r.newTrips
-      .map((t) => r.newStopTimes.find((s) => s.trip_id === t.trip_id && s.stop_sequence === 1)!.departure_time)
-      .sort();
-    expect(starts).toEqual(['06:00:00', '06:30:00']);
+      .map((t) => r.newStopTimes.find((s) => s.trip_id === t.trip_id && s.stop_sequence === 1)!.departure_time);
+    expect(starts).toEqual(['06:30:00']);
+    expect(r.retimedTemplateStopTimes.map((s) => s.departure_time)).toEqual(['06:00:00', '06:10:00']);
   });
 
   it('flags approximate (exact_times ≠ 1) and not exact windows', () => {

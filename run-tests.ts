@@ -691,7 +691,10 @@ async function main() {
   loadImportIntoStore(await importGtfsZip(await buildBundleFixtureZip() as unknown as File));
   s().addCalendarDate({ service_id: 'SAT', date: '20260704', exception_type: 2 });
   vmsgs = runValidation(s());
-  assert('#17 nudge cleared by exception', !hasMsg('warning', 'Independence Day'));
+  // Scoped to SAT: weekday services now also get an "Independence Day
+  // (observed)" nudge for the Friday observance, which this exception doesn't cover.
+  assert('#17 nudge cleared by exception', !vmsgs.some((m) =>
+    m.severity === 'warning' && m.entity_id === 'SAT' && m.message.includes('Independence Day')));
 
   // ---- PHASE 15: US holiday date math (#17) ----
   console.log('\nPhase 15: US holiday date math');

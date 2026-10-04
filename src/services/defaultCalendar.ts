@@ -1,11 +1,13 @@
 import { format } from 'date-fns';
 import { useStore } from '../store';
+import { serviceOptions } from './serviceIds';
 
 const DEFAULT_SERVICE_ID = 'default';
 
 /**
- * Return the service_id of the first existing calendar, or — if the project
- * has none — materialize a sensible default and return its id.
+ * Return the service_id of the first existing calendar (else the first
+ * calendar_dates-only service), or — if the project has no service at all —
+ * materialize a sensible default and return its id.
  *
  * The default is 7-day service for two years from today, with
  * _description "Default Calendar" and service_id "default". Idempotent:
@@ -23,6 +25,10 @@ export function ensureDefaultCalendar(): string {
   if (state.calendars.length > 0) {
     return state.calendars[0].service_id;
   }
+  // A calendar_dates-only feed already has services; reuse the first one
+  // instead of adding a 7-day calendar.txt row the feed never had.
+  const datesOnly = serviceOptions(state)[0];
+  if (datesOnly) return datesOnly.serviceId;
   const now = new Date();
   const end = new Date(now.getFullYear() + 2, now.getMonth(), now.getDate());
   state.addCalendar({

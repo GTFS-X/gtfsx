@@ -287,13 +287,13 @@ describe('fares v2 validation', () => {
       { leg_group_id: 'lg1', fare_product_id: 'ghostP', network_id: 'ghostN', from_area_id: 'ghostA' },
       { fare_product_id: '' },
     ]);
-    s.setFareTransferRules([{ fare_transfer_type: 1 }]); // type 1 needs a product
+    s.setFareTransferRules([{ fare_transfer_type: 1 }]); // product is optional for every type (C3-07)
     const m = errs();
     expect(m.some((x) => x.message.includes('non-existent fare product "ghostP"'))).toBe(true);
     expect(m.some((x) => x.message.includes('non-existent network "ghostN"'))).toBe(true);
     expect(m.some((x) => x.message.includes('non-existent from_area "ghostA"'))).toBe(true);
     expect(m.some((x) => x.message.includes('missing fare_product_id'))).toBe(true);
-    expect(m.some((x) => x.message.includes('no fare_product_id'))).toBe(true);
+    expect(m.some((x) => x.message.includes('no fare_product_id'))).toBe(false);
   });
 
   it('warns on multiple default rider categories and multi-network routes', () => {
@@ -324,7 +324,8 @@ describe('fares v2 validation', () => {
     s.setFareMedia([{ fare_media_id: 'cash', fare_media_type: 0 }]);
     s.setFareProducts([{ fare_product_id: 'single', amount: '2.50', currency: 'USD', rider_category_id: 'adult', fare_media_id: 'cash' }]);
     s.setFareLegRules([{ leg_group_id: 'lg1', fare_product_id: 'single', network_id: 'local', from_area_id: 'dt', from_timeframe_group_id: 'peak' }]);
-    s.setFareTransferRules([{ from_leg_group_id: 'lg1', to_leg_group_id: 'lg1', fare_transfer_type: 1, fare_product_id: 'single' }]);
+    // Same leg group on both sides → transfer_count is required by the spec.
+    s.setFareTransferRules([{ from_leg_group_id: 'lg1', to_leg_group_id: 'lg1', transfer_count: -1, fare_transfer_type: 1, fare_product_id: 'single' }]);
 
     const v2Types = new Set([
       'area', 'stop_area', 'network', 'route_network', 'timeframe',

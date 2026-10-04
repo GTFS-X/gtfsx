@@ -5,6 +5,7 @@ import type {
 } from '../types/gtfs';
 import { gtfsTimeToSeconds } from '../utils/time';
 import { directionName } from '../utils/constants';
+import { representativeServiceDate } from './serviceIds';
 
 /**
  * Stop-level diagnostics computed entirely from the parsed feed in memory —
@@ -39,10 +40,6 @@ const WEEKDAYS = [
   'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
 ] as const;
 type Weekday = (typeof WEEKDAYS)[number];
-const WEEKDAY_LABEL: Record<Weekday, string> = {
-  sunday: 'Sunday', monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
-  thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday',
-};
 
 /* ───────────────────────── shared helpers ───────────────────────── */
 
@@ -127,41 +124,35 @@ export interface RepresentativeDay {
   label: string;
   /** service_ids active on the representative day. */
   serviceIds: Set<string>;
+  /** The representative service date (YYYYMMDD); null for "All services". */
+  date?: string | null;
 }
 
 /**
- * The weekday with the most scheduled trips, and the set of service_ids active
- * on it. Falls back to "all services" when the feed has no calendar.txt (e.g.
- * calendar_dates-only feeds), so service-intensity still produces output.
- * calendar_dates exceptions are not generalizable to a weekday, so they're
- * intentionally ignored for the representative-day pick.
+ * The busiest service DATE in the next ~90 days (or, for an expired or
+ * future-dated feed, in its first 90 days of service), and the service_ids
+ * running on it. Date-based, so disjoint seasonal calendars are never unioned
+ * and calendar_dates-only services count like any other (see serviceIds.ts).
+ * Falls back to "All services" (every trip's service_id, weekday null) when no
+ * date has service, so service-intensity still produces output. The label
+ * names the date, e.g. "Mon, Oct 5, 2026".
  */
-export function representativeDay(feed: FeedSlice): RepresentativeDay {
-  const calById = new Map(feed.calendars.map((c) => [c.service_id, c]));
-  if (feed.calendars.length === 0) {
+export function representativeDay(feed: FeedSlice, opts: { today?: string } = {}): RepresentativeDay {
+  const rep = representativeServiceDate(feed, { today: opts.today, horizonDays: 90 });
+  if (rep.date === null || rep.serviceIds.size === 0) {
     return {
       weekday: null,
       label: 'All services',
       serviceIds: new Set(feed.trips.map((t) => t.service_id)),
+      date: null,
     };
   }
-  const tripsPerWeekday: Record<Weekday, number> = {
-    sunday: 0, monday: 0, tuesday: 0, wednesday: 0, thursday: 0, friday: 0, saturday: 0,
+  return {
+    weekday: WEEKDAYS[rep.weekday ?? 0],
+    label: rep.label,
+    serviceIds: rep.serviceIds,
+    date: rep.date,
   };
-  for (const trip of feed.trips) {
-    const cal = calById.get(trip.service_id);
-    if (!cal) continue;
-    for (const w of WEEKDAYS) if (cal[w] === 1) tripsPerWeekday[w] += 1;
-  }
-  let bestDay: Weekday = 'monday';
-  let bestCount = -1;
-  for (const w of WEEKDAYS) {
-    if (tripsPerWeekday[w] > bestCount) { bestCount = tripsPerWeekday[w]; bestDay = w; }
-  }
-  const serviceIds = new Set(
-    feed.calendars.filter((c) => c[bestDay] === 1).map((c) => c.service_id),
-  );
-  return { weekday: bestDay, label: WEEKDAY_LABEL[bestDay], serviceIds };
 }
 
 /* ─────────────────── Feature 1 — stop spacing ─────────────────── */

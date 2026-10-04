@@ -78,7 +78,7 @@ export function TransfersEditor() {
                     {summary}
                   </span>
                   <span className="text-[11px] text-warm-gray whitespace-nowrap">
-                    {TRANSFER_TYPE_LABELS[t.transfer_type]}
+                    {TRANSFER_TYPE_LABELS[t.transfer_type as 0 | 1 | 2 | 3] ?? (t.transfer_type === 4 ? 'In-seat transfer' : 'In-seat transfer not allowed')}
                     {t.transfer_type === 2 && t.min_transfer_time !== undefined && (
                       <> · {Math.round(t.min_transfer_time / 60)} min</>
                     )}

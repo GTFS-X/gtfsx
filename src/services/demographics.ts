@@ -47,13 +47,13 @@ export interface BlockGroupData {
   lowIncomePop: number;
   /** Population for whom poverty status is determined — C17002 denominator. */
   povertyUniverse: number;
-  /** Occupied households with no vehicle available (B08201 _002). */
+  /** Occupied households with no vehicle available (B25044 _003 + _010). */
   zeroVehicleHouseholds: number;
-  /** Total occupied households — B08201 denominator (≠ B25001 housing units). */
+  /** Total occupied households — B25044 _001 (≠ B25001 housing units). */
   occupiedHouseholds: number;
   /** Population age 65 and over (B01001 male + female 65+ cells). */
   seniorPop: number;
-  /** Population age under 18 (B09001 _001). */
+  /** Population age under 18 (B01001 male + female under-18 cells). */
   youthPop: number;
 }
 

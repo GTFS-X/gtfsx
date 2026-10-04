@@ -325,7 +325,8 @@ export function findDecreasingStopTimeDistances(
   const byTrip = groupStopTimesByTrip(stopTimes);
   const out: DecreasingStopTimeDistFinding[] = [];
   const tripOrder = trips.map((t) => t.trip_id).filter((id) => byTrip.has(id));
-  for (const id of byTrip.keys()) if (!tripOrder.includes(id)) tripOrder.push(id);
+  const seen = new Set(tripOrder);
+  for (const id of byTrip.keys()) if (!seen.has(id)) { seen.add(id); tripOrder.push(id); }
 
   for (const tripId of tripOrder) {
     const rows = byTrip.get(tripId)!;
