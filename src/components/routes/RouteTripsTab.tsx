@@ -1,4 +1,7 @@
+import { useMemo } from 'react';
 import { useStore } from '../../store';
+import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
+import { buildRouteTripRows } from './routePanelHelpers';
 import { directionName } from '../../utils/constants';
 
 function fmtTime(t: string | undefined): string {
@@ -11,34 +14,20 @@ function fmtTime(t: string | undefined): string {
   return `${h}:${m}`;
 }
 
-function timeToSeconds(t: string | undefined): number {
-  if (!t) return Number.MAX_SAFE_INTEGER;
-  const parts = t.split(':').map(Number);
-  return (parts[0] ?? 0) * 3600 + (parts[1] ?? 0) * 60 + (parts[2] ?? 0);
-}
-
 export function RouteTripsTab() {
   const route = useStore((s) => s.routes.find((r) => r.route_id === s.editingRouteId));
   const trips = useStore((s) => s.trips);
-  const stopTimes = useStore((s) => s.stopTimes);
   const calendars = useStore((s) => s.calendars);
   const updateTrip = useStore((s) => s.updateTrip);
+  const { byTrip } = useStopTimesIndex();
+
+  const routeId = route?.route_id;
+  const tripsWithMeta = useMemo(
+    () => (routeId ? buildRouteTripRows(routeId, trips, byTrip, calendars) : []),
+    [routeId, trips, byTrip, calendars],
+  );
 
   if (!route) return null;
-
-  const routeTrips = trips.filter((t) => t.route_id === route.route_id);
-
-  const tripsWithMeta = routeTrips
-    .map((trip) => {
-      const tripStops = stopTimes
-        .filter((st) => st.trip_id === trip.trip_id)
-        .sort((a, b) => a.stop_sequence - b.stop_sequence);
-      const start = tripStops[0]?.departure_time;
-      const end = tripStops[tripStops.length - 1]?.arrival_time;
-      const cal = calendars.find((c) => c.service_id === trip.service_id);
-      return { trip, start, end, cal };
-    })
-    .sort((a, b) => timeToSeconds(a.start) - timeToSeconds(b.start));
 
   // Open the timetable builder (bottom rail) focused on this route. A route with
   // no trips lands on the timetable's "Generate service" empty state.

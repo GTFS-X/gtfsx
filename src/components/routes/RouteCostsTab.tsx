@@ -23,12 +23,13 @@ export function RouteCostsTab() {
   const stopTimes = useStore((s) => s.stopTimes);
   const calendars = useStore((s) => s.calendars);
   const calendarDates = useStore((s) => s.calendarDates);
+  const frequencies = useStore((s) => s.frequencies);
   const updateRoute = useStore((s) => s.updateRoute);
   const { byTrip: stopTimesByTrip } = useStopTimesIndex();
 
   const spans = useMemo(
-    () => route ? calculateRouteSpans(route.route_id, { routes, trips, stopTimes, calendars, calendarDates, stopTimesByTrip }) : null,
-    [route, routes, trips, stopTimes, calendars, calendarDates, stopTimesByTrip],
+    () => route ? calculateRouteSpans(route.route_id, { routes, trips, stopTimes, calendars, calendarDates, stopTimesByTrip, frequencies }) : null,
+    [route, routes, trips, stopTimes, calendars, calendarDates, stopTimesByTrip, frequencies],
   );
 
   const stats = useMemo(
