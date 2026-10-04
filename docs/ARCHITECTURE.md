@@ -703,8 +703,12 @@ from here when it ships, and fold it into the Production list above.
   with the review fixes: change-email current-password check, subscription-aware
   delete/checkout/grant guards, unpublish cancelling schedules, refused deletes of
   in-use calendars and Fares v2 rows, calendar_dates-only service editing, and the
-  editor fixes. No new migrations (latest is 0032). The API changes are already
-  described in §3.
+  editor fixes, plus the fixes from the staging E2E pass (cancel-at-period-end no
+  longer blocks owner deletion, set-a-password for passwordless accounts,
+  deleted-account copy, PBKDF2 >100k iterations failing closed) and rendered
+  component tests (jsdom + Testing Library, dev-only). No new migrations (latest
+  is 0032). The API changes are already described in §3. Branch head `3bffba1`
+  is on staging (2026-10-04, version `f65b6b61`); not pushed, not on prod.
 
 ### Staging — PARKED (since 2026-05-16)
 
@@ -715,7 +719,8 @@ Staging runs test-mode Stripe and both `*_ENABLED` flags true. Staging D1 is
 migrated through **0032** (checked 2026-10-04; matches the repo's latest).
 Last manual deploy before this month: 2026-09-04. On **2026-10-04** the
 `fix/security-hotfix` branch (`a069b39`, version `802421db`) was deployed to
-staging only, for rehearsal; it is not on `main` or prod yet.
+staging only, for rehearsal; it is not on `main` or prod yet. Later the same day
+`fix/codebase-review` (`3bffba1`, version `f65b6b61`) replaced it on staging.
 
 **Open catalog — the `public/catalog.json` hack is obsolete (issue #47, branch
 `feat/catalog-endpoint`).** `/catalog.json` is now a **dynamic worker route** on
