@@ -105,16 +105,47 @@ describe('/api/projects/:id/draft-links', () => {
     expect(serialized.includes(link.token)).toBe(false);
   });
 
-  it('unknown token returns 404, mismatched slug returns 404', async () => {
+  it('unknown token returns 404', async () => {
     const client = await loggedInClient('dl4@example.com');
     const proj = await createProject(client, 'MismatchFeed');
-    const v = await createSnapshot(client, proj.id);
-    const link = await createDraftLink(client, proj.id, v.snapshot.id, new Uint8Array([1, 2]));
+    await createSnapshot(client, proj.id);
 
     const missing = await SELF.fetch(`http://feeds.test/${proj.slug}/draft/not-a-real-token.zip`);
     expect(missing.status).toBe(404);
+  });
 
-    const wrongSlug = await SELF.fetch(`http://feeds.test/wrong-slug/draft/${link.token}.zip`);
-    expect(wrongSlug.status).toBe(404);
+  // W2-06: the token is the secret; the slug segment is cosmetic. Renaming an
+  // unpublished feed must not break a draft link already shared.
+  it('a draft link keeps working after the feed slug changes', async () => {
+    const client = await loggedInClient('dl5@example.com');
+    const proj = await createProject(client, 'RenameDraft');
+    const v = await createSnapshot(client, proj.id);
+    const link = await createDraftLink(client, proj.id, v.snapshot.id, new Uint8Array([1, 2]));
+
+    const patched = await client.patch(`/api/projects/${proj.id}`, { slug: 'renamed-draft' });
+    expect(patched.status).toBe(200);
+
+    const oldUrl = await SELF.fetch(`http://feeds.test/${proj.slug}/draft/${link.token}.zip`);
+    expect(oldUrl.status).toBe(200);
+    await oldUrl.arrayBuffer();
+  });
+
+  // W2-09: a draft link must stop serving when its project is deleted.
+  it('deleting the project takes its draft link offline', async () => {
+    const client = await loggedInClient('dl6@example.com');
+    const proj = await createProject(client, 'DeletedDraft');
+    const v = await createSnapshot(client, proj.id);
+    const link = await createDraftLink(client, proj.id, v.snapshot.id, new Uint8Array([1, 2]));
+
+    const before = await SELF.fetch(`http://feeds.test/${proj.slug}/draft/${link.token}.zip`);
+    expect(before.status).toBe(200);
+    await before.arrayBuffer();
+
+    const del = await client.delete(`/api/projects/${proj.id}`);
+    expect(del.status).toBe(204);
+
+    const after = await SELF.fetch(`http://feeds.test/${proj.slug}/draft/${link.token}.zip`);
+    expect([404, 410]).toContain(after.status);
+    await after.arrayBuffer();
   });
 });

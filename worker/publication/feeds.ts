@@ -117,6 +117,16 @@ function yyyymmdd(ms: number): string {
   return `${y}-${m}-${day}`;
 }
 
+// decodeURIComponent throws URIError on malformed percent-encoding (`%ZZ`),
+// which surfaced as a 500. A path that can't be decoded names nothing: 404.
+function safeDecode(s: string): string | null {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return null;
+  }
+}
+
 // Weak-tag compatible ETag comparator.
 function etagMatches(ifNoneMatch: string | null, etag: string): boolean {
   if (!ifNoneMatch) return false;
@@ -133,7 +143,12 @@ async function loadPublication(env: Env, slug: string): Promise<PublicationRow |
        FROM publication pub
        JOIN feed_project p ON p.id = pub.project_id
        JOIN feed_snapshot v ON v.id = pub.snapshot_id AND v.project_id = pub.project_id
-       WHERE pub.canonical_slug = ?
+       WHERE pub.canonical_slug = ? AND p.deleted_at IS NULL
+       -- canonical_slug has no unique index (publish now refuses a slug another
+       -- project already publishes, but legacy duplicates may exist). Serve the
+       -- OLDEST publication deterministically, rather than whichever row the
+       -- index happens to return first.
+       ORDER BY pub.published_at ASC, pub.project_id ASC
        LIMIT 1`,
   )
     .bind(slug)
@@ -146,7 +161,7 @@ async function loadDraft(env: Env, tokenHash: string): Promise<DraftRow | null> 
             p.slug
        FROM draft_link d
        JOIN feed_project p ON p.id = d.project_id
-       WHERE d.token_hash = ?
+       WHERE d.token_hash = ? AND p.deleted_at IS NULL
        LIMIT 1`,
   )
     .bind(tokenHash)
@@ -162,14 +177,16 @@ export type DraftLoadResult =
   | { ok: true; bytes: Uint8Array }
   | { ok: false; reason: 'not_found' | 'revoked' | 'expired' | 'missing' };
 
+// The `<slug>` segment of a draft URL is cosmetic: the token is the secret.
+// Matching on it broke every shared draft link the moment the feed's slug was
+// changed, so neither this nor serveDraft compares it.
 export async function loadDraftZipBytes(
   env: Env,
-  slug: string,
   token: string,
 ): Promise<DraftLoadResult> {
   const tokenHash = await sha256Hex(token);
   const row = await loadDraft(env, tokenHash);
-  if (!row || row.slug !== slug) return { ok: false, reason: 'not_found' };
+  if (!row) return { ok: false, reason: 'not_found' };
   if (row.revoked_at !== null) return { ok: false, reason: 'revoked' };
   if (row.expires_at < Date.now()) return { ok: false, reason: 'expired' };
   const { draftZipKey } = await import('../projects/r2');
@@ -347,16 +364,20 @@ export async function feedsHandler(
   }
   const draft = url.pathname.match(DRAFT_RE);
   if (draft) {
-    return serveDraft(request, env, draft[1], draft[2]);
+    return serveDraft(request, env, draft[2]);
   }
 
   const embedRoute = url.pathname.match(EMBED_ROUTE_RE);
   if (embedRoute) {
-    return renderRouteEmbed(request, env, embedRoute[1], decodeURIComponent(embedRoute[2]));
+    const routeId = safeDecode(embedRoute[2]);
+    if (routeId === null) return notFound('Not found.');
+    return renderRouteEmbed(request, env, embedRoute[1], routeId);
   }
   const embedStop = url.pathname.match(EMBED_STOP_RE);
   if (embedStop) {
-    return renderStopEmbed(request, env, embedStop[1], decodeURIComponent(embedStop[2]));
+    const stopId = safeDecode(embedStop[2]);
+    if (stopId === null) return notFound('Not found.');
+    return renderStopEmbed(request, env, embedStop[1], stopId);
   }
   const embedSystem = url.pathname.match(EMBED_SYSMAP_RE);
   if (embedSystem) {
@@ -457,11 +478,30 @@ async function serveThumbnail(
   slug: string,
   size: ThumbnailSize,
 ): Promise<Response> {
-  const row = await env.DB.prepare(
-    `SELECT id, thumbnail_version FROM feed_project WHERE slug = ? AND deleted_at IS NULL`,
-  )
-    .bind(slug)
-    .first<{ id: string; thumbnail_version: number }>();
+  // Slugs are unique per owner, not globally. Resolve the slug the same way
+  // the canonical ZIP does (the publication that owns it) so a published
+  // feed's og:image can't be shadowed by another owner's same-slug project.
+  // Unpublished feeds (the owner's "My feeds" list) fall back to the oldest
+  // live project with that slug, deterministically.
+  const row =
+    (await env.DB.prepare(
+      `SELECT p.id, p.thumbnail_version
+         FROM publication pub
+         JOIN feed_project p ON p.id = pub.project_id
+        WHERE pub.canonical_slug = ? AND p.deleted_at IS NULL
+        ORDER BY pub.published_at ASC, pub.project_id ASC
+        LIMIT 1`,
+    )
+      .bind(slug)
+      .first<{ id: string; thumbnail_version: number }>()) ??
+    (await env.DB.prepare(
+      `SELECT id, thumbnail_version FROM feed_project
+        WHERE slug = ? AND deleted_at IS NULL
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1`,
+    )
+      .bind(slug)
+      .first<{ id: string; thumbnail_version: number }>());
   if (!row || !row.thumbnail_version) return notFound('Thumbnail not available.');
 
   const etag = `"${row.thumbnail_version}-${size}"`;
@@ -521,6 +561,11 @@ async function serveOrgLogo(request: Request, env: Env, orgId: string): Promise<
       'Last-Modified': httpDate(row.brand_logo_updated_at ?? Date.now()),
       'Cache-Control': 'public, max-age=300, s-maxage=86400',
       'Access-Control-Allow-Origin': '*',
+      // Logos may be SVG. Opened directly, an SVG is a document that can run
+      // script on this origin; sandbox it the same way forum images are.
+      // <img> rendering is unaffected.
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",
     },
   });
 }
@@ -759,14 +804,16 @@ interface CatalogQueryRow {
 
 async function serveCatalog(request: Request, env: Env): Promise<Response> {
   const rows = await env.DB.prepare(
-    `SELECT p.slug, p.name, p.description, p.license_spdx,
+    // URLs are built from the PUBLISHED slug (pub.canonical_slug), which is
+    // what the canonical ZIP route resolves — not feed_project.slug.
+    `SELECT pub.canonical_slug AS slug, p.name, p.description, p.license_spdx,
             p.catalog_publisher_type, p.mdb_source_id,
             pub.published_at, pub.catalog_meta_json
        FROM feed_project p
        JOIN publication pub ON pub.project_id = p.id
       WHERE p.deleted_at IS NULL
         AND p.catalog_publisher_type IN ('official', 'community')
-      ORDER BY p.slug`,
+      ORDER BY pub.canonical_slug`,
   ).all<CatalogQueryRow>();
 
   const feeds: CatalogFeedInput[] = (rows.results ?? []).map((r) => ({
@@ -839,13 +886,12 @@ async function serveAlerts(env: Env, slug: string, format: 'pb' | 'json'): Promi
 async function serveDraft(
   request: Request,
   env: Env,
-  slug: string,
   token: string,
 ): Promise<Response> {
   const tokenHash = await sha256Hex(token);
+  // The URL's slug segment is not compared (see loadDraftZipBytes).
   const row = await loadDraft(env, tokenHash);
   if (!row) return notFound('Draft link not found.');
-  if (row.slug !== slug) return notFound('Draft link not found.');
   if (row.revoked_at !== null) return gone('Draft link revoked.');
   if (row.expires_at < Date.now()) return gone('Draft link expired.');
 

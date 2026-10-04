@@ -41,12 +41,6 @@ export function isPlan(s: string | null | undefined): s is Plan {
   return typeof s === 'string' && (PLANS as readonly string[]).includes(s);
 }
 
-// Legacy defaults — kept for the small number of call sites that don't yet
-// thread an owner through. New code should resolve via getOwnerQuotas().
-export const MAX_PROJECTS_PER_OWNER = PLAN_QUOTAS.agency.projects;
-export const MAX_SNAPSHOTS_PER_PROJECT = PLAN_QUOTAS.agency.snapshotsPerProject;
-export const MAX_BLOB_BYTES = PLAN_QUOTAS.agency.blobBytes;
-
 // ─── Plan resolution ────────────────────────────────────────────────────────
 
 export async function getOwnerPlan(
@@ -149,7 +143,9 @@ export function enforceQuota(
   return { warning: null };
 }
 
-export function enforceBlobSize(size: number, limit: number = MAX_BLOB_BYTES): void {
+// `limit` is the owner's plan cap (getOwnerQuotas().blobBytes); there is no
+// default, so every caller has to resolve the owner's plan.
+export function enforceBlobSize(size: number, limit: number): void {
   if (size > limit) {
     throw quotaExceeded(
       `Feed state exceeds the ${Math.floor(limit / MB)} MB limit`,

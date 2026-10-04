@@ -80,6 +80,47 @@ describe('/api/import/fetch — external URL magic-byte sniff', () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('not_zip');
   });
+
+  // W2-14: the body read shares the fetch's abort signal, so a timeout that
+  // fires mid-body rejects inside reader.read(). That must map to 504
+  // fetch_timeout like a timeout at fetch(), not fall through to a 500.
+  it('maps an abort during the body read to 504 fetch_timeout', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      let sent = false;
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (!sent) {
+            sent = true;
+            controller.enqueue(ZIP_MAGIC);
+            return;
+          }
+          controller.error(new DOMException('The operation was aborted', 'AbortError'));
+        },
+      });
+      return new Response(stream, { status: 200, headers: { 'Content-Type': 'application/zip' } });
+    });
+
+    const res = await fetchImport('http://mychtransit.org/gtfs');
+    expect(res.status).toBe(504);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('fetch_timeout');
+  });
+
+  it('maps a non-abort body read failure to 502 fetch_failed', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.error(new TypeError('network connection lost'));
+        },
+      });
+      return new Response(stream, { status: 200, headers: { 'Content-Type': 'application/zip' } });
+    });
+
+    const res = await fetchImport('http://mychtransit.org/gtfs');
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('fetch_failed');
+  });
 });
 
 function requestUrl(input: RequestInfo | URL): string {

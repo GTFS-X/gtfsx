@@ -219,6 +219,10 @@ assistantRouter.post('/chat', requireAuth, async (c) => {
       // Track the in-flight tool_use block (accumulate its streamed JSON input).
       let toolName: string | null = null;
       let toolJson = '';
+      // An upstream `error` event ends the answer: we surface `error` and stop.
+      // Sending `done` after it made the client fire onError AND onDone, which
+      // finished a broken reply as if it were complete.
+      let streamErrored = false;
 
       for await (const { event, data } of parseAnthropicSSE(resp.body)) {
         const d = data as Record<string, unknown>;
@@ -262,8 +266,11 @@ assistantRouter.post('/chat', requireAuth, async (c) => {
             event: 'error',
             data: JSON.stringify({ message: 'The assistant hit an error mid-answer. Please try again.' }),
           });
+          streamErrored = true;
+          break;
         }
       }
+      if (streamErrored) return;
 
       // Flush any buffered first-line content that never got a newline.
       if (!sawFirstNewline && pending) {

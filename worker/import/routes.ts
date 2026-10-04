@@ -225,7 +225,19 @@ async function fetchFeedZip(initialUrl: URL): Promise<Uint8Array> {
       const chunks: Uint8Array[] = [];
       let total = 0;
       while (true) {
-        const { done, value } = await reader.read();
+        // The read shares ctrl.signal with the fetch, so a timeout that fires
+        // mid-body rejects HERE, not at fetch(). Map it the same way (504);
+        // without this it fell through to the route's generic 500.
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+          chunk = await reader.read();
+        } catch (err) {
+          if (ctrl.signal.aborted || (err as Error)?.name === 'AbortError') {
+            throw importError(504, 'fetch_timeout', `Couldn't reach the feed at ${initialUrl.toString()}.`);
+          }
+          throw importError(502, 'fetch_failed', `Couldn't reach the feed at ${initialUrl.toString()}.`);
+        }
+        const { done, value } = chunk;
         if (done) break;
         total += value.length;
         if (total > MAX_FETCH_BYTES) {
@@ -311,8 +323,8 @@ importRouter.get('/fetch', async (c) => {
     const draftMatch = sameZone ? DRAFT_URL_RE.exec(targetUrl.pathname) : null;
     const canonicalMatch = sameZone ? CANONICAL_URL_RE.exec(targetUrl.pathname) : null;
     if (draftMatch) {
-      const [, slug, token] = draftMatch;
-      const result = await loadDraftZipBytes(c.env, slug, token);
+      const [, , token] = draftMatch;
+      const result = await loadDraftZipBytes(c.env, token);
       if (!result.ok) {
         const status = result.reason === 'revoked' || result.reason === 'expired' ? 410 : 404;
         throw importError(status, 'fetch_failed', `Draft link ${result.reason.replace(/_/g, ' ')}.`);

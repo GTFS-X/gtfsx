@@ -7,18 +7,20 @@ import {
   conflict,
   forbidden,
   notFound,
+  quotaExceeded,
   validationFailed,
   ApiError,
 } from '../util/errors';
 import { logAudit } from '../util/audit';
 import { clientIp } from '../util/rateLimit';
 import { generateToken, sha256Hex } from '../util/crypto';
-import { performPublish } from '../publication/performPublish';
+import { assertCanonicalSlugFree, performPublish } from '../publication/performPublish';
 import { assertIdStable } from '../publication/idStability';
 import { getOrgMembership, roleAtLeast, type OrgRole } from '../orgs/routes';
 import { isValidSlug, slugify, uniqueSlug } from './slug';
 import {
   countProjects,
+  countPublishedFeeds,
   countSnapshots,
   enforceBlobSize,
   enforceQuota,
@@ -571,6 +573,17 @@ projectsRouter.patch('/:id', async (c) => {
       .bind(current.owner_type, current.owner_id, body.slug, current.id)
       .first<{ id: string }>();
     if (existing) throw conflict('Slug is already in use');
+    // The slug IS the public feed URL once published. Renaming it in place
+    // would leave the publication (and every consumer's URL) on the old slug
+    // while the catalog, drafts and alerts moved to the new one. Moving a
+    // published URL is an explicit unpublish → rename → publish.
+    const publication = await loadPublication(c.env, current.id);
+    if (publication) {
+      throw conflict(
+        `This feed is published at /${publication.canonical_slug}. Unpublish it before changing its URL.`,
+        { reason: 'published', canonicalSlug: publication.canonical_slug },
+      );
+    }
     updates.push('slug = ?');
     binds.push(body.slug);
   }
@@ -640,11 +653,11 @@ projectsRouter.delete('/:id', async (c) => {
     throw conflict('This feed is locked. Unlock it before deleting.');
   }
 
-  // A published feed can't just be soft-deleted: the public feed handler joins
-  // feed_project WITHOUT filtering deleted_at, so the ZIP would keep serving on
-  // FEEDS_ORIGIN forever while vanishing from the owner's list — leaving them no
-  // way to ever take it down. Deletion is gated on publication state (NOT on the
-  // `locked` flag, which also blocks renames and means something different).
+  // A published feed can't just be soft-deleted: the delete would silently take
+  // a live public URL down (the feeds origin ignores deleted projects), and its
+  // publication row would linger with no owner UI to manage it. Deletion is
+  // gated on publication state (NOT on the `locked` flag, which also blocks
+  // renames and means something different).
   const publication = await loadPublication(c.env, current.id);
   const alsoUnpublish = c.req.query('unpublish') === '1';
   if (publication && !alsoUnpublish) {
@@ -661,9 +674,19 @@ projectsRouter.delete('/:id', async (c) => {
   await unpublishProject(c.env, current.id, publication, user.id, ip);
 
   const now = Date.now();
-  await c.env.DB.prepare(`UPDATE feed_project SET deleted_at = ?, updated_at = ? WHERE id = ?`)
-    .bind(now, now, current.id)
-    .run();
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE feed_project SET deleted_at = ?, updated_at = ? WHERE id = ?`)
+      .bind(now, now, current.id),
+    // Shared draft links stop working with the feed. (The feeds origin also
+    // ignores deleted projects, but revoking keeps a restore from silently
+    // re-arming links the owner believed were gone.)
+    c.env.DB.prepare(`UPDATE draft_link SET revoked_at = ? WHERE project_id = ? AND revoked_at IS NULL`)
+      .bind(now, current.id),
+    // A pending scheduled publish of a deleted feed can only fail at fire time.
+    c.env.DB.prepare(
+      `UPDATE scheduled_publish SET status = 'cancelled', executed_at = ? WHERE project_id = ? AND status = 'pending'`,
+    ).bind(now, current.id),
+  ]);
 
   await logAudit(c.env, {
     actorUserId: user.id,
@@ -693,17 +716,26 @@ projectsRouter.post('/:id/restore', async (c) => {
   // caller's access to it here.
   const current = await requireDeletedProject(c.env, user, id);
 
+  // Restoring brings the feed back into the owner's count — same hard wall as
+  // creating one.
+  const restoreQuotas = await getOwnerQuotas(c.env, current.owner_type as OwnerType, current.owner_id);
+  const usedAtRestore = await countProjects(c.env, current.owner_type, current.owner_id);
+  enforceQuota(c.env, 'projects', usedAtRestore, restoreQuotas.projects, { hard: true });
+
   // The unique index on (owner_type, owner_id, slug) is partial —
   // `WHERE deleted_at IS NULL` — so while this feed sat in the trash its slug
   // was free for a NEW feed to take. If that happened, restoring it under the
   // old slug would violate the index. Suffix it (`<slug>-2`, `-3`, …) and tell
-  // the client, rather than failing a restore the user is entitled to.
+  // the client, rather than failing a restore the user is entitled to. A legacy
+  // row that still has a publication also avoids other feeds' published URLs.
+  const stillPublished = await loadPublication(c.env, current.id);
   const restoredSlug = await uniqueSlug(
     c.env,
     current.owner_type,
     current.owner_id,
     current.slug,
     current.id,
+    { avoidPublishedSlugs: !!stillPublished },
   );
   const slugChanged = restoredSlug !== current.slug;
 
@@ -792,8 +824,23 @@ projectsRouter.post('/:id/transfer', async (c) => {
   const usedAtDest = await countProjects(c.env, destOwnerType, destOwnerId);
   enforceQuota(c.env, 'projects', usedAtDest, destQuotas.projects, { hard: true });
 
-  // Slug uniqueness in the destination.
-  const finalSlug = await uniqueSlug(c.env, destOwnerType, destOwnerId, current.slug);
+  // A published feed also takes one of the destination's published-feed slots.
+  const publication = await loadPublication(c.env, current.id);
+  if (publication && !user.staff) {
+    const usedPublished = await countPublishedFeeds(c.env, destOwnerType, destOwnerId);
+    if (usedPublished >= destQuotas.publishedFeeds) {
+      throw quotaExceeded(
+        `Published-feed limit reached (${usedPublished}/${destQuotas.publishedFeeds}) in the destination workspace.`,
+        { kind: 'published', used: usedPublished, limit: destQuotas.publishedFeeds, currentPlan: destQuotas.plan },
+      );
+    }
+  }
+
+  // Slug uniqueness in the destination. A published feed keeps its public URL
+  // unless it has to move, and then must not land on another feed's URL.
+  const finalSlug = await uniqueSlug(c.env, destOwnerType, destOwnerId, current.slug, current.id, {
+    avoidPublishedSlugs: !!publication,
+  });
   const slugChanged = finalSlug !== current.slug;
 
   const now = Date.now();
@@ -1334,21 +1381,44 @@ projectsRouter.delete('/:id/snapshots/:vid', async (c) => {
     throw conflict('This snapshot is currently published. Unpublish the feed first.');
   }
 
-  // NULL out the snapshot reference on any history rows so the audit trail
-  // ("publish at T", "unpublish at T+1") survives but the snapshot can be
-  // removed. snapshot_id was declared nullable in migration 0003 (originally
-  // version_id, renamed in 0012).
-  await c.env.DB.prepare(
-    `UPDATE publication_history SET snapshot_id = NULL WHERE snapshot_id = ?`,
-  ).bind(snapshot.id).run();
-
-  await deleteFeedBlob(c.env, snapshot.state_r2_key);
-  if (snapshot.zip_r2_key) {
-    await deleteFeedBlob(c.env, snapshot.zip_r2_key);
+  // scheduled_publish.snapshot_id is NOT NULL and references feed_snapshot with
+  // no ON DELETE clause, so ANY schedule row (pending or finished) blocks the
+  // delete. A pending one is live intent: refuse, and let the user cancel it.
+  const pendingSchedule = await c.env.DB.prepare(
+    `SELECT 1 FROM scheduled_publish WHERE snapshot_id = ? AND status = 'pending' LIMIT 1`,
+  ).bind(snapshot.id).first<{ '1': number }>();
+  if (pendingSchedule) {
+    throw conflict('This snapshot is scheduled to publish. Cancel the schedule first.', {
+      reason: 'scheduled',
+    });
   }
-  await c.env.DB.prepare(`DELETE FROM feed_snapshot WHERE id = ? AND project_id = ?`)
-    .bind(snapshot.id, row.id)
-    .run();
+
+  // All D1 changes in one batch, BEFORE touching R2 — if this fails, the
+  // snapshot and its blobs are still intact (previously the blobs were deleted
+  // first and a constraint failure left a row pointing at nothing).
+  //  - Finished schedule rows for this snapshot go (their history is moot
+  //    once the snapshot is gone; snapshot_id can't be nulled).
+  //  - History rows keep the audit trail ("publish at T", "unpublish at T+1")
+  //    with the snapshot reference NULLed (nullable since migration 0003).
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM scheduled_publish WHERE snapshot_id = ? AND status <> 'pending'`)
+      .bind(snapshot.id),
+    c.env.DB.prepare(`UPDATE publication_history SET snapshot_id = NULL WHERE snapshot_id = ?`)
+      .bind(snapshot.id),
+    c.env.DB.prepare(`DELETE FROM feed_snapshot WHERE id = ? AND project_id = ?`)
+      .bind(snapshot.id, row.id),
+  ]);
+
+  // Blobs last, best-effort: an orphaned blob is harmless and is swept with
+  // the project's prefix on purge.
+  try {
+    await deleteFeedBlob(c.env, snapshot.state_r2_key);
+    if (snapshot.zip_r2_key) {
+      await deleteFeedBlob(c.env, snapshot.zip_r2_key);
+    }
+  } catch (err) {
+    console.error('[snapshots] blob delete failed', err);
+  }
 
   await logAudit(c.env, {
     actorUserId: user.id,
@@ -1375,7 +1445,11 @@ projectsRouter.get('/:id/audit', async (c) => {
   if (!Number.isFinite(limit) || limit <= 0) limit = 50;
   if (limit > 200) limit = 200;
 
-  const binds: unknown[] = [row.id];
+  // Publish/unpublish/schedule/draft/catalog events are logged with
+  // subject_type 'publication' (subject_id = project id), snapshot events with
+  // subject_type 'snapshot' and the project id in metadata. All belong to this
+  // project's log.
+  const binds: unknown[] = [row.id, row.id];
   let beforeClause = '';
   if (before) {
     beforeClause = ' AND id < ?';
@@ -1386,7 +1460,8 @@ projectsRouter.get('/:id/audit', async (c) => {
   const result = await c.env.DB.prepare(
     `SELECT id, actor_user_id, subject_type, subject_id, action, metadata_json, created_at
        FROM audit_event
-      WHERE subject_type = 'project' AND subject_id = ?${beforeClause}
+      WHERE ((subject_type IN ('project', 'publication') AND subject_id = ?)
+             OR (subject_type = 'snapshot' AND json_extract(metadata_json, '$.projectId') = ?))${beforeClause}
       ORDER BY id DESC
       LIMIT ?`,
   )
@@ -1626,6 +1701,25 @@ async function unpublishProject(
     metadata: { snapshotId: existing.snapshot_id },
     ip,
   });
+
+  // A pending scheduled publish would otherwise put the feed straight back up
+  // when the cron fires (it treats a missing publication as a first publish).
+  // Taking a feed down cancels it; the user can schedule again.
+  const cancelled = await env.DB.prepare(
+    `UPDATE scheduled_publish SET status = 'cancelled', executed_at = ? WHERE project_id = ? AND status = 'pending'`,
+  )
+    .bind(now, projectId)
+    .run();
+  if ((cancelled.meta?.changes ?? 0) > 0) {
+    await logAudit(env, {
+      actorUserId,
+      subjectType: 'publication',
+      subjectId: projectId,
+      action: 'project.cancel_scheduled_publish',
+      metadata: { reason: 'unpublished' },
+      ip,
+    });
+  }
 }
 
 interface ScheduledPublishRow {
@@ -1653,6 +1747,8 @@ async function loadLatestSchedule(env: Env, projectId: string): Promise<Schedule
 }
 
 function serializeSchedule(s: ScheduledPublishRow) {
+  // 'running' is the cron's transient claim on a due row (worker/cron/tasks.ts
+  // → publishDueSchedules). To the client it is still the pending schedule.
   return {
     id: s.id,
     snapshotId: s.snapshot_id,
@@ -1662,7 +1758,7 @@ function serializeSchedule(s: ScheduledPublishRow) {
     // replays exactly these into performPublish and nothing more.
     ignoreRtBreakage: s.ignore_rt_breakage === 1,
     ignoreAgencyChurn: s.ignore_agency_churn === 1,
-    status: s.status,
+    status: s.status === 'running' ? 'pending' : s.status,
     failureReason: s.failure_reason,
   };
 }
@@ -1785,67 +1881,65 @@ projectsRouter.post('/:id/unpublish', async (c) => {
 });
 
 // ─── POST /api/projects/:id/publish/rollback ───────────────────────────────────
+//
+// Re-publish an earlier snapshot. Goes through the same performPublish core as
+// a normal publish (slug guard, ID-stability check, pointer flip, history,
+// audit, catalog meta + thumbnail refresh), so the catalog never keeps
+// advertising the newer snapshot after a rollback.
+//
+// Restoring a previously-published snapshot is itself the acknowledgement of
+// its validation warnings and agency_id churn (the client's own rollback path
+// says the same), so those gates are passed as acknowledged. rt_breakage stays
+// acknowledged by default to preserve existing behaviour; a caller can opt in
+// to the gate with ignoreRtBreakage:false.
 projectsRouter.post('/:id/publish/rollback', async (c) => {
   const user = c.var.user!;
   const id = c.req.param('id');
   const { row: project } = await requireOwnedProject(c.env, user, id, 'editor');
   const body = await parseJson(c, publishJsonSchema);
   const snapshot = await requireOwnedSnapshot(c.env, project.id, body.snapshotId);
+  const now = Date.now();
+
+  const existingPublication = await loadPublication(c.env, project.id);
+  await requirePublishAccess(
+    c.env,
+    project.owner_type as OwnerType,
+    project.owner_id,
+    { isNewPublication: !existingPublication, actor: user },
+  );
 
   // We require either (a) an already-published ZIP in the publication slot
   // (i.e. we rolled off this snapshot, now rolling back), or (b) a rendered
   // ZIP on the snapshot row. If neither, the client must use the multipart
   // publish endpoint instead.
   const pubKey = publicationZipKey(project.id, snapshot.id);
-  const existingPubObj = await getFeedBlob(c.env, pubKey);
   let sourceKey: string | null = null;
-  if (existingPubObj) {
+  if (await c.env.FEEDS.head(pubKey)) {
     sourceKey = pubKey;
-  } else if (snapshot.zip_r2_key) {
-    const snapshotObj = await getFeedBlob(c.env, snapshot.zip_r2_key);
-    if (snapshotObj) sourceKey = snapshot.zip_r2_key;
+  } else if (snapshot.zip_r2_key && (await c.env.FEEDS.head(snapshot.zip_r2_key))) {
+    sourceKey = snapshot.zip_r2_key;
   }
   if (!sourceKey) {
     throw validationFailed('No rendered ZIP available for this snapshot. Re-publish with a zip upload.');
   }
 
-  if (sourceKey !== pubKey) {
-    const source = await getFeedBlob(c.env, sourceKey);
-    if (!source) throw notFound('Rendered ZIP missing');
-    const buf = await source.arrayBuffer();
-    await putFeedBlob(c.env, pubKey, buf, { contentType: 'application/zip' });
-  }
-
-  const now = Date.now();
-  await c.env.DB.prepare(
-    `INSERT INTO publication (project_id, snapshot_id, published_by_user_id, published_at, canonical_slug, zip_r2_key)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(project_id) DO UPDATE SET
-       snapshot_id = excluded.snapshot_id,
-       published_by_user_id = excluded.published_by_user_id,
-       published_at = excluded.published_at,
-       canonical_slug = excluded.canonical_slug,
-       zip_r2_key = excluded.zip_r2_key`,
-  )
-    .bind(project.id, snapshot.id, user.id, now, project.slug, pubKey)
-    .run();
-  await c.env.DB.prepare(
-    `INSERT INTO publication_history (id, project_id, snapshot_id, action, actor_user_id, created_at)
-     VALUES (?, ?, ?, 'rollback', ?, ?)`,
-  )
-    .bind(ulid(), project.id, snapshot.id, user.id, now)
-    .run();
-
-  await logAudit(c.env, {
+  const { canonicalUrl } = await performPublish(c.env, {
+    project: { id: project.id, slug: project.slug, name: project.name },
+    snapshot,
+    existingPublication,
+    ignoreWarnings: true,
+    ignoreAgencyChurn: true,
+    ignoreRtBreakage: body.ignoreRtBreakage ?? true,
     actorUserId: user.id,
-    subjectType: 'publication',
-    subjectId: project.id,
-    action: 'project.publish',
-    metadata: { snapshotId: snapshot.id, rollback: true },
+    incomingZip: null,
+    sourceZipKey: sourceKey,
+    historyAction: 'rollback',
+    feedsOrigin: c.env.FEEDS_ORIGIN,
+    runBackground: (p) => c.executionCtx.waitUntil(p),
     ip: clientIp(c.req.raw),
+    now,
   });
 
-  const canonicalUrl = `${c.env.FEEDS_ORIGIN.replace(/\/$/, '')}/${project.slug}/gtfs.zip`;
   return c.json({
     publication: {
       projectId: project.id,
@@ -1921,11 +2015,19 @@ projectsRouter.post('/:id/publish/schedule', async (c) => {
   let ignoreAgencyChurn: boolean;
   let incomingZip: ArrayBuffer | null = null;
   if (contentType.includes('multipart/form-data')) {
-    const parsed = (await c.req.parseBody({ all: false })) as Record<string, string | File>;
+    // Same guarded parse as /publish: a malformed body or meta is a 422, not a 500.
+    let parsed: Record<string, string | File>;
+    try {
+      parsed = (await c.req.parseBody({ all: false })) as Record<string, string | File>;
+    } catch {
+      throw validationFailed('Invalid multipart body');
+    }
     const metaPart = parsed['meta'];
     const zipPart = parsed['zip'];
     if (typeof metaPart !== 'string') throw validationFailed('Missing meta JSON');
-    const metaResult = schedulePublishSchema.safeParse(JSON.parse(metaPart));
+    let metaObj: unknown;
+    try { metaObj = JSON.parse(metaPart); } catch { throw validationFailed('Invalid meta JSON'); }
+    const metaResult = schedulePublishSchema.safeParse(metaObj);
     if (!metaResult.success) throw validationFailed('Invalid meta', { issues: metaResult.error.issues });
     snapshotId = metaResult.data.snapshotId;
     scheduledFor = metaResult.data.scheduledFor;
@@ -1968,7 +2070,9 @@ projectsRouter.post('/:id/publish/schedule', async (c) => {
   // carries ignoreRtBreakage/ignoreAgencyChurn, which we persist below.
   //
   // Runs BEFORE any write, so a 409 leaves the existing pending schedule and the
-  // snapshot's stored ZIP untouched.
+  // snapshot's stored ZIP untouched. The global-URL check performPublish makes
+  // runs here too, for the same reason.
+  await assertCanonicalSlugFree(c.env, project.slug, project.id);
   await assertIdStable(c.env, {
     projectId: project.id,
     snapshot,
@@ -1989,29 +2093,37 @@ projectsRouter.post('/:id/publish/schedule', async (c) => {
     throw validationFailed('Open the feed in the editor when scheduling so we can render the GTFS ZIP to publish later.');
   }
 
-  // Replace any existing pending schedule (one pending per project).
-  await c.env.DB.prepare(
-    `UPDATE scheduled_publish SET status = 'cancelled', executed_at = ? WHERE project_id = ? AND status = 'pending'`,
-  ).bind(now, project.id).run();
-
+  // Replace any existing pending schedule (one pending per project) — the
+  // cancel and the insert run as one batch, so a concurrent request can't slip
+  // its own pending row in between and trip the one-pending unique index.
   const schedId = ulid();
-  await c.env.DB.prepare(
-    `INSERT INTO scheduled_publish (id, project_id, snapshot_id, scheduled_for, ignore_warnings,
-                                    ignore_rt_breakage, ignore_agency_churn, status, scheduled_by_user_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-  )
-    .bind(
-      schedId,
-      project.id,
-      snapshot.id,
-      scheduledFor,
-      ignoreWarnings ? 1 : 0,
-      ignoreRtBreakage ? 1 : 0,
-      ignoreAgencyChurn ? 1 : 0,
-      user.id,
-      now,
-    )
-    .run();
+  try {
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE scheduled_publish SET status = 'cancelled', executed_at = ? WHERE project_id = ? AND status = 'pending'`,
+      ).bind(now, project.id),
+      c.env.DB.prepare(
+        `INSERT INTO scheduled_publish (id, project_id, snapshot_id, scheduled_for, ignore_warnings,
+                                        ignore_rt_breakage, ignore_agency_churn, status, scheduled_by_user_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      ).bind(
+        schedId,
+        project.id,
+        snapshot.id,
+        scheduledFor,
+        ignoreWarnings ? 1 : 0,
+        ignoreRtBreakage ? 1 : 0,
+        ignoreAgencyChurn ? 1 : 0,
+        user.id,
+        now,
+      ),
+    ]);
+  } catch (err) {
+    if (/UNIQUE constraint failed/i.test(String((err as Error)?.message ?? err))) {
+      throw conflict('Another schedule was just created for this feed. Reload and try again.');
+    }
+    throw err;
+  }
 
   await logAudit(c.env, {
     actorUserId: user.id,
@@ -2534,7 +2646,3 @@ projectsRouter.get('/:id/embed-impressions', async (c) => {
     top_targets: topTargets,
   });
 });
-
-// Keep snapshotZipKey imported — future Phase 2 work will begin writing ZIPs
-// into snapshot slots, at which point publish's JSON body path exercises it.
-void snapshotZipKey;
