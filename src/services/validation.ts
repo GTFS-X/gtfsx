@@ -5,6 +5,7 @@ import { flexZoneHasGroup, flexZoneHasPolygons, flexZoneShape, type FlexZone } f
 import { gtfsTimeToSeconds, secondsToGtfsTime, formatTimeShort } from '../utils/time';
 import { getUSHolidaysInRange, serviceRunsOnDate } from '../utils/holidays';
 import { findBlockOverlaps } from './blockBuilder';
+import { allServiceIds } from './serviceIds';
 import { unreachableTimetableTripIds } from '../components/ui/shapePatterns';
 // Imported from the PURE plan module, not shapesFromStops.ts: the latter pulls in
 // snapToRoad, whose module-scope `import.meta.env` read throws under plain Node,
@@ -178,7 +179,9 @@ export function runValidation(state: AppStore): ValidationMessage[] {
 
   // Build lookup sets once
   const routeIdSet = new Set(state.routes.map((r) => r.route_id));
-  const serviceIdSet = new Set(state.calendars.map((c) => c.service_id));
+  // calendar.txt ∪ calendar_dates.txt: a calendar_dates-only service is a real,
+  // spec-valid service (see serviceIds.ts), not an orphan.
+  const serviceIdSet = allServiceIds(state);
   const stopIdSet = new Set(state.stops.map((s) => s.stop_id));
 
   // Build stop_times index by trip_id
@@ -256,7 +259,9 @@ export function runValidation(state: AppStore): ValidationMessage[] {
   }
 
   // Calendar checks
-  if (state.calendars.length === 0) {
+  // A feed may define its services through calendar_dates.txt alone, so this is
+  // an error only when BOTH files are empty.
+  if (state.calendars.length === 0 && state.calendarDates.length === 0) {
     messages.push(msg('error', 'At least one service pattern (calendar) is required'));
   } else {
     // GTFS end_date is YYYYMMDD (inclusive). Compare as an integer to today's
@@ -703,13 +708,14 @@ export function runValidation(state: AppStore): ValidationMessage[] {
 
     const timeOk = (s?: string) => !s || /^\d{1,2}:\d{2}:\d{2}$/.test(s);
     // Every service_id a zone may legitimately name, from either calendar file.
-    const flexServiceIds = new Set(serviceIdSet);
-    for (const d of state.calendarDates) flexServiceIds.add(d.service_id);
-    // ...but only calendar.txt yields an exportable trip: materializeFlex falls
-    // back to calendars[0] and SKIPS the zone when there is no calendar row at
-    // all, so a dates-only feed silently drops every flex trip.
+    const flexServiceIds = serviceIdSet;
+    // Mirrors materializeFlex: a zone exports on its own service when that id
+    // exists in either calendar file; a zone with no service picked falls back
+    // to the first calendar row, else the first calendar_dates service.
     const zoneHasExportableService = (z: FlexZone) =>
-      (!!z.serviceId && serviceIdSet.has(z.serviceId)) || state.calendars.length > 0;
+      z.serviceId
+        ? serviceIdSet.has(z.serviceId)
+        : state.calendars.length > 0 || state.calendarDates.length > 0;
 
     // GTFS-Flex shares ONE id namespace across stops.stop_id, the
     // locations.geojson feature ids, and location_groups.location_group_id. Map
@@ -1278,14 +1284,13 @@ export function runValidation(state: AppStore): ValidationMessage[] {
   }
 
   // timeframes.txt -- service_id required + must resolve; collect group ids.
-  const calendarDateServiceIds = new Set(state.calendarDates.map((d) => d.service_id));
   const timeframeGroupIdSet = new Set<string>();
   const reportedTimeframeMissingService = new Set<string>();
   for (const tf of state.timeframes) {
     if (tf.timeframe_group_id) timeframeGroupIdSet.add(tf.timeframe_group_id);
     if (!tf.service_id) {
       messages.push(msg('error', `A timeframe in group "${tf.timeframe_group_id || '(unnamed)'}" is missing service_id.`, 'timeframe', tf.timeframe_group_id));
-    } else if (!serviceIdSet.has(tf.service_id) && !calendarDateServiceIds.has(tf.service_id) && !reportedTimeframeMissingService.has(tf.service_id)) {
+    } else if (!serviceIdSet.has(tf.service_id) &&!reportedTimeframeMissingService.has(tf.service_id)) {
       reportedTimeframeMissingService.add(tf.service_id);
       messages.push(msg('error', `Timeframe references non-existent service "${tf.service_id}".`, 'timeframe', tf.timeframe_group_id));
     }

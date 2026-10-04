@@ -13,7 +13,15 @@ function pct(share: number): string {
   return (share * 100).toFixed(1) + '%';
 }
 
-function RatioIndicator({ ratio }: { ratio: number }) {
+function RatioIndicator({ ratio }: { ratio: number | null }) {
+  if (ratio === null) {
+    return (
+      <div className="flex items-center justify-between rounded-lg border px-3 py-2 text-warm-gray bg-white border-gray-200">
+        <span className="text-sm font-bold">n/a</span>
+        <span className="text-xs font-medium">Insufficient data for a comparison</span>
+      </div>
+    );
+  }
   const color =
     ratio >= 1.0 ? 'text-emerald-600 bg-emerald-50 border-emerald-200' :
     ratio >= 0.8 ? 'text-amber-600 bg-amber-50 border-amber-200' :

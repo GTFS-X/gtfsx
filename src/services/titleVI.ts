@@ -4,6 +4,7 @@ import type { BlockGroupData } from './demographics';
 import type { Stop } from '../types/gtfs';
 import type { AppStore } from '../store';
 import { BG_RADIUS_MILES, circleOverlapFraction, computeBgRadii } from './coverageAnalysis';
+import { representativeServiceDate } from './serviceIds';
 
 /**
  * Two-tier buffer per FTA-aligned local practice: stops with peak-hour headways
@@ -21,8 +22,12 @@ export interface BlockGroupServiceLevel {
   dailyTrips: number;
   minorityShare: number;
   isMinority: boolean;
+  /** False when the BG has no race data; it is then in neither minority group. */
+  hasRaceData: boolean;
   lowIncomeShare: number;
   isLowIncome: boolean;
+  /** False when the BG has no poverty-universe data; excluded from the EJ groups. */
+  hasIncomeData: boolean;
   population: number;
 }
 
@@ -39,16 +44,25 @@ export interface TitleVIResult {
   nonMinority: TitleVIGroup;
   /**
    * Ratio of minority avg. daily trips to non-minority avg. daily trips.
-   * < 1.0 means minority BGs receive less service on average.
+   * < 1.0 means minority BGs receive less service on average. null when
+   * either group is empty or the non-minority group gets no service.
    */
-  ratio: number;
+  ratio: number | null;
   /** Regional low-income (<200% FPL) share — threshold for the EJ comparison. */
   regionalLowIncomeShare: number;
   lowIncome: TitleVIGroup;
   nonLowIncome: TitleVIGroup;
-  /** Ratio of low-income to non-low-income avg. daily trips (FTA EJ analysis). */
-  lowIncomeRatio: number;
+  /** Ratio of low-income to non-low-income avg. daily trips (FTA EJ analysis);
+   *  null when there is no meaningful comparison (see `ratio`). */
+  lowIncomeRatio: number | null;
   blockGroupLevels: BlockGroupServiceLevel[];
+  /**
+   * The service day the trip counts are based on: the representative date
+   * (label e.g. "Mon, Oct 5, 2026") when chosen automatically, the caller's
+   * service ids (label null) when passed, or null when stop_times were used
+   * unfiltered (no trips supplied).
+   */
+  basis: { label: string | null; date: string | null; serviceIds: string[] } | null;
 }
 
 /**
@@ -110,11 +124,41 @@ function computeStopBuffers(
 export function calculateTitleVI(
   stops: Stop[],
   blockGroups: BlockGroupData[],
-  state: Pick<AppStore, 'stopTimes'>,
+  state: Pick<AppStore, 'stopTimes'> & Partial<Pick<AppStore, 'trips' | 'calendars' | 'calendarDates'>>,
+  serviceIds?: ReadonlySet<string>,
 ): TitleVIResult {
+  // 0. One service day. Without this, every service_id's trips (weekday +
+  //    Saturday + Sunday …) were summed into "daily" trips and the peak hour.
+  //    The caller may pass the services to analyse; otherwise, when trips and
+  //    calendars are supplied, the representative (busiest) service date is
+  //    used. With no trips, stop_times are used as given (legacy behaviour).
+  let basis: TitleVIResult['basis'] = null;
+  let stopTimes = state.stopTimes;
+  if (state.trips) {
+    let ids: ReadonlySet<string> | undefined = serviceIds;
+    if (!ids && (state.calendars || state.calendarDates)) {
+      const rep = representativeServiceDate({
+        trips: state.trips,
+        calendars: state.calendars ?? [],
+        calendarDates: state.calendarDates ?? [],
+      });
+      if (rep.date) {
+        ids = rep.serviceIds;
+        basis = { label: rep.label, date: rep.date, serviceIds: [...rep.serviceIds] };
+      }
+    } else if (ids) {
+      basis = { label: null, date: null, serviceIds: [...ids] };
+    }
+    if (ids) {
+      const keep = ids;
+      const tripsOnDay = new Set(state.trips.filter((t) => keep.has(t.service_id)).map((t) => t.trip_id));
+      stopTimes = state.stopTimes.filter((st) => tripsOnDay.has(st.trip_id));
+    }
+  }
+
   // 1. Daily trips per stop: count of unique trip_ids visiting each stop_id
   const tripSetsPerStop = new Map<string, Set<string>>();
-  for (const st of state.stopTimes) {
+  for (const st of stopTimes) {
     let s = tripSetsPerStop.get(st.stop_id);
     if (!s) { s = new Set(); tripSetsPerStop.set(st.stop_id, s); }
     s.add(st.trip_id);
@@ -125,7 +169,7 @@ export function calculateTitleVI(
   }
 
   // 2. Per-stop buffer based on peak-hour headway
-  const stopBuffers = computeStopBuffers(stops, state.stopTimes);
+  const stopBuffers = computeStopBuffers(stops, stopTimes);
 
   // 3. Regional minority share across all block groups with known race data
   const bgsWithRace = blockGroups.filter((bg) => bg.totalRacePop > 0);
@@ -161,15 +205,19 @@ export function calculateTitleVI(
       if (fraction > 0) dailyTrips += fraction * stopTrips;
     }
 
-    const minorityShare = bg.totalRacePop > 0 ? bg.minorityPop / bg.totalRacePop : 0;
-    const lowIncomeShare = bg.povertyUniverse > 0 ? bg.lowIncomePop / bg.povertyUniverse : 0;
+    const hasRaceData = bg.totalRacePop > 0;
+    const hasIncomeData = bg.povertyUniverse > 0;
+    const minorityShare = hasRaceData ? bg.minorityPop / bg.totalRacePop : 0;
+    const lowIncomeShare = hasIncomeData ? bg.lowIncomePop / bg.povertyUniverse : 0;
     levels.push({
       geoid: bg.geoid,
       dailyTrips,
       minorityShare,
-      isMinority: minorityShare >= regionalMinorityShare,
+      isMinority: hasRaceData && minorityShare >= regionalMinorityShare,
+      hasRaceData,
       lowIncomeShare,
-      isLowIncome: lowIncomeShare >= regionalLowIncomeShare,
+      isLowIncome: hasIncomeData && lowIncomeShare >= regionalLowIncomeShare,
+      hasIncomeData,
       population: bg.population,
     });
   }
@@ -184,25 +232,31 @@ export function calculateTitleVI(
     totalPop: sumPop(arr),
   });
 
-  const minorityLevels     = levels.filter((l) => l.isMinority);
-  const nonMinorityLevels  = levels.filter((l) => !l.isMinority);
-  const lowIncomeLevels     = levels.filter((l) => l.isLowIncome);
-  const nonLowIncomeLevels  = levels.filter((l) => !l.isLowIncome);
-
-  const minorityAvg     = avgTrips(minorityLevels);
-  const nonMinorityAvg  = avgTrips(nonMinorityLevels);
-  const lowIncomeAvg    = avgTrips(lowIncomeLevels);
-  const nonLowIncomeAvg = avgTrips(nonLowIncomeLevels);
+  // Block groups with no race (or poverty-universe) data are left out of that
+  // comparison entirely, rather than defaulting to a 0 share (which put them
+  // all in the non-minority group).
+  const minorityLevels     = levels.filter((l) => l.hasRaceData && l.isMinority);
+  const nonMinorityLevels  = levels.filter((l) => l.hasRaceData && !l.isMinority);
+  const lowIncomeLevels     = levels.filter((l) => l.hasIncomeData && l.isLowIncome);
+  const nonLowIncomeLevels  = levels.filter((l) => l.hasIncomeData && !l.isLowIncome);
+  // null = no meaningful ratio (a group is empty, or the comparison group gets
+  // no service), never 0 — 0 would render as the worst-case disparity.
+  const ratioOf = (num: BlockGroupServiceLevel[], den: BlockGroupServiceLevel[]): number | null => {
+    if (num.length === 0 || den.length === 0) return null;
+    const d = avgTrips(den);
+    return d > 0 ? avgTrips(num) / d : null;
+  };
 
   return {
     regionalMinorityShare,
     minority: group(minorityLevels),
     nonMinority: group(nonMinorityLevels),
-    ratio: nonMinorityAvg > 0 ? minorityAvg / nonMinorityAvg : 0,
+    ratio: ratioOf(minorityLevels, nonMinorityLevels),
     regionalLowIncomeShare,
     lowIncome: group(lowIncomeLevels),
     nonLowIncome: group(nonLowIncomeLevels),
-    lowIncomeRatio: nonLowIncomeAvg > 0 ? lowIncomeAvg / nonLowIncomeAvg : 0,
+    lowIncomeRatio: ratioOf(lowIncomeLevels, nonLowIncomeLevels),
     blockGroupLevels: levels,
+    basis,
   };
 }

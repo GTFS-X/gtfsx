@@ -4,8 +4,6 @@
 // re-exports everything here for existing import sites.
 import JSZip from 'jszip';
 import Papa from 'papaparse';
-import length from '@turf/length';
-import { lineString } from '@turf/helpers';
 import type {
   Agency, Calendar, CalendarDate, Route, Shape, ShapePoint, Stop, Trip, StopTime, FeedInfo, RouteStop,
   FareAttribute, FareRule, Transfer, Frequency, Pathway, Level,
@@ -15,32 +13,8 @@ import type {
 import type { FlexZone, BookingRule } from '../store/flexSlice';
 import { backfillMissingRouteStops } from './routeStopMigration';
 import { parseTranslationRows } from './translations';
+import { fillShapeDistances } from './shapeDistance';
 
-/** Populate shape_dist_traveled (cumulative metres) from the lat/lon geometry.
- *  Mirrors shapeSlice.recalcShapeDistances so the import path doesn't need the
- *  store mutator — we're still building the Shape array here.
- *
- *  Accumulates per-segment distances in a single pass: O(n). (The previous
- *  version rebuilt and re-measured the whole polyline at every point — O(n²) —
- *  which made dense regional feeds like RTD Denver take minutes to import.)
- *  Result is identical: turf `length` sums consecutive-point haversine
- *  distances, so summing each segment equals measuring the line up to point i. */
-function fillShapeDistances(points: ShapePoint[]): ShapePoint[] {
-  if (points.length < 2) return points;
-  points[0].shape_dist_traveled = 0;
-  let cumulative = 0;
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
-    const cur = points[i];
-    const segment = lineString([
-      [prev.shape_pt_lon, prev.shape_pt_lat],
-      [cur.shape_pt_lon, cur.shape_pt_lat],
-    ]);
-    cumulative += length(segment, { units: 'meters' });
-    cur.shape_dist_traveled = cumulative;
-  }
-  return points;
-}
 
 type CsvRow = Record<string, string>;
 

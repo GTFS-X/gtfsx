@@ -2,6 +2,8 @@ import type { AppStore } from '../store';
 import type { Frequency, StopTime, Trip, Stop } from '../types/gtfs';
 import { gtfsTimeToSeconds } from '../utils/time';
 import { computeTripSpans, deadheadSecs } from './blockBuilder';
+import { activeServiceDates, gtfsDateToDayNumber } from './serviceIds';
+import { windowDepartureCount } from './frequencyExpansion';
 
 export interface RouteSpans {
   weeklyRevHours: number;
@@ -36,96 +38,96 @@ export interface SystemStats {
    *  only; use `systemPeakVehicles` for "vehicles required for peak service". */
   totalPeakVehicles: number;
   /** TRUE whole-system peak: max vehicles simultaneously in service at the
-   *  single busiest instant across the entire system (≤ totalPeakVehicles). */
+   *  single busiest instant across the entire system (≤ totalPeakVehicles;
+   *  both expand frequencies.txt templates the same way, so this holds). */
   systemPeakVehicles: number;
   totalWeeklyCost: number;
   totalAnnualCost: number;
 }
 
-/** Count service days per year from calendar entries and calendar_dates exceptions. */
-function countServiceDaysPerYear(
-  serviceIds: string[],
-  state: Pick<AppStore, 'calendars' | 'calendarDates'>
-): number {
-  if (serviceIds.length === 0) return 365;
-
-  const relevantCalendars = state.calendars.filter((c) =>
-    serviceIds.includes(c.service_id)
-  );
-
-  if (relevantCalendars.length === 0) return 365;
-
-  let bestDaysPerYear = 0;
-
-  for (const cal of relevantCalendars) {
-    const start = parseYYYYMMDD(cal.start_date);
-    const end = parseYYYYMMDD(cal.end_date);
-    if (!start || !end) continue;
-
-    const dayFlags = [
-      cal.sunday,
-      cal.monday,
-      cal.tuesday,
-      cal.wednesday,
-      cal.thursday,
-      cal.friday,
-      cal.saturday,
-    ];
-
-    // Count active days per week from the pattern
-    const activeDaysPerWeek = dayFlags.reduce<number>((sum, v) => sum + Number(v), 0);
-    if (activeDaysPerWeek === 0) continue;
-
-    // Calculate span in days, capped to avoid iterating huge ranges
-    const spanMs = end.getTime() - start.getTime();
-    const spanDays = Math.max(1, Math.round(spanMs / 86400000) + 1);
-
-    // For spans over 2 years, use weekly rate × 52 instead of iterating
-    let serviceDays: number;
-    if (spanDays > 730) {
-      serviceDays = activeDaysPerWeek * 52;
-    } else {
-      // Count actual service days in the range
-      serviceDays = 0;
-      const cursor = new Date(start);
-      while (cursor <= end) {
-        if (dayFlags[cursor.getDay()]) serviceDays++;
-        cursor.setDate(cursor.getDate() + 1);
-      }
-
-      // Apply calendar_dates exceptions
-      const exceptions = state.calendarDates.filter(
-        (cd) => cd.service_id === cal.service_id
-      );
-      for (const ex of exceptions) {
-        const exDate = parseYYYYMMDD(ex.date);
-        if (!exDate || exDate < start || exDate > end) continue;
-        if (ex.exception_type === 1) {
-          if (!dayFlags[exDate.getDay()]) serviceDays++;
-        } else if (ex.exception_type === 2) {
-          if (dayFlags[exDate.getDay()]) serviceDays--;
-        }
-      }
-
-      // Normalize to a full year if the range is shorter or longer than 1 year
-      const spanYears = spanDays / 365.25;
-      if (spanYears > 0) {
-        serviceDays = Math.round(serviceDays / spanYears);
-      }
-    }
-
-    if (serviceDays > bestDaysPerYear) bestDaysPerYear = serviceDays;
-  }
-
-  return bestDaysPerYear || 365;
+export interface ServiceDayStats {
+  /** Typical service days per week. */
+  daysPerWeek: number;
+  /** Service days per year, annualized over the service's validity span. */
+  serviceDaysPerYear: number;
 }
 
-function parseYYYYMMDD(s: string): Date | null {
-  if (!s || s.length !== 8) return null;
-  const y = parseInt(s.slice(0, 4), 10);
-  const m = parseInt(s.slice(4, 6), 10) - 1;
-  const d = parseInt(s.slice(6, 8), 10);
-  return new Date(y, m, d);
+/** Fallback for a service_id defined in neither calendar file (an orphan
+ *  reference): the historical "runs every day" assumption. */
+const UNKNOWN_SERVICE_DAYS: ServiceDayStats = { daysPerWeek: 7, serviceDaysPerYear: 365 };
+
+const serviceDayCache = new WeakMap<object, WeakMap<object, Map<string, ServiceDayStats>>>();
+
+/**
+ * Days per week and per year a service runs, from calendar.txt AND
+ * calendar_dates.txt (via serviceIds.activeServiceDates).
+ *
+ *  - A calendar row with at least one weekday flag keeps the historical model:
+ *    daysPerWeek = number of flagged weekdays, and per-year = active dates
+ *    (weekdays in range, + added dates, − removed dates) annualized over the
+ *    span; spans over 2 years use flags × 52.
+ *  - A calendar_dates-only service, or a calendar row with every weekday 0,
+ *    is measured from its actual active dates: per-year = dates annualized over
+ *    the first..last date span, daysPerWeek = dates per week of that span.
+ *  - An id defined in neither file falls back to 7 / 365.
+ *
+ * Annualization (scaling a short season to a full year) is unchanged; see
+ * DEFERRED S2-20. Added (exception_type 1) dates outside the calendar range now
+ * count, as the spec allows, and the span widens to include them.
+ */
+export function serviceDayStats(
+  serviceId: string,
+  state: Pick<AppStore, 'calendars' | 'calendarDates'>,
+): ServiceDayStats {
+  let byDates = serviceDayCache.get(state.calendars);
+  if (!byDates) { byDates = new WeakMap(); serviceDayCache.set(state.calendars, byDates); }
+  let cache = byDates.get(state.calendarDates);
+  if (!cache) { cache = new Map(); byDates.set(state.calendarDates, cache); }
+  const hit = cache.get(serviceId);
+  if (hit) return hit;
+  const stats = computeServiceDayStats(serviceId, state);
+  cache.set(serviceId, stats);
+  return stats;
+}
+
+function computeServiceDayStats(
+  serviceId: string,
+  state: Pick<AppStore, 'calendars' | 'calendarDates'>,
+): ServiceDayStats {
+  const cal = state.calendars.find((c) => c.service_id === serviceId);
+  const hasDates = state.calendarDates.some((d) => d.service_id === serviceId);
+  if (!cal && !hasDates) return UNKNOWN_SERVICE_DAYS;
+
+  const flagSum = cal
+    ? Number(cal.monday) + Number(cal.tuesday) + Number(cal.wednesday) + Number(cal.thursday)
+      + Number(cal.friday) + Number(cal.saturday) + Number(cal.sunday)
+    : 0;
+  const calStart = cal ? gtfsDateToDayNumber(cal.start_date) : Number.NaN;
+  const calEnd = cal ? gtfsDateToDayNumber(cal.end_date) : Number.NaN;
+  const calSpanValid = Number.isFinite(calStart) && Number.isFinite(calEnd) && calEnd >= calStart;
+
+  if (cal && flagSum > 0) {
+    if (!calSpanValid) return { daysPerWeek: flagSum, serviceDaysPerYear: 365 };
+    if (calEnd - calStart + 1 > 730) return { daysPerWeek: flagSum, serviceDaysPerYear: flagSum * 52 };
+  }
+
+  const dates = activeServiceDates(serviceId, state.calendars, state.calendarDates)
+    .map(gtfsDateToDayNumber);
+  if (dates.length === 0) {
+    return { daysPerWeek: cal && flagSum > 0 ? flagSum : 0, serviceDaysPerYear: 0 };
+  }
+  let lo = dates[0];
+  let hi = dates[dates.length - 1];
+  if (calSpanValid) { lo = Math.min(lo, calStart); hi = Math.max(hi, calEnd); }
+  const spanDays = hi - lo + 1;
+  const serviceDaysPerYear = Math.round(dates.length / (spanDays / 365.25));
+
+  if (cal && flagSum > 0) return { daysPerWeek: flagSum, serviceDaysPerYear };
+  const weekSpan = Math.max(spanDays, 7);
+  return {
+    daysPerWeek: Math.min(7, (dates.length * 7) / weekSpan),
+    serviceDaysPerYear,
+  };
 }
 
 /** Get the first and last stop time seconds for a trip by stop_sequence order.
@@ -206,6 +208,16 @@ function tripConcurrencySpans(
   return out.length > 0 ? out : [span];
 }
 
+/** Departures a frequency template stands for across its valid windows
+ *  (ceil(window / headway) each), or 0 when it has none (a plain trip). */
+function frequencyDepartures(
+  span: { start: number; end: number },
+  freqs: Frequency[] | undefined,
+): number {
+  if (!freqs || freqs.length === 0 || span.end <= span.start) return 0;
+  return windowDepartureCount(freqs);
+}
+
 /** TRUE whole-system peak: the maximum number of vehicles simultaneously in
  *  service at the single busiest instant across the ENTIRE system.
  *
@@ -271,10 +283,21 @@ export function calculateRouteSpans(
   state: Pick<AppStore, 'routes' | 'trips' | 'calendars' | 'calendarDates'> & {
     stopTimes: StopTime[];
     stopTimesByTrip?: Map<string, StopTime[]>;
+    /** frequencies.txt: a template trip with valid windows counts once per
+     *  departure (revenue hours, trips) and as concurrent vehicles (peak), the
+     *  same expansion calculateSystemPeakVehicles uses. */
+    frequencies?: Frequency[];
   },
 ): RouteSpans {
   const routeTrips = state.trips.filter((t) => t.route_id === routeId);
   const lookup = state.stopTimesByTrip || state.stopTimes;
+  const routeTripIds = new Set(routeTrips.map((t) => t.trip_id));
+  const freqByTrip = new Map<string, Frequency[]>();
+  for (const f of state.frequencies || []) {
+    if (!routeTripIds.has(f.trip_id)) continue;
+    const group = freqByTrip.get(f.trip_id);
+    if (group) group.push(f); else freqByTrip.set(f.trip_id, [f]);
+  }
 
   // Group trips by service_id
   const tripsByService = new Map<string, typeof routeTrips>();
@@ -292,28 +315,27 @@ export function calculateRouteSpans(
   for (const [serviceId, serviceTrips] of tripsByService) {
     const spans: { start: number; end: number }[] = [];
     let revSeconds = 0;
+    let dailyTrips = 0;
 
     for (const trip of serviceTrips) {
       const span = getTripSpan(trip.trip_id, lookup);
+      const departures = span ? frequencyDepartures(span, freqByTrip.get(trip.trip_id)) : 0;
       if (span) {
-        spans.push(span);
-        revSeconds += span.end - span.start;
+        for (const s of tripConcurrencySpans(span, freqByTrip.get(trip.trip_id))) spans.push(s);
+        revSeconds += (span.end - span.start) * Math.max(1, departures);
       }
+      dailyTrips += Math.max(1, departures);
     }
 
     const revHours = revSeconds / 3600;
     const peak = computePeakVehicles(spans);
 
-    const cal = state.calendars.find((c) => c.service_id === serviceId);
-    const daysPerWeek = cal
-      ? Number(cal.monday) + Number(cal.tuesday) + Number(cal.wednesday) + Number(cal.thursday) + Number(cal.friday) + Number(cal.saturday) + Number(cal.sunday)
-      : 7;
+    const { daysPerWeek, serviceDaysPerYear } = serviceDayStats(serviceId, state);
 
     weeklyRevHours += revHours * daysPerWeek;
-    weeklyTrips += serviceTrips.length * daysPerWeek;
+    weeklyTrips += dailyTrips * daysPerWeek;
     if (peak > maxPeakVehicles) maxPeakVehicles = peak;
 
-    const serviceDaysPerYear = countServiceDaysPerYear([serviceId], state);
     serviceBreakdown.push({ serviceId, revHours, daysPerWeek, serviceDaysPerYear, peak });
   }
 
@@ -358,6 +380,7 @@ export function calculateRouteStats(
   routeId: string,
   state: Pick<AppStore, 'routes' | 'trips' | 'stopTimes' | 'calendars' | 'calendarDates'> & {
     stopTimesByTrip?: Map<string, StopTime[]>;
+    frequencies?: Frequency[];
   },
   defaultCostPerHour = 0,
   deadheadFactor = 1.2,
@@ -422,7 +445,8 @@ export interface BlockCostOptions {
   deadheadSpeedMph?: number;
   /** Cap on how much of a within-block gap counts as paid layover. */
   maxLayoverSecs?: number;
-  /** Flat multiplier used only when the feed has no blocks at all. */
+  /** Flat multiplier applied to the revenue hours of unblocked trips (all
+   *  trips, when the feed has no blocks). */
   deadheadFactor?: number;
 }
 
@@ -477,6 +501,7 @@ export function calculateBlockCost(
 
   for (const [serviceId, trips] of byService) {
     let serviceSec = 0;
+    let unblockedSec = 0;
     let layoverSec = 0;
     let deadheadSec = 0;
     let unblockedTrips = 0;
@@ -490,6 +515,7 @@ export function calculateBlockCost(
         if (g) g.push(t); else blocks.set(t.block_id, [t]);
       } else if (span) {
         unblockedTrips++;
+        unblockedSec += span.endSec - span.startSec;
       }
     }
 
@@ -511,18 +537,20 @@ export function calculateBlockCost(
     const layoverHours = layoverSec / 3600;
     const deadheadHours = deadheadSec / 3600;
 
-    // Daily operating hours: block-derived when blocks exist, else the flat
-    // factor on revenue hours (regression-safe with applyRouteCosts).
-    const opHours = hasBlocks
-      ? serviceHours + (opts.costLayover ? layoverHours : 0) + (opts.costDeadhead ? deadheadHours : 0)
-      : serviceHours * deadheadFactor;
+    // Daily operating hours: block-derived for blocked trips (their real
+    // layover + deadhead), and the flat factor on revenue hours for every
+    // unblocked trip — per service, so blocking one day-type never strips the
+    // factor from another. With no blocks at all this is serviceHours × factor
+    // (regression-safe with applyRouteCosts).
+    const blockedHours = (serviceSec - unblockedSec) / 3600;
+    const unblockedHours = unblockedSec / 3600;
+    const opHours = blockedHours
+      + (opts.costLayover ? layoverHours : 0)
+      + (opts.costDeadhead ? deadheadHours : 0)
+      + unblockedHours * deadheadFactor;
     const dailyCost = opHours * opts.costPerHour;
 
-    const cal = state.calendars.find((c) => c.service_id === serviceId);
-    const daysPerWeek = cal
-      ? Number(cal.monday) + Number(cal.tuesday) + Number(cal.wednesday) + Number(cal.thursday) + Number(cal.friday) + Number(cal.saturday) + Number(cal.sunday)
-      : 7;
-    const serviceDaysPerYear = countServiceDaysPerYear([serviceId], state);
+    const { daysPerWeek, serviceDaysPerYear } = serviceDayStats(serviceId, state);
 
     weeklyCost += dailyCost * daysPerWeek;
     annualCost += dailyCost * serviceDaysPerYear;

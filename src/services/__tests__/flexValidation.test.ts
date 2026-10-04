@@ -261,13 +261,14 @@ describe('flex service pattern', () => {
     expect(msgs.find((m) => m.code === VALIDATION_CODES.flexNoServicePattern)?.severity).toBe('error');
   });
 
-  it('a calendar_dates-only service is still not exportable (no calendar.txt fallback)', () => {
+  it('a calendar_dates-only service is exportable (materializeFlex uses it as-is)', () => {
     const s = useStore.getState();
     s.setCalendars([]);
     s.setCalendarDates([{ service_id: 'holiday', date: '20260704', exception_type: 1 } as never]);
     const codes = codesFor(zone({ id: 'fz', serviceId: 'holiday' }));
     expect(codes).not.toContain(VALIDATION_CODES.flexUnknownServicePattern);
-    expect(codes).toContain(VALIDATION_CODES.flexNoServicePattern);
+    expect(codes).not.toContain(VALIDATION_CODES.flexNoServicePattern);
+    s.setCalendarDates([]);
   });
 
   it('a zone with no window is not nagged about its service pattern', () => {
