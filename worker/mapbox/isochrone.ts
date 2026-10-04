@@ -16,6 +16,7 @@ import { Hono } from 'hono';
 import type { AppContext, Env } from '../env';
 import { requireAuth } from '../auth/middleware';
 import { badGateway, validationFailed } from '../util/errors';
+import { rateLimit } from '../util/rateLimit';
 
 // Coordinates are normalized to 5 dp (≈ 1 m) for the edge cache key. The client
 // already rounds to 3 dp before calling, so in practice keys collapse further.
@@ -23,6 +24,7 @@ const COORD_DP = 5;
 const MAX_MINUTES = 60;
 const CACHE_TTL_SEC = 30 * 24 * 60 * 60;
 const UPSTREAM_TIMEOUT_MS = 15_000;
+export const ISOCHRONE_MISSES_PER_HOUR = 1000;
 
 function parseCoord(raw: string | undefined, min: number, max: number): number | null {
   if (raw === undefined || raw.trim() === '') return null;
@@ -68,6 +70,16 @@ mapboxRouter.get('/isochrone', requireAuth, async (c) => {
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, max-age=86400', 'X-Cache': 'HIT' },
     });
   }
+
+  // Per-account cap on BILLED (cache-miss) upstream calls, so one signed-in
+  // account can't turn the proxy into an unmetered Mapbox relay. Sized for
+  // ~5 full uncached analyses an hour (the client caps one analysis at
+  // MAX_ISOCHRONE_REQUESTS = 200); cache hits above don't count.
+  await rateLimit(c.env, {
+    key: `mapbox:iso:${c.var.user!.id}`,
+    limit: ISOCHRONE_MISSES_PER_HOUR,
+    windowSec: 3600,
+  });
 
   const url =
     `https://api.mapbox.com/isochrone/v1/mapbox/walking/${lon},${lat}` +
