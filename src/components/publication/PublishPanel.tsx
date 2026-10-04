@@ -22,6 +22,7 @@ import { exportGtfsZip } from '../../services/gtfsExport';
 import { withTransientSnapshot } from '../../db/serverPersistence';
 import { DraftLinksSection, toEditorDeepLink } from './DraftLinksPanel';
 import { NtdP50Panel } from './NtdP50Panel';
+import { unpublishConfirmBody, unpublishDoneMessage } from './unpublishCopy';
 
 // SPDX identifiers publishers actually use for open transit data. "Leave unset"
 // is a first-class choice — we never guess a license on someone's behalf.
@@ -306,9 +307,10 @@ export function PublishPanel() {
     setBusy(true);
     setBanner(null);
     try {
+      const hadPendingSchedule = scheduled?.status === 'pending';
       await unpublishProject(projectId);
       setUnpublishConfirm(false);
-      setBanner({ kind: 'info', message: 'Feed unpublished. The canonical URL now returns 404.' });
+      setBanner({ kind: 'info', message: unpublishDoneMessage(hadPendingSchedule) });
       await refresh();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Unpublish failed';
@@ -670,7 +672,9 @@ export function PublishPanel() {
       {unpublishConfirm && (
         <ConfirmDialog
           title="Unpublish feed?"
-          body="The canonical URL will return 404 until you publish again. Existing downstream consumers (Google Maps, Transit app, etc.) may stop receiving updates."
+          body={unpublishConfirmBody(
+            scheduled?.status === 'pending' ? formatDate(scheduled.scheduledFor) : null,
+          )}
           confirmLabel="Unpublish"
           danger
           onCancel={() => setUnpublishConfirm(false)}
