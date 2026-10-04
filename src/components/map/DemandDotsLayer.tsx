@@ -8,6 +8,7 @@ import {
   buildDemandFilter,
   type DemandSelection,
 } from './demandCategories';
+import { demandDotsBeforeId } from './stopLayerIds';
 import { DEMAND_DATA_READY, DEMAND_LEGEND, DEMAND_TILE_ARCHIVE } from './demandLegend';
 
 // Hoisted so the `tiles` prop is referentially stable across renders.
@@ -41,6 +42,9 @@ interface Props {
   visible: boolean;
   /** Mode + segment + companions. Applied as a client-side filter expression. */
   selection: DemandSelection;
+  /** StopLayer's mode. The dots go beneath a stop layer that exists in that
+   *  mode (see demandDotsBeforeId); a missing beforeId drops the layer. */
+  clustered?: boolean;
 }
 
 // Dot SIZE never varies by class — only what one dot COUNTS FOR does, and that
@@ -64,7 +68,7 @@ const CIRCLE_RADIUS: DataDrivenPropertyValueSpecification<number> = [
   15, 2,
 ];
 
-export function DemandDotsLayer({ visible, selection }: Props) {
+export function DemandDotsLayer({ visible, selection, clustered = false }: Props) {
   // BOTH the filter and the color depend on the selection now, and that is the
   // whole idea: a dot is a person carrying membership flags, so the SAME dot is
   // the strong blue when you select Carless and a muted tone when you select Low
@@ -107,7 +111,7 @@ export function DemandDotsLayer({ visible, selection }: Props) {
       minzoom={SOURCE_MINZOOM}
       maxzoom={SOURCE_MAXZOOM}
     >
-      <Layer {...layerStyle} beforeId="stop-circles-outer" />
+      <Layer {...layerStyle} beforeId={demandDotsBeforeId(clustered)} />
     </Source>
   );
 }

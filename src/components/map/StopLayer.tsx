@@ -2,6 +2,17 @@ import { useMemo } from 'react';
 import { Source, Layer } from 'react-map-gl/mapbox';
 import { useStore } from '../../store';
 import type { LayerProps } from 'react-map-gl/mapbox';
+import {
+  STOPS_SOURCE_ID,
+  STOPS_CLUSTER_SOURCE_ID,
+  STOP_SELECTION_RING_LAYER_ID,
+  STOP_CIRCLES_OUTER_LAYER_ID,
+  STOP_CIRCLES_LAYER_ID,
+  STOP_LABELS_LAYER_ID,
+  STOP_CLUSTERS_LAYER_ID,
+  STOP_CLUSTER_COUNT_LAYER_ID,
+  STOP_CLUSTER_POINTS_LAYER_ID,
+} from './stopLayerIds';
 
 /** When `clustered` is true (set by MapView once too many stops are in the
  * viewport for a very large feed), stops render as Mapbox-native clusters plus
@@ -98,7 +109,7 @@ export function StopLayer({ clustered = false }: { clustered?: boolean }) {
   // Outer ring — route-colored border. Filter-faded stops shrink, gray out,
   // and drop opacity so they're context, not foreground.
   const outerCircle: LayerProps = {
-    id: 'stop-circles-outer',
+    id: STOP_CIRCLES_OUTER_LAYER_ID,
     type: 'circle',
     paint: {
       'circle-radius': [
@@ -135,7 +146,7 @@ export function StopLayer({ clustered = false }: { clustered?: boolean }) {
   // Inner fill — white circle (or route-colored when selected). Filtered-out
   // stops use the same gray so the dot reads as a single muted dot.
   const innerCircle: LayerProps = {
-    id: 'stop-circles',
+    id: STOP_CIRCLES_LAYER_ID,
     type: 'circle',
     paint: {
       'circle-radius': [
@@ -171,7 +182,7 @@ export function StopLayer({ clustered = false }: { clustered?: boolean }) {
 
   // Selected stop — extra white outer ring for emphasis (hidden during shape editing)
   const selectionRing: LayerProps = {
-    id: 'stop-selection-ring',
+    id: STOP_SELECTION_RING_LAYER_ID,
     type: 'circle',
     filter: isEditingShape ? ['==', 'impossible', 'true'] : ['==', ['get', 'isSelected'], true],
     paint: {
@@ -191,7 +202,7 @@ export function StopLayer({ clustered = false }: { clustered?: boolean }) {
 
   // Labels
   const labelStyle: LayerProps = {
-    id: 'stop-labels',
+    id: STOP_LABELS_LAYER_ID,
     type: 'symbol',
     minzoom: 13,
     layout: {
@@ -229,7 +240,7 @@ export function StopLayer({ clustered = false }: { clustered?: boolean }) {
   // where the viewport is sparse enough. The unclustered-point layer keeps the
   // id "stop-circles" so the existing click-to-select handler still works.
   const clusterCircle: LayerProps = {
-    id: 'stop-clusters',
+    id: STOP_CLUSTERS_LAYER_ID,
     type: 'circle',
     filter: ['has', 'point_count'],
     paint: {
@@ -241,7 +252,7 @@ export function StopLayer({ clustered = false }: { clustered?: boolean }) {
     },
   };
   const clusterCount: LayerProps = {
-    id: 'stop-cluster-count',
+    id: STOP_CLUSTER_COUNT_LAYER_ID,
     type: 'symbol',
     filter: ['has', 'point_count'],
     layout: {
@@ -255,7 +266,7 @@ export function StopLayer({ clustered = false }: { clustered?: boolean }) {
   // the detailed-mode 'stop-circles' so the two modes never collide; the click
   // handler treats both as selectable stops.
   const clusterPoint: LayerProps = {
-    id: 'stop-cluster-points',
+    id: STOP_CLUSTER_POINTS_LAYER_ID,
     type: 'circle',
     filter: ['!', ['has', 'point_count']],
     paint: {
@@ -283,7 +294,7 @@ export function StopLayer({ clustered = false }: { clustered?: boolean }) {
   // them, each Source has a stable id for its whole lifetime.
   if (clustered) {
     return (
-      <Source key="stops-cluster" id="stops-cluster" type="geojson" data={geojson} cluster clusterMaxZoom={10} clusterRadius={50}>
+      <Source key="stops-cluster" id={STOPS_CLUSTER_SOURCE_ID} type="geojson" data={geojson} cluster clusterMaxZoom={10} clusterRadius={50}>
         <Layer {...clusterCircle} />
         <Layer {...clusterCount} />
         <Layer {...clusterPoint} />
@@ -292,7 +303,7 @@ export function StopLayer({ clustered = false }: { clustered?: boolean }) {
   }
 
   return (
-    <Source key="stops-plain" id="stops" type="geojson" data={geojson}>
+    <Source key="stops-plain" id={STOPS_SOURCE_ID} type="geojson" data={geojson}>
       <Layer {...selectionRing} />
       <Layer {...outerCircle} />
       <Layer {...innerCircle} />
