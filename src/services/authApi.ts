@@ -25,6 +25,11 @@ export interface AuthedUser {
    * magic-link / Google-only accounts; undefined on login/signup responses.
    */
   hasPassword?: boolean;
+  /**
+   * Whether this session is a staff impersonation, from the server-side
+   * binding (GET /api/me). Undefined on login/signup responses.
+   */
+  impersonating?: boolean;
 }
 
 export interface MeResponse {

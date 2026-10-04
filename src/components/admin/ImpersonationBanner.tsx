@@ -1,8 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
-import { endImpersonation, STAFF_IMPERSONATOR_KEY } from '../../services/adminApi';
+import { endImpersonation } from '../../services/adminApi';
 import { ApiError } from '../../services/authApi';
+import {
+  clearStaffHint,
+  impersonationBannerVisible,
+  impersonationHintIsStale,
+  readStaffHint,
+} from './impersonationHint';
 
 export function ImpersonationBanner() {
   const currentUser = useStore((s) => s.currentUser);
@@ -10,26 +16,38 @@ export function ImpersonationBanner() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const staffId = readStaffHint();
 
-  if (!currentUser) return null;
-  const staffId =
-    typeof localStorage !== 'undefined' ? localStorage.getItem(STAFF_IMPERSONATOR_KEY) : null;
-  if (!staffId || staffId === currentUser.id) return null;
+  // The server says this session isn't an impersonation: the hint is stale
+  // (expired/revoked impersonated session, or a forged value). Drop it.
+  const stale = impersonationHintIsStale(currentUser, staffId);
+  useEffect(() => {
+    if (stale) clearStaffHint();
+  }, [stale]);
+
+  if (!impersonationBannerVisible(currentUser, staffId) || !currentUser) return null;
 
   const exit = async () => {
     setBusy(true);
     setError(null);
+    let ok = false;
     try {
       await endImpersonation();
-      localStorage.removeItem(STAFF_IMPERSONATOR_KEY);
-      await hydrateAuth();
-      navigate('/admin');
+      ok = true;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Could not exit impersonation';
       setError(msg);
+    }
+    // Clear the hint whatever the server said: a refused exit means there is
+    // no impersonation to return from, so the hint is stale either way. The
+    // re-hydrate then hides the banner (server says not impersonating).
+    clearStaffHint();
+    try {
+      await hydrateAuth();
     } finally {
       setBusy(false);
     }
+    if (ok) navigate('/admin');
   };
 
   return (

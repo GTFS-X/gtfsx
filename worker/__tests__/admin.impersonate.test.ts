@@ -35,8 +35,9 @@ describe('admin impersonation', () => {
 
     // Sanity: currently the staff user.
     const me0 = await client.get('/api/me');
-    const m0 = (await me0.json()) as { user: { id: string } };
+    const m0 = (await me0.json()) as { user: { id: string; impersonating: boolean } };
     expect(m0.user.id).toBe(staff.id);
+    expect(m0.user.impersonating).toBe(false);
 
     const impRes = await client.post(`/api/admin/users/${target.id}/impersonate`);
     expect(impRes.status).toBe(200);
@@ -58,9 +59,11 @@ describe('admin impersonation', () => {
 
     // /api/me now returns the target.
     const me1 = await client.get('/api/me');
-    const m1 = (await me1.json()) as { user: { id: string; email: string } };
+    const m1 = (await me1.json()) as { user: { id: string; email: string; impersonating: boolean } };
     expect(m1.user.id).toBe(target.id);
     expect(m1.user.email).toBe(target.email);
+    // E2E A5: the banner is driven by this server-side flag, not the hint.
+    expect(m1.user.impersonating).toBe(true);
 
     // Audit landed on both timelines.
     const auditStaff = await dbAll<{ action: string; actor_user_id: string | null }>(
@@ -113,9 +116,10 @@ describe('admin impersonation', () => {
     client.setCookie(`gb_session=${newSession}`);
 
     const me2 = await client.get('/api/me');
-    const m2 = (await me2.json()) as { user: { id: string; staff: boolean } };
+    const m2 = (await me2.json()) as { user: { id: string; staff: boolean; impersonating: boolean } };
     expect(m2.user.id).toBe(staff.id);
     expect(m2.user.staff).toBe(true);
+    expect(m2.user.impersonating).toBe(false);
 
     const auditStaff = await dbAll<{ action: string }>(
       `SELECT action FROM audit_event
@@ -199,8 +203,9 @@ describe('admin impersonation', () => {
       staff.id,
     );
     expect(staffSessions?.n).toBe(0);
-    const me = (await (await c.get('/api/me')).json()) as { user: { id: string } };
+    const me = (await (await c.get('/api/me')).json()) as { user: { id: string; impersonating: boolean } };
     expect(me.user.id).toBe(plain.id);
+    expect(me.user.impersonating).toBe(false);
     expect((await c.get('/api/admin/users')).status).toBe(404);
   });
 

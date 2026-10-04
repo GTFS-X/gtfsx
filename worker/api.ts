@@ -40,6 +40,7 @@ import { registerAlertRoutes } from './projects/alerts';
 import { computeUserUsage } from './me/usage';
 import { getUserTrialUsed } from './billing/trial';
 import { hasLiveSubscription, orgsWithLiveSubscriptionSoleOwnedBy } from './billing/liveSubscription';
+import { readImpersonationBinding } from './admin/impersonation';
 import { buildUserExport, EXPORT_RATE_KEY_PREFIX, EXPORT_RATE_WINDOW_SEC } from './me/export';
 
 const emailSchema = z.string().trim().toLowerCase().email();
@@ -144,6 +145,11 @@ apiRouter.get('/me', requireAuth, async (c) => {
   )
     .bind(user.id)
     .first<{ n: number }>();
+  // Whether this session is a staff impersonation (server-side binding, not
+  // the client's gb_staff_id hint), so the banner reflects reality.
+  const session = c.var.session;
+  const binding = session ? await readImpersonationBinding(c.env, session.id) : null;
+  const impersonating = !!binding && binding.targetUserId === user.id;
   return c.json({
     user: {
       id: user.id,
@@ -155,6 +161,7 @@ apiRouter.get('/me', requireAuth, async (c) => {
       planStatus: user.planStatus,
       trialUsed,
       hasPassword: !!passwordRow,
+      impersonating,
     },
     usage: { user: usage },
   });
