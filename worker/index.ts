@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env, AppContext } from './env';
 import { TILE_RE, serveTile } from './legacy/tiles';
 import { COVERAGE_RE, serveCoverage } from './legacy/coverage';
-import { handleSearch, handleProxy } from './legacy/imports';
+import { handleSearch } from './legacy/imports';
 import { sessionMiddleware, requireClientHeader } from './auth/middleware';
 import { readSessionCookie, resolveSession } from './auth/session';
 import { authRouter } from './auth/routes';
@@ -112,10 +112,9 @@ app.use('/auth/*', sessionMiddleware);
 app.use('/api/*', requireClientHeader);
 app.use('/auth/*', requireClientHeader);
 
-// ─── Legacy routes (tiles, Mobility DB search, ZIP proxy) ───────────────────
+// ─── Legacy routes (tiles, Mobility DB search) ───────────────────
 
 app.get('/_import/search', async (c) => handleSearch(c.req.raw, c.env));
-app.get('/_import/proxy', async (c) => handleProxy(c.req.raw, c.executionCtx));
 
 // ─── Auth + API ─────────────────────────────────────────────────────────────
 

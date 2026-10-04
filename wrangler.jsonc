@@ -6,7 +6,7 @@
   // - Non-asset paths fall through to the Worker (worker/index.ts), which
   //   handles:
   //     /_demand-tiles/...          — PMTiles out of R2 (TILES)
-  //     /_import/search, /_import/proxy — Mobility DB catalog + ZIP proxy
+  //     /_import/search             — Mobility DB catalog search
   //     /auth/*, /api/*              — backend auth + feed management (D1 + R2 FEEDS)
   //     feeds.gtfsx.com/*           — public published feed distribution
   //   The SPA fallback catches anything else.

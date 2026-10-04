@@ -10,6 +10,7 @@ import { persistImportedFeed } from '../../services/importPersist';
 import { feedNeedsShapes } from '../../services/shapesFromStops';
 import { detectRtapFeed } from '../../services/rtapDetect';
 import { parseMdbSourceId } from '../../services/mdbSourceId';
+import { downloadFeedZipViaImportApi } from '../../services/catalogDownload';
 import { ShapesFromStopsDialog } from '../shapes/ShapesFromStopsDialog';
 import { trackFeedImportFailed, trackFeedOpened, type FeedOrigin } from '../../services/trackBeacon';
 
@@ -328,20 +329,19 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
 
   const handleCatalogSelect = useCallback(async (feed: CatalogFeed, fileNameStem: string) => {
     const url = feed.latest_dataset?.hosted_url;
-    // Everything up to (and including) the proxy download is the "fetch" stage;
+    // Everything up to (and including) the ZIP download is the "fetch" stage;
     // parse failures are recorded by runParse itself, so this only wraps the
     // retrieval. Rethrown unchanged — CatalogSearch owns the error UI.
     if (!url) {
       trackFeedImportFailed('catalog', 'fetch');
       throw new Error('Feed has no dataset URL.');
     }
-    const proxied = `${window.location.origin}/_import/proxy?url=${encodeURIComponent(url)}`;
+    // Same hardened fetch path as "Import from URL": SSRF checks per redirect
+    // hop, streamed size cap, ZIP magic-byte check, no caching.
     setError(null);
     let blob: Blob;
     try {
-      const r = await fetch(proxied);
-      if (!r.ok) throw new Error(`Download failed: ${r.status} ${await r.text()}`);
-      blob = await r.blob();
+      blob = await downloadFeedZipViaImportApi(url);
     } catch (e) {
       trackFeedImportFailed('catalog', 'fetch');
       throw e;

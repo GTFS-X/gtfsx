@@ -81,3 +81,66 @@ describe('/api/import/fetch — external URL magic-byte sniff', () => {
     expect(body.error).toBe('not_zip');
   });
 });
+
+function requestUrl(input: RequestInfo | URL): string {
+  return typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+}
+
+// Regression: the legacy /_import/proxy relay is gone. It used to fetch any
+// URL and echo the body back on the app origin with the upstream
+// Content-Type. Catalog downloads now use /api/import/fetch.
+describe('legacy /_import/proxy is removed', () => {
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('does not fetch or reflect upstream content', async () => {
+    const html = '<html><script>fetch("/api/me")</script></html>';
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    });
+    const res = await makeClient().get(
+      `/_import/proxy?url=${encodeURIComponent('https://evil.example/x.html')}`,
+      { noCookie: true, noClientHeader: true },
+    );
+    const body = await res.text();
+    expect(spy.mock.calls.filter(([input]) => requestUrl(input).includes('evil.example')).length).toBe(0);
+    expect(body).not.toContain('fetch("/api/me")');
+  });
+});
+
+describe('/api/import/fetch — private targets and non-ZIP bodies', () => {
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(['http://10.0.0.5/gtfs.zip', 'http://169.254.169.254/latest/meta-data', 'http://127.0.0.1/gtfs.zip'])(
+    'rejects %s with 400 private_host and no outbound fetch',
+    async (target) => {
+      const spy = vi.spyOn(globalThis, 'fetch');
+      const res = await fetchImport(target);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('private_host');
+      const host = new URL(target).hostname;
+      expect(spy.mock.calls.some(([input]) => requestUrl(input).includes(host))).toBe(false);
+    },
+  );
+
+  it('never echoes non-ZIP upstream content as text/html', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      return new Response('<html><script>x()</script></html>', { status: 200, headers: { 'Content-Type': 'text/html' } });
+    });
+    const res = await fetchImport('https://evil.example/x.html');
+    expect(res.headers.get('Content-Type')).not.toContain('text/html');
+    expect(await res.text()).not.toContain('<script>');
+  });
+});
