@@ -18,7 +18,7 @@ export interface FetchCall {
   body: unknown;
 }
 
-export type FetchHandler = (call: FetchCall) => Response | Promise<Response> | undefined;
+export type FetchHandler = (call: FetchCall) => Response | undefined | Promise<Response | undefined>;
 
 export const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });

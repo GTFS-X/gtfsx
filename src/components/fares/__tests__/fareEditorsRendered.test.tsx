@@ -13,6 +13,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { resetStore, store } from '../../../test-utils/store';
 import type { AppStore } from '../../../store';
+import type { Calendar } from '../../../types/gtfs';
 import { AreasEditor } from '../AreasEditor';
 import { NetworksEditor } from '../NetworksEditor';
 import { RiderCategoriesEditor } from '../RiderCategoriesEditor';
@@ -22,7 +23,7 @@ import { FareLegRulesEditor } from '../FareLegRulesEditor';
 import { TimeframesEditor } from '../TimeframesEditor';
 
 const product = { fare_product_id: 'p1', fare_product_name: 'Single ride', amount: '2.00', currency: 'USD' };
-const wk = {
+const wk: Calendar = {
   service_id: 'WK', monday: 1, tuesday: 1, wednesday: 1, thursday: 1, friday: 1,
   saturday: 0, sunday: 0, start_date: '20260101', end_date: '20261231',
 };
