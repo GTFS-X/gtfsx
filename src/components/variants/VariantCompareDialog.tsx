@@ -352,13 +352,19 @@ export function VariantCompareDialog({ onClose, initialAId, initialBId }: Props)
                   <span><b className="text-dark-brown">{diff.frequencies.added + diff.frequencies.removed + diff.frequencies.changed}</b> frequency edits</span>}
                 {diff.patterns.added + diff.patterns.removed > 0 &&
                   <span><b className="text-dark-brown">{diff.patterns.added + diff.patterns.removed}</b> pattern changes</span>}
+                {diff.calendars.added + diff.calendars.removed + diff.calendars.changed > 0 &&
+                  <span><b className="text-dark-brown">{diff.calendars.added + diff.calendars.removed + diff.calendars.changed}</b> service pattern edits</span>}
+                {/* Re-timed trips or changed exception dates move no count (S1-26). */}
+                {diff.scheduleChanged &&
+                  <span><b className="text-dark-brown">Schedule changed</b> (trip times or exception dates)</span>}
               </div>
 
               {/* Comparison stays at the topline metric level — no per-route
                   breakdown (removed per owner request). */}
               {!sameVariant && diff.identical && (
                 <div className="rounded-lg bg-cream border border-sand p-4 text-center text-xs text-warm-gray">
-                  No service differences between these two variants.
+                  No differences in routes, stops, service patterns or trip times between these two
+                  variants. Shapes and fares aren’t compared.
                 </div>
               )}
             </>

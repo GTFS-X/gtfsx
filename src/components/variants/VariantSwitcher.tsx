@@ -8,6 +8,8 @@ import {
 } from '../../services/variants';
 import { VariantCompareDialog } from './VariantCompareDialog';
 import { useCanUseVariants } from './useCanUseVariants';
+import { DeleteVariantConfirm, DiscardVariantsConfirm } from './variantConfirms';
+import type { FeedVariant } from '../../store/variantSlice';
 
 /**
  * A2b — feed-variant switcher (header). A lightweight dropdown for FAST switching
@@ -25,6 +27,10 @@ export function VariantSwitcher() {
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [showCompare, setShowCompare] = useState(false);
+  // Delete / discard have no undo, so both confirm first, as in the
+  // VariantsPanel (C2-14).
+  const [confirmDelete, setConfirmDelete] = useState<FeedVariant | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   if (!canUse) return null;
 
@@ -91,7 +97,7 @@ export function VariantSwitcher() {
                     </button>
                     {!v.baseline && (
                       <button
-                        onClick={() => deleteVariant(v.id)}
+                        onClick={() => { setConfirmDelete(v); setOpen(false); }}
                         title="Delete variant"
                         className="px-1.5 py-1.5 text-warm-gray hover:text-red-600 transition-colors shrink-0"
                       >
@@ -133,7 +139,7 @@ export function VariantSwitcher() {
                   <span aria-hidden>📊</span> Compare to baseline
                 </button>
                 <button
-                  onClick={() => { discardVariants(); setOpen(false); }}
+                  onClick={() => { setConfirmDiscard(true); setOpen(false); }}
                   title="Drop all variants and return the feed to the baseline"
                   className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left text-warm-gray hover:bg-cream hover:text-red-600 transition-colors"
                 >
@@ -156,6 +162,26 @@ export function VariantSwitcher() {
       )}
 
       {showCompare && <VariantCompareDialog onClose={() => setShowCompare(false)} />}
+      {confirmDelete && (
+        <DeleteVariantConfirm
+          name={confirmDelete.name}
+          isActive={confirmDelete.id === activeVariantId}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => {
+            deleteVariant(confirmDelete.id);
+            setConfirmDelete(null);
+          }}
+        />
+      )}
+      {confirmDiscard && (
+        <DiscardVariantsConfirm
+          onCancel={() => setConfirmDiscard(false)}
+          onConfirm={() => {
+            discardVariants();
+            setConfirmDiscard(false);
+          }}
+        />
+      )}
     </div>
   );
 }
