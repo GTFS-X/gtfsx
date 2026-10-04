@@ -391,6 +391,21 @@ describe('auth /google', () => {
     expect(users).toHaveLength(0);
   });
 
+  it('an email held by a soft-deleted account redirects to /login?error=account_deleted (W1-12)', async () => {
+    const u = await seedUser({ email: 'gone-google@example.com' });
+    await dbRun(`UPDATE user SET status = 'deleted_soft', deleted_at = ? WHERE id = ?`, Date.now(), u.id);
+    g = mockGoogle({ sub: 'g-gone', email: 'gone-google@example.com', email_verified: true });
+    const client = makeClient();
+    const { state } = await startFlow(client);
+
+    const cb = await client.get(`/auth/google/callback?code=abc&state=${state}`);
+    expect(cb.status).toBe(302);
+    expect(locationPath(cb)).toBe('/login');
+    expect(locationQuery(cb, 'error')).toBe('account_deleted');
+    expect(sessionCookieFrom(cb)).toBeNull();
+    expect(await dbAll(`SELECT id FROM user WHERE email = ?`, 'gone-google@example.com')).toHaveLength(1);
+  });
+
   it('rejects when Google denies (callback carries ?error)', async () => {
     g = mockGoogle({ sub: 'g-deny', email: 'deny@example.com', email_verified: true });
     const client = makeClient();

@@ -497,6 +497,59 @@ describe('/api/admin comp plan grants', () => {
       expect((await dbGet<{ plan: string }>(`SELECT plan FROM organization WHERE id = ?`, orgId))?.plan).toBe('free');
     });
 
+    async function seedPayingUser(email: string): Promise<string> {
+      const u = await seedUser({ email, plan: 'agency' });
+      const now = Date.now();
+      await dbRun(
+        `INSERT INTO subscription
+           (id, owner_type, owner_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
+            plan, status, current_period_start, current_period_end, created_at, updated_at)
+         VALUES (?, 'user', ?, ?, 'cus_w306u', 'price_x', 'agency', 'active', ?, ?, ?, ?)`,
+        ulid(), u.id, `sub_${u.id}`, now, now + 1000, now, now,
+      );
+      return u.id;
+    }
+
+    it('user grant → 409 active_subscription and the plan is untouched; force overrides', async () => {
+      const { client } = await staffClient();
+      const userId = await seedPayingUser('w306-grant@example.com');
+      const res = await client.post(`/api/admin/users/${userId}/enterprise-grant`, { plan: 'enterprise' });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { reason: string }).reason).toBe('active_subscription');
+      expect((await dbGet<{ plan: string }>(`SELECT plan FROM user WHERE id = ?`, userId))?.plan).toBe('agency');
+
+      const forced = await client.post(`/api/admin/users/${userId}/enterprise-grant`, { plan: 'enterprise', force: true });
+      expect(forced.status).toBe(200);
+      expect((await dbGet<{ plan: string }>(`SELECT plan FROM user WHERE id = ?`, userId))?.plan).toBe('enterprise');
+    });
+
+    it('user revoke → 409 and the paying user stays on agency; force: true overrides', async () => {
+      const { client } = await staffClient();
+      const userId = await seedPayingUser('w306-revoke@example.com');
+      const res = await client.post(`/api/admin/users/${userId}/enterprise-revoke`);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { reason: string }).reason).toBe('active_subscription');
+      expect((await dbGet<{ plan: string }>(`SELECT plan FROM user WHERE id = ?`, userId))?.plan).toBe('agency');
+
+      const forced = await client.post(`/api/admin/users/${userId}/enterprise-revoke`, { force: true });
+      expect(forced.status).toBe(200);
+      expect((await dbGet<{ plan: string }>(`SELECT plan FROM user WHERE id = ?`, userId))?.plan).toBe('free');
+    });
+
+    it('user detail exposes hasStripeSubscription (true when paying, false otherwise)', async () => {
+      const { client } = await staffClient();
+      const userId = await seedPayingUser('w306-detail@example.com');
+      const plain = await seedUser({ email: 'w306-plain@example.com', plan: 'free' });
+      const paying = (await (await client.get(`/api/admin/users/${userId}`)).json()) as {
+        user: { hasStripeSubscription: boolean };
+      };
+      const free = (await (await client.get(`/api/admin/users/${plain.id}`)).json()) as {
+        user: { hasStripeSubscription: boolean };
+      };
+      expect(paying.user.hasStripeSubscription).toBe(true);
+      expect(free.user.hasStripeSubscription).toBe(false);
+    });
+
     it('org detail exposes hasStripeSubscription', async () => {
       const { client } = await staffClient();
       const orgId = await seedPayingOrg();

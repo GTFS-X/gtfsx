@@ -218,4 +218,21 @@ describe('S1-27 O(n) shape distances', () => {
     expect(performance.now() - t0).toBeLessThan(1000);
     expect(pts[19_999].shape_dist_traveled).toBeGreaterThan(0);
   });
+
+  it('the exporter fills distances for a 20k-point shape that has none, quickly', async () => {
+    const s = useStore.getState();
+    s.setAgencies([{ agency_id: 'A', agency_name: 'A', agency_url: 'https://x.test', agency_timezone: 'America/Denver' }]);
+    s.setRoutes([]); s.setTrips([]); s.setStopTimes([]); s.setStops([]); s.setRouteStops([]);
+    s.setCalendars([]); s.setCalendarDates([]);
+    s.setShapes([{ shape_id: 'BIG', points: shape(20_000) }] as never);
+    const t0 = performance.now();
+    const rows = await exportedRows('shapes.txt');
+    expect(performance.now() - t0).toBeLessThan(2500);
+    expect(rows).toHaveLength(20_000);
+    const dists = rows.map((r) => Number(r.shape_dist_traveled));
+    expect(dists[0]).toBe(0);
+    expect(dists[19_999]).toBeGreaterThan(0);
+    for (let i = 1; i < dists.length; i++) expect(dists[i]).toBeGreaterThanOrEqual(dists[i - 1]);
+    s.setShapes([]);
+  });
 });

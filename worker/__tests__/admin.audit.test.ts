@@ -178,6 +178,19 @@ describe('/api/admin/audit.csv export', () => {
     expect(lines.slice(1).some((l) => l.includes('csv.test') && l.includes('Y'))).toBe(true);
   });
 
+  it('neutralizes a spreadsheet formula in a user-controlled cell (W3-14)', async () => {
+    const { client } = await staffClient();
+    await dbRun(
+      `INSERT INTO audit_event (id, actor_user_id, subject_type, subject_id, action, metadata_json, ip, created_at)
+       VALUES (?, NULL, 'user', ?, 'formula.action', NULL, NULL, ?)`,
+      ulid(), '=HYPERLINK("http://evil.example","x")', Date.now(),
+    );
+    const body = await (await client.get('/api/admin/audit.csv?action=formula.action')).text();
+    const dataRow = body.trim().split(/\r?\n/)[1];
+    expect(dataRow).toContain(`"'=HYPERLINK(""http://evil.example"",""x"")"`);
+    expect(dataRow).not.toMatch(/(^|,)"?=HYPERLINK/);
+  });
+
   it('escapes commas and quotes correctly', async () => {
     const { client } = await staffClient();
     await dbRun(

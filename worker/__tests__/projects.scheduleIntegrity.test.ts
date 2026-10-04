@@ -212,3 +212,29 @@ describe('scheduled-publish cron claim (W2-08)', () => {
     expect(row?.status).toBe('failed');
   });
 });
+
+describe('scheduling at a slug another project publishes (W2-01)', () => {
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+  });
+
+  it('409 slug_taken at schedule time, and no scheduled_publish row is written', async () => {
+    const a = await loggedIn('sq-a@example.com');
+    const b = await loggedIn('sq-b@example.com');
+    const pa = await createProject(a, 'Metro');
+    const sa = await createSnapshot(a, pa.id);
+    const form = new FormData();
+    form.append('meta', JSON.stringify({ snapshotId: sa }));
+    form.append('zip', new Blob([ZIP], { type: 'application/zip' }), 'gtfs.zip');
+    expect((await a.post(`/api/projects/${pa.id}/publish`, undefined, { body: form })).status).toBe(200);
+
+    const pb = await createProject(b, 'Metro');
+    expect(pb.slug).toBe(pa.slug);
+    const sb = await createSnapshot(b, pb.id);
+    const res = await schedule(b, pb.id, sb);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { reason?: string }).reason).toBe('slug_taken');
+    expect(await dbAll(`SELECT id FROM scheduled_publish WHERE project_id = ?`, pb.id)).toEqual([]);
+  });
+});

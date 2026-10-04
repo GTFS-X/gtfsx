@@ -200,6 +200,74 @@ describe('publication integrity', () => {
     expect(await res.text()).toBe('A');
   });
 
+  it('legacy duplicate canonical slugs resolve to the OLDEST publication on every feeds-origin path', async () => {
+    const stateFor = (stopName: string): unknown => ({
+      feedInfo: { feed_publisher_name: 'P', feed_start_date: '20200101', feed_end_date: '20991231' },
+      agencies: [{ agency_id: 'a1', agency_name: 'Agency', agency_url: 'https://x.test', agency_timezone: 'America/Denver' }],
+      routes: [{ route_id: 'R1', agency_id: 'a1', route_short_name: '1', route_long_name: 'Line', route_type: 3 }],
+      stops: [
+        { stop_id: 's1', stop_name: stopName, stop_lat: 45.6, stop_lon: -111.0 },
+        { stop_id: 's2', stop_name: 'Other', stop_lat: 45.61, stop_lon: -111.01 },
+      ],
+      shapes: [],
+      calendars: [{ service_id: 'D', monday: 1, tuesday: 1, wednesday: 1, thursday: 1, friday: 1, saturday: 1, sunday: 1, start_date: '20200101', end_date: '20991231' }],
+      calendarDates: [],
+      trips: [{ trip_id: 't1', route_id: 'R1', service_id: 'D', direction_id: 0 }],
+      stopTimes: [
+        { trip_id: 't1', arrival_time: '08:00:00', departure_time: '08:00:00', stop_id: 's1', stop_sequence: 1 },
+        { trip_id: 't1', arrival_time: '08:05:00', departure_time: '08:05:00', stop_id: 's2', stop_sequence: 2 },
+      ],
+    });
+    const a = await loggedIn('dup-a@example.com');
+    const b = await loggedIn('dup-b@example.com');
+    // A is inserted FIRST (lower rowid) but is the NEWER publication, so a
+    // rowid-order lookup and an oldest-wins lookup disagree.
+    const pa = await publishNew(a.client, 'Alpha Transit', stateFor('AlphaStop'));
+    const pb = await publishNew(b.client, 'Beta Transit', stateFor('BetaStop'));
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE publication SET canonical_slug = 'dup', published_at = 2000000 WHERE project_id = ?`).bind(pa.id),
+      env.DB.prepare(`UPDATE publication SET canonical_slug = 'dup', published_at = 1000000 WHERE project_id = ?`).bind(pb.id),
+    ]);
+    for (const [pid, url] of [[pa.id, 'https://rt.a.test/tu.pb'], [pb.id, 'https://rt.b.test/tu.pb']] as const) {
+      await env.DB.prepare(
+        `INSERT INTO project_rt_feed (id, project_id, kind, url, created_at, managed) VALUES (?, ?, 'trip_updates', ?, ?, 0)`,
+      ).bind(ulid(), pid, url, Date.now()).run();
+    }
+
+    // feeds handler (loadPublication)
+    expect(await feedEtag('dup')).toBe(`"${pb.snapshotId}"`);
+
+    // embeds loader (loader.ts)
+    const stop = await (await SELF.fetch('http://feeds.test/dup/embed/stop/s1')).text();
+    expect(stop).toContain('BetaStop');
+    expect(stop).not.toContain('AlphaStop');
+
+    // RT passthrough (rt.ts resolveRtSource)
+    const fetched: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const u = input instanceof Request ? input.url : String(input);
+      if (u.startsWith('https://rt.')) {
+        fetched.push(u);
+        return new Response(new Uint8Array(0), { status: 200, headers: { 'Content-Type': 'application/x-protobuf' } });
+      }
+      return realFetch(input);
+    }) as typeof fetch;
+    try {
+      const rt = await SELF.fetch('http://feeds.test/dup/rt/trip_updates.pb');
+      await rt.arrayBuffer();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(fetched).toEqual(['https://rt.b.test/tu.pb']);
+
+    // impression beacon (beacon.ts)
+    const beacon = await SELF.fetch('http://feeds.test/dup/embed/beacon?kind=landing');
+    await beacon.arrayBuffer();
+    const rows = await dbAll<{ project_id: string }>(`SELECT project_id FROM embed_impression`);
+    expect(rows.map((r) => r.project_id)).toEqual([pb.id]);
+  });
+
   // ─── W2-06 ─────────────────────────────────────────────────────────────────
 
   it('changing the slug of a published feed is refused; the feed keeps serving', async () => {
@@ -207,7 +275,7 @@ describe('publication integrity', () => {
     const pub = await publishNew(a.client, 'Published One');
     const res = await a.client.patch(`/api/projects/${pub.id}`, { slug: 'moved-elsewhere' });
     expect(res.status).toBe(409);
-    await res.arrayBuffer();
+    expect(((await res.json()) as { reason?: string }).reason).toBe('published');
     expect(await feedEtag(pub.slug)).toBe(`"${pub.snapshotId}"`);
     const row = await dbGet<{ slug: string }>(`SELECT slug FROM feed_project WHERE id = ?`, pub.id);
     expect(row?.slug).toBe(pub.slug);
