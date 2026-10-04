@@ -10,9 +10,9 @@ import { useStore } from '../../store';
  * Counters are per analysis kind so starting a Coverage run doesn't cancel an
  * Access Isochrone run. A feed switch is detected from the editor's project id.
  */
-export type AnalysisKind = 'coverage' | 'access' | 'walkshed';
+export type AnalysisKind = 'coverage' | 'access' | 'walkshed' | 'titlevi';
 
-const epochs: Record<AnalysisKind, number> = { coverage: 0, access: 0, walkshed: 0 };
+const epochs: Record<AnalysisKind, number> = { coverage: 0, access: 0, walkshed: 0, titlevi: 0 };
 
 /** Invalidate any in-flight run of this kind (Clear bumps it). */
 export function bumpAnalysisEpoch(kind: AnalysisKind): void {

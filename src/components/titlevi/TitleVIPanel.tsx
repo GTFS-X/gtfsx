@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { EmptyState } from '../ui/EmptyState';
 import { useVisibleFeed } from '../../hooks/useVisibleFeed';
 import { RouteScopeNote } from '../ui/RouteScopeNote';
 import { useStore } from '../../store';
 import { fetchServiceAreaBlockGroups } from '../coverage/serviceAreaCensus';
+import { beginAnalysis, bumpAnalysisEpoch } from '../coverage/analysisEpoch';
 import { TITLE_VI_METHOD_NOTE, titleVIBasisLabel } from './titleVIText';
 import { calculateTitleVI, type TitleVIResult, type TitleVIGroup } from '../../services/titleVI';
 
@@ -70,22 +71,37 @@ export function TitleVIPanel() {
   const [result, setResult] = useState<TitleVIResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const projectId = useStore((s) => s.projectId);
+
+  // A different feed: drop the previous feed's result and any run still in
+  // flight for it (C5-09, same guard as Coverage / Access / Walkshed).
+  useEffect(() => {
+    bumpAnalysisEpoch('titlevi');
+    setResult(null);
+    setError(null);
+    setLoading(false);
+  }, [projectId]);
 
   const handleAnalyze = useCallback(async () => {
     if (stops.length === 0) return;
+    // Grabbed before the first await: a result that lands after a newer run
+    // or a feed switch is dropped instead of shown against the wrong feed.
+    const isCurrent = beginAnalysis('titlevi');
     setLoading(true);
     setError(null);
 
     try {
       // Every county the service area touches, not just the centroid's.
       const blockGroups = await fetchServiceAreaBlockGroups(stops);
+      if (!isCurrent()) return;
       // trips + calendars let the analysis use one representative service day
       // instead of summing every service pattern into "daily" trips.
       setResult(calculateTitleVI(stops, blockGroups, { stopTimes, trips, calendars, calendarDates }));
     } catch (err) {
+      if (!isCurrent()) return;
       setError(err instanceof Error ? err.message : 'Analysis failed');
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [stops, stopTimes, trips, calendars, calendarDates]);
 
