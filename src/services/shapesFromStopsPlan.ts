@@ -196,3 +196,42 @@ export function feedNeedsShapes(
   }
   return false;
 }
+
+/**
+ * How much of the feed lacks route geometry, for the import-time callout's
+ * copy: `routesWithTrips` routes run at least one trip, and
+ * `routesMissingGeometry` of them have at least one shapeless trip. PURE.
+ */
+export interface ShapeCoverage {
+  routesWithTrips: number;
+  routesMissingGeometry: number;
+}
+
+export function shapeCoverage(trips: Trip[], shapes: Shape[]): ShapeCoverage {
+  const usable = usableShapeIds(shapes);
+  const routes = new Set<string>();
+  const missing = new Set<string>();
+  for (const t of trips) {
+    routes.add(t.route_id);
+    if (isShapeless(t, usable)) missing.add(t.route_id);
+  }
+  return { routesWithTrips: routes.size, routesMissingGeometry: missing.size };
+}
+
+/** Heading + lead sentence for the import callout; only says "no route
+ *  geometry in this feed" when that is true of every route. */
+export function shapeCoverageCopy(c: ShapeCoverage): { title: string; lead: string } {
+  if (c.routesMissingGeometry >= c.routesWithTrips) {
+    return {
+      title: 'No route geometry in this feed',
+      lead: 'This feed has no usable route geometry, so trip planners will draw straight lines between stops instead of following the streets.',
+    };
+  }
+  const n = c.routesMissingGeometry;
+  return {
+    title: 'Some routes have no route geometry',
+    lead:
+      `${n} of ${c.routesWithTrips} routes ${n === 1 ? 'has' : 'have'} trips without a shape, so trip planners ` +
+      'will draw straight lines between stops for those trips instead of following the streets.',
+  };
+}
