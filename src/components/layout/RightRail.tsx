@@ -28,6 +28,8 @@ import { SignInRequired } from '../billing/SignInRequired';
 import { useEditorPlan } from '../billing/useEditorPlan';
 import { EditActions } from '../ui/EditActions';
 import { Breadcrumb } from '../ui/Breadcrumb';
+import { calendarReferences } from '../../store/calendarSlice';
+import { calendarDeleteBlockedMessage } from './calendarDeleteMessage';
 import { TabButton } from '../ui/Tabs';
 
 const RIGHT_RAIL_DEFAULT_WIDTH = 460;
@@ -363,6 +365,7 @@ function StopEditHeader() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <EditActions
+            key={stop.stop_id}
             onDuplicate={() => {
               const newId = duplicateStop(stop.stop_id);
               if (newId) { selectStop(newId); setEditingStopId(newId); }
@@ -464,6 +467,8 @@ function CalendarDetailHeader() {
   const removeCalendar = useStore((s) => s.removeCalendar);
   const calendarDetailTab = useStore((s) => s.calendarDetailTab);
   const setCalendarDetailTab = useStore((s) => s.setCalendarDetailTab);
+  // A refused delete (S1-14): keyed by service_id so switching calendars hides it.
+  const [blocked, setBlocked] = useState<{ serviceId: string; message: string } | null>(null);
 
   if (!calendar) return null;
   const title = calendar._description || calendar.service_id;
@@ -492,15 +497,44 @@ function CalendarDetailHeader() {
           {title}
         </h2>
         <EditActions
+          key={calendar.service_id}
           onDuplicate={() => {
             const newId = duplicateCalendar(calendar.service_id);
             if (newId) setEditingCalendarServiceId(newId);
           }}
-          onDelete={() => { removeCalendar(calendar.service_id); setEditingCalendarServiceId(null); }}
+          onDelete={() => {
+            const id = calendar.service_id;
+            if (removeCalendar(id)) {
+              setBlocked(null);
+              setEditingCalendarServiceId(null);
+              return;
+            }
+            // Refused: the service is still referenced. Say why instead of
+            // closing the panel on a delete that didn't happen.
+            const message = calendarDeleteBlockedMessage(calendarReferences(useStore.getState(), id))
+              ?? "Can't delete this calendar right now.";
+            setBlocked({ serviceId: id, message });
+          }}
           duplicateTitle="Duplicate this calendar"
           deleteTitle="Delete this calendar"
         />
       </div>
+      {blocked && blocked.serviceId === calendar.service_id && (
+        <div
+          role="alert"
+          className="mx-5 mb-3 px-3 py-2 rounded-md border border-red-200 bg-red-50 text-[12px] text-red-700 flex items-start gap-2"
+        >
+          <span className="flex-1">{blocked.message}</span>
+          <button
+            onClick={() => setBlocked(null)}
+            className="shrink-0 text-red-500 hover:text-red-700"
+            title="Dismiss"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {/* Details / Routes / Exceptions tabs — scrollable on narrow viewports */}
       <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex gap-1 px-3 -mb-px min-w-max">
@@ -561,6 +595,7 @@ function FlexZoneDetailHeader() {
           {zone.name}
         </h2>
         <EditActions
+          key={zone.id}
           onDelete={() => {
             deleteFlexZoneWithRoute(zone.id);
             setFlexZoneDetailId(null);
