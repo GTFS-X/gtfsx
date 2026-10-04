@@ -21,7 +21,6 @@ describe('safeJsonForScript', () => {
     expect(out).not.toMatch(/[<>&\u2028\u2029]/);
     expect(out).toContain('\\u003c/script\\u003e');
     expect(JSON.parse(out)).toEqual(value);
-    // eslint-disable-next-line no-new-func
     expect(new Function(`return ${out};`)()).toEqual(value);
   });
 
