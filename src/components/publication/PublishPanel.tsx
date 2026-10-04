@@ -162,10 +162,12 @@ export function PublishPanel() {
   const [scheduleAt, setScheduleAt] = useState('');
   const activeProject = feedsProjects.find((p) => p.id === projectId) ?? null;
 
+  // Reloads snapshots + publication state. Deliberately leaves the banner
+  // alone: every action (publish, schedule, cancel, unpublish, rollback) sets
+  // its result banner and then refreshes, so clearing here wiped them all.
   const refresh = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
-    setBanner(null);
     try {
       const [snapshotsRes, historyRes] = await Promise.all([
         listSnapshots(projectId),
@@ -187,7 +189,9 @@ export function PublishPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, setSnapshotList, setPublicationHistory, setCurrentPublication]);
 
+  // A different project: drop the previous project's banner, then load.
   useEffect(() => {
+    setBanner(null);
     refresh();
   }, [refresh]);
 
