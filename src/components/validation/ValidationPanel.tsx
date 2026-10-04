@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store';
-import { runValidation, DISMISSIBLE_RULE_LABELS } from '../../services/validation';
+import { DISMISSIBLE_RULE_LABELS } from '../../services/validation';
 import {
   getValidationFix, applyValidationFix, applyValidationFixBatch,
   applyWheelchairFill, wheelchairGapCount,
@@ -11,6 +11,9 @@ import { noShapeBucketId } from '../ui/shapePatterns';
 import type { ValidationMessage } from '../../types/ui';
 import { Badge } from '../ui/Badge';
 import { ShapesFromStopsDialog } from '../shapes/ShapesFromStopsDialog';
+import {
+  useValidationMessages, isDismissible, partitionDismissed, onNextFeedDataChange,
+} from './validationView';
 
 // Below this many active messages the panel defaults to the flat "Individual"
 // list; at or above it, it opens "By type" so a feed with hundreds of the same
@@ -40,38 +43,28 @@ export function ValidationPanel() {
   // `apply` to run — clicking its Fix button opens this dialog instead.
   const [showShapesDialog, setShowShapesDialog] = useState(false);
 
-  // Depend on the specific entity slices the validator reads; `state` as a
-  // whole would re-trigger on every unrelated store change (UI state,
-  // selection, etc.). Listing the slices is intentional — but it MUST cover
-  // everything runValidation() reads, or warnings go stale (e.g. adding a fare
-  // wouldn't clear "No fare information defined"). Keep this in sync with the
-  // `state.*` reads in services/validation.ts.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const messages = useMemo(() => runValidation(state), [
-    state.agencies, state.calendars, state.calendarDates,
-    state.routes, state.routeStops, state.stops, state.trips, state.stopTimes, state.shapes,
-    state.fareAttributes, state.fareRules, state.transfers,
-    state.flexZones, state.frequencies, state.levels, state.pathways,
-    state.featureSettings,
-    // GTFS-Fares v2 slices — the validator reads them, so list them here or v2
-    // warnings go stale (e.g. adding a fare product wouldn't clear a
-    // "non-existent fare product" leg-rule error).
-    state.fareAreas, state.stopAreas, state.fareNetworks, state.routeNetworks,
-    state.timeframes, state.riderCategories, state.fareMedia, state.fareProducts,
-    state.fareLegRules, state.fareTransferRules,
-  ]);
+  // Re-validates only when a slice the validator reads changes. The deps come
+  // from VALIDATION_INPUT_KEYS (services/validation.ts), so they can't drift
+  // from what runValidation actually reads (C3-11).
+  const messages = useValidationMessages();
+
+  // Retire the fix's Undo toast on the next feed edit from anywhere (this
+  // panel, the rails, global undo). Its undo restores a snapshot taken at fix
+  // time, so a late click could clobber whatever was edited since (C3-13).
+  useEffect(() => {
+    if (!fixUndo) return;
+    return onNextFeedDataChange(useStore, () => setFixUndo(null));
+  }, [fixUndo]);
 
   // A message is dismissed when its rule `code` is in the per-feed dismissed
   // set. Dismissed messages drop out of the main list (and the error/warning
-  // counts) but stay restorable from the drawer below. runValidation doesn't
-  // read dismissedValidations, so this filtering lives outside the memo.
+  // counts) but stay restorable from the drawer below. Only warnings can be
+  // dismissed: an error still blocks export, so it must stay visible (C3-12).
+  // runValidation doesn't read dismissedValidations, so this filtering lives
+  // outside the memo.
   const dismissedCodes = state.dismissedValidations;
-  const visible = useMemo(
-    () => messages.filter((m) => !(m.code && dismissedCodes.includes(m.code))),
-    [messages, dismissedCodes],
-  );
-  const dismissed = useMemo(
-    () => messages.filter((m) => !!m.code && dismissedCodes.includes(m.code)),
+  const { visible, dismissed } = useMemo(
+    () => partitionDismissed(messages, dismissedCodes),
     [messages, dismissedCodes],
   );
 
@@ -219,7 +212,7 @@ export function ValidationPanel() {
             {getValidationFix(m.fix.id)!.label}
           </button>
         )}
-        {m.code && (
+        {isDismissible(m) && (
           <button
             onClick={() => state.dismissValidation(m.code!)}
             title="Dismiss this reminder for this feed"
@@ -342,7 +335,7 @@ export function ValidationPanel() {
                           </p>
                         </div>
                       </button>
-                      {g.code && (
+                      {g.code && g.severity !== 'error' && (
                         <button
                           onClick={() => state.dismissValidation(g.code!)}
                           title="Dismiss this reminder for this feed"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { importGtfsZip, loadImportIntoStore } from '../../services/gtfsImport';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { parseGtfsInWorker, loadImportIntoStore } from '../../services/gtfsImport';
 import { useStore } from '../../store';
 import { AppBrand } from '../layout/AppBrand';
 import { resolvePartnerLabel } from './partnerAttribution';
@@ -104,7 +104,9 @@ export function DeepLinkImportPage() {
 
         setStatus('parsing');
         const file = new File([blob], filename, { type: 'application/zip' });
-        const data = await importGtfsZip(file);
+        // Off the main thread, like the Import dialog, so a large feed doesn't
+        // freeze the page (C3-22).
+        const data = await parseGtfsInWorker(file);
         if (cancelled) return;
 
         loadImportIntoStore(data);
@@ -224,7 +226,7 @@ function LoadingPanel({
   );
 }
 
-function ErrorPanel({
+export function ErrorPanel({
   error,
   onUploadFallback,
 }: {
@@ -245,12 +247,14 @@ function ErrorPanel({
         >
           {cta.primary}
         </button>
-        <Link
-          to="/docs/deep-links/"
+        {/* A plain link, not a router <Link>: the docs are static pages
+            outside the SPA, so client-side navigation 404s (C3-22). */}
+        <a
+          href="/docs/deep-links/"
           className="px-4 py-2.5 rounded-lg font-heading font-bold text-sm border-2 border-sand text-dark-brown hover:bg-cream transition-colors text-center"
         >
           About deep-link imports
-        </Link>
+        </a>
       </div>
       <p className="text-[11px] text-warm-gray mt-5 font-mono">
         Error code: {error.code}
