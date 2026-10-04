@@ -6,72 +6,28 @@ import {
 } from '../services/projectsApi';
 import { db } from './dexie';
 import { repairRouteStops } from '../services/routeStopMigration';
-import { loadingFeed } from '../store/history';
+import { loadingFeed, runWithoutHistory } from '../store/history';
+import { DATA_KEYS as PERSISTED_DATA_KEYS, type PersistedKey } from '../store/persistedKeys';
 import {
   buildVariantsEnvelope,
   parseVariantsEnvelope,
   VARIANTS_ENVELOPE_KEY,
 } from '../services/variantPersistence';
 
-// Editor state that round-trips through the server snapshot. Notably excludes
-// projectId and projectName: those are project-level metadata served by
-// /api/projects/:id and re-applied by ServerEditorRoute on load. Including
-// them in the snapshot caused the displayed name to diverge from the
-// canonical project.name and re-marked dirty after reload.
-const DATA_KEYS = [
-  'agencies',
-  'calendars',
-  'calendarDates',
-  'routes',
-  'routeStops',
-  'stops',
-  'trips',
-  'stopTimes',
-  'shapes',
-  'feedInfo',
-  'fareAttributes',
-  'fareRules',
-  'fareAreas',
-  'stopAreas',
-  'fareNetworks',
-  'routeNetworks',
-  'timeframes',
-  'riderCategories',
-  'fareMedia',
-  'fareProducts',
-  'fareLegRules',
-  'fareTransferRules',
-  'frequencies',
-  'levels',
-  'pathways',
-  'flexZones',
-  // transfers.txt — transfer rules between routes/stops (timed connections,
-  // minimum transfer times), edited from the Fares panel. A real feed entity
-  // that the exporter writes but that was never wired into persistence, so it
-  // was silently dropped on save/reload and leaked across feeds in-session
-  // (#67). Persisting it here fixes both; it also rides the variant envelope
-  // now, since variant snapshots are built from these DATA_KEYS.
-  'transfers',
-  // translations.txt. Persisted (and variant-enveloped) like every other feed
-  // table; absent on snapshots saved before it existed, which load as [].
-  'translations',
-  'featureSettings',
-  'dismissedValidations',
-  // The feed's declared license (SPDX short identifier). Feed-state: the D1
-  // `license_spdx` column is only the projection written at publish, so the
-  // working-state snapshot is what preserves a license the user picked but
-  // hasn't published yet. (An agency's `external_id` needs no key of its own —
-  // it rides along inside the already-persisted `agencies` entity.)
-  'licenseSpdx',
-  // The Mobility Database source id this feed was imported from (issue #47's
-  // switcher/dedup signal). Feed-state for the same reason as licenseSpdx: the
-  // D1 `mdb_source_id` column is only projected at publish, so the working-state
-  // snapshot is what carries import provenance from an anonymous draft, across
-  // the sign-in migration, and into the first server publish.
-  'mdbSourceId',
-] as const;
-
-type DataKey = (typeof DATA_KEYS)[number];
+// Editor state that round-trips through the server snapshot: every persisted
+// feed key (store/persistedKeys.ts — the one list that also drives dirty
+// tracking and the IndexedDB cache) EXCEPT projectId and projectName. Those are
+// project-level metadata served by /api/projects/:id and re-applied by
+// ServerEditorRoute on load. Including them in the snapshot caused the
+// displayed name to diverge from the canonical project.name and re-marked dirty
+// after reload. Deriving the list (instead of a hand copy) is what keeps a new
+// feed table from being cached locally but silently dropped on server save, as
+// transfers (#67) and flexZones once were.
+type DataKey = Exclude<PersistedKey, 'projectId' | 'projectName'>;
+export const SERVER_DATA_KEYS: readonly DataKey[] = PERSISTED_DATA_KEYS.filter(
+  (k): k is DataKey => k !== 'projectId' && k !== 'projectName',
+);
+const DATA_KEYS = SERVER_DATA_KEYS;
 
 const versionCache = new Map<string, number>();
 
@@ -266,6 +222,39 @@ export function applySnapshotToStore(
   loadingFeed(() => applySnapshotToStoreInner(snapshot, opts));
 }
 
+/**
+ * Run `fn` against a TRANSIENT copy of the store holding `snapshot`, then put
+ * the live store back exactly as it was — the same state object, so undo/redo
+ * history, selection, map mode, analysis overlays, the variant layer and the
+ * dirty flag all survive untouched.
+ *
+ * For reading a past snapshot through code that reads the live store (the
+ * publish / draft-link / rollback ZIP render). `fn` must be synchronous and
+ * must take whatever it needs from the store before returning; anything it
+ * starts asynchronously sees the restored live state. exportGtfsZip qualifies:
+ * it reads `useStore.getState()` once, synchronously, and only its final ZIP
+ * compression is async. Nothing is recorded in history, and the live state is
+ * restored even when `fn` throws.
+ */
+export function withTransientSnapshot<T>(snapshot: Record<string, unknown>, fn: () => T): T {
+  const live = useStore.getState();
+  try {
+    runWithoutHistory(() =>
+      applySnapshotToStoreInner(snapshot, { preserveVariants: true, keepDirty: true }),
+    );
+    return fn();
+  } finally {
+    runWithoutHistory(() => {
+      // Replace with the captured state object. The store's write path stamps
+      // isDirty on any data change, so restore the captured flag after.
+      useStore.setState(live, true);
+      if (useStore.getState().isDirty !== live.isDirty) {
+        useStore.setState({ isDirty: live.isDirty });
+      }
+    });
+  }
+}
+
 function applySnapshotToStoreInner(
   snapshot: Record<string, unknown>,
   opts?: ApplySnapshotOptions,
@@ -415,8 +404,25 @@ function storeHasFeedContent(): boolean {
   return st.routes.length > 0 || st.stops.length > 0 || st.trips.length > 0;
 }
 
-export async function loadProjectFromServer(projectId: string): Promise<void> {
+export interface LoadProjectOptions {
+  /**
+   * Checked once the fetch resolves, before anything touches the store. When
+   * it returns false (the user has since navigated to another feed), the
+   * response is dropped and the store and version cache are left alone —
+   * otherwise a slow load of feed A could land in feed B's editor, and B's
+   * next Save would push A's data to B.
+   */
+  isCurrent?: () => boolean;
+}
+
+/** Load a server feed's working state into the store. Resolves true when it
+ *  was applied, false when `opts.isCurrent` said the result is stale. */
+export async function loadProjectFromServer(
+  projectId: string,
+  opts?: LoadProjectOptions,
+): Promise<boolean> {
   const { snapshot, version, absent, snapshotCount } = await fetchWorkingState(projectId);
+  if (opts?.isCurrent && !opts.isCurrent()) return false;
   setCurrentWorkingStateVersion(projectId, version);
   const snap = snapshot ?? {};
   // Apply the flat top-level feed (the baseline), or an empty object for
@@ -473,6 +479,37 @@ export async function loadProjectFromServer(projectId: string): Promise<void> {
       ? { snapshotCount: versions, reason: absent === 'blob_missing' ? 'blob_missing' : 'no_content' }
       : null,
   );
+  return true;
+}
+
+/** The feed data a save is about to send, by reference (see markSavedIfUnchanged). */
+export type SavedDataRefs = ReadonlyMap<DataKey, unknown>;
+
+/**
+ * Capture the persisted feed keys BY REFERENCE, alongside the snapshot a save
+ * is about to send. The store replaces a key's array/object on every edit, so
+ * comparing references after the request is a reliable "was anything edited
+ * while the save was in flight?" check.
+ */
+export function captureSavedDataRefs(): SavedDataRefs {
+  const state = useStore.getState() as unknown as Record<string, unknown>;
+  return new Map(DATA_KEYS.map((k) => [k, state[k]]));
+}
+
+/**
+ * Declare the store clean ONLY if no persisted key has changed since `refs`
+ * was captured. An edit made while a save's request was in flight is not in
+ * what the server received; marking it saved would disable Save and the
+ * unload warning over work that exists only in this tab. Returns whether the
+ * store was marked saved.
+ */
+export function markSavedIfUnchanged(refs: SavedDataRefs): boolean {
+  const state = useStore.getState() as unknown as Record<string, unknown>;
+  for (const [k, v] of refs) {
+    if (state[k] !== v) return false;
+  }
+  useStore.getState().markSaved();
+  return true;
 }
 
 /**
@@ -496,11 +533,16 @@ export async function saveProjectNow(projectId: string): Promise<SaveOutcome> {
   // (Supersedes the stopgap's snapshotOverride Save gate: Save is now always
   // lossless, so the gate dialog was removed.)
   const snapshot = buildWorkingStateSnapshot();
+  const sent = captureSavedDataRefs();
   const ifMatch = getCurrentWorkingStateVersion(projectId);
   try {
     const { workingStateVersion } = await saveWorkingState(projectId, snapshot, ifMatch);
+    // The server now holds `snapshot` at this version, whatever happened
+    // locally meanwhile, so always advance the If-Match version...
     setCurrentWorkingStateVersion(projectId, workingStateVersion);
-    useStore.getState().markSaved();
+    // ...but only call the store clean if nothing was edited during the PUT.
+    // Otherwise it stays dirty and Save stays enabled for the newer edits.
+    markSavedIfUnchanged(sent);
     // The live feed now matches what's in front of the user, so a stale
     // "this feed's live state is empty" warning must go.
     useStore.getState().setEmptyWorkingState(null);
@@ -522,16 +564,21 @@ export async function saveProjectNow(projectId: string): Promise<SaveOutcome> {
  * Used by the conflict dialog's "Keep mine" path: refresh the cached
  * If-Match version to the server's latest, then save again so the user's
  * local state overwrites the remote.
+ *
+ * Resolves with the save's outcome — 'conflict' when the feed changed AGAIN
+ * between the version fetch and the save — and throws when the version fetch
+ * itself fails (retrying with the stale If-Match could only conflict).
  */
-export async function forceSaveWithLatest(projectId: string): Promise<void> {
+export async function forceSaveWithLatest(projectId: string): Promise<SaveOutcome> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
     method: 'GET',
     credentials: 'include',
     headers: { 'X-GB-Client': 'web' },
   });
-  if (res.ok) {
-    const body = (await res.json()) as { workingStateVersion: number };
-    setCurrentWorkingStateVersion(projectId, body.workingStateVersion);
+  if (!res.ok) {
+    throw new Error(`Could not fetch the feed's latest version (HTTP ${res.status}). Try again.`);
   }
-  await saveProjectNow(projectId);
+  const body = (await res.json()) as { workingStateVersion: number };
+  setCurrentWorkingStateVersion(projectId, body.workingStateVersion);
+  return saveProjectNow(projectId);
 }

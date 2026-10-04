@@ -20,11 +20,24 @@ const tables = vi.hoisted(() => {
       put: async (r: Record<string, unknown>) => { rows.set(String(r[key]), structuredClone(r)); },
       get: async (id: string) => (rows.has(id) ? structuredClone(rows.get(id)) : undefined),
       toArray: async () => [...rows.values()],
+      where: (field: string) => ({
+        notEqual: (value: unknown) => ({
+          delete: async () => {
+            for (const [id, r] of rows) if (r[field] !== value) rows.delete(id);
+          },
+        }),
+      }),
     };
   };
   return { projects: mk('id'), projectData: mk('projectId'), projectBulk: mk('projectId') };
 });
-vi.mock('../dexie', () => ({ db: tables }));
+vi.mock('../dexie', () => ({
+  db: {
+    ...tables,
+    // Dexie's db.transaction(mode, ...tables, scope): just run the scope.
+    transaction: async (...args: unknown[]) => (args[args.length - 1] as () => Promise<unknown>)(),
+  },
+}));
 
 const { useStore } = await import('../../store');
 const { saveProject, loadProject } = await import('../persistence');

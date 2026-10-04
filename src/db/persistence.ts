@@ -30,19 +30,6 @@ export async function saveProject() {
     snapshot[key] = state[key];
   }
 
-  await db.projects.put({
-    id: state.projectId,
-    name: state.projectName,
-    lastModified: Date.now(),
-  });
-
-  // Store the small-tables snapshot as a structured object — IndexedDB
-  // clones it natively, so we never build a multi-hundred-MB JSON string.
-  await db.projectData.put({
-    projectId: state.projectId,
-    storeSnapshot: snapshot,
-  });
-
   // Only rewrite the heavy stop_times/shapes record when it actually changed
   // (or when we've switched projects). Routine edits never touch it, so this
   // turns the per-second autosave from "re-serialize the whole feed" into a
@@ -51,12 +38,38 @@ export async function saveProject() {
     state.projectId !== lastBulkProjectId ||
     state.stopTimes !== lastSavedStopTimes ||
     state.shapes !== lastSavedShapes;
-  if (bulkChanged) {
-    await db.projectBulk.put({
-      projectId: state.projectId,
-      stopTimes: state.stopTimes,
-      shapes: state.shapes,
+
+  // One transaction: write this draft and drop every OTHER project's rows.
+  // The cache is never read back on reload (refresh starts fresh — see
+  // App.tsx), and the store mints a new projectId per page load, so without
+  // the prune every visit left a full copy of its feed behind, forever.
+  await db.transaction('rw', db.projects, db.projectData, db.projectBulk, async () => {
+    await db.projects.put({
+      id: state.projectId,
+      name: state.projectName,
+      lastModified: Date.now(),
     });
+
+    // Store the small-tables snapshot as a structured object — IndexedDB
+    // clones it natively, so we never build a multi-hundred-MB JSON string.
+    await db.projectData.put({
+      projectId: state.projectId,
+      storeSnapshot: snapshot,
+    });
+
+    if (bulkChanged) {
+      await db.projectBulk.put({
+        projectId: state.projectId,
+        stopTimes: state.stopTimes,
+        shapes: state.shapes,
+      });
+    }
+
+    await db.projects.where('id').notEqual(state.projectId).delete();
+    await db.projectData.where('projectId').notEqual(state.projectId).delete();
+    await db.projectBulk.where('projectId').notEqual(state.projectId).delete();
+  });
+  if (bulkChanged) {
     lastBulkProjectId = state.projectId;
     lastSavedStopTimes = state.stopTimes;
     lastSavedShapes = state.shapes;

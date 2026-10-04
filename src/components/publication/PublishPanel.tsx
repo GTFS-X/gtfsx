@@ -19,7 +19,7 @@ import {
 } from '../../services/projectsApi';
 import { ApiError } from '../../services/authApi';
 import { exportGtfsZip } from '../../services/gtfsExport';
-import { applySnapshotToStore, buildSnapshot } from '../../db/serverPersistence';
+import { withTransientSnapshot } from '../../db/serverPersistence';
 import { DraftLinksSection, toEditorDeepLink } from './DraftLinksPanel';
 import { NtdP50Panel } from './NtdP50Panel';
 
@@ -65,22 +65,17 @@ function fromLocalDatetimeInput(value: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-// Swap store to the given snapshot's saved state, run the exporter, then restore.
-// Auto-save may fire a redundant save of the restored state (harmless — same
-// bytes as what the server already holds).
+// Render a past snapshot's ZIP. The exporter reads the live store, so the
+// snapshot is swapped in transiently: exportGtfsZip() takes its state
+// synchronously when called, and withTransientSnapshot puts the live store
+// back (the same state object) before the async ZIP compression runs. That
+// keeps undo history, selection, analysis overlays, the variant layer and the
+// dirty flag intact; the user's in-progress work is never on screen replaced
+// by the old snapshot, and an edit made during compression can't be lost.
 async function renderSnapshotZip(projectId: string, snapshotId: string): Promise<Blob> {
-  const snapshotBefore = buildSnapshot();
   const snapshotState = await fetchSnapshotState(projectId, snapshotId);
-  try {
-    // Transient swap for the export, not a feed boundary — keep any active
-    // variant layer intact across it (#66), and keep the dirty flag: downloading
-    // an old snapshot's ZIP must never tell the user their unsaved edits are
-    // saved (which disabled Save on real, unpersisted work).
-    applySnapshotToStore(snapshotState, { preserveVariants: true, keepDirty: true });
-    return await exportGtfsZip();
-  } finally {
-    applySnapshotToStore(snapshotBefore, { preserveVariants: true, keepDirty: true });
-  }
+  const zip = withTransientSnapshot(snapshotState, () => exportGtfsZip());
+  return await zip;
 }
 
 type BannerKind = 'success' | 'error' | 'info';

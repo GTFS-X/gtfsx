@@ -42,8 +42,12 @@ export function ConflictDialog({ projectId }: { projectId: string }) {
     setBusy(true);
     setError(null);
     try {
-      await forceSaveWithLatest(projectId);
-      setOpen(false);
+      // Close only when the overwrite actually landed. A 'conflict' means the
+      // feed changed again in the meantime; the work is still unsaved, so keep
+      // the dialog up rather than implying success.
+      const outcome = await forceSaveWithLatest(projectId);
+      if (outcome === 'saved') setOpen(false);
+      else setError('The feed changed again while saving. Try again.');
     } catch (err) {
       setError((err as Error)?.message ?? 'Save failed');
     } finally {
