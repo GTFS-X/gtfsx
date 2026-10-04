@@ -137,4 +137,24 @@ describe('assistant chat', () => {
     const rows = await dbAll(`SELECT id FROM assistant_messages WHERE user_id = ?`, userId);
     expect(rows.length).toBe(0);
   });
+  // S2-26: an upstream `error` event mid-stream ends the answer. The client
+  // treats `error` and `done` as two terminal callbacks, so `done` must not
+  // follow an `error`.
+  it('stops after an upstream mid-stream error and never sends done', async () => {
+    spy.mockRestore();
+    const ev = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    spy = mockAnthropic(
+      ev('message_start', { type: 'message_start', message: { usage: { input_tokens: 5 } } }) +
+      ev('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'CLASS: supported\nPartial ' } }) +
+      ev('error', { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }) +
+      ev('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'AFTER-ERROR' } }),
+    );
+    const { client } = await loginClient('agency');
+    const res = await client.post('/api/assistant/chat', body);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('event: error');
+    expect(text).not.toContain('event: done');
+    expect(text).not.toContain('AFTER-ERROR');
+  });
 });

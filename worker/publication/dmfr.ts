@@ -238,14 +238,28 @@ export function buildDmfrDocument(input: BuildDmfrInput): DmfrDocument {
   if (centroid) {
     const geo = geohash(centroid.lat, centroid.lon, 4);
     const operators: DmfrOperator[] = [];
+    // Onestop IDs must be unique within the document. Two agencies whose names
+    // reduce to the same component ("Metro Transit" / "Metro-Transit", or two
+    // non-Latin names that both fall back to the slug) would otherwise collide.
+    // The FIRST occurrence keeps the plain id, so operators already published
+    // keep a stable id; later ones get `~<agency_id>` or a `~<n>` counter.
+    const usedIds = new Set<string>();
     for (const agency of agencies) {
       // `name` is REQUIRED by the schema — fall back to the agency_id, then to
       // the feed title, so an agency with a blank name still gets an operator.
       const name = agency.agencyName ?? agency.agencyId ?? input.feedTitle;
       const nameComponent = onestopNameComponent(name) || onestopNameComponent(input.slug);
       if (!nameComponent) continue;
+      const baseId = `o-${geo}-${nameComponent}`;
+      let onestopId = baseId;
+      if (usedIds.has(onestopId)) {
+        const agencyComponent = agency.agencyId ? onestopNameComponent(agency.agencyId) : '';
+        onestopId = agencyComponent ? `${baseId}~${agencyComponent}` : onestopId;
+        for (let n = 2; usedIds.has(onestopId); n += 1) onestopId = `${baseId}~${n}`;
+      }
+      usedIds.add(onestopId);
       const operator: DmfrOperator = {
-        onestop_id: `o-${geo}-${nameComponent}`,
+        onestop_id: onestopId,
         name,
       };
       if (agency.agencyId) operator.associated_feeds = [{ gtfs_agency_id: agency.agencyId }];
