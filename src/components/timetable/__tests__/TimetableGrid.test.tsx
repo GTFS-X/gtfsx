@@ -5,16 +5,20 @@
 //          retyping a dwell stop's arrival keeps the dwell.
 //   C2-03  a calendar_dates-only service is listed in the service picker and
 //          no "Default Calendar" is materialized for it.
+//   C2-06  the frequency drawer applies normalized times ("6:00" -> 06:00:00).
+//   C2-10  a bulk op run through TimetableGrid's withUndo is ONE history step.
 // The helpers (cellCommitDecision, cellEditUpdate, needsDefaultCalendar) are
 // pinned in timetableEditFixes; these pin the component call sites.
 import '../../../test-utils/dom';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { resetStore, store } from '../../../test-utils/store';
-import { historyDepths } from '../../../store/history';
+import { historyDepths, undo } from '../../../store/history';
 import type { Calendar, CalendarDate, Route, RouteStop, Stop, StopTime, Trip } from '../../../types/gtfs';
 import { TimetableGrid } from '../TimetableGrid';
+import { FrequencyDrawer } from '../TimetableDrawers';
+import type { FrequencyWindow } from '../../../services/frequencyExpansion';
 
 beforeAll(() => {
   // jsdom has no ResizeObserver; the split-view divider measures with one.
@@ -142,5 +146,51 @@ describe('TimetableGrid with calendar + dates-only services (C2-03)', () => {
     expect(screen.getByText('ev1')).toBeInTheDocument();
     expect(screen.queryByText('t1')).not.toBeInTheDocument();
     expect(store().calendars.map((c) => c.service_id)).toEqual(['WK']);
+  });
+});
+
+describe('TimetableGrid bulk ops undo in one step (C2-10)', () => {
+  beforeEach(() => seed({ calendars: [wk], serviceId: 'WK' }));
+
+  it('Repeat last trip adds N trips and one Ctrl+Z removes them all', async () => {
+    const user = userEvent.setup();
+    render(<TimetableGrid />);
+    await user.click(screen.getByRole('button', { name: /Repeat last trip/ }));
+    await user.click(screen.getByRole('button', { name: 'Add 4 trips' }));
+
+    expect(store().trips).toHaveLength(5);
+    expect(historyDepths().undo).toBe(1);
+    act(() => { undo(); });
+    expect(store().trips.map((t) => t.trip_id)).toEqual(['t1']);
+  });
+});
+
+describe('FrequencyDrawer Apply (C2-06)', () => {
+  it('hands the grid normalized HH:MM:SS windows, not the typed text', async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn<(w: FrequencyWindow[]) => void>();
+    render(<FrequencyDrawer ctx="10" tripId="t1" initialWindows={[]} onApply={onApply} onCancel={() => {}} />);
+    const start = screen.getByLabelText('Window 1 start');
+    const end = screen.getByLabelText('Window 1 end');
+    await user.clear(start);
+    await user.type(start, ' 6:00');
+    await user.clear(end);
+    await user.type(end, '9:15');
+    await user.click(screen.getByRole('button', { name: 'Apply windows' }));
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(onApply.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ start_time: '06:00:00', end_time: '09:15:00' }),
+    ]);
+  });
+
+  it('Apply is disabled while a time is garbage', async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(<FrequencyDrawer ctx="10" tripId="t1" initialWindows={[]} onApply={onApply} onCancel={() => {}} />);
+    const start = screen.getByLabelText('Window 1 start');
+    await user.clear(start);
+    await user.type(start, 'abc');
+    expect(screen.getByRole('button', { name: 'Apply windows' })).toBeDisabled();
   });
 });
