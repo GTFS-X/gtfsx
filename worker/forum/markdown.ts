@@ -321,18 +321,26 @@ function safeLinkHref(raw: string): string | null {
 // hotlinking-from-anywhere abuse vectors (tracking pixels, blasting
 // third-party hosts, malicious SVG/animated payloads on arbitrary domains).
 export function safeImageSrc(raw: string, imageOriginHosts: string[]): string | null {
-  // Relative path: must start with the forum-images prefix.
-  if (raw.startsWith(FORUM_IMAGE_PATH_PREFIX)) return raw;
+  // Dot segments, encoded dots/slashes and backslashes could walk a
+  // prefix-matching path out of the forum-images directory once a browser or
+  // server normalizes it. No legitimate image URL contains them.
+  if (HAS_PATH_TRICKS.test(raw)) return null;
   try {
-    const u = new URL(raw);
+    // Parse relative input against a placeholder origin so a relative path is
+    // checked by its normalized pathname, never by a raw string prefix.
+    const u = new URL(raw, RELATIVE_BASE);
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
-    if (!imageOriginHosts.includes(u.hostname)) return null;
     if (!u.pathname.startsWith(FORUM_IMAGE_PATH_PREFIX)) return null;
+    if (u.origin === RELATIVE_BASE) return u.pathname + u.search;
+    if (!imageOriginHosts.includes(u.hostname)) return null;
     return u.toString();
   } catch {
     return null;
   }
 }
+
+const RELATIVE_BASE = 'https://relative.invalid';
+const HAS_PATH_TRICKS = /\.\.|%2e|%2f|%5c|\\/i;
 
 export function escapeHtml(s: string): string {
   return s

@@ -1,5 +1,20 @@
 import type { Env } from '../env';
 import type { AuthorDto, ForumProfileDto } from './types';
+import { rateLimit, type RateLimitOpts } from '../util/rateLimit';
+import { ApiError, rateLimited } from '../util/errors';
+
+/**
+ * Apply several fixed-window rate limits (worker/util/rateLimit.ts) in order,
+ * replacing the generic over-limit message with `message`.
+ */
+export async function forumRateLimit(env: Env, windows: RateLimitOpts[], message: string): Promise<void> {
+  try {
+    for (const w of windows) await rateLimit(env, w);
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 'rate_limited') throw rateLimited(message);
+    throw e;
+  }
+}
 
 // MD5 is used by Gravatar — not for security, only as an identifier. Web Crypto
 // doesn't expose MD5, so we ship a tiny implementation. ~30 lines is cheaper
@@ -21,12 +36,22 @@ export function slugify(input: string, fallback = 'thread'): string {
   return slug || fallback;
 }
 
+export const DELETED_USER_NAME = 'Deleted user';
+
+/** True when the account is gone (purged) or soft-deleted. */
+export async function isForumUserGone(env: Env, userId: string): Promise<boolean> {
+  const row = await env.DB.prepare(`SELECT status FROM user WHERE id = ?`)
+    .bind(userId)
+    .first<{ status: string }>();
+  return !row || row.status === 'deleted_soft';
+}
+
 export async function userAuthorDto(
   env: Env,
   userId: string,
 ): Promise<AuthorDto> {
   const row = await env.DB.prepare(
-    `SELECT u.id, u.email, u.display_name as account_display_name,
+    `SELECT u.id, u.email, u.display_name as account_display_name, u.status,
             f.forum_display_name, f.gravatar_opt_out
        FROM user u
        LEFT JOIN forum_user_state f ON f.user_id = u.id
@@ -37,12 +62,15 @@ export async function userAuthorDto(
       id: string;
       email: string;
       account_display_name: string;
+      status: string;
       forum_display_name: string | null;
       gravatar_opt_out: number | null;
     }>();
 
-  if (!row) {
-    return { id: userId, displayName: 'Deleted user', gravatarHash: null };
+  // A soft-deleted account is shown exactly like a purged one: no name, no
+  // Gravatar hash (which is derived from the email address).
+  if (!row || row.status === 'deleted_soft') {
+    return { id: userId, displayName: DELETED_USER_NAME, gravatarHash: null };
   }
 
   const displayName = row.forum_display_name?.trim() || row.account_display_name || 'Member';

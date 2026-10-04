@@ -25,7 +25,7 @@
 
 import type { Env } from '../env';
 import { renderMarkdownToHtml, markdownToPlainText, escapeHtml } from './markdown';
-import { userAuthorDto, slugify } from './util';
+import { isForumUserGone, userAuthorDto, slugify } from './util';
 import type {
   AuthorDto,
   CategoryRow,
@@ -130,7 +130,7 @@ export async function renderCategorySeo(env: Env, catId: string): Promise<ForumS
     return `
       <li>
         <h2><a href="${href}">${escapeHtml(t.title)}</a></h2>
-        <p class="meta">by ${escapeHtml(author.displayName)} · ${t.post_count} repl${t.post_count === 1 ? 'y' : 'ies'} · last activity ${formatDate(t.last_post_at)}${t.solved_post_id ? ' · solved' : ''}</p>
+        <p class="meta">by ${escapeHtml(author.displayName)} · ${replyCount(t.post_count)} · last activity ${formatDate(t.last_post_at)}${t.solved_post_id ? ' · solved' : ''}</p>
       </li>`;
   }).join('');
 
@@ -203,7 +203,7 @@ export async function renderThreadSeo(env: Env, threadId: string): Promise<Forum
         <h1>${escapeHtml(thread.title)}</h1>
         <p class="meta">
           ${opAuthor ? `by ${escapeHtml(opAuthor.displayName)} · ` : ''}
-          started ${formatDate(thread.created_at)} · ${thread.post_count} repl${thread.post_count === 1 ? 'y' : 'ies'}
+          started ${formatDate(thread.created_at)} · ${replyCount(thread.post_count)}
           ${thread.solved_post_id ? ' · <strong>solved</strong>' : ''}
         </p>
       </header>
@@ -311,8 +311,8 @@ function buildThreadJsonLd(
 // ─── /community/u/:userId ────────────────────────────────────────────────────
 
 export async function renderProfileSeo(env: Env, userId: string): Promise<ForumSeo | null> {
+  if (await isForumUserGone(env, userId)) return null;
   const author = await userAuthorDto(env, userId);
-  if (author.displayName === 'Deleted user') return null;
 
   const threadsRes = await env.DB.prepare(
     `SELECT id, slug, title, category_id, post_count, last_post_at
@@ -324,7 +324,7 @@ export async function renderProfileSeo(env: Env, userId: string): Promise<ForumS
   const list = threads.map((t) => `
     <li>
       <a href="/community/${encodeURIComponent(t.category_id)}/${encodeURIComponent(`${t.id}-${t.slug || slugify(t.title)}`)}">${escapeHtml(t.title)}</a>
-      <span class="meta"> · ${t.post_count} repl${t.post_count === 1 ? 'y' : 'ies'} · ${formatDate(t.last_post_at)}</span>
+      <span class="meta"> · ${replyCount(t.post_count)} · ${formatDate(t.last_post_at)}</span>
     </li>`).join('');
 
   const body = `
@@ -341,6 +341,12 @@ export async function renderProfileSeo(env: Env, userId: string): Promise<ForumS
     jsonLd: null,
     noindex: true, // user profile pages are low-value for search; keep them out
   };
+}
+
+// post_count includes the opening post; the label counts replies only.
+function replyCount(postCount: number): string {
+  const n = Math.max(0, postCount - 1);
+  return `${n} repl${n === 1 ? 'y' : 'ies'}`;
 }
 
 function formatDate(ms: number): string {

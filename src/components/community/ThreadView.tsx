@@ -17,6 +17,7 @@ import { useStore } from '../../store';
 import { Avatar } from './Avatar';
 import { Composer } from './Composer';
 import { PostCard } from './PostCard';
+import { replyCountLabel } from './replyCount';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { relativeTime } from './time';
 import { threadPermalink } from './permalinks';
@@ -237,7 +238,7 @@ export function ThreadView() {
             <span>·</span>
             <span>started {relativeTime(thread.createdAt)}</span>
             <span>·</span>
-            <span>{thread.postCount} repl{thread.postCount === 1 ? 'y' : 'ies'}</span>
+            <span>{replyCountLabel(thread.postCount)}</span>
             {thread.solvedPostId && (
               <span className="text-teal font-semibold flex items-center gap-1">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden>
