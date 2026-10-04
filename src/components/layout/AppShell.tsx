@@ -4,6 +4,7 @@ import { LeftRail } from './LeftRail';
 import { RightRail } from './RightRail';
 import { BottomPanel } from './BottomPanel';
 import { WelcomeBanner } from './WelcomeBanner';
+import { SetPasswordNotice } from '../auth/SetPasswordNotice';
 import { PartnerBanner } from './PartnerBanner';
 import { VariantBanner } from '../variants/VariantBanner';
 import { TrialBanner } from '../billing/TrialBanner';
@@ -73,6 +74,7 @@ export function AppShell() {
       <TopBar />
       <FreePlanningBanner />
       <WelcomeBanner />
+      <SetPasswordNotice />
       <PartnerBanner />
       <TrialBanner />
       <VariantBanner />

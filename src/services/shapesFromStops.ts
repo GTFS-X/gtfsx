@@ -44,7 +44,7 @@ import type { StopPattern } from './shapesFromStopsPlan';
 // validation.ts calls feedNeedsShapes and must stay loadable in the tsx
 // editor-test harness, so it imports the plan module directly. Re-exported here
 // so UI callers still have a single import site for the whole recipe.
-export { computeStopPatterns, feedNeedsShapes } from './shapesFromStopsPlan';
+export { computeStopPatterns, feedNeedsShapes, shapeCoverage, shapeCoverageCopy } from './shapesFromStopsPlan';
 export type { StopPattern } from './shapesFromStopsPlan';
 
 export type ShapeGenMode = 'snap' | 'straight';

@@ -52,6 +52,16 @@ export class ApiError extends HTTPException {
 
 export const unauthenticated = (msg = 'Sign in required') => new ApiError(401, 'unauthenticated', msg);
 export const forbidden = (msg = 'Not allowed') => new ApiError(403, 'forbidden', msg);
+/**
+ * Soft-deleted account (status deleted_soft, purged by the reaper 30 days
+ * after deletion). Only returned once the caller has proven they own the
+ * account (correct password), so it reveals nothing new. Same copy as the
+ * /login?error=account_deleted banner (src/components/auth/loginErrors.ts).
+ */
+export const ACCOUNT_DELETED_MESSAGE =
+  'This account has been scheduled for deletion. Email hello@gtfsx.com within 30 days if you want it restored.';
+export const accountDeleted = () =>
+  new ApiError(403, 'forbidden', ACCOUNT_DELETED_MESSAGE, { reason: 'account_deleted' });
 // `extra` is merged into the JSON body alongside { error, message } — used to
 // distinguish two 404s that mean very different things (e.g. a working state
 // that was never saved vs. one whose R2 blob has gone missing).

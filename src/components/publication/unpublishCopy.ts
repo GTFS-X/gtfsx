@@ -13,6 +13,11 @@ export function unpublishConfirmBody(pendingScheduleLabel: string | null): strin
   return `${BASE_BODY} The scheduled publish for ${pendingScheduleLabel} will be cancelled.`;
 }
 
+/** "Current publication" when nothing is live: "yet" only if it never was. */
+export function notPublishedLabel(hasPublicationHistory: boolean): string {
+  return hasPublicationHistory ? 'Not published.' : 'Not published yet.';
+}
+
 export function unpublishDoneMessage(hadPendingSchedule: boolean): string {
   return hadPendingSchedule
     ? 'Feed unpublished. The canonical URL now returns 404, and the scheduled publish was cancelled.'

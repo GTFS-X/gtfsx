@@ -7,14 +7,14 @@ import { MyFeedsSource } from './MyFeedsSource';
 import { resolveMyFeedImportData, type MyFeedItem } from '../../services/myFeedsImport';
 import type { WorkingStateAbsence } from '../../services/projectsApi';
 import { persistImportedFeed } from '../../services/importPersist';
-import { feedNeedsShapes } from '../../services/shapesFromStops';
+import { feedNeedsShapes, shapeCoverage, shapeCoverageCopy } from '../../services/shapesFromStops';
 import { detectRtapFeed } from '../../services/rtapDetect';
 import { parseMdbSourceId } from '../../services/mdbSourceId';
 import { downloadFeedZipViaImportApi } from '../../services/catalogDownload';
 import { ShapesFromStopsDialog } from '../shapes/ShapesFromStopsDialog';
 import { trackFeedImportFailed, trackFeedOpened, type FeedOrigin } from '../../services/trackBeacon';
 import {
-  checkpoint, createImportSession, isImportCancelled, sessionFetch, storeHasAnyFeedContent,
+  checkpoint, createImportSession, isImportCancelled, isImportOptionsStep, sessionFetch, storeHasAnyFeedContent,
   type ImportSession,
 } from './importGuards';
 
@@ -165,6 +165,18 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     sessionRef.current.close();
     onClose();
   }, [onClose]);
+
+  // Import Options (E2E E5): Escape cancels, like the × and Cancel buttons.
+  // Nothing has been written yet on this step, so the project is untouched.
+  const onOptionsStep = isImportOptionsStep(parsedData, importedCounts);
+  useEffect(() => {
+    if (!onOptionsStep) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onOptionsStep, handleClose]);
 
   const handleComplete = useCallback(async () => {
     if (!onComplete) {
@@ -543,6 +555,11 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     const needsShapes = feedNeedsShapes(
       storeState.trips, storeState.stopTimes, storeState.stops, storeState.shapes,
     );
+    // "No route geometry in this feed" only when that's true of every route;
+    // otherwise say how many routes lack it.
+    const coverageCopy = needsShapes
+      ? shapeCoverageCopy(shapeCoverage(storeState.trips, storeState.shapes))
+      : null;
     // RTAP detection is copy-only flavor, so prefer the just-parsed feed's own
     // feed_info/agency rows (parsedData) when we have them — merge mode never
     // writes the imported feed's metadata into the store, only its routes. The
@@ -601,7 +618,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-base">🛣️</span>
-                  <p className="font-heading font-bold text-sm text-dark-brown">No route geometry in this feed</p>
+                  <p className="font-heading font-bold text-sm text-dark-brown">{coverageCopy?.title}</p>
                 </div>
                 <p className="text-xs text-amber-700 leading-relaxed">
                   {/* Lead with the observed fact in every case; the RTAP line is
@@ -622,8 +639,7 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
                   {rtap.isRtap && rtap.confidence === 'low' && (
                     <>This has some of the hallmarks of a spreadsheet-based GTFS Builder export (the kind National RTAP provides), which often ships shapes.txt empty rather than leaving it out. </>
                   )}
-                  This feed has no usable route geometry, so trip planners will draw straight lines
-                  between stops instead of following the streets. GTFS·X can generate route geometry by
+                  {coverageCopy?.lead} GTFS·X can generate route geometry by
                   snapping each route's stop sequence to the road network.
                 </p>
                 <div className="flex gap-2 mt-2.5">
@@ -723,9 +739,19 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
     return (
       <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={handleClose}>
         <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-          <h3 className="font-heading font-bold text-lg text-dark-brown mb-1">
-            {initialSource === 'myfeeds' ? 'Import routes' : 'Import Options'}
-          </h3>
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <h3 className="font-heading font-bold text-lg text-dark-brown">
+              {initialSource === 'myfeeds' ? 'Import routes' : 'Import Options'}
+            </h3>
+            <button
+              type="button"
+              onClick={handleClose}
+              aria-label="Cancel import"
+              className="-mt-1 -mr-2 w-8 h-8 flex items-center justify-center rounded-md text-warm-gray hover:text-dark-brown hover:bg-cream text-xl leading-none"
+            >
+              ×
+            </button>
+          </div>
           <p className="text-xs text-warm-gray mb-4">{fileName}.zip — {parsedData.routes.length} route{parsedData.routes.length !== 1 ? 's' : ''}</p>
 
           {importWarnings.length > 0 && (
@@ -825,6 +851,12 @@ export function ImportDialog({ onClose, onComplete, completeLabel, initialSource
               className="px-4 py-2 text-sm text-warm-gray hover:text-dark-brown"
             >
               ← Back
+            </button>
+            <button
+              onClick={handleClose}
+              className="px-4 py-2 text-sm text-warm-gray hover:text-dark-brown"
+            >
+              Cancel
             </button>
             {mode === 'merge' && (
               <button

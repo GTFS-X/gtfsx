@@ -20,6 +20,16 @@ export interface AuthedUser {
    * (treat undefined as "not yet used" — the pricing page rehydrates via /me).
    */
   trialUsed?: boolean;
+  /**
+   * Whether the account has a password credential (GET /api/me). False for
+   * magic-link / Google-only accounts; undefined on login/signup responses.
+   */
+  hasPassword?: boolean;
+  /**
+   * Whether this session is a staff impersonation, from the server-side
+   * binding (GET /api/me). Undefined on login/signup responses.
+   */
+  impersonating?: boolean;
 }
 
 export interface MeResponse {

@@ -84,6 +84,15 @@ describe('pending-account activation drops unproven signup state', () => {
     expect(verify.status).toBe(302);
     // The squatter-chosen post-verify redirect is ignored.
     expect(locationPath(verify)).not.toBe('/orgs/accept');
+    // E2E A3: the redirect tells the client the password was discarded, so it
+    // can offer "set a password" instead of failing at the next login.
+    const loc = new URL(verify.headers.get('Location')!);
+    expect(loc.pathname).toBe('/pricing');
+    expect(loc.searchParams.get('source')).toBe('welcome');
+    expect(loc.searchParams.get('set_password')).toBe('1');
+    // E2E A4: /api/me reports the account has no password.
+    const me = await victim.json<{ user: { hasPassword: boolean } }>(await victim.get('/api/me'));
+    expect(me.user.hasPassword).toBe(false);
 
     const row = await dbGet<{ status: string; display_name: string }>(
       `SELECT status, display_name FROM user WHERE email = ?`,
@@ -110,6 +119,9 @@ describe('pending-account activation drops unproven signup state', () => {
     const verify = await owner.get(pathOf(link));
     expect(verify.status).toBe(302);
     expect(locationPath(verify)).toBe('/editor');
+    expect(verify.headers.get('Location')).not.toContain('set_password');
+    const me = await owner.json<{ user: { hasPassword: boolean } }>(await owner.get('/api/me'));
+    expect(me.user.hasPassword).toBe(true);
 
     const row = await dbGet<{ display_name: string }>(`SELECT display_name FROM user WHERE email = ?`, email);
     expect(row?.display_name).toBe('Owner');

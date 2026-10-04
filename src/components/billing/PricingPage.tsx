@@ -49,6 +49,7 @@ import {
   type AutoCheckoutPhase,
 } from './pricingUtils';
 import { TestModeBanner } from './TestModeBanner';
+import { SetPasswordNotice } from '../auth/SetPasswordNotice';
 import { TalkToSalesModal } from './TalkToSalesModal';
 
 // Fallback catalog used when the worker is unreachable (e.g. /pricing rendered
@@ -824,6 +825,7 @@ export function PricingPage() {
     <AuthLayout title={pageTitle} subtitle={pageSubtitle} wide>
       <div className="space-y-8">
         <TestModeBanner />
+        <SetPasswordNotice className="rounded-md border" />
 
         {/* Auto-checkout failures are surfaced inside the redirect modal, so
             suppress the inline banner then to avoid showing the error twice. */}

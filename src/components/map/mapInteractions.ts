@@ -60,6 +60,14 @@ export interface ShapeEditSnapshot {
 }
 
 /**
+ * Pre-edit points recorded by a caller that changes the shape BEFORE edit
+ * mode starts (Routes › Shapes › Simplify writes the simplified points, then
+ * enters edit_shape). Without it the edit-mode snapshot would be taken of the
+ * already-simplified points and Cancel would not restore the original.
+ */
+let primedShapeEditSnapshot: ShapeEditSnapshot | null = null;
+
+/**
  * Snapshot to keep when the edit effect runs for `shapeId`. A re-run for the
  * SAME shape (Simplify toggles editingShapeId null→id; the store write per
  * vertex drag re-renders) keeps the original snapshot, so Cancel still restores
@@ -70,8 +78,17 @@ export function nextShapeEditSnapshot(
   shapeId: string,
   points: ShapePoint[],
 ): ShapeEditSnapshot {
+  // A primed snapshot is consumed (or discarded) by the first edit that
+  // starts after it, so it can never leak into a later, unrelated edit.
+  const primed = primedShapeEditSnapshot;
+  primedShapeEditSnapshot = null;
   if (prev && prev.shapeId === shapeId) return prev;
+  if (primed && primed.shapeId === shapeId) return primed;
   return { shapeId, points: JSON.parse(JSON.stringify(points)) as ShapePoint[] };
+}
+
+export function primeShapeEditSnapshot(shapeId: string, points: ShapePoint[]): void {
+  primedShapeEditSnapshot = { shapeId, points: JSON.parse(JSON.stringify(points)) as ShapePoint[] };
 }
 
 /** True when a key event comes from a text field (the PlaceStopDialog name box,

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ulid } from 'ulidx';
 import type { AppContext, AuthedUser } from '../env';
 import {
+  accountDeleted,
   conflict,
   emailSendFailed,
   emailUnverified,
@@ -36,7 +37,13 @@ import {
   verifyChallengeCode,
   resendChallenge,
 } from './twofa';
-import { sendVerifyEmail, sendMagicLink, sendPasswordReset, sendWelcomeEmail } from '../email';
+import {
+  sendAccountDeletedNotice,
+  sendVerifyEmail,
+  sendMagicLink,
+  sendPasswordReset,
+  sendWelcomeEmail,
+} from '../email';
 import { maybeSendNewSigninAlert } from '../sms/alerts';
 import { TwilioVerifyError } from '../sms';
 import { verifyTurnstile } from '../util/turnstile';
@@ -254,9 +261,13 @@ function clearSignupBindingCookie(): string {
  * pending_verification → active on an activation that does not prove the
  * activator chose that state.
  */
-async function dropUnprovenSignupState(env: AppContext['Bindings'], userId: string, email: string): Promise<void> {
+async function dropUnprovenSignupState(
+  env: AppContext['Bindings'],
+  userId: string,
+  email: string,
+): Promise<{ droppedPassword: boolean }> {
   const now = Date.now();
-  await env.DB.prepare(`DELETE FROM credential WHERE user_id = ? AND kind = 'password'`)
+  const dropped = await env.DB.prepare(`DELETE FROM credential WHERE user_id = ? AND kind = 'password'`)
     .bind(userId)
     .run();
   const local = email.split('@')[0]?.trim().slice(0, 120) || 'Member';
@@ -264,7 +275,15 @@ async function dropUnprovenSignupState(env: AppContext['Bindings'], userId: stri
     .bind(local, now, userId)
     .run();
   await invalidateAuthTokensForUser(env, userId, 'verify_email');
+  return { droppedPassword: (dropped.meta?.changes ?? 0) > 0 };
 }
+
+/**
+ * Query flag on the post-verify redirect telling the client the signup
+ * password was discarded (unbound verify click), so it can explain why and
+ * offer to set one instead of failing silently at the next password login.
+ */
+export const SET_PASSWORD_NOTICE_PARAM = 'set_password';
 
 export const authRouter = new Hono<AppContext>();
 
@@ -609,8 +628,9 @@ authRouter.get('/verify', async (c) => {
   // clicker owns the inbox but did not choose the password / profile fields
   // on this pending account — drop them, and ignore the stored redirect.
   const bound = await isSignupBound(c.req.raw, resolved.metadata);
+  let droppedPassword = false;
   if (!bound) {
-    await dropUnprovenSignupState(c.env, userRow.id, userRow.email);
+    ({ droppedPassword } = await dropUnprovenSignupState(c.env, userRow.id, userRow.email));
   }
 
   const now = Date.now();
@@ -669,7 +689,10 @@ authRouter.get('/verify', async (c) => {
     : isSignupFlow
       ? '/pricing?source=welcome'
       : '/?welcome=1';
-  return c.redirect(`${c.env.APP_ORIGIN}${target}`, 302);
+  const notice = droppedPassword
+    ? `${target.includes('?') ? '&' : '?'}${SET_PASSWORD_NOTICE_PARAM}=1`
+    : '';
+  return c.redirect(`${c.env.APP_ORIGIN}${target}${notice}`, 302);
 });
 
 // ─── Resend verification email ─────────────────────────────────────────────
@@ -731,7 +754,10 @@ authRouter.post('/login', async (c) => {
   const ok = await verifyPassword(body.password, credential.password_hash);
   if (!ok) throw invalidCredentials();
 
-  if (user.status === 'deleted_soft' || user.status === 'disabled') {
+  // Only after the correct password: tell the owner why, same copy as the
+  // Google and magic-link paths.
+  if (user.status === 'deleted_soft') throw accountDeleted();
+  if (user.status === 'disabled') {
     throw forbidden('Account unavailable');
   }
 
@@ -855,7 +881,12 @@ authRouter.post('/magic-link/request', async (c) => {
   await rateLimit(c.env, { key: `auth:magic:email:${body.email}`, limit: 4, windowSec: 600 });
 
   const user = await findUserByEmail(c.env, body.email);
-  if (user && user.status !== 'deleted_soft') {
+  if (user && user.status === 'deleted_soft') {
+    // No sign-in link for an account scheduled for deletion. Tell the inbox
+    // owner why instead of sending nothing; the HTTP response is the same 204
+    // either way, so this adds no enumeration surface.
+    await sendAccountDeletedNotice(c.env, user.email);
+  } else if (user) {
     const token = await createAuthToken(c.env, { kind: 'magic_link', userId: user.id });
     const link = `${c.env.APP_ORIGIN}/auth/magic-link/consume?token=${token}`;
     await sendMagicLink(c.env, user.email, link);
@@ -887,7 +918,11 @@ authRouter.get('/magic-link/consume', async (c) => {
   )
     .bind(resolved.userId)
     .first<UserRow>();
-  if (!userRow || userRow.deleted_at || userRow.status === 'deleted_soft' || userRow.status === 'disabled') {
+  if (userRow && (userRow.deleted_at || userRow.status === 'deleted_soft')) {
+    // The link holder controls the inbox: say why, as the Google path does.
+    return c.redirect(`${c.env.APP_ORIGIN}/login?error=account_deleted`, 302);
+  }
+  if (!userRow || userRow.status === 'disabled') {
     return failRedirect();
   }
 

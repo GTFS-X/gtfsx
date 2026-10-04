@@ -406,6 +406,25 @@ describe('auth /google', () => {
     expect(await dbAll(`SELECT id FROM user WHERE email = ?`, 'gone-google@example.com')).toHaveLength(1);
   });
 
+  it('a soft-deleted account already linked to Google redirects to account_deleted (E2E A8)', async () => {
+    g = mockGoogle({ sub: 'g-linked-gone', email: 'linked-gone@example.com', email_verified: true, name: 'Gone' });
+    const first = makeClient();
+    const { state: s1 } = await startFlow(first);
+    expect(sessionCookieFrom(await first.get(`/auth/google/callback?code=abc&state=${s1}`))).toBeTruthy();
+    await dbRun(
+      `UPDATE user SET status = 'deleted_soft', deleted_at = ? WHERE email = ?`,
+      Date.now(), 'linked-gone@example.com',
+    );
+
+    const client = makeClient();
+    const { state } = await startFlow(client);
+    const cb = await client.get(`/auth/google/callback?code=abc&state=${state}`);
+    expect(cb.status).toBe(302);
+    expect(locationPath(cb)).toBe('/login');
+    expect(locationQuery(cb, 'error')).toBe('account_deleted');
+    expect(sessionCookieFrom(cb)).toBeNull();
+  });
+
   it('rejects when Google denies (callback carries ?error)', async () => {
     g = mockGoogle({ sub: 'g-deny', email: 'deny@example.com', email_verified: true });
     const client = makeClient();

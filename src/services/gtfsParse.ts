@@ -764,9 +764,15 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
       else if (dir === 1) route._direction_1_name = row.direction || undefined;
     }
   } else {
-    // Fallback: populate direction names from trip_headsign values
+    // Fallback: populate direction names from trip_headsign values. Prefer the
+    // route's fixed trips: a flex trip on a mixed route is stripped below and
+    // regenerated from its zone, and the export fills blank fixed-trip
+    // headsigns from these names, so a flex headsign here would be stamped onto
+    // the fixed trips. A flex-only route still takes its flex trip's headsign.
     for (const route of routes) {
-      const routeTrips = trips.filter((t) => t.route_id === route.route_id);
+      const allRouteTrips = trips.filter((t) => t.route_id === route.route_id);
+      const fixedRouteTrips = allRouteTrips.filter((t) => !flexTripIds.has(t.trip_id));
+      const routeTrips = fixedRouteTrips.length > 0 ? fixedRouteTrips : allRouteTrips;
       const dir0Trip = routeTrips.find((t) => t.direction_id === 0 && t.trip_headsign);
       const dir1Trip = routeTrips.find((t) => t.direction_id === 1 && t.trip_headsign);
       if (dir0Trip?.trip_headsign) route._direction_0_name = dir0Trip.trip_headsign;

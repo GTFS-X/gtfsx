@@ -12,7 +12,10 @@ describe('invitation preview', () => {
     expect(pickInvitePreview([inv('A'), inv('B')])).toBeNull();
     expect(pickInvitePreview([])).toBeNull();
     expect(invitationSubtitle(null)).toBe('Review and accept your invitation below.');
-    expect(invitationSubtitle(inv('A'))).toMatch(/join A as a editor/);
+    // E2E A7: article agrees with the role.
+    expect(invitationSubtitle(inv('A'))).toBe("You've been invited to join A as an editor.");
+    expect(invitationSubtitle({ orgName: 'A', role: 'admin' } as PendingInvitation)).toMatch(/as an admin\.$/);
+    expect(invitationSubtitle({ orgName: 'A', role: 'viewer' } as PendingInvitation)).toMatch(/as a viewer\.$/);
   });
   it('distinguishes unverified-email 403s', () => {
     expect(isUnverifiedEmailMessage('Please verify your email address before accepting invitations')).toBe(true);

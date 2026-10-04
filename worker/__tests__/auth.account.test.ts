@@ -74,8 +74,13 @@ describe('/api/me account management', () => {
     const req = await client.post('/api/me/change-email', { newEmail: 'new@example.com', currentPassword: user.password });
     expect(req.status).toBe(204);
 
-    // The verify email is sent to the NEW address.
-    expect(capture.emails.some((e) => e.to === 'new@example.com')).toBe(true);
+    // The confirmation is sent to the NEW address, with its own copy rather
+    // than the signup "Welcome… activate your account" template (E2E A6).
+    const mail = capture.emails.find((e) => e.to === 'new@example.com');
+    expect(mail).toBeTruthy();
+    expect(mail!.subject).toBe('Confirm your new email for GTFS·X');
+    expect(mail!.text).toMatch(/change the email on a GTFS·X account/);
+    expect(`${mail!.text}\n${mail!.html}`).not.toMatch(/Welcome|activate your account/i);
     const token = capture.tokenFor('new@example.com');
     expect(token).toBeTruthy();
 
@@ -290,7 +295,9 @@ describe('/api/me account security (W1-03, W1-06, W1-12, W1-15, W2-07)', () => {
     expect(((await blocked.json()) as { reason: string }).reason).toBe('active_subscription');
     expect((await dbGet<{ status: string }>(`SELECT status FROM user WHERE id = ?`, user.id))?.status).toBe('active');
 
-    await dbRun(`UPDATE subscription SET status = 'canceled' WHERE id = ?`, subRowId);
+    // Cancelled in the portal: Stripe keeps it `active` until period end with
+    // cancel_at_period_end set. That no longer blocks deleting the account.
+    await dbRun(`UPDATE subscription SET cancel_at_period_end = 1 WHERE id = ?`, subRowId);
     const ok = await client.delete('/api/me', { password: user.password });
     expect(ok.status).toBe(204);
   });

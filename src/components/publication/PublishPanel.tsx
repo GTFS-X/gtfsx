@@ -22,7 +22,7 @@ import { exportGtfsZip } from '../../services/gtfsExport';
 import { withTransientSnapshot } from '../../db/serverPersistence';
 import { DraftLinksSection, toEditorDeepLink } from './DraftLinksPanel';
 import { NtdP50Panel } from './NtdP50Panel';
-import { unpublishConfirmBody, unpublishDoneMessage } from './unpublishCopy';
+import { notPublishedLabel, unpublishConfirmBody, unpublishDoneMessage } from './unpublishCopy';
 
 // SPDX identifiers publishers actually use for open transit data. "Leave unset"
 // is a first-class choice — we never guess a license on someone's behalf.
@@ -162,10 +162,12 @@ export function PublishPanel() {
   const [scheduleAt, setScheduleAt] = useState('');
   const activeProject = feedsProjects.find((p) => p.id === projectId) ?? null;
 
+  // Reloads snapshots + publication state. Deliberately leaves the banner
+  // alone: every action (publish, schedule, cancel, unpublish, rollback) sets
+  // its result banner and then refreshes, so clearing here wiped them all.
   const refresh = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
-    setBanner(null);
     try {
       const [snapshotsRes, historyRes] = await Promise.all([
         listSnapshots(projectId),
@@ -187,7 +189,9 @@ export function PublishPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, setSnapshotList, setPublicationHistory, setCurrentPublication]);
 
+  // A different project: drop the previous project's banner, then load.
   useEffect(() => {
+    setBanner(null);
     refresh();
   }, [refresh]);
 
@@ -437,7 +441,7 @@ export function PublishPanel() {
               onUnpublish={() => setUnpublishConfirm(true)}
             />
           ) : (
-            <p className="text-sm text-warm-gray">Not published yet.</p>
+            <p className="text-sm text-warm-gray">{notPublishedLabel(publicationHistory.length > 0)}</p>
           )}
         </section>
 

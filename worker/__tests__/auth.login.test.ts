@@ -4,6 +4,7 @@ import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { ApiError, makeClient } from './_client';
 import {
   applyMigrations,
+  dbRun,
   resetDb,
   seedUser,
   setupEmailCapture,
@@ -129,6 +130,25 @@ describe('auth /login', () => {
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('forbidden');
+  });
+
+  // E2E A8: a soft-deleted account gets the same "scheduled for deletion"
+  // copy as Google, but only after the correct password.
+  it('soft-deleted user: correct password → 403 account_deleted; wrong password → 401', async () => {
+    const user = await seedUser({ email: 'gone-pw@example.com', password: 'correct-horse-battery' });
+    await dbRun(`UPDATE user SET status = 'deleted_soft', deleted_at = ? WHERE id = ?`, Date.now(), user.id);
+
+    const wrong = await makeClient().post('/auth/login', { email: user.email, password: 'not-the-password' });
+    expect(wrong.status).toBe(401);
+    expect(((await wrong.json()) as { reason?: string }).reason).toBeUndefined();
+
+    const client = makeClient();
+    const res = await client.post('/auth/login', { email: user.email, password: user.password });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string; reason: string; message: string };
+    expect(body.reason).toBe('account_deleted');
+    expect(body.message).toMatch(/scheduled for deletion.*hello@gtfsx\.com within 30 days/);
+    expect(client.cookie).toBeNull();
   });
 
   it('propagates ApiError to json() for non-2xx responses (client sanity check)', async () => {

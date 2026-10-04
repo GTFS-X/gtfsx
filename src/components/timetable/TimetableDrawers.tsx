@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Drawer } from '../ui/Drawer';
 import { formatTimeShort, secondsToGtfsTime } from '../../utils/time';
-import { checkFrequencyDrawer, frequencyTimeLabel } from './timetableGridHelpers';
+import { checkFrequencyDrawer, frequencyTimeLabel, headwayMinutesInput, parseHeadwayMinutes } from './timetableGridHelpers';
 import type { GenerateValidation, TimetableGenMode } from '../../services/timetableGen';
 import { windowDepartureCount, type FrequencyWindow } from '../../services/frequencyExpansion';
 
@@ -276,8 +276,9 @@ export function FrequencyDrawer({
         return (
           <div key={i} className="basis-full flex items-center gap-2 flex-wrap">
             <span>Every</span>
-            <input className={TIN_NUM} type="number" min={1} value={Math.max(1, Math.round(w.headway_secs / 60))}
-              onChange={(e) => setW(i, { headway_secs: Math.max(1, Number(e.target.value) || 0) * 60 })} />
+            <input className={TIN_NUM} type="number" min={1} aria-label={`Window ${i + 1} headway minutes`}
+              value={headwayMinutesInput(w.headway_secs)}
+              onChange={(e) => setW(i, { headway_secs: parseHeadwayMinutes(e.target.value) })} />
             <span>min from</span>
             <input className={TIN_TIME} aria-label={`Window ${i + 1} start`} value={w.start_time} onChange={(e) => setW(i, { start_time: e.target.value })} />
             <span>to</span>

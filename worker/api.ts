@@ -34,12 +34,13 @@ import {
   consumeAuthToken,
   invalidateAuthTokensForUser,
 } from './auth/tokens';
-import { sendEmailChangedNotice, sendVerifyEmail } from './email';
+import { sendEmailChangeConfirm, sendEmailChangedNotice } from './email';
 import { projectsRouter } from './projects/routes';
 import { registerAlertRoutes } from './projects/alerts';
 import { computeUserUsage } from './me/usage';
 import { getUserTrialUsed } from './billing/trial';
 import { hasLiveSubscription, orgsWithLiveSubscriptionSoleOwnedBy } from './billing/liveSubscription';
+import { readImpersonationBinding } from './admin/impersonation';
 import { buildUserExport, EXPORT_RATE_KEY_PREFIX, EXPORT_RATE_WINDOW_SEC } from './me/export';
 
 const emailSchema = z.string().trim().toLowerCase().email();
@@ -136,6 +137,19 @@ apiRouter.get('/me', requireAuth, async (c) => {
   // Whether this user has already consumed their one self-serve trial — drives
   // whether the pricing page offers the no-card "Start free trial" CTA.
   const trialUsed = await getUserTrialUsed(c.env, user.id);
+  // Whether the account has a password credential. Magic-link / Google-only
+  // accounts (and unbound verify activations) don't, so account settings
+  // offers "Set a password" instead of a change form needing a current one.
+  const passwordRow = await c.env.DB.prepare(
+    `SELECT 1 AS n FROM credential WHERE user_id = ? AND kind = 'password' AND password_hash IS NOT NULL LIMIT 1`,
+  )
+    .bind(user.id)
+    .first<{ n: number }>();
+  // Whether this session is a staff impersonation (server-side binding, not
+  // the client's gb_staff_id hint), so the banner reflects reality.
+  const session = c.var.session;
+  const binding = session ? await readImpersonationBinding(c.env, session.id) : null;
+  const impersonating = !!binding && binding.targetUserId === user.id;
   return c.json({
     user: {
       id: user.id,
@@ -146,6 +160,8 @@ apiRouter.get('/me', requireAuth, async (c) => {
       plan: user.plan,
       planStatus: user.planStatus,
       trialUsed,
+      hasPassword: !!passwordRow,
+      impersonating,
     },
     usage: { user: usage },
   });
@@ -251,7 +267,7 @@ apiRouter.post('/me/change-email', requireAuth, async (c) => {
     metadata: { targetEmail: body.newEmail, flow: 'change_email' },
   });
   const link = `${c.env.APP_ORIGIN}/change-email?token=${token}`;
-  await sendVerifyEmail(c.env, body.newEmail, link);
+  await sendEmailChangeConfirm(c.env, body.newEmail, link);
 
   await logAudit(c.env, {
     actorUserId: user.id,
@@ -582,8 +598,11 @@ apiRouter.delete('/me', requireAuth, async (c) => {
   // A live Stripe subscription must be canceled (billing portal) before the
   // account that alone controls it goes away — otherwise the customer keeps
   // being charged with no self-serve way back to the portal.
-  const blockingOrgs = await orgsWithLiveSubscriptionSoleOwnedBy(c.env, user.id);
-  if (blockingOrgs.length > 0 || (await hasLiveSubscription(c.env, 'user', user.id))) {
+  // A subscription already cancelled at period end doesn't block: it stops
+  // billing on its own (the reaper still waits for it before hard-purging).
+  const deletionOpts = { ignoreScheduledCancel: true };
+  const blockingOrgs = await orgsWithLiveSubscriptionSoleOwnedBy(c.env, user.id, deletionOpts);
+  if (blockingOrgs.length > 0 || (await hasLiveSubscription(c.env, 'user', user.id, deletionOpts))) {
     throw conflict(
       'Cancel your active subscription in the billing portal before deleting your account.',
       { reason: 'active_subscription', orgs: blockingOrgs },
