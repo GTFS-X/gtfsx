@@ -678,7 +678,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
               ? num(r.duration_limit)
               : undefined,
             duration_limit_type: r.duration_limit_type !== undefined && r.duration_limit_type !== ''
-              ? (num(r.duration_limit_type) as 0 | 1)
+              ? (num(r.duration_limit_type) as 0 | 1 | 2 | 3)
               : undefined,
             fare_transfer_type: (num(r.fare_transfer_type) as 0 | 1 | 2),
             fare_product_id: r.fare_product_id || undefined,

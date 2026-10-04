@@ -345,19 +345,26 @@ export interface FareLegRule {
 export interface FareTransferRule {
   from_leg_group_id?: string;
   to_leg_group_id?: string;
-  transfer_count?: number; // -1 for unlimited
+  /** -1 = unlimited, else ≥ 1. Required iff from == to leg group; forbidden otherwise. */
+  transfer_count?: number;
   duration_limit?: number; // seconds
   /**
-   * 0 = between sequential legs only,
-   * 1 = duration calculated from the start of the previous leg.
+   * Required iff duration_limit is set. Where the limit is measured from/to:
+   * 0 = departure of the current leg → arrival of the next leg,
+   * 1 = departure of the current leg → departure of the next leg,
+   * 2 = arrival of the current leg → departure of the next leg,
+   * 3 = arrival of the current leg → arrival of the next leg.
    */
-  duration_limit_type?: 0 | 1;
+  duration_limit_type?: 0 | 1 | 2 | 3;
   /**
-   * 0 = no cost on transfer (free transfer),
-   * 1 = fare_product_id is the price of the transfer,
-   * 2 = fare_product_id is the discount applied to the next leg.
+   * How the cost is computed (A = first leg, B = next leg, AB = this rule's
+   * fare_product_id):
+   * 0 = A + AB (pay the first leg plus the transfer product),
+   * 1 = A + AB + B (pay both legs plus the transfer product),
+   * 2 = AB (the transfer product replaces both legs).
    */
   fare_transfer_type: 0 | 1 | 2;
+  /** Optional for every type: empty means the transfer itself costs 0. */
   fare_product_id?: string;
 }
 

@@ -157,6 +157,20 @@ export const DISMISSIBLE_RULE_LABELS: Record<string, string> = {
   [VALIDATION_CODES.translationDefaultLangUnused]: 'default_lang has no translations',
 };
 
+/**
+ * Every store key runValidation reads (directly or through its helpers). A
+ * memoized caller must depend on all of them, or messages go stale — e.g.
+ * translations / feed_info issues that never cleared after a fix. Build the
+ * memo deps from this list rather than hand-copying it.
+ */
+export const VALIDATION_INPUT_KEYS = [
+  'agencies', 'calendars', 'calendarDates', 'routes', 'routeStops', 'stops', 'trips', 'stopTimes',
+  'shapes', 'frequencies', 'transfers', 'levels', 'pathways', 'feedInfo', 'translations',
+  'fareAttributes', 'fareRules', 'fareAreas', 'stopAreas', 'fareNetworks', 'routeNetworks',
+  'timeframes', 'riderCategories', 'fareMedia', 'fareProducts', 'fareLegRules', 'fareTransferRules',
+  'flexZones', 'featureSettings',
+] as const satisfies readonly (keyof AppStore)[];
+
 let msgId = 0;
 function msg(
   severity: 'error' | 'warning',
@@ -1002,50 +1016,6 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     }
   }
 
-  // ── Block overlap (#16) — soft warning ─────────────────────────────────
-  // Two trips in the same block (one vehicle) on the same service day can't
-  // run at once. Compute each trip's time span from its stop_times and flag
-  // overlapping trips within a (block_id, service_id) group.
-  const tripSpan = new Map<string, { start: number; end: number }>();
-  for (const st of state.stopTimes) {
-    const t = st.departure_time || st.arrival_time;
-    if (!t) continue;
-    const sec = gtfsTimeToSeconds(t);
-    const span = tripSpan.get(st.trip_id);
-    if (!span) tripSpan.set(st.trip_id, { start: sec, end: sec });
-    else {
-      if (sec < span.start) span.start = sec;
-      if (sec > span.end) span.end = sec;
-    }
-  }
-  const blockGroups = new Map<string, { trip_id: string; start: number; end: number }[]>();
-  for (const t of state.trips) {
-    if (!t.block_id) continue;
-    const span = tripSpan.get(t.trip_id);
-    if (!span) continue;
-    const key = `${t.block_id} ${t.service_id}`;
-    const list = blockGroups.get(key) ?? [];
-    list.push({ trip_id: t.trip_id, start: span.start, end: span.end });
-    blockGroups.set(key, list);
-  }
-  for (const [key, blockTrips] of blockGroups) {
-    if (blockTrips.length < 2) continue;
-    const blockId = key.split(' ')[0];
-    const sorted = [...blockTrips].sort((a, b) => a.start - b.start);
-    let maxEnd = sorted[0].end;
-    let holder = sorted[0].trip_id;
-    for (let i = 1; i < sorted.length; i++) {
-      if (sorted[i].start < maxEnd) {
-        messages.push(msg(
-          'warning',
-          `Trips "${holder}" and "${sorted[i].trip_id}" in block "${blockId}" overlap in time — a vehicle can't run two trips at once.`,
-          'trip', sorted[i].trip_id,
-        ));
-      }
-      if (sorted[i].end > maxEnd) { maxEnd = sorted[i].end; holder = sorted[i].trip_id; }
-    }
-  }
-
   // ── Holiday-exception nudge (#17) — soft warning ───────────────────────
   // Flag major US holidays that fall on a day a service runs, inside its
   // active range, with no calendar_dates exception. Scan at most the first
@@ -1272,11 +1242,31 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     }
   }
 
-  // fare_products.txt -- id unique, amount + currency required, FK refs resolve.
-  const productIdSet = flagDuplicateIds(
-    state.fareProducts.map((p) => ({ id: p.fare_product_id })),
-    'fare_products.txt', 'fare_product_id', 'fare_product',
-  );
+  // fare_products.txt -- the primary key is (fare_product_id, rider_category_id,
+  // fare_media_id): one product may have an adult and a senior row, so only a
+  // repeat of the whole key is a duplicate. FK references (leg/transfer rules)
+  // name the plain fare_product_id. Amount + currency required, FK refs resolve.
+  const productIdSet = new Set<string>();
+  const productKeyCounts = new Map<string, number>();
+  for (const p of state.fareProducts) {
+    if (!p.fare_product_id) {
+      messages.push(msg('error', 'A row in fare_products.txt is missing fare_product_id.', 'fare_product'));
+      continue;
+    }
+    productIdSet.add(p.fare_product_id);
+    const key = `${p.fare_product_id}\u0001${p.rider_category_id ?? ''}\u0001${p.fare_media_id ?? ''}`;
+    productKeyCounts.set(key, (productKeyCounts.get(key) ?? 0) + 1);
+  }
+  for (const [key, n] of productKeyCounts) {
+    if (n < 2) continue;
+    const [id, rider, media] = key.split('\u0001');
+    const qual = [rider && `rider category "${rider}"`, media && `fare medium "${media}"`].filter(Boolean).join(' and ');
+    messages.push(msg(
+      'error',
+      `fare_product_id "${id}"${qual ? ` with ${qual}` : ''} is defined ${n} times in fare_products.txt -- each (fare_product_id, rider_category_id, fare_media_id) must be unique.`,
+      'fare_product', id,
+    ));
+  }
   for (const p of state.fareProducts) {
     if (!p.fare_product_id) continue;
     if (p.amount === '' || p.amount == null) {
@@ -1296,11 +1286,25 @@ export function runValidation(state: AppStore): ValidationMessage[] {
   // timeframes.txt -- service_id required + must resolve; collect group ids.
   const timeframeGroupIdSet = new Set<string>();
   const reportedTimeframeMissingService = new Set<string>();
+  const tfTimeOk = (t: string) => /^\d{1,2}:\d{2}:\d{2}$/.test(t)
+    && Number(t.split(':')[1]) <= 59 && Number(t.split(':')[2]) <= 59
+    && gtfsTimeToSeconds(t) <= 24 * 3600;
   for (const tf of state.timeframes) {
     if (tf.timeframe_group_id) timeframeGroupIdSet.add(tf.timeframe_group_id);
+    const group = tf.timeframe_group_id || '(unnamed)';
+    // start_time and end_time are each required when the other is set; values
+    // run 00:00:00–24:00:00.
+    if (!!tf.start_time !== !!tf.end_time) {
+      messages.push(msg('error', `A timeframe in group "${group}" sets ${tf.start_time ? 'start_time' : 'end_time'} without ${tf.start_time ? 'end_time' : 'start_time'} -- both are required when either is set.`, 'timeframe', tf.timeframe_group_id));
+    }
+    for (const [field, value] of [['start_time', tf.start_time], ['end_time', tf.end_time]] as const) {
+      if (value && !tfTimeOk(value)) {
+        messages.push(msg('error', `A timeframe in group "${group}" has ${field} "${value}" -- must be HH:MM:SS, at most 24:00:00.`, 'timeframe', tf.timeframe_group_id));
+      }
+    }
     if (!tf.service_id) {
       messages.push(msg('error', `A timeframe in group "${tf.timeframe_group_id || '(unnamed)'}" is missing service_id.`, 'timeframe', tf.timeframe_group_id));
-    } else if (!serviceIdSet.has(tf.service_id) &&!reportedTimeframeMissingService.has(tf.service_id)) {
+    } else if (!serviceIdSet.has(tf.service_id) && !reportedTimeframeMissingService.has(tf.service_id)) {
       reportedTimeframeMissingService.add(tf.service_id);
       messages.push(msg('error', `Timeframe references non-existent service "${tf.service_id}".`, 'timeframe', tf.timeframe_group_id));
     }
@@ -1333,15 +1337,41 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     }
   });
 
-  // fare_transfer_rules.txt -- type required; product required for types 1/2
-  // and must resolve; leg-group refs resolve.
+  // fare_transfer_rules.txt -- type required; fare_product_id is OPTIONAL for
+  // every type (empty = the transfer costs 0) but must resolve when set;
+  // duration_limit and duration_limit_type come as a pair; transfer_count is
+  // required when from == to leg group and forbidden otherwise; leg-group refs
+  // resolve.
   state.fareTransferRules.forEach((r, i) => {
     const ref = `#${i + 1}`;
     if (r.fare_transfer_type == null || Number.isNaN(Number(r.fare_transfer_type))) {
       messages.push(msg('error', `Transfer rule ${ref} is missing fare_transfer_type (required).`, 'fare_transfer_rule'));
+    } else if (![0, 1, 2].includes(Number(r.fare_transfer_type))) {
+      messages.push(msg('error', `Transfer rule ${ref} has fare_transfer_type ${r.fare_transfer_type} -- must be 0, 1 or 2.`, 'fare_transfer_rule'));
     }
-    if ((r.fare_transfer_type === 1 || r.fare_transfer_type === 2) && !r.fare_product_id) {
-      messages.push(msg('error', `Transfer rule ${ref} has fare_transfer_type ${r.fare_transfer_type} but no fare_product_id.`, 'fare_transfer_rule'));
+    const hasLimit = r.duration_limit != null && !Number.isNaN(Number(r.duration_limit));
+    const hasLimitType = r.duration_limit_type != null && !Number.isNaN(Number(r.duration_limit_type));
+    if (hasLimit && !hasLimitType) {
+      messages.push(msg('error', `Transfer rule ${ref} sets duration_limit but not duration_limit_type (required when duration_limit is set).`, 'fare_transfer_rule'));
+    } else if (!hasLimit && hasLimitType) {
+      messages.push(msg('error', `Transfer rule ${ref} sets duration_limit_type without a duration_limit.`, 'fare_transfer_rule'));
+    }
+    if (hasLimitType && ![0, 1, 2, 3].includes(Number(r.duration_limit_type))) {
+      messages.push(msg('error', `Transfer rule ${ref} has duration_limit_type ${r.duration_limit_type} -- must be 0, 1, 2 or 3.`, 'fare_transfer_rule'));
+    }
+    if (hasLimit && Number(r.duration_limit) <= 0) {
+      messages.push(msg('error', `Transfer rule ${ref} has duration_limit ${r.duration_limit} -- must be a positive number of seconds.`, 'fare_transfer_rule'));
+    }
+    // Mirrors MobilityData's validator: "same group" needs both ids set.
+    const sameGroup = !!r.from_leg_group_id && r.from_leg_group_id === r.to_leg_group_id;
+    const hasCount = r.transfer_count != null && !Number.isNaN(Number(r.transfer_count));
+    if (sameGroup && !hasCount) {
+      messages.push(msg('error', `Transfer rule ${ref} transfers within the same leg group but has no transfer_count (required when from_leg_group_id equals to_leg_group_id).`, 'fare_transfer_rule'));
+    } else if (!sameGroup && hasCount) {
+      messages.push(msg('error', `Transfer rule ${ref} sets transfer_count, which is forbidden when from_leg_group_id and to_leg_group_id differ.`, 'fare_transfer_rule'));
+    }
+    if (hasCount && (Number(r.transfer_count) === 0 || Number(r.transfer_count) < -1 || !Number.isInteger(Number(r.transfer_count)))) {
+      messages.push(msg('error', `Transfer rule ${ref} has transfer_count ${r.transfer_count} -- must be -1 (unlimited) or a positive integer.`, 'fare_transfer_rule'));
     }
     if (r.fare_product_id && !productIdSet.has(r.fare_product_id)) {
       messages.push(msg('error', `Transfer rule ${ref} references non-existent fare product "${r.fare_product_id}".`, 'fare_transfer_rule'));
@@ -1360,7 +1390,7 @@ export function runValidation(state: AppStore): ValidationMessage[] {
   for (const o of findBlockOverlaps(state.trips, state.stopTimes)) {
     messages.push(msg(
       'warning',
-      `Block ${o.blockId} has two trips overlapping at ${formatTimeShort(secondsToGtfsTime(o.atSec))} on service "${o.serviceId}" — one vehicle can't run both.`,
+      `Two trips in block "${o.blockId}" overlap at ${formatTimeShort(secondsToGtfsTime(o.atSec))} on service "${o.serviceId}" — one vehicle can't run both.`,
       'trip',
       o.tripB,
     ));

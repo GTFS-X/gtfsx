@@ -206,6 +206,10 @@ const FIXES: Record<ValidationFixId, ValidationFix> = {
     apply: () => {
       const before = useStore.getState().translations;
       const drop = omittedTranslationIndices(useStore.getState());
+      // Undo re-inserts ONLY the removed rows (at their original positions)
+      // into whatever the table holds then, so translation edits made after
+      // the fix survive the undo.
+      const removed = [...new Set(drop)].sort((a, b) => a - b).map((i) => [i, before[i]] as const);
       if (drop.length > 0) useStore.getState().removeTranslationsAt(drop);
       return {
         fixId: 'remove-invalid-translations',
@@ -213,7 +217,14 @@ const FIXES: Record<ValidationFixId, ValidationFix> = {
         label: drop.length > 0
           ? `Removed ${drop.length} invalid translation${drop.length === 1 ? '' : 's'}.`
           : 'No invalid translations left to remove.',
-        undo: () => { if (drop.length > 0) useStore.getState().setTranslations(before); },
+        undo: () => {
+          if (removed.length === 0) return;
+          const next = [...useStore.getState().translations];
+          // Ascending original indices: each insert lands where the row was,
+          // relative to the rows that were kept.
+          for (const [i, row] of removed) next.splice(Math.min(i, next.length), 0, row);
+          useStore.getState().setTranslations(next);
+        },
       };
     },
   },
