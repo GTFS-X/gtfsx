@@ -6,7 +6,7 @@ import { AuthButton } from './AuthButton';
 import { GoogleSignInButton, AuthDivider } from './GoogleSignInButton';
 import { login, requestMagicLink, resendVerification, verify2fa, resend2fa, ApiError } from '../../services/authApi';
 import { useStore } from '../../store';
-import { loginRedirectErrorMessage } from './loginErrors';
+import { ACCOUNT_DELETED_CONFIRMATION, ACCOUNT_DELETED_PARAM, loginRedirectErrorMessage } from './loginErrors';
 
 type Tab = 'password' | 'magic';
 
@@ -53,6 +53,7 @@ export function LoginPage() {
 
   const redirectError = loginRedirectErrorMessage(searchParams.get('error'));
   const resetSuccess = searchParams.get('reset') === '1';
+  const accountDeleted = searchParams.get(ACCOUNT_DELETED_PARAM) === '1';
 
   // Preserve `next` when sending the user to sign up — e.g. a /pricing card
   // click for a logged-out user lands here, and choosing "create an account"
@@ -289,6 +290,11 @@ export function LoginPage() {
           className="mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm"
         >
           {redirectError}
+        </div>
+      )}
+      {accountDeleted && (
+        <div role="status" className="mb-4 px-3 py-2 rounded-lg bg-teal-light text-teal text-sm">
+          {ACCOUNT_DELETED_CONFIRMATION}
         </div>
       )}
       {resetSuccess && (

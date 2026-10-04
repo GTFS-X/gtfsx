@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ulid } from 'ulidx';
 import type { AppContext, AuthedUser } from '../env';
 import {
+  accountDeleted,
   conflict,
   emailSendFailed,
   emailUnverified,
@@ -36,7 +37,13 @@ import {
   verifyChallengeCode,
   resendChallenge,
 } from './twofa';
-import { sendVerifyEmail, sendMagicLink, sendPasswordReset, sendWelcomeEmail } from '../email';
+import {
+  sendAccountDeletedNotice,
+  sendVerifyEmail,
+  sendMagicLink,
+  sendPasswordReset,
+  sendWelcomeEmail,
+} from '../email';
 import { maybeSendNewSigninAlert } from '../sms/alerts';
 import { TwilioVerifyError } from '../sms';
 import { verifyTurnstile } from '../util/turnstile';
@@ -747,7 +754,10 @@ authRouter.post('/login', async (c) => {
   const ok = await verifyPassword(body.password, credential.password_hash);
   if (!ok) throw invalidCredentials();
 
-  if (user.status === 'deleted_soft' || user.status === 'disabled') {
+  // Only after the correct password: tell the owner why, same copy as the
+  // Google and magic-link paths.
+  if (user.status === 'deleted_soft') throw accountDeleted();
+  if (user.status === 'disabled') {
     throw forbidden('Account unavailable');
   }
 
@@ -871,7 +881,12 @@ authRouter.post('/magic-link/request', async (c) => {
   await rateLimit(c.env, { key: `auth:magic:email:${body.email}`, limit: 4, windowSec: 600 });
 
   const user = await findUserByEmail(c.env, body.email);
-  if (user && user.status !== 'deleted_soft') {
+  if (user && user.status === 'deleted_soft') {
+    // No sign-in link for an account scheduled for deletion. Tell the inbox
+    // owner why instead of sending nothing; the HTTP response is the same 204
+    // either way, so this adds no enumeration surface.
+    await sendAccountDeletedNotice(c.env, user.email);
+  } else if (user) {
     const token = await createAuthToken(c.env, { kind: 'magic_link', userId: user.id });
     const link = `${c.env.APP_ORIGIN}/auth/magic-link/consume?token=${token}`;
     await sendMagicLink(c.env, user.email, link);
@@ -903,7 +918,11 @@ authRouter.get('/magic-link/consume', async (c) => {
   )
     .bind(resolved.userId)
     .first<UserRow>();
-  if (!userRow || userRow.deleted_at || userRow.status === 'deleted_soft' || userRow.status === 'disabled') {
+  if (userRow && (userRow.deleted_at || userRow.status === 'deleted_soft')) {
+    // The link holder controls the inbox: say why, as the Google path does.
+    return c.redirect(`${c.env.APP_ORIGIN}/login?error=account_deleted`, 302);
+  }
+  if (!userRow || userRow.status === 'disabled') {
     return failRedirect();
   }
 

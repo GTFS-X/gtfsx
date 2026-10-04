@@ -31,6 +31,7 @@ import { deleteBlockedMessage } from '../billing/billingErrors';
 import { useStore } from '../../store';
 import { signOutLocally } from '../layout/signOut';
 import { passwordSectionMode } from './passwordNoticeHelpers';
+import { ACCOUNT_DELETED_PARAM, DELETE_ACCOUNT_DESCRIPTION } from './loginErrors';
 
 export function AccountSettingsPage() {
   const navigate = useNavigate();
@@ -144,7 +145,8 @@ export function AccountSettingsPage() {
         email={currentUser.email}
         onDeleted={async () => {
           await signOutLocally();
-          navigate('/');
+          // Land somewhere that confirms what just happened (E2E A8).
+          navigate(`/login?${ACCOUNT_DELETED_PARAM}=1`);
         }}
       />
     </AuthLayout>
@@ -955,7 +957,7 @@ function DeleteAccountSection({
     <section>
       <SectionHeader
         title="Delete account"
-        description="Your data will be permanently removed 30 days after deletion (grace period). Published feeds remain available unless you take them down. Deletion can't be undone from the app. Email hello@gtfsx.com within 30 days if you change your mind."
+        description={DELETE_ACCOUNT_DESCRIPTION}
       />
       {step === 'idle' ? (
         <AuthButton variant="danger" onClick={() => setStep('confirm')}>

@@ -90,6 +90,24 @@ export async function sendEmailChangeConfirm(env: Env, to: string, link: string)
   });
 }
 
+/**
+ * Reply to a sign-in link request for an account scheduled for deletion: no
+ * link, just why and how to restore it within the 30-day window.
+ */
+export async function sendAccountDeletedNotice(env: Env, to: string): Promise<void> {
+  await send(env, {
+    to,
+    subject: 'Your GTFS·X account is scheduled for deletion',
+    html: wrap(`
+      <p>Someone asked for a sign-in link for this address, but the GTFS·X account that uses it was deleted, so we didn't send one.</p>
+      <p>Deleted accounts are permanently removed 30 days after deletion. If you want it restored before then, write to <a href="mailto:hello@gtfsx.com">hello@gtfsx.com</a>.</p>
+    `),
+    text:
+      `Someone asked for a sign-in link for this address, but the GTFS·X account that uses it was deleted, so we didn't send one.\n\n` +
+      `Deleted accounts are permanently removed 30 days after deletion. If you want it restored before then, write to hello@gtfsx.com.`,
+  });
+}
+
 /** "a editor" → "an editor". */
 export function withArticle(word: string): string {
   return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`;

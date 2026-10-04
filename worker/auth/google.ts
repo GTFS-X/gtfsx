@@ -308,7 +308,12 @@ googleRouter.get('/callback', async (c) => {
   let auditAction: string;
 
   if (byCredential) {
-    if (byCredential.deleted_at || byCredential.status === 'deleted_soft' || byCredential.status === 'disabled') {
+    if (byCredential.deleted_at || byCredential.status === 'deleted_soft') {
+      // Same copy as the link-by-email branch below.
+      c.header('Set-Cookie', clearStateCookie());
+      return c.redirect(`${origin}/login?error=account_deleted`, 302);
+    }
+    if (byCredential.status === 'disabled') {
       return fail();
     }
     userId = byCredential.id;

@@ -56,6 +56,35 @@ describe('auth /magic-link', () => {
     expect(capture.emails).toHaveLength(0);
   });
 
+  // E2E A8: soft-deleted accounts get the deletion copy, not "invalid link".
+  it('request for a soft-deleted account sends a deletion notice (no link) and still returns 204', async () => {
+    const user = await seedUser({ email: 'gone-magic@example.com' });
+    await dbRun(`UPDATE user SET status = 'deleted_soft', deleted_at = ? WHERE id = ?`, Date.now(), user.id);
+    const res = await makeClient().post('/auth/magic-link/request', { email: user.email });
+    expect(res.status).toBe(204);
+    expect(capture.emails).toHaveLength(1);
+    expect(capture.emails[0].subject).toBe('Your GTFS·X account is scheduled for deletion');
+    expect(capture.emails[0].text).toMatch(/permanently removed 30 days after deletion/);
+    expect(capture.linkFor(user.email) ?? '').not.toContain('/auth/magic-link/consume');
+    const tokens = await dbGet<{ n: number }>(`SELECT COUNT(*) AS n FROM auth_token WHERE kind = 'magic_link'`);
+    expect(tokens?.n).toBe(0);
+  });
+
+  it('consuming a link issued before the account was deleted redirects to account_deleted', async () => {
+    const user = await seedUser({ email: 'gone-later@example.com' });
+    const client = makeClient();
+    await client.post('/auth/magic-link/request', { email: user.email });
+    const token = capture.tokenFor(user.email);
+    expect(token).toBeTruthy();
+    await dbRun(`UPDATE user SET status = 'deleted_soft', deleted_at = ? WHERE id = ?`, Date.now(), user.id);
+
+    const consume = await client.get(`/auth/magic-link/consume?token=${token}`);
+    expect(consume.status).toBe(302);
+    expect(locationPath(consume)).toBe('/login');
+    expect(locationQuery(consume, 'error')).toBe('account_deleted');
+    expect(client.cookie).toBeNull();
+  });
+
   it('consume with an expired token redirects to /login?error=magic_link_invalid', async () => {
     const user = await seedUser({ email: 'expire-magic@example.com' });
     const client = makeClient();
