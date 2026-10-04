@@ -7,6 +7,8 @@ import { RailSubHeading } from '../ui/RailHeadings';
 import { EditActions } from '../ui/EditActions';
 import { generateId } from '../../services/idGenerator';
 import type { FareArea } from '../../types/gtfs';
+import { describeRemovalBlockers } from './fareEditorHelpers';
+import { RemovalBlockedNotice } from './RemovalBlockedNotice';
 
 /**
  * GTFS-Fares v2 Areas editor (areas.txt + stop_areas.txt). Phase 1 of the v2
@@ -36,6 +38,8 @@ export function AreasEditor() {
   // the mapping rows on every keystroke.
   const [idDraft, setIdDraft] = useState('');
   const [idError, setIdError] = useState<string | undefined>();
+  // Why the last delete was refused (S1-16); cleared when the selection changes.
+  const [blocked, setBlocked] = useState<string | null>(null);
   const [stopFilter, setStopFilter] = useState('');
   // Result of the most recent polygon (lasso) stop selection, shown briefly
   // under the controls. { added } is how many NEW stops the polygon added to
@@ -93,6 +97,7 @@ export function AreasEditor() {
 
   const openArea = (id: string | null) => {
     setSelectedAreaId(id);
+    setBlocked(null);
     const a = fareAreas.find((x) => x.area_id === id);
     setIdDraft(a?.area_id ?? '');
     setIdError(undefined);
@@ -212,12 +217,14 @@ export function AreasEditor() {
         </h2>
         <EditActions
           onDelete={() => {
-            removeFareArea(selectedArea.area_id);
-            openArea(null);
+            const result = removeFareArea(selectedArea.area_id);
+            if (result.removed) openArea(null);
+            else setBlocked(describeRemovalBlockers('this area', result, useStore.getState()));
           }}
           deleteTitle="Delete this area"
         />
       </div>
+      <RemovalBlockedNotice message={blocked} onDismiss={() => setBlocked(null)} />
 
       <FormField
         label="Area ID"

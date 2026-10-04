@@ -5,23 +5,21 @@ import { Breadcrumb } from '../ui/Breadcrumb';
 import { RailSubHeading } from '../ui/RailHeadings';
 import { EditActions } from '../ui/EditActions';
 import type { FareTransferRule } from '../../types/gtfs';
-
-const TRANSFER_TYPES: { value: 0 | 1 | 2; label: string }[] = [
-  { value: 0, label: 'Free transfer (no cost)' },
-  { value: 1, label: 'Product is the transfer price' },
-  { value: 2, label: 'Product is a discount on the next leg' },
-];
-
-const DURATION_TYPES: { value: 0 | 1; label: string }[] = [
-  { value: 0, label: 'Between sequential legs' },
-  { value: 1, label: 'From start of previous leg' },
-];
+import {
+  DURATION_TYPES,
+  TRANSFER_TYPES,
+  transferRuleHints,
+  transferTypeLabel,
+  uniqueProductIds,
+} from './fareEditorHelpers';
 
 /**
  * GTFS-Fares v2 Fare Transfer Rules editor (fare_transfer_rules.txt). A transfer
  * rule prices the transition between two leg groups. fare_transfer_type is
  * required; from/to_leg_group_id (drawn from leg rules) scope the rule;
- * fare_product_id is required when the type charges or discounts (1 or 2).
+ * fare_product_id is optional for every type (empty = the transfer itself
+ * costs 0). Labels follow the spec: A = first leg, B = next leg, AB = this
+ * rule's product (C3-07).
  * Rows are addressed by index (no single-column key).
  */
 export function FareTransferRulesEditor() {
@@ -43,7 +41,7 @@ export function FareTransferRulesEditor() {
     return [...ids];
   }, [fareLegRules]);
 
-  const typeLabel = (t: number) => TRANSFER_TYPES.find((x) => x.value === t)?.label ?? `Type ${t}`;
+  const typeLabel = transferTypeLabel;
   const productLabel = (id?: string) =>
     fareProducts.find((p) => p.fare_product_id === id)?.fare_product_name || id;
 
@@ -59,9 +57,9 @@ export function FareTransferRulesEditor() {
       <div>
         <div className="mb-4 p-3 rounded-lg bg-gold-light border-2 border-amber-200">
           <p className="text-amber-700 text-sm">
-            <strong>Transfer rules</strong> price the move between two leg groups — a free transfer,
-            a flat transfer fare, or a discount on the next leg. This is pricing, distinct from
-            transfers.txt routing.
+            <strong>Transfer rules</strong> price a journey that transfers between two leg groups:
+            whether the rider pays the first leg, the next leg, and/or this rule’s transfer product.
+            This is pricing, distinct from transfers.txt routing.
           </p>
         </div>
 
@@ -97,7 +95,8 @@ export function FareTransferRulesEditor() {
   }
 
   const idx = selectedIndex!;
-  const productRequired = selected.fare_transfer_type === 1 || selected.fare_transfer_type === 2;
+  const typeHint = TRANSFER_TYPES.find((t) => t.value === selected.fare_transfer_type)?.hint;
+  const hints = transferRuleHints(selected);
 
   // ── Detail view ───────────────────────────────────────────────────────────
   return (
@@ -173,30 +172,28 @@ export function FareTransferRulesEditor() {
             <option key={t.value} value={t.value}>{t.label}</option>
           ))}
         </select>
+        {typeHint && <p className="text-[11px] text-warm-gray mt-1">{typeHint}</p>}
       </div>
 
       <div className="mb-3">
         <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
-          Fare Product {productRequired && <span className="text-coral">*</span>}
+          Transfer Product
         </label>
         <select
           value={selected.fare_product_id ?? ''}
           onChange={(e) => updateFareTransferRule(idx, { fare_product_id: e.target.value || undefined })}
           className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral focus:bg-white"
         >
-          <option value="">{productRequired ? 'Select a product…' : 'None'}</option>
+          <option value="">None (transfer costs 0)</option>
           {selected.fare_product_id && !fareProducts.some((p) => p.fare_product_id === selected.fare_product_id) && (
             <option value={selected.fare_product_id}>{selected.fare_product_id} (missing)</option>
           )}
-          {fareProducts.map((p) => (
+          {uniqueProductIds(fareProducts).map((p) => (
             <option key={p.fare_product_id} value={p.fare_product_id}>
               {p.fare_product_name || p.fare_product_id}
             </option>
           ))}
         </select>
-        {productRequired && !selected.fare_product_id && (
-          <p className="text-amber-600 text-xs mt-1">This transfer type needs a fare product.</p>
-        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -205,7 +202,7 @@ export function FareTransferRulesEditor() {
           type="number"
           value={selected.transfer_count != null ? String(selected.transfer_count) : ''}
           onChange={(v) => updateFareTransferRule(idx, { transfer_count: v === '' ? undefined : Number(v) })}
-          placeholder="-1 = unlimited"
+          placeholder="same group only; -1 = unlimited"
         />
         <FormField
           label="Duration Limit (s)"
@@ -223,7 +220,7 @@ export function FareTransferRulesEditor() {
         <select
           value={selected.duration_limit_type ?? ''}
           onChange={(e) => updateFareTransferRule(idx, {
-            duration_limit_type: e.target.value === '' ? undefined : (Number(e.target.value) as 0 | 1),
+            duration_limit_type: e.target.value === '' ? undefined : (Number(e.target.value) as 0 | 1 | 2 | 3),
           })}
           className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral focus:bg-white"
         >
@@ -233,6 +230,14 @@ export function FareTransferRulesEditor() {
           ))}
         </select>
       </div>
+
+      {hints.length > 0 && (
+        <ul className="mb-3 space-y-0.5">
+          {hints.map((h) => (
+            <li key={h} className="text-amber-600 text-[11px]">{h}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

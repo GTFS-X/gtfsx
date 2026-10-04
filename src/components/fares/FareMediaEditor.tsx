@@ -6,6 +6,8 @@ import { RailSubHeading } from '../ui/RailHeadings';
 import { EditActions } from '../ui/EditActions';
 import { generateId } from '../../services/idGenerator';
 import type { FareMedia } from '../../types/gtfs';
+import { describeRemovalBlockers } from './fareEditorHelpers';
+import { RemovalBlockedNotice } from './RemovalBlockedNotice';
 
 const MEDIA_TYPES: { value: 0 | 1 | 2 | 3 | 4; label: string }[] = [
   { value: 0, label: 'None (cash / equivalent)' },
@@ -34,11 +36,14 @@ export function FareMediaEditor() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [idDraft, setIdDraft] = useState('');
   const [idError, setIdError] = useState<string | undefined>();
+  // Why the last delete was refused (S1-16); cleared when the selection changes.
+  const [blocked, setBlocked] = useState<string | null>(null);
 
   const selected = fareMedia.find((m) => m.fare_media_id === selectedId) ?? null;
 
   const open = (id: string | null) => {
     setSelectedId(id);
+    setBlocked(null);
     const m = fareMedia.find((x) => x.fare_media_id === id);
     setIdDraft(m?.fare_media_id ?? '');
     setIdError(undefined);
@@ -126,10 +131,15 @@ export function FareMediaEditor() {
           {selected.fare_media_name || selected.fare_media_id}
         </h2>
         <EditActions
-          onDelete={() => { removeFareMediaItem(selected.fare_media_id); open(null); }}
+          onDelete={() => {
+            const result = removeFareMediaItem(selected.fare_media_id);
+            if (result.removed) open(null);
+            else setBlocked(describeRemovalBlockers('this fare medium', result, useStore.getState()));
+          }}
           deleteTitle="Delete this fare medium"
         />
       </div>
+      <RemovalBlockedNotice message={blocked} onDismiss={() => setBlocked(null)} />
 
       <FormField
         label="Fare Media ID"

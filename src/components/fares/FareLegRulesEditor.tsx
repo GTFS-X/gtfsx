@@ -6,6 +6,9 @@ import { RailSubHeading } from '../ui/RailHeadings';
 import { EditActions } from '../ui/EditActions';
 import { generateId } from '../../services/idGenerator';
 import type { FareLegRule } from '../../types/gtfs';
+import { describeRemovalBlockers, uniqueProductIds } from './fareEditorHelpers';
+import { RemovalBlockedNotice } from './RemovalBlockedNotice';
+import { IdSelect } from './IdSelect';
 
 /**
  * GTFS-Fares v2 Fare Leg Rules editor (fare_leg_rules.txt). A leg rule sets the
@@ -24,7 +27,10 @@ export function FareLegRulesEditor() {
   const updateFareLegRule = useStore((s) => s.updateFareLegRule);
   const removeFareLegRule = useStore((s) => s.removeFareLegRule);
 
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [selectedIndex, setSelectedIndexRaw] = useState<number | null>(null);
+  // Why the last delete was refused (S1-16); cleared when the selection changes.
+  const [blocked, setBlocked] = useState<string | null>(null);
+  const setSelectedIndex = (i: number | null) => { setSelectedIndexRaw(i); setBlocked(null); };
 
   const selected = selectedIndex != null ? fareLegRules[selectedIndex] ?? null : null;
 
@@ -33,6 +39,8 @@ export function FareLegRulesEditor() {
     for (const tf of timeframes) ids.add(tf.timeframe_group_id);
     return [...ids];
   }, [timeframes]);
+  const timeframeOptions = timeframeGroupIds.map((id) => ({ id }));
+  const areaOptions = fareAreas.map((a) => ({ id: a.area_id, label: a.area_name }));
 
   const productLabel = (id?: string) =>
     fareProducts.find((p) => p.fare_product_id === id)?.fare_product_name || id || '(no product)';
@@ -120,10 +128,15 @@ export function FareLegRulesEditor() {
           Leg Rule
         </h2>
         <EditActions
-          onDelete={() => { removeFareLegRule(idx); setSelectedIndex(null); }}
+          onDelete={() => {
+            const result = removeFareLegRule(idx);
+            if (result.removed) setSelectedIndex(null);
+            else setBlocked(describeRemovalBlockers('this leg rule', result, useStore.getState()));
+          }}
           deleteTitle="Delete this leg rule"
         />
       </div>
+      <RemovalBlockedNotice message={blocked} onDismiss={() => setBlocked(null)} />
 
       <div className="mb-3">
         <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
@@ -138,7 +151,7 @@ export function FareLegRulesEditor() {
             <option value={selected.fare_product_id}>{selected.fare_product_id} (missing)</option>
           )}
           {fareProducts.length === 0 && <option value="">No products</option>}
-          {fareProducts.map((p) => (
+          {uniqueProductIds(fareProducts).map((p) => (
             <option key={p.fare_product_id} value={p.fare_product_id}>
               {p.fare_product_name || p.fare_product_id}
             </option>
@@ -154,85 +167,43 @@ export function FareLegRulesEditor() {
       />
 
       <div className="mb-3">
-        <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
-          Network
-        </label>
-        <select
-          value={selected.network_id ?? ''}
-          onChange={(e) => updateFareLegRule(idx, { network_id: e.target.value || undefined })}
-          className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral focus:bg-white"
-        >
-          <option value="">Any network</option>
-          {fareNetworks.map((n) => (
-            <option key={n.network_id} value={n.network_id}>{n.network_name || n.network_id}</option>
-          ))}
-        </select>
+        <IdSelect
+          label="Network"
+          anyLabel="Any network"
+          value={selected.network_id}
+          options={fareNetworks.map((n) => ({ id: n.network_id, label: n.network_name }))}
+          onChange={(v) => updateFareLegRule(idx, { network_id: v })}
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-2 mb-3">
-        <div>
-          <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
-            From Area
-          </label>
-          <select
-            value={selected.from_area_id ?? ''}
-            onChange={(e) => updateFareLegRule(idx, { from_area_id: e.target.value || undefined })}
-            className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral focus:bg-white"
-          >
-            <option value="">Any</option>
-            {fareAreas.map((a) => (
-              <option key={a.area_id} value={a.area_id}>{a.area_name || a.area_id}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
-            To Area
-          </label>
-          <select
-            value={selected.to_area_id ?? ''}
-            onChange={(e) => updateFareLegRule(idx, { to_area_id: e.target.value || undefined })}
-            className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral focus:bg-white"
-          >
-            <option value="">Any</option>
-            {fareAreas.map((a) => (
-              <option key={a.area_id} value={a.area_id}>{a.area_name || a.area_id}</option>
-            ))}
-          </select>
-        </div>
+        <IdSelect
+          label="From Area"
+          value={selected.from_area_id}
+          options={areaOptions}
+          onChange={(v) => updateFareLegRule(idx, { from_area_id: v })}
+        />
+        <IdSelect
+          label="To Area"
+          value={selected.to_area_id}
+          options={areaOptions}
+          onChange={(v) => updateFareLegRule(idx, { to_area_id: v })}
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-2 mb-3">
-        <div>
-          <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
-            From Timeframe
-          </label>
-          <select
-            value={selected.from_timeframe_group_id ?? ''}
-            onChange={(e) => updateFareLegRule(idx, { from_timeframe_group_id: e.target.value || undefined })}
-            className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral focus:bg-white"
-          >
-            <option value="">Any</option>
-            {timeframeGroupIds.map((id) => (
-              <option key={id} value={id}>{id}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide mb-1">
-            To Timeframe
-          </label>
-          <select
-            value={selected.to_timeframe_group_id ?? ''}
-            onChange={(e) => updateFareLegRule(idx, { to_timeframe_group_id: e.target.value || undefined })}
-            className="w-full px-3 py-2 border-2 border-sand rounded-lg text-sm bg-cream focus:outline-none focus:border-coral focus:bg-white"
-          >
-            <option value="">Any</option>
-            {timeframeGroupIds.map((id) => (
-              <option key={id} value={id}>{id}</option>
-            ))}
-          </select>
-        </div>
+        <IdSelect
+          label="From Timeframe"
+          value={selected.from_timeframe_group_id}
+          options={timeframeOptions}
+          onChange={(v) => updateFareLegRule(idx, { from_timeframe_group_id: v })}
+        />
+        <IdSelect
+          label="To Timeframe"
+          value={selected.to_timeframe_group_id}
+          options={timeframeOptions}
+          onChange={(v) => updateFareLegRule(idx, { to_timeframe_group_id: v })}
+        />
       </div>
 
       <FormField
