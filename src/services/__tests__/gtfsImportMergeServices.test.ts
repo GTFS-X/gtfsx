@@ -104,7 +104,7 @@ describe('mergeImportIntoStore', () => {
     mergeImportIntoStore(source({ trips, stopTimes: trips.flatMap((t) => [st(t.trip_id, 'P1', 1)]), frequencies: [] }), new Set(['R']));
     expect(historyDepths().undo).toBe(before + 1);
     expect(useStore.getState().trips.length).toBe(pre.trips + 150);
-    undo();
+    expect(undo()).toBe('merge feed');
     expect(useStore.getState().trips.length).toBe(pre.trips);
     expect(useStore.getState().stops.length).toBe(pre.stops);
   });

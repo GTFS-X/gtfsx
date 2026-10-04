@@ -3,7 +3,7 @@
 // re-export it here so existing import sites keep importing from one place.
 import { useStore } from '../store';
 import { loadingFeed } from '../store/history';
-import { asOneUndoStep } from './undoStep';
+import { historyTransaction } from '../store/history';
 import { resetEditorState } from '../db/serverPersistence';
 import type { AdvancedFeature } from '../store/featuresSlice';
 import type { Calendar, CalendarDate, Translation } from '../types/gtfs';
@@ -290,7 +290,7 @@ export function mergeImportIntoStore(
   }
 
   // ── Apply, as one undo step ──────────────────────────────────────────────
-  asOneUndoStep(() => {
+  historyTransaction('merge feed', () => {
     const s = useStore.getState();
     s.setRoutes([
       ...s.routes,

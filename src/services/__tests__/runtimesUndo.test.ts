@@ -45,7 +45,7 @@ describe('pattern-wide re-timing is one undo step (S2-04)', () => {
     expect(n).toBe(N_TRIPS);
     expect(historyDepths().undo).toBe(1);
     expect(useStore.getState().stopTimes).not.toEqual(before);
-    undo();
+    expect(undo()).toBe('estimate run times');
     expect(useStore.getState().stopTimes).toEqual(before);
   });
 

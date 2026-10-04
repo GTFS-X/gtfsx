@@ -12,7 +12,7 @@
 import { useStore } from '../store';
 import { gtfsTimeToSeconds, secondsToGtfsTime } from '../utils/time';
 import { layoutStopTimes } from './travelTime';
-import { asOneUndoStep } from './undoStep';
+import { historyTransaction } from '../store/history';
 import type { RouteStop, StopTime } from '../types/gtfs';
 
 export interface PatternRef {
@@ -100,7 +100,7 @@ export function applyPatternRunTime(ref: PatternRef, runSecs: number): number {
   }
   if (plans.length === 0) return 0;
 
-  asOneUndoStep(() => {
+  historyTransaction('set run time', () => {
     const ends = new Map(plans.map((p) => [`${p.tripId}\u0000${p.last.stop_sequence}`, p.endSec]));
     const s = useStore.getState();
     s.setStopTimes(s.stopTimes.map((row) => {
@@ -170,7 +170,7 @@ export function applyPatternEstimate(
     if (changed) updated++;
   }
   if (updates.size === 0) return 0;
-  asOneUndoStep(() => {
+  historyTransaction('estimate run times', () => {
     const s = useStore.getState();
     s.setStopTimes(s.stopTimes.map((row) => {
       const u = updates.get(`${row.trip_id}\u0000${row.stop_sequence}`);
