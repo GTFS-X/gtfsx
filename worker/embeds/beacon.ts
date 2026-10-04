@@ -20,6 +20,7 @@
 import { html, raw } from 'hono/html';
 import type { Env } from '../env';
 import { clientIp, rateLimit } from '../util/rateLimit';
+import { safeJsonForScript } from '../util/safeJson';
 
 export type ImpressionKind = 'system-map' | 'route' | 'stop' | 'schedule' | 'landing';
 
@@ -124,6 +125,6 @@ export function renderImpressionBeacon(slug: string, kind: ImpressionKind, targe
   const path = `/${encodeURIComponent(slug)}/embed/beacon?${qs.toString()}`;
   // The inline script is static (no interpolated user data beyond the JSON-safe
   // path) and self-contained. The <noscript> <img> covers JS-disabled clients.
-  const js = `(function(){try{var p=${JSON.stringify(path)};if(navigator.sendBeacon){navigator.sendBeacon(p);}else{fetch(p,{method:'GET',keepalive:true,mode:'no-cors'});}}catch(e){var i=new Image();i.src=${JSON.stringify(path)};}})();`;
+  const js = `(function(){try{var p=${safeJsonForScript(path)};if(navigator.sendBeacon){navigator.sendBeacon(p);}else{fetch(p,{method:'GET',keepalive:true,mode:'no-cors'});}}catch(e){var i=new Image();i.src=${safeJsonForScript(path)};}})();`;
   return html`<script>${raw(js)}</script><noscript><img src="${path}" alt="" width="1" height="1" style="position:absolute;width:1px;height:1px;opacity:0" /></noscript>`;
 }

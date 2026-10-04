@@ -9,6 +9,7 @@
 // mount so users never see it double up with the live UI.
 
 import type { Env } from '../env';
+import { escapeJsonForScript } from '../util/safeJson';
 
 const CACHE_HEADER = 'public, max-age=300, s-maxage=900';
 
@@ -192,7 +193,7 @@ async function buildResponse(env: Env, seo: MarketingSeo): Promise<Response> {
         // The homepage shell ships a WebApplication JSON-LD block; append our
         // route-specific one rather than trying to replace it in-stream.
         el.append(
-          `<script type="application/ld+json">${seo.jsonLd.replace(/</g, '\\u003c')}</script>`,
+          `<script type="application/ld+json">${escapeJsonForScript(seo.jsonLd)}</script>`,
           { html: true },
         );
       },
@@ -223,7 +224,7 @@ function minimalHtml(seo: MarketingSeo): string {
 <title>${escape(seo.title)}</title>
 <meta name="description" content="${escape(seo.description)}"/>
 <link rel="canonical" href="${escape(seo.canonicalUrl)}"/>
-<script type="application/ld+json">${seo.jsonLd.replace(/</g, '\\u003c')}</script>
+<script type="application/ld+json">${escapeJsonForScript(seo.jsonLd)}</script>
 </head><body>${seo.body}</body></html>`;
 }
 

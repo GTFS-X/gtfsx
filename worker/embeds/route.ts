@@ -21,6 +21,7 @@ import {
 import { resolveLang, type EmbedLang, type EmbedStrings } from './i18n';
 import { parseTheme, themeCacheKey, themeStyle } from './theme';
 import { renderImpressionBeacon } from './beacon';
+import { safeJsonForScript } from '../util/safeJson';
 
 export async function renderRouteEmbed(
   request: Request,
@@ -543,7 +544,7 @@ function renderDatePicker(
   // performs it has run, so a no-JS rider is never told about a behaviour their
   // browser isn't getting. Static translator strings, JSON-encoded the same way
   // the impression beacon encodes its path.
-  const autoLabel = JSON.stringify(`${t.showScheduleForDate}. ${t.dateAutoUpdates}`);
+  const autoLabel = safeJsonForScript(`${t.showScheduleForDate}. ${t.dateAutoUpdates}`);
   const enhance = `(function () {
     var f = document.querySelector('form.date-picker');
     if (!f) return;

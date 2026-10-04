@@ -28,6 +28,7 @@ import type { Env } from '../env';
 import { planHasFeature } from '../billing/plans';
 import type { Plan } from '../projects/quotas';
 import { decodeFeedMessage, feedMessageToJson } from '../alerts/render';
+import { safeJsonForScript } from '../util/safeJson';
 
 export type RtKind = 'vehicle_positions' | 'trip_updates' | 'alerts';
 export type RtFormat = 'pb' | 'json';
@@ -206,7 +207,7 @@ export function renderRtStopEnhancer(slug: string, stopId: string, liveLabel: st
   const rtUrl = `/${encodeURIComponent(slug)}/rt/trip_updates.json`;
   const js = `(function(){
   try {
-    var URL_=${JSON.stringify(rtUrl)}, LIVE=${JSON.stringify(liveLabel)}, STOP=${JSON.stringify(stopId)};
+    var URL_=${safeJsonForScript(rtUrl)}, LIVE=${safeJsonForScript(liveLabel)}, STOP=${safeJsonForScript(stopId)};
     function fmt(sec){var d=new Date(sec*1000);var h=d.getHours(),m=d.getMinutes();var ap=h>=12?'p':'a';var h12=h%12;if(h12===0)h12=12;return h12+':'+(m<10?'0'+m:m)+ap;}
     function apply(json){
       var ent=(json&&json.entity)||[];var byTrip={};

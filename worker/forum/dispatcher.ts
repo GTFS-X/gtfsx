@@ -11,6 +11,7 @@ import {
   renderThreadSeo,
   type ForumSeo,
 } from './seo';
+import { escapeJsonForScript } from '../util/safeJson';
 
 const FORUM_CACHE_HEADER = 'public, max-age=60, s-maxage=300';
 
@@ -141,7 +142,7 @@ async function buildResponse(env: Env, seo: ForumSeo): Promise<Response> {
         el.append(`<meta name="robots" content="${robotsContent}"/>`, { html: true });
         if (seo.jsonLd) {
           el.append(
-            `<script type="application/ld+json">${seo.jsonLd.replace(/</g, '\\u003c')}</script>`,
+            `<script type="application/ld+json">${escapeJsonForScript(seo.jsonLd)}</script>`,
             { html: true },
           );
         }
@@ -178,7 +179,7 @@ function minimalHtml(seo: ForumSeo): string {
 <meta name="description" content="${escape(seo.description)}"/>
 <link rel="canonical" href="${escape(seo.canonicalUrl)}"/>
 <meta name="robots" content="${seo.noindex ? 'noindex, follow' : 'index, follow'}"/>
-${seo.jsonLd ? `<script type="application/ld+json">${seo.jsonLd.replace(/</g, '\\u003c')}</script>` : ''}
+${seo.jsonLd ? `<script type="application/ld+json">${escapeJsonForScript(seo.jsonLd)}</script>` : ''}
 </head><body>${seo.body}</body></html>`;
 }
 

@@ -1,5 +1,6 @@
 import { html, raw } from 'hono/html';
 import type { FeedState, Route, Shape } from './types';
+import { safeJsonForScript } from '../util/safeJson';
 
 // Mapbox GL JS pinned to a recent stable release.
 const MAPBOX_VERSION = 'v3.7.0';
@@ -155,10 +156,10 @@ export function renderMap(data: MapData, mapboxToken: string | undefined) {
 
   const initScript = `
     (function() {
-      const token = ${JSON.stringify(mapboxToken)};
-      const lines = ${JSON.stringify(lineFc)};
-      const stops = ${JSON.stringify(stopFc)};
-      const bbox = ${bbox ? JSON.stringify(bbox) : 'null'};
+      const token = ${safeJsonForScript(mapboxToken)};
+      const lines = ${safeJsonForScript(lineFc)};
+      const stops = ${safeJsonForScript(stopFc)};
+      const bbox = ${bbox ? safeJsonForScript(bbox) : 'null'};
       if (!window.mapboxgl) return;
       mapboxgl.accessToken = token;
       const map = new mapboxgl.Map({
