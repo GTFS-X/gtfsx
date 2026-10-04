@@ -98,12 +98,15 @@ export async function loadProject(projectId: string) {
   const bulk = await db.projectBulk.get(projectId);
   // Prefer the dedicated bulk record; fall back to the inline arrays a legacy
   // snapshot still carries.
-  const stopTimes = bulk?.stopTimes ?? snapshot.stopTimes;
+  let stopTimes = bulk?.stopTimes ?? snapshot.stopTimes;
   const shapes = bulk?.shapes ?? snapshot.shapes;
   // Set when the route_stop migrations repair the loaded pattern — the store
   // then holds something the cache doesn't, so the project must end up dirty
   // rather than clean (see RouteStopRepair.repaired).
   let repaired = false;
+  // Set when the repair re-homed stop_times rows (duplicate-sequence split) —
+  // the bulk record on disk is then stale and the next autosave must rewrite it.
+  let stopTimesRepaired = false;
   // Loading a different feed must not be undoable across the boundary (#49):
   // suppress history capture during the bulk apply, then reset both stacks.
   loadingFeed(() => {
@@ -124,6 +127,10 @@ export async function loadProject(projectId: string) {
         (stopTimes ?? []) as StopTime[],
       );
       repaired = fixed.repaired;
+      if (stopTimes && fixed.stopTimes !== stopTimes) {
+        stopTimes = fixed.stopTimes;
+        stopTimesRepaired = true;
+      }
       state.setRouteStops(fixed.routeStops);
     }
     if (snapshot.stops) state.setStops(snapshot.stops);
@@ -174,7 +181,7 @@ export async function loadProject(projectId: string) {
     // autosave doesn't needlessly rewrite stop_times/shapes we only just read.
     const loaded = useStore.getState();
     lastBulkProjectId = projectId;
-    lastSavedStopTimes = loaded.stopTimes;
+    lastSavedStopTimes = stopTimesRepaired ? null : loaded.stopTimes;
     lastSavedShapes = loaded.shapes;
 
     state.markSaved();

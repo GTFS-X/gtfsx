@@ -42,6 +42,7 @@ import { suggestStopName } from '../../services/suggestStopName';
 import { createDrawnShape } from '../../services/routeShapes';
 import { resolveStopPlacement } from '../../services/stopPlacement';
 import { trimShapeAtPoint } from '../../services/shapeHelpers';
+import { nextRouteStopSequence } from '../../services/routeStopMigration';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -1138,7 +1139,7 @@ export function MapView() {
           route_id: currentState.selectedRouteId,
           stop_id: stopId,
           direction_id: bestDirectionId,
-          stop_sequence: existingStops.length,
+          stop_sequence: nextRouteStopSequence(existingStops),
           _snapped: currentState.stopPlacementMode === 'snap_to_route',
           shape_id: bestShapeId,
         });

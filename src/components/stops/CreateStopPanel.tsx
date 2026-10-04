@@ -4,6 +4,7 @@ import { FormField } from '../ui/FormField';
 import { WHEELCHAIR_BOARDING, LOCATION_TYPES } from '../../utils/constants';
 import { generateId } from '../../services/idGenerator';
 import { placementTargetShapeId } from '../../services/stopPlacement';
+import { nextRouteStopSequence } from '../../services/routeStopMigration';
 
 /**
  * Create-new-stop sub-panel. Reachable from a "Create new stop" button in
@@ -126,7 +127,7 @@ export function CreateStopPanel() {
         route_id: editingRouteId,
         stop_id: id,
         direction_id: directionId,
-        stop_sequence: existing.length,
+        stop_sequence: nextRouteStopSequence(existing),
         _snapped: false,
         shape_id: activeShapeId ?? undefined,
       });

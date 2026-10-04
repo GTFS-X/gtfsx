@@ -294,6 +294,7 @@ function applySnapshotToStoreInner(
   if (Array.isArray(g('calendarDates'))) state.setCalendarDates(g('calendarDates') as never);
   if (Array.isArray(g('routes'))) state.setRoutes(g('routes') as never);
   let repaired = false;
+  let stopTimes = g('stopTimes');
   if (Array.isArray(g('routeStops'))) {
     // Backfill shape_id on stops saved before per-shape keying — without this,
     // feeds created before today's route/shape change load with stops the
@@ -305,14 +306,16 @@ function applySnapshotToStoreInner(
     const fixed = repairRouteStops(
       g('routeStops') as never,
       (g('trips') ?? []) as never,
-      (g('stopTimes') ?? []) as never,
+      (stopTimes ?? []) as never,
     );
     repaired = fixed.repaired;
+    // A duplicate-sequence split may re-home stop_times rows; load those.
+    if (Array.isArray(stopTimes)) stopTimes = fixed.stopTimes as never;
     state.setRouteStops(fixed.routeStops as never);
   }
   if (Array.isArray(g('stops'))) state.setStops(g('stops') as never);
   if (Array.isArray(g('trips'))) state.setTrips(g('trips') as never);
-  if (Array.isArray(g('stopTimes'))) state.setStopTimes(g('stopTimes') as never);
+  if (Array.isArray(stopTimes)) state.setStopTimes(stopTimes as never);
   if (Array.isArray(g('shapes'))) state.setShapes(g('shapes') as never);
   if (g('feedInfo') !== undefined) state.setFeedInfo(g('feedInfo') as never);
   if (Array.isArray(g('fareAttributes'))) state.setFareAttributes(g('fareAttributes') as never);

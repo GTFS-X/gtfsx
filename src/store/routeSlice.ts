@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { Route, RouteStop, Translation } from '../types/gtfs';
 import { withoutTranslationsFor } from '../services/translations';
 import { generateId } from '../services/idGenerator';
+import { nextRouteStopSequence, sameRouteStopPattern } from '../services/routeStopMigration';
 import type { TripSlice } from './tripSlice';
 import type { ShapeSlice } from './shapeSlice';
 import type { FareSlice } from './fareSlice';
@@ -243,7 +244,15 @@ export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never
   addRouteStop: (rs) => set((state) => {
     // Stamp a per-instance handle so a stop listed twice in one pattern stays
     // individually addressable (remove/reorder one without touching the other).
-    const stamped = rs._uid ? rs : { ...rs, _uid: generateId('rs') };
+    let stamped = rs._uid ? rs : { ...rs, _uid: generateId('rs') };
+    // Never let two stops in one pattern share a stop_sequence: the timetable
+    // keys cells by (trip, stop_sequence), so a shared sequence makes the two
+    // columns edit together. A taken sequence means the caller wanted an append
+    // (count-as-sequence on a 1-based or gapped pattern) — put it at the end.
+    const pattern = state.routeStops.filter((r) => sameRouteStopPattern(r, stamped));
+    if (pattern.some((r) => r.stop_sequence === stamped.stop_sequence)) {
+      stamped = { ...stamped, stop_sequence: nextRouteStopSequence(pattern) };
+    }
     state.routeStops.push(stamped);
     // A stop added to a pattern that ALREADY has trips defaults to SERVED — we
     // seed a blank (no-time) stop_time row on every matching trip. Without a

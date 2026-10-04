@@ -24,6 +24,7 @@ import { PatternSelector } from '../ui/ShapePatternSelector';
 import { computeShapePatterns, activeStopsShapeId } from '../ui/shapePatterns';
 import { directionName } from '../../utils/constants';
 import type { Stop } from '../../types/gtfs';
+import { nextRouteStopSequence } from '../../services/routeStopMigration';
 
 function SortableStopItem({
   uid,
@@ -365,7 +366,7 @@ export function RouteStopsTab() {
                   route_id: routeId,
                   stop_id: addExistingStopId,
                   direction_id: directionId,
-                  stop_sequence: orderedRouteStops.length,
+                  stop_sequence: nextRouteStopSequence(orderedRouteStops),
                   _snapped: false,
                   shape_id: effectiveShapeId ?? undefined,
                 });
