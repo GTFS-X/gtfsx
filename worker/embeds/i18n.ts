@@ -32,7 +32,7 @@ export interface EmbedStrings {
   allRoutes: string;
   routesServingStop: string;
   departuresToday: (day: string) => string;
-  noMoreDepartures: string;
+  noDeparturesToday: string;
   noServicePatterns: string;
   noTripsScheduled: string;
   todayIs: (day: string) => string;
@@ -85,7 +85,7 @@ const EN: EmbedStrings = {
   allRoutes: 'All routes',
   routesServingStop: 'Routes that serve this stop',
   departuresToday: (day) => `Departures today (${day})`,
-  noMoreDepartures: 'No more departures today from this stop.',
+  noDeparturesToday: 'No departures today from this stop.',
   noServicePatterns: 'No service patterns defined.',
   noTripsScheduled: 'No trips scheduled for this service period.',
   todayIs: (day) => `Today is ${day}`,
@@ -121,7 +121,7 @@ const ES: EmbedStrings = {
   allRoutes: 'Todas las rutas',
   routesServingStop: 'Rutas que pasan por esta parada',
   departuresToday: (day) => `Salidas de hoy (${day})`,
-  noMoreDepartures: 'No hay más salidas hoy desde esta parada.',
+  noDeparturesToday: 'No hay salidas hoy desde esta parada.',
   noServicePatterns: 'No hay patrones de servicio definidos.',
   noTripsScheduled: 'No hay viajes programados para este periodo de servicio.',
   todayIs: (day) => `Hoy es ${day}`,
@@ -157,7 +157,7 @@ const FR: EmbedStrings = {
   allRoutes: 'Toutes les lignes',
   routesServingStop: 'Lignes desservant cet arrêt',
   departuresToday: (day) => `Départs aujourd’hui (${day})`,
-  noMoreDepartures: 'Plus de départs aujourd’hui à cet arrêt.',
+  noDeparturesToday: 'Aucun départ aujourd’hui à cet arrêt.',
   noServicePatterns: 'Aucun service défini.',
   noTripsScheduled: 'Aucun trajet prévu pour cette période de service.',
   todayIs: (day) => `Nous sommes ${day}`,
@@ -193,7 +193,7 @@ const DE: EmbedStrings = {
   allRoutes: 'Alle Linien',
   routesServingStop: 'Linien an dieser Haltestelle',
   departuresToday: (day) => `Abfahrten heute (${day})`,
-  noMoreDepartures: 'Heute keine weiteren Abfahrten an dieser Haltestelle.',
+  noDeparturesToday: 'Heute keine Abfahrten an dieser Haltestelle.',
   noServicePatterns: 'Keine Fahrpläne definiert.',
   noTripsScheduled: 'Keine Fahrten für diesen Servicezeitraum geplant.',
   todayIs: (day) => `Heute ist ${day}`,
@@ -229,7 +229,7 @@ const PT: EmbedStrings = {
   allRoutes: 'Todas as linhas',
   routesServingStop: 'Linhas que servem esta parada',
   departuresToday: (day) => `Partidas de hoje (${day})`,
-  noMoreDepartures: 'Não há mais partidas hoje desta parada.',
+  noDeparturesToday: 'Não há partidas hoje desta parada.',
   noServicePatterns: 'Nenhum padrão de serviço definido.',
   noTripsScheduled: 'Nenhuma viagem programada para este período de serviço.',
   todayIs: (day) => `Hoje é ${day}`,

@@ -22,6 +22,7 @@ import { resolveLang, type EmbedLang, type EmbedStrings } from './i18n';
 import { parseTheme, themeCacheKey, themeStyle } from './theme';
 import { renderImpressionBeacon } from './beacon';
 import { safeJsonForScript } from '../util/safeJson';
+import { safeHex } from './safe';
 
 export async function renderRouteEmbed(
   request: Request,
@@ -317,8 +318,8 @@ export async function renderRouteEmbed(
   const beaconKind = view === 'map' ? 'route' : view === 'schedule' ? 'schedule' : 'route';
   const beacon = renderImpressionBeacon(slug, beaconKind, routeId);
 
-  const routeColor = `#${route.route_color || 'cccccc'}`;
-  const routeTextColor = `#${route.route_text_color || '000000'}`;
+  const routeColor = `#${safeHex(route.route_color, 'cccccc')}`;
+  const routeTextColor = `#${safeHex(route.route_text_color, '000000')}`;
   const longName = route.route_long_name || '';
   const shortName = route.route_short_name || route.route_id;
   const effective =

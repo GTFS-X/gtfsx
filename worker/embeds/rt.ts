@@ -31,6 +31,10 @@ import { decodeFeedMessage, feedMessageToJson } from '../alerts/render';
 import { safeJsonForScript } from '../util/safeJson';
 
 export type RtKind = 'vehicle_positions' | 'trip_updates' | 'alerts';
+
+// Upper bound on an upstream RT payload. Real GTFS-RT feeds are well under a
+// megabyte; anything this large is a misconfigured or hostile upstream.
+export const RT_MAX_UPSTREAM_BYTES = 8 * 1024 * 1024;
 export type RtFormat = 'pb' | 'json';
 
 const RT_KINDS: readonly RtKind[] = ['vehicle_positions', 'trip_updates', 'alerts'];
@@ -145,7 +149,10 @@ export async function handleRtRequest(request: Request, env: Env): Promise<Respo
     return rtError(502, 'upstream_error', `Upstream RT feed returned ${upstream.status}.`);
   }
 
-  const bytes = new Uint8Array(await upstream.arrayBuffer());
+  const bytes = await readCapped(upstream, RT_MAX_UPSTREAM_BYTES);
+  if (!bytes) {
+    return rtError(502, 'upstream_too_large', 'Upstream RT feed is too large.');
+  }
 
   if (format === 'json') {
     let json: Record<string, unknown>;
@@ -168,6 +175,39 @@ export async function handleRtRequest(request: Request, env: Env): Promise<Respo
   });
   if (request.method === 'HEAD') return new Response(null, { status: 200, headers });
   return new Response(bytes, { status: 200, headers });
+}
+
+/**
+ * Read a response body, giving up (null) once it exceeds `max` bytes. A
+ * declared Content-Length over the cap is rejected before reading anything.
+ */
+async function readCapped(res: Response, max: number): Promise<Uint8Array | null> {
+  const declared = Number(res.headers.get('Content-Length'));
+  if (Number.isFinite(declared) && declared > max) {
+    await res.body?.cancel();
+    return null;
+  }
+  if (!res.body) return new Uint8Array(0);
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
+  }
+  return out;
 }
 
 function rtJsonHeaders(): Headers {

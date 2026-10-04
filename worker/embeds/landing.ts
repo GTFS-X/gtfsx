@@ -12,6 +12,7 @@ import {
   pickDefaultProfile,
   todayInTimezone,
 } from './services';
+import { safeHex, safeLinkHref, safeTelHref } from './safe';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -33,16 +34,18 @@ export async function renderLandingPage(
   if (!feed) return new Response('Feed not found', { status: 404 });
 
   const url = new URL(request.url);
+  const agency = feed.state.agencies[0];
+  const tz = agency?.agency_timezone;
+  // The body depends on today's date (banner, active services, expiry), so
+  // the ETag carries it: a 304 must never revalidate yesterday's page.
+  const today = todayInTimezone(tz);
+  const etag = `"${feed.snapshotId}-landing-${today}"`;
   const ifNoneMatch = request.headers.get('If-None-Match');
-  const etag = `"${feed.snapshotId}-landing"`;
   if (ifNoneMatch && ifNoneMatch.includes(etag)) {
-    const headers = landingHeaders(feed.snapshotId, feed.publishedAt);
+    const headers = landingHeaders(etag, feed.publishedAt);
     return new Response(null, { status: 304, headers });
   }
 
-  const agency = feed.state.agencies[0];
-  const tz = agency?.agency_timezone;
-  const today = todayInTimezone(tz);
   const dow = dayOfWeekInTimezone(tz);
   const dayName = DAY_NAMES[dow] ?? '';
   const activeToday = activeServicesOn(today, dow, feed.state.calendars, feed.state.calendarDates);
@@ -57,8 +60,10 @@ export async function renderLandingPage(
   const map = renderMap(data, env.MAPBOX_TOKEN);
 
   const agencyName = agency?.agency_name ?? feed.projectName;
-  const agencyUrl = agency?.agency_url ?? null;
+  // Feed text: only http(s) links and dialable digits reach an href.
+  const agencyUrl = safeLinkHref(agency?.agency_url);
   const agencyPhone = agency?.agency_phone ?? null;
+  const agencyTel = safeTelHref(agencyPhone);
 
   const todayBanner =
     activeToday.size === 0 || !defaultProfile
@@ -83,8 +88,8 @@ export async function renderLandingPage(
       return an.localeCompare(bn, undefined, { numeric: true });
     })
     .map((r) => {
-      const color = `#${r.route_color || 'cccccc'}`;
-      const text = `#${r.route_text_color || '000000'}`;
+      const color = `#${safeHex(r.route_color, 'cccccc')}`;
+      const text = `#${safeHex(r.route_text_color, '000000')}`;
       const short = r.route_short_name || r.route_id;
       return html`
         <a href="/${encodeURIComponent(slug)}/embed/route/${encodeURIComponent(r.route_id)}">
@@ -94,7 +99,8 @@ export async function renderLandingPage(
       `;
     });
 
-  const titleText = `${agencyName} — Routes &amp; Schedules`;
+  // Plain text: renderLayout escapes it.
+  const titleText = `${agencyName} — Routes & Schedules`;
   const description = `Routes, schedules, and stops for ${agencyName}. ${feed.state.routes.length} routes serving ${feed.state.stops.length} stops.`;
 
   const body = html`
@@ -107,7 +113,7 @@ export async function renderLandingPage(
         <div class="effective">
           ${feed.state.routes.length} route${feed.state.routes.length === 1 ? '' : 's'} ·
           ${feed.state.stops.length} stop${feed.state.stops.length === 1 ? '' : 's'}
-          ${agencyPhone ? html` · <a href="tel:${agencyPhone}">${agencyPhone}</a>` : ''}
+          ${agencyPhone ? (agencyTel ? html` · <a href="${agencyTel}">${agencyPhone}</a>` : html` · ${agencyPhone}`) : ''}
           ${agencyUrl ? html` · <a href="${agencyUrl}" target="_blank" rel="noopener">Agency website</a>` : ''}
         </div>
       </div>
@@ -143,13 +149,13 @@ export async function renderLandingPage(
     brandColor: feed.brandPrimaryColor,
     body: await body,
   });
-  return new Response(String(html5), { status: 200, headers: landingHeaders(feed.snapshotId, feed.publishedAt) });
+  return new Response(String(html5), { status: 200, headers: landingHeaders(etag, feed.publishedAt) });
 }
 
-function landingHeaders(snapshotId: string, publishedAt: number): Headers {
+function landingHeaders(etag: string, publishedAt: number): Headers {
   const h = new Headers();
   h.set('Content-Type', 'text/html; charset=utf-8');
-  h.set('ETag', `"${snapshotId}-landing"`);
+  h.set('ETag', etag);
   h.set('Last-Modified', new Date(publishedAt).toUTCString());
   // Canonical, indexable; frame-ancestors 'none' to prevent clickjacking
   // of this top-level destination (embeds use 'frame-ancestors *').

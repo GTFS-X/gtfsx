@@ -1,6 +1,7 @@
 import { html, raw } from 'hono/html';
 import type { FeedState, Route, Shape } from './types';
 import { safeJsonForScript } from '../util/safeJson';
+import { safeHex } from './safe';
 
 // Mapbox GL JS pinned to a recent stable release.
 const MAPBOX_VERSION = 'v3.7.0';
@@ -27,7 +28,7 @@ export function buildRouteMapData(route: Route, state: FeedState, slug?: string)
   const shapeIds = new Set<string>();
   for (const t of tripsForRoute) if (t.shape_id) shapeIds.add(t.shape_id);
 
-  const color = `#${route.route_color || '666666'}`;
+  const color = `#${safeHex(route.route_color, '666666')}`;
   const shapes = state.shapes
     .filter((s) => shapeIds.has(s.shape_id))
     .map((s) => ({
@@ -67,7 +68,7 @@ export function buildSystemMapData(state: FeedState, slug?: string): MapData {
     if (!trip.shape_id) continue;
     if (shapeColor.has(trip.shape_id)) continue;
     const r = routeById.get(trip.route_id);
-    shapeColor.set(trip.shape_id, `#${r?.route_color || '666666'}`);
+    shapeColor.set(trip.shape_id, `#${safeHex(r?.route_color, '666666')}`);
   }
 
   const shapes = state.shapes

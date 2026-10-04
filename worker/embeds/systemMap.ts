@@ -8,6 +8,7 @@ import { todayInTimezone } from './services';
 import { resolveLang } from './i18n';
 import { parseTheme, themeCacheKey, themeStyle } from './theme';
 import { renderImpressionBeacon } from './beacon';
+import { safeHex } from './safe';
 
 export async function renderSystemMapEmbed(
   request: Request,
@@ -28,9 +29,12 @@ export async function renderSystemMapEmbed(
     agency?.agency_lang,
   );
   const variant = `${themeCacheKey(theme)}-${lang}`;
+  // The expiry warning depends on today's date, so the ETag carries it.
+  const tz = agency?.agency_timezone;
+  const today = todayInTimezone(tz);
 
   const ifNoneMatch = request.headers.get('If-None-Match');
-  const etag = `"${feed.snapshotId}-system-${variant}"`;
+  const etag = `"${feed.snapshotId}-system-${variant}-${today}"`;
   if (ifNoneMatch && ifNoneMatch.includes(etag)) {
     const headers = embedHeaders(feed.snapshotId, feed.publishedAt);
     headers.set('ETag', etag);
@@ -39,8 +43,6 @@ export async function renderSystemMapEmbed(
 
   const data = buildSystemMapData(feed.state, slug);
   const map = renderMap(data, env.MAPBOX_TOKEN);
-  const tz = agency?.agency_timezone;
-  const today = todayInTimezone(tz);
   const expiryWarning = renderExpiryWarning(feed.state.feedInfo?.feed_end_date, today, t);
 
   const routeLinks = feed.state.routes
@@ -51,8 +53,8 @@ export async function renderSystemMapEmbed(
       return an.localeCompare(bn, undefined, { numeric: true });
     })
     .map((r) => {
-      const color = `#${r.route_color || 'cccccc'}`;
-      const text = `#${r.route_text_color || '000000'}`;
+      const color = `#${safeHex(r.route_color, 'cccccc')}`;
+      const text = `#${safeHex(r.route_text_color, '000000')}`;
       const short = r.route_short_name || r.route_id;
       const long = r.route_long_name || '';
       return html`
