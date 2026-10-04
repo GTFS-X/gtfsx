@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
 import { EmptyState } from '../ui/EmptyState';
 import { DayToggle } from '../ui/DayToggle';
 import { FormField } from '../ui/FormField';
 import { CalendarPreview } from './CalendarPreview';
+import { datesOnlyPreviewCalendar } from './calendarPreviewDay';
+import { serviceOptions } from '../../services/serviceIds';
 import { generateId } from '../../services/idGenerator';
-import type { Calendar } from '../../types/gtfs';
+import type { Calendar, CalendarDate } from '../../types/gtfs';
 import { format } from 'date-fns';
 import { US_HOLIDAYS, getEligibleHolidayExceptions } from '../../utils/holidays';
 
@@ -37,7 +40,23 @@ export function CalendarEditor() {
     setTimetableServiceId,
     calendarDetailTab,
     selectedHolidayNames, setSelectedHolidayNames,
-  } = useStore();
+  } = useStore(useShallow((s) => ({
+    calendars: s.calendars, addCalendar: s.addCalendar, updateCalendar: s.updateCalendar,
+    calendarDates: s.calendarDates, addCalendarDate: s.addCalendarDate,
+    removeCalendarDate: s.removeCalendarDate, clearCalendarDates: s.clearCalendarDates,
+    editingCalendarServiceId: s.editingCalendarServiceId,
+    setEditingCalendarServiceId: s.setEditingCalendarServiceId,
+    trips: s.trips, routes: s.routes, selectRoute: s.selectRoute,
+    setBottomPanelOpen: s.setBottomPanelOpen, setBottomPanelTab: s.setBottomPanelTab,
+    setTimetableServiceId: s.setTimetableServiceId,
+    calendarDetailTab: s.calendarDetailTab,
+    selectedHolidayNames: s.selectedHolidayNames, setSelectedHolidayNames: s.setSelectedHolidayNames,
+  })));
+  // Every service: calendar.txt rows plus calendar_dates-only ids (C2-03).
+  const services = useMemo(() => serviceOptions({ calendars, calendarDates }), [calendars, calendarDates]);
+  // Type of the next manually added exception; null = the default for the
+  // service kind (added for a dates-only service, removed otherwise).
+  const [newExceptionType, setNewExceptionType] = useState<1 | 2 | null>(null);
   const selectedHolidaySet = useMemo(() => new Set(selectedHolidayNames), [selectedHolidayNames]);
   // Inline two-step confirm for the destructive "Delete all exceptions" action,
   // mirroring the timetable's Remove-All-Trips confirm prompt. Tracking the
@@ -50,24 +69,26 @@ export function CalendarEditor() {
     setConfirmForServiceId(null);
   }
 
-  // If the editingCalendarServiceId points at a calendar that no longer
+  // If the editingCalendarServiceId points at a service that no longer
   // exists (deleted from elsewhere), drop the stale reference so we fall
-  // back to the list view rather than rendering an empty detail.
+  // back to the list view rather than rendering an empty detail. A
+  // calendar_dates-only service counts as existing.
   useEffect(() => {
     if (
       editingCalendarServiceId &&
-      !calendars.some((c) => c.service_id === editingCalendarServiceId)
+      !services.some((o) => o.serviceId === editingCalendarServiceId)
     ) {
       setEditingCalendarServiceId(null);
     }
-  }, [editingCalendarServiceId, calendars, setEditingCalendarServiceId]);
+  }, [editingCalendarServiceId, services, setEditingCalendarServiceId]);
 
-  const selected = useMemo(
+  const selectedOption = useMemo(
     () => editingCalendarServiceId
-      ? calendars.find((c) => c.service_id === editingCalendarServiceId) ?? null
+      ? services.find((o) => o.serviceId === editingCalendarServiceId) ?? null
       : null,
-    [editingCalendarServiceId, calendars],
+    [editingCalendarServiceId, services],
   );
+  const selected = selectedOption?.calendar ?? null;
   const selectedDates = useMemo(
     () => editingCalendarServiceId
       ? calendarDates.filter((cd) => cd.service_id === editingCalendarServiceId)
@@ -94,7 +115,7 @@ export function CalendarEditor() {
     setEditingCalendarServiceId(id);
   };
 
-  if (calendars.length === 0) {
+  if (services.length === 0) {
     return (
       <EmptyState
         icon="📅"
@@ -143,7 +164,7 @@ export function CalendarEditor() {
   // navigates into the detail view via the store (mirrors Routes), so the
   // header gets a Calendars › <name> breadcrumb instead of a stacked
   // list+form layout.
-  if (!selected) {
+  if (!selectedOption) {
     return (
       <div>
         <div className="flex flex-col gap-2 mb-3">
@@ -175,6 +196,24 @@ export function CalendarEditor() {
               </div>
             </button>
           ))}
+          {services.filter((o) => o.datesOnly).map((o) => {
+            const n = calendarDates.reduce((acc, cd) => acc + (cd.service_id === o.serviceId && cd.exception_type === 1 ? 1 : 0), 0);
+            return (
+              <button
+                key={o.serviceId}
+                onClick={() => setEditingCalendarServiceId(o.serviceId)}
+                className="text-left p-3 rounded-lg transition-colors bg-cream hover:bg-sand"
+              >
+                <div className="flex justify-between items-center mb-1">
+                  <span className="font-heading font-bold text-sm text-dark-brown">{o.serviceId}</span>
+                  <span className="text-[11px] text-warm-gray font-semibold">Dates only</span>
+                </div>
+                <div className="text-[11px] text-warm-gray">
+                  {n} service date{n === 1 ? '' : 's'} (calendar_dates.txt)
+                </div>
+              </button>
+            );
+          })}
         </div>
 
         <button
@@ -183,6 +222,146 @@ export function CalendarEditor() {
         >
           + Add service pattern
         </button>
+      </div>
+    );
+  }
+
+  const exceptionType = newExceptionType ?? (selectedOption.datesOnly ? 1 : 2);
+  const serviceId = selectedOption.serviceId;
+
+  // Exception list + manual add, shared by the Exceptions tab and the
+  // calendar_dates-only detail. The type select lets a planner add service on
+  // a date (exception_type 1), not only remove it (C2-17).
+  const renderExceptionList = (dates: CalendarDate[]) => (
+    <div>
+      <div className="flex items-center justify-between mb-2 min-h-[20px]">
+        <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide">
+          Service exceptions
+        </label>
+        {dates.length > 0 && (
+          confirmClearExceptions ? (
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="text-warm-gray">Delete all {dates.length}?</span>
+              <button
+                onClick={() => {
+                  clearCalendarDates(serviceId);
+                  setConfirmClearExceptions(false);
+                }}
+                className="font-bold text-red-600 hover:text-red-700 transition-colors"
+              >
+                Yes
+              </button>
+              <span className="text-warm-gray/50">·</span>
+              <button
+                onClick={() => setConfirmClearExceptions(false)}
+                className="font-semibold text-warm-gray hover:text-coral transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setConfirmForServiceId(serviceId);
+                setConfirmClearExceptions(true);
+              }}
+              title="Remove every exception for this service pattern"
+              className="text-[11px] font-semibold text-warm-gray hover:text-red-500 transition-colors"
+            >
+              Delete all
+            </button>
+          )
+        )}
+      </div>
+      {dates.length === 0 ? (
+        <p className="text-xs text-warm-gray italic">No exceptions set.</p>
+      ) : (
+        dates.map((cd) => (
+          <div key={cd.date} className="flex items-center gap-2 mb-1.5">
+            <span className="text-sm flex-1">{formatGtfsDate(cd.date)}</span>
+            <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded
+              ${cd.exception_type === 2 ? 'bg-red-100 text-red-700' : 'bg-teal-light text-teal'}`}>
+              {cd.exception_type === 2 ? 'No Service' : 'Added'}
+            </span>
+            <button
+              onClick={() => removeCalendarDate(serviceId, cd.date)}
+              className="text-warm-gray hover:text-red-500 text-sm"
+            >
+              ×
+            </button>
+          </div>
+        ))
+      )}
+      <div className="flex gap-2 mt-2">
+        <input
+          type="date"
+          id="exception-date"
+          className="flex-1 min-w-0 px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
+        />
+        <select
+          aria-label="Exception type"
+          value={exceptionType}
+          onChange={(e) => setNewExceptionType(Number(e.target.value) === 1 ? 1 : 2)}
+          className="px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
+        >
+          <option value={2}>No service</option>
+          <option value={1}>Service added</option>
+        </select>
+        <button
+          onClick={() => {
+            const input = document.getElementById('exception-date') as HTMLInputElement;
+            if (input.value) {
+              addCalendarDate({
+                service_id: serviceId,
+                date: toGtfsDate(input.value),
+                exception_type: exceptionType,
+              });
+              input.value = '';
+            }
+          }}
+          className="px-3 py-1.5 bg-sand rounded-lg text-xs font-semibold text-brown hover:bg-coral-light hover:text-coral transition-colors"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+
+  // calendar_dates-only service: no calendar.txt row, so no weekday grid or
+  // date range to edit. Show its dates (add/remove), the routes it carries
+  // and a month preview of its service days.
+  if (selectedOption.datesOnly) {
+    const counts = new Map<string, number>();
+    for (const t of trips) {
+      if (t.service_id === serviceId) counts.set(t.route_id, (counts.get(t.route_id) ?? 0) + 1);
+    }
+    const routesForService = routes.filter((r) => counts.has(r.route_id));
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <button
+            onClick={() => setEditingCalendarServiceId(null)}
+            className="text-[12px] font-semibold text-warm-gray hover:text-coral transition-colors mb-1"
+          >
+            ‹ All service patterns
+          </button>
+          <h3 className="font-heading font-extrabold text-lg text-dark-brown leading-tight truncate">{serviceId}</h3>
+          <p className="text-xs text-warm-gray mt-1">
+            This service is defined only by dated exceptions (calendar_dates.txt), with no weekly
+            pattern. It runs on each “Service added” date.
+          </p>
+        </div>
+        {renderExceptionList(selectedDates)}
+        <p className="text-[11px] text-warm-gray">
+          Used by {routesForService.length} route{routesForService.length === 1 ? '' : 's'}
+          {routesForService.length > 0 && `: ${routesForService.map((r) => r.route_short_name || r.route_long_name || r.route_id).join(', ')}`}
+        </p>
+        <CalendarPreview
+          key={serviceId}
+          calendar={datesOnlyPreviewCalendar(serviceId, selectedDates)}
+          calendarDates={selectedDates}
+          onRemoveException={(date) => removeCalendarDate(serviceId, date)}
+        />
       </div>
     );
   }
@@ -277,89 +456,7 @@ export function CalendarEditor() {
         )}
 
         {/* Existing exception list */}
-        <div>
-          <div className="flex items-center justify-between mb-2 min-h-[20px]">
-            <label className="block text-[11px] font-semibold text-warm-gray uppercase tracking-wide">
-              Service exceptions
-            </label>
-            {selectedDates.length > 0 && (
-              confirmClearExceptions ? (
-                <div className="flex items-center gap-1.5 text-[11px]">
-                  <span className="text-warm-gray">Delete all {selectedDates.length}?</span>
-                  <button
-                    onClick={() => {
-                      clearCalendarDates(selected.service_id);
-                      setConfirmClearExceptions(false);
-                    }}
-                    className="font-bold text-red-600 hover:text-red-700 transition-colors"
-                  >
-                    Yes
-                  </button>
-                  <span className="text-warm-gray/50">·</span>
-                  <button
-                    onClick={() => setConfirmClearExceptions(false)}
-                    className="font-semibold text-warm-gray hover:text-coral transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => {
-                    setConfirmForServiceId(selected.service_id);
-                    setConfirmClearExceptions(true);
-                  }}
-                  title="Remove every exception for this service pattern"
-                  className="text-[11px] font-semibold text-warm-gray hover:text-red-500 transition-colors"
-                >
-                  Delete all
-                </button>
-              )
-            )}
-          </div>
-          {selectedDates.length === 0 ? (
-            <p className="text-xs text-warm-gray italic">No exceptions set.</p>
-          ) : (
-            selectedDates.map((cd) => (
-              <div key={cd.date} className="flex items-center gap-2 mb-1.5">
-                <span className="text-sm flex-1">{formatGtfsDate(cd.date)}</span>
-                <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded
-                  ${cd.exception_type === 2 ? 'bg-red-100 text-red-700' : 'bg-teal-light text-teal'}`}>
-                  {cd.exception_type === 2 ? 'No Service' : 'Added'}
-                </span>
-                <button
-                  onClick={() => removeCalendarDate(selected.service_id, cd.date)}
-                  className="text-warm-gray hover:text-red-500 text-sm"
-                >
-                  ×
-                </button>
-              </div>
-            ))
-          )}
-          <div className="flex gap-2 mt-2">
-            <input
-              type="date"
-              id="exception-date"
-              className="flex-1 px-2 py-1.5 border-2 border-sand rounded-lg text-xs bg-cream focus:outline-none focus:border-coral"
-            />
-            <button
-              onClick={() => {
-                const input = document.getElementById('exception-date') as HTMLInputElement;
-                if (input.value) {
-                  addCalendarDate({
-                    service_id: selected.service_id,
-                    date: toGtfsDate(input.value),
-                    exception_type: 2,
-                  });
-                  input.value = '';
-                }
-              }}
-              className="px-3 py-1.5 bg-sand rounded-lg text-xs font-semibold text-brown hover:bg-coral-light hover:text-coral transition-colors"
-            >
-              Add
-            </button>
-          </div>
-        </div>
+        {renderExceptionList(selectedDates)}
 
         {/* US holiday picker — checkbox per holiday, with Select all/none. */}
         <div>
@@ -474,6 +571,7 @@ export function CalendarEditor() {
 
           {/* Calendar Preview */}
           <CalendarPreview
+            key={selected.service_id}
             calendar={selected}
             calendarDates={selectedDates}
             onRemoveException={(date) => removeCalendarDate(selected.service_id, date)}
