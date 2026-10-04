@@ -7,7 +7,7 @@ import tailwindcss from '@tailwindcss/vite'
 // with `npm run dev:all` or separately (`npm run dev` + `npm run worker:dev`).
 const WORKER_ORIGIN = 'http://127.0.0.1:8787'
 const proxy = Object.fromEntries(
-  ['/auth', '/api', '/_import', '/_demand-tiles'].map((p) => [
+  ['/auth', '/api', '/_import', '/_demand-tiles', '/_coverage', '/book-demo'].map((p) => [
     p,
     { target: WORKER_ORIGIN, changeOrigin: false, ws: false },
   ]),

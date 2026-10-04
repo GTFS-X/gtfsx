@@ -149,7 +149,13 @@ export function AskGtfsxPanel() {
         <div className="flex-1" />
         <button
           type="button"
-          onClick={() => newConversation()}
+          onClick={() => {
+            // Abort the in-flight reply first so it can't keep streaming into
+            // (or clear the streaming flag of) the new conversation.
+            cancelRef.current?.();
+            cancelRef.current = null;
+            newConversation();
+          }}
           className="text-xs text-warm-gray hover:text-coral transition-colors"
           title="Start a new conversation"
         >
