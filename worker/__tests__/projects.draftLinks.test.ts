@@ -5,6 +5,7 @@ import { SELF } from 'cloudflare:test';
 import { makeClient, type TestClient } from './_client';
 import {
   applyMigrations,
+  env,
   gzip,
   resetDb,
   seedUser,
@@ -147,5 +148,37 @@ describe('/api/projects/:id/draft-links', () => {
     const after = await SELF.fetch(`http://feeds.test/${proj.slug}/draft/${link.token}.zip`);
     expect([404, 410]).toContain(after.status);
     await after.arrayBuffer();
+  });
+
+  // The two W2-09 guards each mask the other above, so pin them separately.
+  it('a draft link of a soft-deleted project is not served even if the link was never revoked (loadDraft filter)', async () => {
+    const client = await loggedInClient('dl7@example.com');
+    const proj = await createProject(client, 'LegacyDeleted');
+    const v = await createSnapshot(client, proj.id);
+    const link = await createDraftLink(client, proj.id, v.snapshot.id, new Uint8Array([1, 2]));
+    // Legacy deleted project: soft-deleted without revoking its links.
+    await env.DB.prepare(`UPDATE feed_project SET deleted_at = ? WHERE id = ?`).bind(Date.now(), proj.id).run();
+
+    const res = await SELF.fetch(`http://feeds.test/${proj.slug}/draft/${link.token}.zip`);
+    expect(res.status).toBe(404);
+    await res.arrayBuffer();
+  });
+
+  it('DELETE revokes the project\'s draft links, so a restore does not re-arm them', async () => {
+    const client = await loggedInClient('dl8@example.com');
+    const proj = await createProject(client, 'DeleteRestore');
+    const v = await createSnapshot(client, proj.id);
+    const link = await createDraftLink(client, proj.id, v.snapshot.id, new Uint8Array([1, 2]));
+
+    expect((await client.delete(`/api/projects/${proj.id}`)).status).toBe(204);
+    const row = await env.DB.prepare(`SELECT revoked_at FROM draft_link WHERE project_id = ?`)
+      .bind(proj.id)
+      .first<{ revoked_at: number | null }>();
+    expect(row?.revoked_at).not.toBeNull();
+
+    expect((await client.post(`/api/projects/${proj.id}/restore`)).status).toBe(200);
+    const res = await SELF.fetch(`http://feeds.test/${proj.slug}/draft/${link.token}.zip`);
+    expect(res.status).toBe(410);
+    await res.arrayBuffer();
   });
 });

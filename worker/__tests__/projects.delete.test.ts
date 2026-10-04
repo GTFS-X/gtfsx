@@ -11,11 +11,13 @@
 
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { SELF } from 'cloudflare:test';
+import { publishDueSchedules } from '../cron/tasks';
 import { makeClient, type TestClient } from './_client';
 import {
   applyMigrations,
   dbAll,
   dbGet,
+  env,
   gzip,
   resetDb,
   seedUser,
@@ -301,6 +303,43 @@ describe('GET /api/projects/deleted + POST /api/projects/:id/restore', () => {
     await client.post(`/api/projects/${proj.id}/restore`);
 
     expect(await feedStatus(proj.slug)).toBe(404);
+    expect(await dbGet(`SELECT project_id FROM publication WHERE project_id = ?`, proj.id)).toBeNull();
+  });
+
+  // W2-07 / W2-09: the soft-delete batch also retires the project's schedule
+  // and draft links, so a restore cannot re-arm either.
+  it('deleting an unpublished project cancels its pending scheduled publish and revokes its draft links', async () => {
+    const client = await loggedInClient('del-sched@example.com');
+    const proj = await createProject(client, 'Scheduled Then Deleted');
+    const snapshotId = await createSnapshot(client, proj.id);
+
+    const sched = new FormData();
+    sched.append('meta', JSON.stringify({ snapshotId, scheduledFor: Date.now() + 3_600_000 }));
+    sched.append('zip', new Blob([new TextEncoder().encode('PK\x03\x04sched')], { type: 'application/zip' }), 'gtfs.zip');
+    expect((await client.post(`/api/projects/${proj.id}/publish/schedule`, undefined, { body: sched })).status).toBe(200);
+    const draft = new FormData();
+    draft.append('meta', JSON.stringify({ snapshotId, ttlDays: 7 }));
+    draft.append('zip', new Blob([new Uint8Array([1, 2])], { type: 'application/zip' }), 'gtfs.zip');
+    expect((await client.post(`/api/projects/${proj.id}/draft-links`, undefined, { body: draft })).status).toBe(200);
+    expect(
+      (await dbGet<{ status: string }>(`SELECT status FROM scheduled_publish WHERE project_id = ?`, proj.id))?.status,
+    ).toBe('pending');
+
+    expect((await client.delete(`/api/projects/${proj.id}`)).status).toBe(204);
+
+    const row = await dbGet<{ status: string; executed_at: number | null }>(
+      `SELECT status, executed_at FROM scheduled_publish WHERE project_id = ?`, proj.id,
+    );
+    expect(row?.status).toBe('cancelled');
+    expect(row?.executed_at).not.toBeNull();
+    const links = await dbAll<{ revoked_at: number | null }>(`SELECT revoked_at FROM draft_link WHERE project_id = ?`, proj.id);
+    expect(links).toHaveLength(1);
+    expect(links[0].revoked_at).not.toBeNull();
+
+    // Even if the project comes back, the cron has nothing to fire.
+    await client.post(`/api/projects/${proj.id}/restore`);
+    await env.DB.prepare(`UPDATE scheduled_publish SET scheduled_for = ?`).bind(Date.now() - 1000).run();
+    expect(await publishDueSchedules(env)).toEqual({ published: 0, failed: 0 });
     expect(await dbGet(`SELECT project_id FROM publication WHERE project_id = ?`, proj.id)).toBeNull();
   });
 });
