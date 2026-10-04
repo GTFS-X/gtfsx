@@ -118,6 +118,26 @@ describe('startOrgTrial — eligibility + activation', () => {
     });
   });
 
+  it('concurrent trials on two orgs by one user grant exactly one (W1-18)', async () => {
+    const user = await seedUser({ plan: 'free' });
+    const orgA = await seedOrg({ ownerId: user.id });
+    const orgB = await seedOrg({ ownerId: user.id });
+
+    const results = await Promise.allSettled([
+      startOrgTrial(testEnv, { orgId: orgA, userId: user.id }),
+      startOrgTrial(testEnv, { orgId: orgB, userId: user.id }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+    expect(rejected?.reason).toMatchObject({ status: 409 });
+
+    const plans = [(await readOrg(orgA))?.plan, (await readOrg(orgB))?.plan].sort();
+    expect(plans).toEqual(['agency', 'free']);
+    // The losing org keeps its own eligibility.
+    const loser = (await readOrg(orgA))?.plan === 'free' ? orgA : orgB;
+    expect((await readOrg(loser))?.trial_started_at).toBeNull();
+  });
+
   it('refuses a second trial for the same user on a different org (anti-farming)', async () => {
     const user = await seedUser({ plan: 'free' });
     const orgA = await seedOrg({ ownerId: user.id });

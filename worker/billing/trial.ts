@@ -94,19 +94,38 @@ export async function startOrgTrial(
   }
 
   // One trial per user — the anti-farming gate (a burned user can't spin up a
-  // fresh org for another trial).
-  const u = await env.DB.prepare(`SELECT trial_started_at FROM user WHERE id = ?`)
-    .bind(userId)
-    .first<{ trial_started_at: number | null }>();
-  if (u?.trial_started_at != null) {
+  // fresh org for another trial). Claim the user's one trial FIRST with a
+  // guarded UPDATE, so two concurrent submits for two different orgs can't both
+  // pass a read-then-write check: exactly one claim succeeds.
+  const userClaim = await env.DB.prepare(
+    `UPDATE user SET trial_started_at = ?, updated_at = ? WHERE id = ? AND trial_started_at IS NULL`,
+  )
+    .bind(now, now, userId)
+    .run();
+  if ((userClaim.meta?.changes ?? 0) === 0) {
+    // Either this user already used their trial, or a concurrent submit for
+    // THIS org claimed it a moment ago — the latter is an idempotent retry.
+    const raced = await env.DB.prepare(
+      `SELECT plan, plan_expires_at FROM organization WHERE id = ?`,
+    )
+      .bind(orgId)
+      .first<{ plan: string | null; plan_expires_at: number | null }>();
+    if (raced?.plan === 'agency' && raced.plan_expires_at != null && raced.plan_expires_at > now) {
+      return {
+        orgId,
+        plan: 'agency',
+        trialEndsAt: raced.plan_expires_at,
+        trialDaysLeft: daysLeft(raced.plan_expires_at, now),
+      };
+    }
     throw conflict("You've already used your free trial.", { code: 'user_trial_used' });
   }
 
   const endsAt = now + TRIAL_MS;
 
   // Guarded UPDATE — only fires while the org is still free + untrialed, so two
-  // concurrent submits can't double-grant. A lost race re-reads and returns the
-  // winner's state (idempotent).
+  // concurrent submits can't double-grant. A lost race releases the user claim
+  // made above and re-reads/returns the winner's state (idempotent).
   const orgUpd = await env.DB.prepare(
     `UPDATE organization
         SET plan = 'agency', plan_status = 'active',
@@ -118,6 +137,12 @@ export async function startOrgTrial(
     .run();
 
   if ((orgUpd.meta?.changes ?? 0) === 0) {
+    // Roll back only the stamp this call wrote.
+    await env.DB.prepare(
+      `UPDATE user SET trial_started_at = NULL WHERE id = ? AND trial_started_at = ?`,
+    )
+      .bind(userId, now)
+      .run();
     const fresh = await env.DB.prepare(
       `SELECT plan_expires_at FROM organization WHERE id = ?`,
     )
@@ -126,13 +151,6 @@ export async function startOrgTrial(
     const ends = fresh?.plan_expires_at ?? endsAt;
     return { orgId, plan: 'agency', trialEndsAt: ends, trialDaysLeft: daysLeft(ends, now) };
   }
-
-  // Consume the user's one trial (guarded so we never stomp an earlier stamp).
-  await env.DB.prepare(
-    `UPDATE user SET trial_started_at = ?, updated_at = ? WHERE id = ? AND trial_started_at IS NULL`,
-  )
-    .bind(now, now, userId)
-    .run();
 
   return { orgId, plan: 'agency', trialEndsAt: endsAt, trialDaysLeft: TRIAL_DAYS };
 }

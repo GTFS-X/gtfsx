@@ -8,9 +8,99 @@
 // done manually with the live/test key per the handoff's "Done = verified" — it
 // needs a real Stripe secret, which (by design) isn't in the test bindings.
 
-import { describe, it, expect, vi } from 'vitest';
-import { stripeFailure } from '../billing/routes';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { ulid } from 'ulidx';
+import type { Env } from '../env';
+import { assertOrgCanStartCheckout, resolvePortalReturnUrl, stripeFailure } from '../billing/routes';
 import { resolvePriceId } from '../billing/stripe';
+import { applyMigrations, dbRun, env, resetDb } from './_setup';
+
+const testEnv = env as unknown as Env;
+
+async function seedOrg(plan: 'free' | 'agency' | 'enterprise', opts: { trialEndsAt?: number } = {}): Promise<{ id: string; slug: string }> {
+  const id = ulid();
+  const slug = `co-${id.toLowerCase()}`;
+  await dbRun(
+    `INSERT INTO organization (id, slug, name, plan, plan_status, plan_expires_at, created_at)
+     VALUES (?, ?, 'Checkout Org', ?, 'active', ?, ?)`,
+    id, slug, plan, opts.trialEndsAt ?? null, Date.now(),
+  );
+  return { id, slug };
+}
+
+async function seedSubscription(orgId: string, status: string): Promise<void> {
+  const now = Date.now();
+  const rowId = ulid();
+  await dbRun(
+    `INSERT INTO subscription
+       (id, owner_type, owner_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
+        plan, status, current_period_start, current_period_end, created_at, updated_at)
+     VALUES (?, 'org', ?, ?, 'cus_co', 'price_x', 'agency', ?, ?, ?, ?, ?)`,
+    rowId, orgId, `sub_${rowId}`, status, now, now + 1000, now, now,
+  );
+}
+
+describe('checkout guard against a second subscription (W1-09)', () => {
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+    await dbRun(`DELETE FROM subscription`);
+  });
+
+  it('an org with an active subscription → 409 already_subscribed', async () => {
+    const org = await seedOrg('agency');
+    await seedSubscription(org.id, 'active');
+    await expect(assertOrgCanStartCheckout(testEnv, org.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('a past_due subscription still counts as live', async () => {
+    const org = await seedOrg('agency');
+    await seedSubscription(org.id, 'past_due');
+    await expect(assertOrgCanStartCheckout(testEnv, org.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('an Enterprise (staff-granted) org → 409', async () => {
+    const org = await seedOrg('enterprise');
+    await expect(assertOrgCanStartCheckout(testEnv, org.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('an in-app trial org (agency + expiry, no subscription row) may still subscribe', async () => {
+    const org = await seedOrg('agency', { trialEndsAt: Date.now() + 86_400_000 });
+    await expect(assertOrgCanStartCheckout(testEnv, org.id)).resolves.toBeUndefined();
+  });
+
+  it('a free org with only a canceled subscription may subscribe again', async () => {
+    const org = await seedOrg('free');
+    await seedSubscription(org.id, 'canceled');
+    await expect(assertOrgCanStartCheckout(testEnv, org.id)).resolves.toBeUndefined();
+  });
+});
+
+describe('billing portal return URL (W1-13, W1-20)', () => {
+  beforeEach(async () => {
+    await applyMigrations();
+    await resetDb();
+  });
+
+  it('defaults to the org billing page keyed by slug, not id', async () => {
+    const org = await seedOrg('agency');
+    const url = await resolvePortalReturnUrl(testEnv, 'org', org.id, undefined);
+    expect(url).toBe(`${testEnv.APP_ORIGIN}/orgs/${org.slug}/billing`);
+  });
+
+  it('accepts a same-origin path or absolute same-origin URL', async () => {
+    expect(await resolvePortalReturnUrl(testEnv, 'user', 'u1', '/account/billing?x=1'))
+      .toBe(`${testEnv.APP_ORIGIN}/account/billing?x=1`);
+    expect(await resolvePortalReturnUrl(testEnv, 'user', 'u1', `${testEnv.APP_ORIGIN}/account/billing`))
+      .toBe(`${testEnv.APP_ORIGIN}/account/billing`);
+  });
+
+  it('rejects off-origin and protocol-relative values with 422', async () => {
+    for (const bad of ['https://evil.example/', '//evil.example/x', '/\\evil.example', 'javascript:alert(1)', 'billing']) {
+      await expect(resolvePortalReturnUrl(testEnv, 'user', 'u1', bad), bad).rejects.toMatchObject({ status: 422 });
+    }
+  });
+});
 
 describe('billing checkout — Stripe error hygiene', () => {
   it('never echoes the raw Stripe message (incl. the secret key) to the client', async () => {
