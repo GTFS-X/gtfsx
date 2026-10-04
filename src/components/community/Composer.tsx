@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Markdown } from './Markdown';
 import { uploadForumImage } from '../../services/forumApi';
 import { ApiError } from '../../services/authApi';
+import { insertSnippets } from './composerInsert';
 
 interface ComposerProps {
   initial?: string;
@@ -34,24 +35,24 @@ export function Composer({
 
   const canSubmit = text.trim().length >= minLength && !disabled && !uploading;
 
-  function insertAtCursor(snippet: string) {
+  // Insert snippets at the caret. Reads the textarea's live value rather than
+  // the render-time `text`, which is stale after an await (uploads).
+  function insertAtCursor(snippets: string[]) {
+    if (snippets.length === 0) return;
     const ta = textareaRef.current;
     if (!ta) {
-      setText((prev) => `${prev}${prev && !prev.endsWith('\n') ? '\n' : ''}${snippet}\n`);
+      setText((prev) => insertSnippets(prev, prev.length, prev.length, snippets).next);
       return;
     }
-    const start = ta.selectionStart ?? text.length;
-    const end = ta.selectionEnd ?? text.length;
-    const before = text.slice(0, start);
-    const after = text.slice(end);
-    const sep = before && !before.endsWith('\n') ? '\n' : '';
-    const next = `${before}${sep}${snippet}\n${after}`;
+    const current = ta.value;
+    const start = ta.selectionStart ?? current.length;
+    const end = ta.selectionEnd ?? current.length;
+    const { next, caret } = insertSnippets(current, start, end, snippets);
     setText(next);
-    // Restore caret right after the inserted snippet on the next tick.
+    // Restore caret right after the inserted snippets on the next tick.
     queueMicrotask(() => {
-      const pos = before.length + sep.length + snippet.length + 1;
       ta.focus();
-      ta.setSelectionRange(pos, pos);
+      ta.setSelectionRange(caret, caret);
     });
   }
 
@@ -59,6 +60,9 @@ export function Composer({
     if (files.length === 0) return;
     setUploadError(null);
     setUploading(true);
+    // Collected and inserted once at the end, so several files in one drop
+    // all land in the text (and earlier ones survive a later failure).
+    const inserted: string[] = [];
     try {
       for (const file of files) {
         if (!ACCEPTED_TYPES.split(',').includes(file.type)) {
@@ -68,7 +72,7 @@ export function Composer({
         const res = await uploadForumImage(file);
         const altRaw = file.name.replace(/\.[a-z]+$/i, '');
         const alt = altRaw.replace(/[[\]]/g, '');
-        insertAtCursor(`![${alt}](${res.url})`);
+        inserted.push(`![${alt}](${res.url})`);
       }
     } catch (e) {
       if (e instanceof ApiError) {
@@ -77,6 +81,7 @@ export function Composer({
         setUploadError(e instanceof Error ? e.message : 'Upload failed');
       }
     } finally {
+      insertAtCursor(inserted);
       setUploading(false);
     }
   }

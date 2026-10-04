@@ -42,13 +42,22 @@ function imagesOriginHost(): string | null {
 // (`/_forum-images/…`) and absolute URLs on the SPA origin, the public feeds
 // origin, or the dedicated image origin all pass; anything else falls back to
 // alt text — same allowlist enforced server-side in worker/forum/markdown.ts.
+//
+// Every input is parsed and checked by its normalized pathname, never by a raw
+// string prefix: `/_forum-images/../api/me` would otherwise pass and the
+// browser would request /api/me. Dot segments, encoded dots/slashes and
+// backslashes are rejected outright, since no legitimate image URL has them.
+const HAS_PATH_TRICKS = /\.\.|%2e|%2f|%5c|\\/i;
+
 export function safeImageSrc(raw: string): string | null {
   const prefix = '/_forum-images/';
-  if (raw.startsWith(prefix)) return raw;
+  if (HAS_PATH_TRICKS.test(raw)) return null;
   try {
     const u = new URL(raw, window.location.origin);
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
     if (!u.pathname.startsWith(prefix)) return null;
+    // Relative input stays relative.
+    if (raw.startsWith('/') && !raw.startsWith('//')) return u.pathname + u.search;
     // Same-origin (SPA host), the public feeds origin, or the image origin only.
     const allowed = [window.location.host, feedsOriginHost(), imagesOriginHost()].filter(Boolean) as string[];
     if (!allowed.includes(u.host)) return null;

@@ -54,6 +54,18 @@ describe('safeImageSrc', () => {
     expect(safeImageSrc('https://feeds.gtfsx.com/some-feed/logo.png')).toBeNull();
   });
 
+  it('rejects relative paths that walk out of the forum-images prefix', () => {
+    expect(safeImageSrc('/_forum-images/../api/me')).toBeNull();
+    expect(safeImageSrc('/_forum-images/..%2fapi/me')).toBeNull();
+    expect(safeImageSrc('/_forum-images/%2E%2E/api/me')).toBeNull();
+    expect(safeImageSrc('/_forum-images/..\\api')).toBeNull();
+    expect(safeImageSrc('https://img.gtfsx.com/_forum-images/../api/me')).toBeNull();
+  });
+
+  it('rejects protocol-relative URLs to other hosts', () => {
+    expect(safeImageSrc('//evil.example.com/_forum-images/x.png')).toBeNull();
+  });
+
   it('rejects non-http(s) protocols', () => {
     expect(safeImageSrc('data:image/png;base64,AAAA')).toBeNull();
   });
