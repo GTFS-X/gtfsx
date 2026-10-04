@@ -290,7 +290,9 @@ describe('/api/me account security (W1-03, W1-06, W1-12, W1-15, W2-07)', () => {
     expect(((await blocked.json()) as { reason: string }).reason).toBe('active_subscription');
     expect((await dbGet<{ status: string }>(`SELECT status FROM user WHERE id = ?`, user.id))?.status).toBe('active');
 
-    await dbRun(`UPDATE subscription SET status = 'canceled' WHERE id = ?`, subRowId);
+    // Cancelled in the portal: Stripe keeps it `active` until period end with
+    // cancel_at_period_end set. That no longer blocks deleting the account.
+    await dbRun(`UPDATE subscription SET cancel_at_period_end = 1 WHERE id = ?`, subRowId);
     const ok = await client.delete('/api/me', { password: user.password });
     expect(ok.status).toBe(204);
   });

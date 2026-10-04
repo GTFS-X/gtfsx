@@ -582,8 +582,11 @@ apiRouter.delete('/me', requireAuth, async (c) => {
   // A live Stripe subscription must be canceled (billing portal) before the
   // account that alone controls it goes away — otherwise the customer keeps
   // being charged with no self-serve way back to the portal.
-  const blockingOrgs = await orgsWithLiveSubscriptionSoleOwnedBy(c.env, user.id);
-  if (blockingOrgs.length > 0 || (await hasLiveSubscription(c.env, 'user', user.id))) {
+  // A subscription already cancelled at period end doesn't block: it stops
+  // billing on its own (the reaper still waits for it before hard-purging).
+  const deletionOpts = { ignoreScheduledCancel: true };
+  const blockingOrgs = await orgsWithLiveSubscriptionSoleOwnedBy(c.env, user.id, deletionOpts);
+  if (blockingOrgs.length > 0 || (await hasLiveSubscription(c.env, 'user', user.id, deletionOpts))) {
     throw conflict(
       'Cancel your active subscription in the billing portal before deleting your account.',
       { reason: 'active_subscription', orgs: blockingOrgs },

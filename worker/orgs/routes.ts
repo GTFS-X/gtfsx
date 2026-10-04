@@ -704,7 +704,9 @@ orgsRouter.delete('/:id', async (c) => {
 
   // A live Stripe subscription must be canceled first: once the org is
   // deleted its billing portal is unreachable, and Stripe would keep charging.
-  if (await hasLiveSubscription(c.env, 'org', id)) {
+  // One already cancelled at period end stops charging on its own, so it
+  // doesn't block.
+  if (await hasLiveSubscription(c.env, 'org', id, { ignoreScheduledCancel: true })) {
     throw conflict(
       'This organization has an active subscription. Cancel it in the billing portal before deleting the organization.',
       { reason: 'active_subscription' },

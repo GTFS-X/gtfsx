@@ -2,7 +2,10 @@
 // soft-delete (cascades to projects).
 
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
+import { env } from 'cloudflare:test';
 import { makeClient, type TestClient } from './_client';
+import { hasLiveSubscription } from '../billing/liveSubscription';
+import type { Env } from '../env';
 import {
   applyMigrations,
   dbGet,
@@ -255,6 +258,36 @@ describe('/api/orgs CRUD', () => {
     expect((await dbGet<{ deleted_at: number | null }>(`SELECT deleted_at FROM organization WHERE id = ?`, orgId))?.deleted_at).toBeNull();
 
     await dbRun(`UPDATE subscription SET status = 'canceled' WHERE id = 'subrow-del'`);
+    expect((await client.delete(`/api/orgs/${orgId}`)).status).toBe(204);
+    await dbRun(`DELETE FROM subscription`);
+  });
+
+  it('DELETE is allowed once the subscription is cancelled at period end in the portal', async () => {
+    await dbRun(`DELETE FROM subscription`);
+    const { client } = await loggedInClient('cancelling-org-owner@example.com');
+    const created = await client.json<{ organization: { id: string } }>(
+      await client.post('/api/orgs', { slug: 'cancelling-org', name: 'Cancelling' }),
+    );
+    const orgId = created.organization.id;
+    const now = Date.now();
+    // What the webhook stores after "Cancel subscription" in the Stripe
+    // portal: still `active` until the period ends, with cancel_at_period_end.
+    await dbRun(
+      `INSERT INTO subscription
+         (id, owner_type, owner_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
+          plan, status, current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at)
+       VALUES ('subrow-cape', 'org', ?, 'sub_cape', 'cus_cape', 'price_x', 'agency', 'past_due', ?, ?, 1, ?, ?)`,
+      orgId, now, now + 30 * 86_400_000, now, now,
+    );
+    // past_due is still collecting on an open invoice: keeps blocking.
+    expect((await client.delete(`/api/orgs/${orgId}`)).status).toBe(409);
+
+    await dbRun(`UPDATE subscription SET status = 'active' WHERE id = 'subrow-cape'`);
+    // Checkout, staff grants and the reaper keep the strict rule: the
+    // subscription exists until Stripe ends it.
+    expect(await hasLiveSubscription(env as unknown as Env, 'org', orgId)).toBe(true);
+    expect(await hasLiveSubscription(env as unknown as Env, 'org', orgId, { ignoreScheduledCancel: true })).toBe(false);
+
     expect((await client.delete(`/api/orgs/${orgId}`)).status).toBe(204);
     await dbRun(`DELETE FROM subscription`);
   });
