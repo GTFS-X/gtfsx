@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import * as Popover from '@radix-ui/react-popover';
 import { useStore } from '../../store';
 import { logout as apiLogout } from '../../services/authApi';
+import { signOutLocally } from './signOut';
 import { createOrg, type OrgRole } from '../../services/orgsApi';
 import { FormField } from '../ui/FormField';
 import { Modal } from '../ui/Modal';
@@ -53,7 +54,6 @@ export function UserMenuItems({ onClose }: { onClose?: () => void } = {}) {
   const activeWorkspace = useStore((s) => s.activeWorkspace);
   const setActiveWorkspace = useStore((s) => s.setActiveWorkspace);
   const upsertUserOrg = useStore((s) => s.upsertUserOrg);
-  const clearAuth = useStore((s) => s.clearAuth);
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const close = () => onClose?.();
   const go = (path: string) => { close(); navigate(path); };
@@ -235,7 +235,9 @@ export function UserMenuItems({ onClose }: { onClose?: () => void } = {}) {
         onClick={async () => {
           close();
           try { await apiLogout(); } catch { /* still clear local */ }
-          clearAuth();
+          // Not just clearAuth(): also drop the loaded feed and the local copy
+          // so the next person on this machine gets an empty editor (C3-03).
+          await signOutLocally();
           navigate('/');
         }}
         className="w-full text-left px-3 py-2 rounded-md text-sm text-dark-brown hover:bg-cream transition-colors"

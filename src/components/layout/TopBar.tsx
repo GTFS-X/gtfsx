@@ -4,7 +4,7 @@ import { useStore } from '../../store';
 import { ImportDialog } from '../import-export/ImportDialog';
 import { ExportDialog } from '../import-export/ExportDialog';
 import { SaveAsDialog } from '../feeds/SaveAsDialog';
-import { db } from '../../db/dexie';
+import { discardAndStartFresh } from './startFresh';
 import { ApiError } from '../../services/authApi';
 import { patchProject } from '../../services/projectsApi';
 import { saveProjectNow } from '../../db/serverPersistence';
@@ -320,13 +320,10 @@ export function TopBar() {
           confirmLabel="Discard & Reset"
           onCancel={() => setShowResetConfirm(false)}
           onConfirm={async () => {
-            await db.projectData.clear();
-            await db.projectBulk.clear();
-            await db.projects.clear();
-            // Navigate home (not reload) so resetting from a server-backed
-            // editor route lands on a fresh project instead of re-loading
-            // the same feed. Workspace persists in localStorage.
-            window.location.href = import.meta.env.BASE_URL;
+            // Hard-load /editor (not '/', which is the marketing page for a
+            // logged-out user), with the store marked clean so beforeunload
+            // doesn't re-prompt (C3-21). Workspace persists in localStorage.
+            await discardAndStartFresh();
           }}
         />
       )}

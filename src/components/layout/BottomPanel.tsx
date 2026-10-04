@@ -11,6 +11,7 @@ import { EmbedPanel } from '../embed/EmbedPanel';
 import { ProjectAuditPanel } from '../audit/ProjectAuditPanel';
 import { PaywallOverlay } from '../billing/PaywallOverlay';
 import { useEditorPlan } from '../billing/useEditorPlan';
+import { bottomPanelTabs, effectiveBottomTab } from './bottomPanelTabs';
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT_FRACTION = 0.75; // max 75% of viewport
@@ -27,6 +28,8 @@ export function BottomPanel() {
   const bottomPanelMaximized = useStore((s) => s.bottomPanelMaximized);
   const toggleBottomPanelMaximized = useStore((s) => s.toggleBottomPanelMaximized);
   const activeServerProjectId = useStore((s) => s.activeServerProjectId);
+  // A server-only tab with no server project falls back to the timetable (C3-23).
+  const shownTab = effectiveBottomTab(bottomPanelTab, !!activeServerProjectId);
   const editorPlan = useEditorPlan();
   const [panelHeight, setPanelHeight] = useState(getDefaultHeight);
   const [isDraggingState, setIsDraggingState] = useState(false);
@@ -142,11 +145,7 @@ export function BottomPanel() {
           className="flex-1 min-w-0 overflow-x-auto flex items-center [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
         >
           <div className="flex items-center gap-1 min-[600px]:gap-4 px-1 min-[600px]:px-3">
-            {(
-              activeServerProjectId
-                ? (['timetable', 'blocks', 'service-summary', 'validation', 'snapshots', 'publish', 'embed', 'audit'] as const)
-                : (['timetable', 'blocks', 'service-summary', 'validation'] as const)
-            ).map((tab) => {
+            {bottomPanelTabs(!!activeServerProjectId).map((tab) => {
               // Tab labels collapse on narrow viewports (<800 px — tablets and
               // the demo-capture window size). Shortens the two longest tabs so
               // the row doesn't wrap or overflow at the lower rail width.
@@ -182,7 +181,7 @@ export function BottomPanel() {
                     if (!bottomPanelOpen) toggleBottomPanel();
                   }}
                   className={`text-[13px] font-heading font-semibold px-2 min-[600px]:px-3 py-1 rounded-md transition-colors whitespace-nowrap
-                    ${bottomPanelTab === tab && bottomPanelOpen
+                    ${shownTab === tab && bottomPanelOpen
                       ? 'bg-coral-light text-coral'
                       : 'text-warm-gray hover:text-dark-brown'
                     }`}
@@ -233,16 +232,16 @@ export function BottomPanel() {
       {/* Content */}
       {bottomPanelOpen && (
         <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
-          {bottomPanelTab === 'timetable' && <TimetableGrid />}
-          {bottomPanelTab === 'blocks' && <BlockGantt />}
-          {bottomPanelTab === 'service-summary' && <ServiceSummary />}
-          {bottomPanelTab === 'validation' && <ValidationPanel />}
-          {bottomPanelTab === 'snapshots' && activeServerProjectId && (
+          {shownTab === 'timetable' && <TimetableGrid />}
+          {shownTab === 'blocks' && <BlockGantt />}
+          {shownTab === 'service-summary' && <ServiceSummary />}
+          {shownTab === 'validation' && <ValidationPanel />}
+          {shownTab === 'snapshots' && activeServerProjectId && (
             <PaywallOverlay feature="snapshot_history" currentPlan={editorPlan} fill>
               <SnapshotHistoryPanel />
             </PaywallOverlay>
           )}
-          {bottomPanelTab === 'publish' && activeServerProjectId && (
+          {shownTab === 'publish' && activeServerProjectId && (
             <PaywallOverlay
               feature="managed_publishing"
               currentPlan={editorPlan}
@@ -253,7 +252,7 @@ export function BottomPanel() {
               <PublishWithDistribution />
             </PaywallOverlay>
           )}
-          {bottomPanelTab === 'embed' && activeServerProjectId && (
+          {shownTab === 'embed' && activeServerProjectId && (
             <PaywallOverlay
               feature="embeds"
               currentPlan={editorPlan}
@@ -268,7 +267,7 @@ export function BottomPanel() {
               <EmbedPanel />
             </PaywallOverlay>
           )}
-          {bottomPanelTab === 'audit' && activeServerProjectId && <ProjectAuditPanel />}
+          {shownTab === 'audit' && activeServerProjectId && <ProjectAuditPanel />}
         </div>
       )}
 
