@@ -16,6 +16,7 @@ import {
   getTwofa,
   logout,
   logoutAll,
+  requestPasswordReset,
   updateProfile,
   verifyPhone,
   type TwofaStatus,
@@ -29,6 +30,7 @@ import { AuditTable } from '../audit/AuditTable';
 import { deleteBlockedMessage } from '../billing/billingErrors';
 import { useStore } from '../../store';
 import { signOutLocally } from '../layout/signOut';
+import { passwordSectionMode } from './passwordNoticeHelpers';
 
 export function AccountSettingsPage() {
   const navigate = useNavigate();
@@ -49,6 +51,14 @@ export function AccountSettingsPage() {
       hydrateAuth();
     }
   }, [emailChanged, hydrateAuth]);
+
+  // Deep link from the post-verify "set a password" notice (/account#password).
+  // Client-side navigation doesn't scroll to a hash on its own.
+  const hasUser = Boolean(currentUser);
+  useEffect(() => {
+    if (!hasUser || window.location.hash !== '#password') return;
+    document.getElementById('password')?.scrollIntoView({ block: 'start' });
+  }, [hasUser]);
 
   if (!authChecked) {
     return (
@@ -105,12 +115,18 @@ export function AccountSettingsPage() {
 
       <ProfileSection
         currentDisplayName={currentUser.displayName}
-        onUpdated={(user) => setCurrentUser(user)}
+        // PATCH /api/me returns only the profile fields; keep the rest
+        // (plan, hasPassword, …) from the hydrated user.
+        onUpdated={(user) => setCurrentUser({ ...currentUser, ...user })}
       />
       <Divider />
       <ChangeEmailSection />
       <Divider />
-      <ChangePasswordSection />
+      {passwordSectionMode(currentUser.hasPassword) === 'set' ? (
+        <SetPasswordSection email={currentUser.email} />
+      ) : (
+        <ChangePasswordSection />
+      )}
       <Divider />
       <TwoFactorSection email={currentUser.email} />
       <Divider />
@@ -296,7 +312,7 @@ function ChangePasswordSection() {
   };
 
   return (
-    <section>
+    <section id="password">
       <SectionHeader title="Change password" />
       <form onSubmit={handleSave}>
         <FormField
@@ -321,6 +337,49 @@ function ChangePasswordSection() {
           {saved && <span className="text-sm text-teal">Password updated.</span>}
         </div>
       </form>
+    </section>
+  );
+}
+
+/**
+ * Accounts without a password (magic-link / Google sign-in, or a verify link
+ * opened in another browser) have no current password to type, so instead of
+ * the change form they get the reset flow: a link emailed to their address
+ * that lands on "Set a new password".
+ */
+function SetPasswordSection({ email }: { email: string }) {
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSend = async () => {
+    setError(null);
+    setSending(true);
+    try {
+      await requestPasswordReset({ email });
+      setSent(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not send the email');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section id="password">
+      <SectionHeader title="Set a password" />
+      <p className="text-sm text-brown mb-3">
+        Your account doesn't have a password. You sign in with Google or an email link. To also sign in
+        with a password, we'll email <span className="font-semibold">{email}</span> a link to set one.
+        Setting it signs you out on every device, so you'll sign in again with the new password.
+      </p>
+      {error && <p role="alert" className="text-sm text-red-700 mb-2">{error}</p>}
+      <div className="flex items-center gap-3">
+        <AuthButton type="button" onClick={handleSend} disabled={sending || sent}>
+          {sending ? 'Sending…' : 'Email me a link to set a password'}
+        </AuthButton>
+        {sent && <span className="text-sm text-teal">Sent. Check your inbox.</span>}
+      </div>
     </section>
   );
 }

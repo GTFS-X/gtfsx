@@ -136,6 +136,14 @@ apiRouter.get('/me', requireAuth, async (c) => {
   // Whether this user has already consumed their one self-serve trial — drives
   // whether the pricing page offers the no-card "Start free trial" CTA.
   const trialUsed = await getUserTrialUsed(c.env, user.id);
+  // Whether the account has a password credential. Magic-link / Google-only
+  // accounts (and unbound verify activations) don't, so account settings
+  // offers "Set a password" instead of a change form needing a current one.
+  const passwordRow = await c.env.DB.prepare(
+    `SELECT 1 AS n FROM credential WHERE user_id = ? AND kind = 'password' AND password_hash IS NOT NULL LIMIT 1`,
+  )
+    .bind(user.id)
+    .first<{ n: number }>();
   return c.json({
     user: {
       id: user.id,
@@ -146,6 +154,7 @@ apiRouter.get('/me', requireAuth, async (c) => {
       plan: user.plan,
       planStatus: user.planStatus,
       trialUsed,
+      hasPassword: !!passwordRow,
     },
     usage: { user: usage },
   });

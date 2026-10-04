@@ -254,9 +254,13 @@ function clearSignupBindingCookie(): string {
  * pending_verification → active on an activation that does not prove the
  * activator chose that state.
  */
-async function dropUnprovenSignupState(env: AppContext['Bindings'], userId: string, email: string): Promise<void> {
+async function dropUnprovenSignupState(
+  env: AppContext['Bindings'],
+  userId: string,
+  email: string,
+): Promise<{ droppedPassword: boolean }> {
   const now = Date.now();
-  await env.DB.prepare(`DELETE FROM credential WHERE user_id = ? AND kind = 'password'`)
+  const dropped = await env.DB.prepare(`DELETE FROM credential WHERE user_id = ? AND kind = 'password'`)
     .bind(userId)
     .run();
   const local = email.split('@')[0]?.trim().slice(0, 120) || 'Member';
@@ -264,7 +268,15 @@ async function dropUnprovenSignupState(env: AppContext['Bindings'], userId: stri
     .bind(local, now, userId)
     .run();
   await invalidateAuthTokensForUser(env, userId, 'verify_email');
+  return { droppedPassword: (dropped.meta?.changes ?? 0) > 0 };
 }
+
+/**
+ * Query flag on the post-verify redirect telling the client the signup
+ * password was discarded (unbound verify click), so it can explain why and
+ * offer to set one instead of failing silently at the next password login.
+ */
+export const SET_PASSWORD_NOTICE_PARAM = 'set_password';
 
 export const authRouter = new Hono<AppContext>();
 
@@ -609,8 +621,9 @@ authRouter.get('/verify', async (c) => {
   // clicker owns the inbox but did not choose the password / profile fields
   // on this pending account — drop them, and ignore the stored redirect.
   const bound = await isSignupBound(c.req.raw, resolved.metadata);
+  let droppedPassword = false;
   if (!bound) {
-    await dropUnprovenSignupState(c.env, userRow.id, userRow.email);
+    ({ droppedPassword } = await dropUnprovenSignupState(c.env, userRow.id, userRow.email));
   }
 
   const now = Date.now();
@@ -669,7 +682,10 @@ authRouter.get('/verify', async (c) => {
     : isSignupFlow
       ? '/pricing?source=welcome'
       : '/?welcome=1';
-  return c.redirect(`${c.env.APP_ORIGIN}${target}`, 302);
+  const notice = droppedPassword
+    ? `${target.includes('?') ? '&' : '?'}${SET_PASSWORD_NOTICE_PARAM}=1`
+    : '';
+  return c.redirect(`${c.env.APP_ORIGIN}${target}${notice}`, 302);
 });
 
 // ─── Resend verification email ─────────────────────────────────────────────
