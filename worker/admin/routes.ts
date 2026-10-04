@@ -22,6 +22,8 @@ import {
 } from '../auth/tokens';
 import { sendVerifyEmail } from '../email';
 import { buildWarmCohortCsv } from './warmCohort';
+import { hasLiveSubscription } from '../billing/liveSubscription';
+import { csvCell } from '../util/csv';
 import {
   clearImpersonationBinding,
   clearImpersonatorCookie,
@@ -393,6 +395,8 @@ adminRouter.get('/users/:id', async (c) => {
       plan: row.plan ?? 'free',
       planStatus: row.plan_status ?? 'active',
       planExpiresAt: row.plan_expires_at ?? null,
+      // A live Stripe subscription: comp grant/revoke will 409 without force.
+      hasStripeSubscription: await hasLiveSubscription(c.env, 'user', row.id),
       createdAt: row.created_at,
       lastSessionAt: row.last_session_at,
       projectCount: row.project_count,
@@ -711,7 +715,53 @@ const planGrantSchema = z.object({
   // Unix ms. Null/undefined = open-ended grant (no expiry).
   expiresAt: z.number().int().positive().nullable().optional(),
   note: z.string().max(500).optional(),
+  // Override the live-Stripe-subscription guard (see assertNoLiveSubscription).
+  force: z.boolean().optional(),
 });
+
+const planRevokeSchema = z.object({
+  force: z.boolean().optional(),
+});
+
+// The revoke routes historically took no body; treat a missing/empty one as {}.
+async function parseOptionalJson<T extends z.ZodTypeAny>(
+  c: { req: { text: () => Promise<string> } },
+  schema: T,
+): Promise<z.infer<T>> {
+  const raw = (await c.req.text()).trim();
+  let body: unknown = {};
+  if (raw) {
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      throw validationFailed('Invalid JSON body');
+    }
+  }
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    throw validationFailed('Invalid request', { issues: result.error.issues });
+  }
+  return result.data;
+}
+
+/**
+ * A comp grant or revoke on a principal that is paying through Stripe fights
+ * the webhook: the expiry cron (or a revoke) downgrades a paying customer, who
+ * keeps being billed. Refuse unless staff explicitly pass force: true.
+ */
+async function assertNoLiveSubscription(
+  env: Env,
+  ownerType: 'user' | 'org',
+  ownerId: string,
+  force: boolean | undefined,
+): Promise<void> {
+  if (force) return;
+  if (await hasLiveSubscription(env, ownerType, ownerId)) {
+    throw conflict('Has an active Stripe subscription — manage it in Stripe (or pass force: true).', {
+      reason: 'active_subscription',
+    });
+  }
+}
 
 adminRouter.post('/users/:id/enterprise-grant', async (c) => {
   const staff = c.var.user!;
@@ -722,6 +772,7 @@ adminRouter.post('/users/:id/enterprise-grant', async (c) => {
     .bind(id)
     .first<{ id: string; email: string }>();
   if (!target) throw notFound('User not found');
+  await assertNoLiveSubscription(c.env, 'user', id, body.force);
 
   const now = Date.now();
   await c.env.DB.prepare(
@@ -754,6 +805,7 @@ adminRouter.post('/orgs/:id/enterprise-grant', async (c) => {
     .bind(id)
     .first<{ id: string; name: string }>();
   if (!org) throw notFound('Organization not found');
+  await assertNoLiveSubscription(c.env, 'org', id, body.force);
 
   await c.env.DB.prepare(
     `UPDATE organization
@@ -781,11 +833,13 @@ adminRouter.post('/orgs/:id/enterprise-grant', async (c) => {
 adminRouter.post('/users/:id/enterprise-revoke', async (c) => {
   const staff = c.var.user!;
   const id = c.req.param('id');
+  const body = await parseOptionalJson(c, planRevokeSchema);
   const target = await c.env.DB.prepare(`SELECT id, email, plan FROM user WHERE id = ?`)
     .bind(id)
     .first<{ id: string; email: string; plan: string }>();
   if (!target) throw notFound('User not found');
   if (target.plan === 'free') throw validationFailed('User is not on a granted plan');
+  await assertNoLiveSubscription(c.env, 'user', id, body.force);
 
   const now = Date.now();
   await c.env.DB.prepare(
@@ -807,11 +861,13 @@ adminRouter.post('/users/:id/enterprise-revoke', async (c) => {
 adminRouter.post('/orgs/:id/enterprise-revoke', async (c) => {
   const staff = c.var.user!;
   const id = c.req.param('id');
+  const body = await parseOptionalJson(c, planRevokeSchema);
   const target = await c.env.DB.prepare(`SELECT id, name, plan FROM organization WHERE id = ?`)
     .bind(id)
     .first<{ id: string; name: string; plan: string }>();
   if (!target) throw notFound('Organization not found');
   if (target.plan === 'free') throw validationFailed('Organization is not on a granted plan');
+  await assertNoLiveSubscription(c.env, 'org', id, body.force);
 
   await c.env.DB.prepare(
     `UPDATE organization SET plan = 'free', plan_status = 'active', plan_expires_at = NULL, plan_renewal_at = NULL WHERE id = ?`,
@@ -923,6 +979,8 @@ adminRouter.get('/orgs/:id', async (c) => {
       plan: org.plan ?? 'free',
       planStatus: org.plan_status ?? 'active',
       planExpiresAt: org.plan_expires_at ?? null,
+      // A live Stripe subscription: comp grant/revoke will 409 without force.
+      hasStripeSubscription: await hasLiveSubscription(c.env, 'org', org.id),
       createdAt: org.created_at,
     },
     members: members.results ?? [],
@@ -1152,14 +1210,6 @@ adminRouter.get('/audit', async (c) => {
 
 const CSV_CAP = 50_000;
 
-function csvEscape(s: string): string {
-  if (s === '') return '';
-  if (/[",\r\n]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
 adminRouter.get('/audit.csv', async (c) => {
   const staff = c.var.user!;
   await rateLimit(c.env, { key: `admin:audit:${staff.id}`, limit: 60, windowSec: 60 });
@@ -1193,15 +1243,15 @@ adminRouter.get('/audit.csv', async (c) => {
   const lines: string[] = [header.join(',')];
   for (const r of rows) {
     lines.push([
-      csvEscape(r.id),
+      csvCell(r.id),
       String(r.created_at),
-      csvEscape(r.action),
-      csvEscape(r.actor_user_id ?? ''),
-      csvEscape(r.actor_email ?? ''),
-      csvEscape(r.subject_type),
-      csvEscape(r.subject_id ?? ''),
-      csvEscape(r.ip ?? ''),
-      csvEscape(r.metadata_json ?? ''),
+      csvCell(r.action),
+      csvCell(r.actor_user_id ?? ''),
+      csvCell(r.actor_email ?? ''),
+      csvCell(r.subject_type),
+      csvCell(r.subject_id ?? ''),
+      csvCell(r.ip ?? ''),
+      csvCell(r.metadata_json ?? ''),
     ].join(','));
   }
 
@@ -1332,37 +1382,42 @@ interface AdsAttribRow {
   sample_gclids: string;
 }
 
+/**
+ * Group gclid-stamped events (newest first) by ISO week + kind. Each group
+ * keeps up to 5 sample gclids, most recent first. Sorted week DESC, count DESC,
+ * kind ASC. Exported for a focused test of the week boundary.
+ */
+export function groupAdsAttribution(events: { ts: number; kind: string; gclid: string }[]): AdsAttribRow[] {
+  const groups = new Map<string, { week: string; kind: string; n: number; samples: string[] }>();
+  for (const e of events) {
+    const week = weekBucket(e.ts);
+    const key = `${week}\u0000${e.kind}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { week, kind: e.kind, n: 0, samples: [] };
+      groups.set(key, g);
+    }
+    g.n += 1;
+    if (g.samples.length < 5) g.samples.push(e.gclid);
+  }
+  return [...groups.values()]
+    .sort((a, b) =>
+      a.week !== b.week ? (a.week < b.week ? 1 : -1) : a.n !== b.n ? b.n - a.n : a.kind.localeCompare(b.kind))
+    .map((g) => ({ week: g.week, kind: g.kind, n: g.n, sample_gclids: g.samples.join(', ') }));
+}
+
 adminRouter.get('/events/ads-attribution', async (c) => {
   const staff = c.var.user!;
   await rateLimit(c.env, { key: `admin:events:${staff.id}`, limit: 60, windowSec: 60 });
 
-  // Per-row count + the 5 most recent sample gclids. group_concat preserves
-  // insertion order in SQLite; ORDER BY in a window function isn't available
-  // in D1, so we rely on the outer per-group sort (most recent ts first via
-  // a subquery LIMIT 5) to get sensible samples.
-  const rowsRes = await c.env.DB.prepare(
-    `SELECT
-        strftime('%Y-W%W', ts / 1000, 'unixepoch') AS week,
-        kind,
-        COUNT(*) AS n,
-        (
-          SELECT GROUP_CONCAT(g, ', ') FROM (
-            SELECT gclid AS g
-              FROM event e2
-             WHERE e2.gclid IS NOT NULL
-               AND strftime('%Y-W%W', e2.ts / 1000, 'unixepoch') = strftime('%Y-W%W', event.ts / 1000, 'unixepoch')
-               AND e2.kind = event.kind
-             ORDER BY e2.ts DESC
-             LIMIT 5
-          )
-        ) AS sample_gclids
-       FROM event
-       WHERE gclid IS NOT NULL
-       GROUP BY week, kind
-       ORDER BY week DESC, n DESC, kind ASC`,
-  ).all<AdsAttribRow>();
-
-  const rows = rowsRes.results ?? [];
+  // Per-(ISO week, kind) count + the 5 most recent sample gclids. Bucketed in
+  // JS with weekBucket (true ISO-8601 weeks): SQLite's strftime('%W') is a
+  // Monday-based calendar-year week with a week 00, which disagrees with the
+  // ISO weeks the Google Ads click report uses around New Year.
+  const rawRes = await c.env.DB.prepare(
+    `SELECT ts, kind, gclid FROM event WHERE gclid IS NOT NULL ORDER BY ts DESC`,
+  ).all<{ ts: number; kind: string; gclid: string }>();
+  const rows = groupAdsAttribution(rawRes.results ?? []);
 
   const tableRows = rows.length === 0
     ? `<tr><td colspan="4" style="text-align:center;color:#666;padding:24px;">No gclid-stamped events yet.</td></tr>`

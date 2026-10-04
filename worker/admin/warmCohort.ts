@@ -14,6 +14,7 @@
 //     each is called out inline below.
 
 import type { Env } from '../env';
+import { csvCell } from '../util/csv';
 
 // ─── Freemail / org inference ───────────────────────────────────────────────
 
@@ -116,12 +117,6 @@ const COLUMNS = [
   'score',
 ] as const;
 
-function csvEscape(s: string): string {
-  if (s === '') return '';
-  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
 function isoOrEmpty(ms: number | null): string {
   if (ms == null || !Number.isFinite(ms) || ms <= 0) return '';
   try {
@@ -144,17 +139,17 @@ export function renderCsv(rows: WarmRow[]): string {
   const lines: string[] = [COLUMNS.join(',')];
   for (const r of rows) {
     lines.push([
-      csvEscape(r.email),
-      csvEscape(isoOrEmpty(r.account_created_at)),
-      csvEscape(isoOrEmpty(r.last_active_at)),
-      csvEscape(r.org_name),
+      csvCell(r.email),
+      csvCell(isoOrEmpty(r.account_created_at)),
+      csvCell(isoOrEmpty(r.last_active_at)),
+      csvCell(r.org_name),
       String(r.saved_feeds_count),
       r.at_free_cap ? 'true' : 'false',
       String(r.exported_gtfs_count),
       r.has_flex_zones ? 'true' : 'false',
       String(r.distinct_active_days_30d),
       String(r.sessions_last_30d),
-      csvEscape(attemptedCell(r)),
+      csvCell(attemptedCell(r)),
       r.is_consultant_signal ? 'true' : 'false',
       String(r.score),
     ].join(','));
