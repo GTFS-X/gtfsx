@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
-import { isShapeSharedWithOtherRoute, routeStopsToCopy } from './routePanelHelpers';
+import { applyShapeSimplification, isShapeSharedWithOtherRoute, routeStopsToCopy } from './routePanelHelpers';
 import { generateId } from '../../services/idGenerator';
 import { snapToRoadDetailed, pathLengthMeters } from '../../services/snapToRoad';
 import { SnapWarningDialog } from '../map/SnapWarningDialog';
@@ -539,8 +539,9 @@ export function RouteShapesTab() {
                           <button
                             key={level.label}
                             onClick={() => {
-                              updateShapePoints(shape!.shape_id, preview);
-                              recalcShapeDistances(shape!.shape_id);
+                              // One undo step; Cancel in edit mode restores
+                              // the pre-simplify points (E2E E1).
+                              applyShapeSimplification(shape!.shape_id, preview);
                               setSimplifyShapeId(null);
                               setEditingShapeId(null);
                               setTimeout(() => {

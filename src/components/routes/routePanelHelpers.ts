@@ -4,7 +4,9 @@ import { useStore } from '../../store';
 import { deriveRouteShapeIds } from '../../services/routeShapes';
 import { flexOnlyRouteIds } from '../../services/flexRoutes';
 import { gtfsTimeToSeconds } from '../../utils/time';
-import type { Calendar, Route, RouteStop, Shape, Stop, StopTime, Trip } from '../../types/gtfs';
+import { historyTransaction } from '../../store/history';
+import { primeShapeEditSnapshot } from '../map/mapInteractions';
+import type { Calendar, Route, RouteStop, Shape, ShapePoint, Stop, StopTime, Trip } from '../../types/gtfs';
 import type { FlexZone } from '../../store/flexSlice';
 import type { RouteDetailTab } from '../../types/ui';
 
@@ -168,4 +170,21 @@ export function routeStopsToCopy(
   return routeStops
     .filter((rs) => rs.route_id === routeId && rs.shape_id === shapeId)
     .sort((a, b) => a.stop_sequence - b.stop_sequence);
+}
+
+/**
+ * Routes › Shapes › Simplify: replace the shape's points with the simplified
+ * ones as ONE undo step, after recording the pre-simplify points as the
+ * snapshot the upcoming edit_shape session restores on Cancel. The caller
+ * then enters edit mode.
+ */
+export function applyShapeSimplification(shapeId: string, simplified: ShapePoint[]): void {
+  const state = useStore.getState();
+  const original = state.shapes.find((s) => s.shape_id === shapeId)?.points;
+  if (!original) return;
+  primeShapeEditSnapshot(shapeId, original);
+  historyTransaction('Simplify shape', () => {
+    state.updateShapePoints(shapeId, simplified);
+    useStore.getState().recalcShapeDistances(shapeId);
+  });
 }
