@@ -28,6 +28,7 @@ import {
 import { AuditTable } from '../audit/AuditTable';
 import { deleteBlockedMessage } from '../billing/billingErrors';
 import { useStore } from '../../store';
+import { signOutLocally } from '../layout/signOut';
 
 export function AccountSettingsPage() {
   const navigate = useNavigate();
@@ -35,7 +36,6 @@ export function AccountSettingsPage() {
   const currentUser = useStore((s) => s.currentUser);
   const authChecked = useStore((s) => s.authChecked);
   const setCurrentUser = useStore((s) => s.setCurrentUser);
-  const clearAuth = useStore((s) => s.clearAuth);
   const hydrateAuth = useStore((s) => s.hydrateAuth);
 
   const emailChanged = searchParams.get('email_changed') === '1';
@@ -114,9 +114,9 @@ export function AccountSettingsPage() {
       <Divider />
       <TwoFactorSection email={currentUser.email} />
       <Divider />
-      <SessionsSection onSignedOut={() => {
-        // TODO(C3-03, integrator): after merging B7, call signOutLocally() (layout/signOut.ts) instead of clearAuth().
-        clearAuth();
+      <SessionsSection onSignedOut={async () => {
+        // Also drops the loaded feed and this browser's local copy (C3-03).
+        await signOutLocally();
         navigate('/');
       }} />
       <Divider />
@@ -126,8 +126,8 @@ export function AccountSettingsPage() {
       <Divider />
       <DeleteAccountSection
         email={currentUser.email}
-        onDeleted={() => {
-          clearAuth();
+        onDeleted={async () => {
+          await signOutLocally();
           navigate('/');
         }}
       />
@@ -811,7 +811,7 @@ function SmsEnroll({
   return null;
 }
 
-function SessionsSection({ onSignedOut }: { onSignedOut: () => void }) {
+function SessionsSection({ onSignedOut }: { onSignedOut: () => Promise<void> }) {
   const [signingOut, setSigningOut] = useState(false);
   const [signingOutAll, setSigningOutAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -821,7 +821,7 @@ function SessionsSection({ onSignedOut }: { onSignedOut: () => void }) {
     setSigningOut(true);
     try {
       await logout();
-      onSignedOut();
+      await onSignedOut();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Could not sign out';
       setError(msg);
@@ -835,7 +835,7 @@ function SessionsSection({ onSignedOut }: { onSignedOut: () => void }) {
     setSigningOutAll(true);
     try {
       await logoutAll();
-      onSignedOut();
+      await onSignedOut();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Could not sign out of all devices';
       setError(msg);
@@ -869,7 +869,7 @@ function DeleteAccountSection({
   onDeleted,
 }: {
   email: string;
-  onDeleted: () => void;
+  onDeleted: () => Promise<void>;
 }) {
   const [step, setStep] = useState<'idle' | 'confirm'>('idle');
   const [confirmEmail, setConfirmEmail] = useState('');
@@ -884,7 +884,7 @@ function DeleteAccountSection({
     setWorking(true);
     try {
       await deleteAccount(password ? { password } : {});
-      onDeleted();
+      await onDeleted();
     } catch (err) {
       setError(deleteBlockedMessage(err, 'account', 'Could not delete account'));
     } finally {

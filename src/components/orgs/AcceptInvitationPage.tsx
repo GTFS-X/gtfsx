@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
+import { signOutLocally } from '../layout/signOut';
 import { AuthLayout } from '../auth/AuthLayout';
 import { AuthButton } from '../auth/AuthButton';
 import { ApiError, logout as apiLogout } from '../../services/authApi';
@@ -19,7 +20,6 @@ export function AcceptInvitationPage() {
   const currentUser = useStore((s) => s.currentUser);
   const loadOrgs = useStore((s) => s.loadOrgs);
   const setActiveWorkspace = useStore((s) => s.setActiveWorkspace);
-  const clearAuth = useStore((s) => s.clearAuth);
 
   const token = searchParams.get('token') ?? '';
   // Invitation emails embed the recipient's address so we can pre-fill the
@@ -140,8 +140,8 @@ export function AcceptInvitationPage() {
               } catch {
                 // ignore
               }
-              // TODO(C3-03, integrator): after merging B7, call signOutLocally() (layout/signOut.ts).
-              clearAuth();
+              // Also drops the loaded feed and this browser's local copy (C3-03).
+              await signOutLocally();
               const next = `/orgs/accept?token=${encodeURIComponent(token)}`;
               navigate(`/login?next=${encodeURIComponent(next)}`, { replace: true });
             }}
