@@ -28,6 +28,8 @@ import {
 import { renderRouteEmbed } from '../embeds/route';
 import { renderSystemMapEmbed } from '../embeds/systemMap';
 import { renderStopEmbed } from '../embeds/stop';
+// A path that can't be decoded (`%ZZ`) names nothing: 404 rather than a 500.
+import { safeDecode } from '../embeds/safe';
 import { renderLandingPage } from '../embeds/landing';
 import { renderWidgetsLoader } from '../embeds/widgets';
 import { isApiPath, handleApiRequest } from '../embeds/api';
@@ -115,16 +117,6 @@ function yyyymmdd(ms: number): string {
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
-}
-
-// decodeURIComponent throws URIError on malformed percent-encoding (`%ZZ`),
-// which surfaced as a 500. A path that can't be decoded names nothing: 404.
-function safeDecode(s: string): string | null {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return null;
-  }
 }
 
 // Weak-tag compatible ETag comparator.
