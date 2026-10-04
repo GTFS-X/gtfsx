@@ -4,6 +4,7 @@ import { formatTimeShort, gtfsTimeToSeconds } from '../../utils/time';
 import { directionName } from '../../utils/constants';
 import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 import { serviceTripCountsAtStop, defaultStopServiceId } from '../../services/stopAnalysis';
+import { serviceOptions } from '../../services/serviceIds';
 
 const PEAK_WINDOWS: Array<[number, number]> = [[6 * 3600, 9 * 3600], [15 * 3600, 18 * 3600]];
 const OFFPEAK_WINDOWS: Array<[number, number]> = [[10 * 3600, 14 * 3600]];
@@ -27,6 +28,8 @@ type TimeField = 'departure' | 'arrival';
 interface Departure {
   time: string;
   timeSortKey: string;
+  /** timeSortKey in seconds: GTFS hours may be unpadded, so sort numerically. */
+  timeSec: number;
   routeName: string;
   routeColor: string;
   direction: string;
@@ -51,6 +54,7 @@ export function StopDeparturesSection() {
   const routes = useStore((s) => s.routes);
   const trips = useStore((s) => s.trips);
   const calendars = useStore((s) => s.calendars);
+  const calendarDates = useStore((s) => s.calendarDates);
   const hiddenRouteIds = useStore((s) => s.hiddenRouteIds);
   const { byTrip: stopTimesByTrip, byStop: stopTimesByStop } = useStopTimesIndex();
 
@@ -69,13 +73,16 @@ export function StopDeparturesSection() {
     [editingStopId, stopTimesByStop, trips],
   );
 
+  // calendar.txt services plus calendar_dates-only ones (a dates-only feed has
+  // no calendar rows at all, and its trips must still be pickable).
+  const services = useMemo(() => serviceOptions({ calendars, calendarDates }), [calendars, calendarDates]);
   const activeServiceId = useMemo(() => {
-    if (selectedServiceId && calendars.some((c) => c.service_id === selectedServiceId)) return selectedServiceId;
+    if (selectedServiceId && services.some((o) => o.serviceId === selectedServiceId)) return selectedServiceId;
     // Default to a service that actually serves this stop (the busiest one).
     // Feeds with one service_id per route/day-type otherwise land on an empty
     // "Weekdays" service and the panel looks broken — issue #46.
-    return defaultStopServiceId(serviceTripCounts, calendars.map((c) => c.service_id)) || calendars[0]?.service_id || null;
-  }, [selectedServiceId, calendars, serviceTripCounts]);
+    return defaultStopServiceId(serviceTripCounts, services.map((o) => o.serviceId)) || services[0]?.serviceId || null;
+  }, [selectedServiceId, services, serviceTripCounts]);
 
   const departures = useMemo<Departure[]>(() => {
     if (!editingStopId) return [];
@@ -119,6 +126,7 @@ export function StopDeparturesSection() {
       deps.push({
         time: formatTimeShort(timeValue),
         timeSortKey: timeValue,
+        timeSec: gtfsTimeToSeconds(timeValue),
         routeName: route.route_short_name || route.route_long_name || route.route_id,
         routeColor: route.route_color,
         direction: directionName(route, trip.direction_id),
@@ -127,9 +135,9 @@ export function StopDeparturesSection() {
     }
 
     if (sortMode === 'time') {
-      deps.sort((a, b) => a.timeSortKey.localeCompare(b.timeSortKey));
+      deps.sort((a, b) => a.timeSec - b.timeSec);
     } else {
-      deps.sort((a, b) => a.routeName.localeCompare(b.routeName) || a.timeSortKey.localeCompare(b.timeSortKey));
+      deps.sort((a, b) => a.routeName.localeCompare(b.routeName) || a.timeSec - b.timeSec);
     }
     return deps;
   }, [editingStopId, stopTimesByTrip, stopTimesByStop, trips, routes, activeServiceId, sortMode, showAllRoutes, hiddenRouteSet, timeField]);
@@ -142,10 +150,10 @@ export function StopDeparturesSection() {
     for (const d of departures) {
       routeGroups.set(d.routeName, (routeGroups.get(d.routeName) || 0) + 1);
       tripIds.add(d.tripId);
-      secs.push(gtfsTimeToSeconds(d.timeSortKey));
+      secs.push(d.timeSec);
     }
     // Sort ascending for a clean first/last regardless of the table's sort mode.
-    const sortedTimes = [...departures].sort((a, b) => a.timeSortKey.localeCompare(b.timeSortKey));
+    const sortedTimes = [...departures].sort((a, b) => a.timeSec - b.timeSec);
     return {
       total: departures.length,
       tripsPerDay: tripIds.size,
@@ -176,17 +184,17 @@ export function StopDeparturesSection() {
         <>
           {/* Compact controls — stacked rows so they fit a ~460px rail. */}
           <div className="flex flex-wrap items-center gap-1.5 mb-2">
-            {calendars.length > 0 && (
+            {services.length > 0 && (
               <select
                 value={activeServiceId || ''}
                 onChange={(e) => setSelectedServiceId(e.target.value)}
                 className="px-2 py-1 border border-sand rounded-md text-[11px] bg-cream focus:outline-none focus:border-coral min-w-0 flex-1"
               >
-                {calendars.map((cal) => {
-                  const n = serviceTripCounts.get(cal.service_id) || 0;
+                {services.map((o) => {
+                  const n = serviceTripCounts.get(o.serviceId) || 0;
                   return (
-                    <option key={cal.service_id} value={cal.service_id}>
-                      {cal._description || cal.service_id} · {n} trip{n === 1 ? '' : 's'}
+                    <option key={o.serviceId} value={o.serviceId}>
+                      {o.label} · {n} trip{n === 1 ? '' : 's'}
                     </option>
                   );
                 })}
@@ -259,7 +267,7 @@ export function StopDeparturesSection() {
                 <tbody>
                   {departures.map((dep, i) => {
                     const prev = i > 0 && sortMode === 'time' ? departures[i - 1] : null;
-                    const hasGap = prev && dep.timeSortKey > prev.timeSortKey
+                    const hasGap = prev && dep.timeSec > prev.timeSec
                       && (parseTimeToMinutes(dep.timeSortKey) - parseTimeToMinutes(prev.timeSortKey)) > 30;
                     return (
                       <tr

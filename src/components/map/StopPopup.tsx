@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Popup } from 'react-map-gl/mapbox';
 import { useStore } from '../../store';
+import { compareGtfsTimes } from '../stops/departureSort';
 import { formatTimeShort } from '../../utils/time';
 
 interface StopPopupProps {
@@ -41,7 +42,7 @@ export function StopPopup({ stopId, onClose }: StopPopupProps) {
     // Get next few stop times (sorted by arrival)
     const times = stopTimes
       .filter((st) => st.stop_id === stopId && st.arrival_time)
-      .sort((a, b) => a.arrival_time.localeCompare(b.arrival_time))
+      .sort((a, b) => compareGtfsTimes(a.arrival_time, b.arrival_time))
       .slice(0, 6);
 
     // Enrich times with trip/route info

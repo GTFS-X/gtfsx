@@ -4,7 +4,6 @@ import { FormField } from '../ui/FormField';
 import { WHEELCHAIR_BOARDING, LOCATION_TYPES } from '../../utils/constants';
 import { generateId } from '../../services/idGenerator';
 import { placementTargetShapeId } from '../../services/stopPlacement';
-import { nextRouteStopSequence } from '../../services/routeStopMigration';
 
 /**
  * Create-new-stop sub-panel. Reachable from a "Create new stop" button in
@@ -33,7 +32,7 @@ export function CreateStopPanel() {
   const setMapMode = useStore((s) => s.setMapMode);
   const selectRoute = useStore((s) => s.selectRoute);
   const addStop = useStore((s) => s.addStop);
-  const addRouteStop = useStore((s) => s.addRouteStop);
+  const appendRouteStop = useStore((s) => s.appendRouteStop);
   const setCreatingStop = useStore((s) => s.setCreatingStop);
   const setEditingStopId = useStore((s) => s.setEditingStopId);
   const setRouteDetailTab = useStore((s) => s.setRouteDetailTab);
@@ -60,14 +59,21 @@ export function CreateStopPanel() {
     setStopPlacementShapeId(activeShapeId);
     return () => setStopPlacementShapeId(null);
   }, [activeShapeId, setStopPlacementShapeId]);
+  // Route › Stops keeps its placement shape while this panel is open (it skips
+  // its own reset when creatingStop), so this panel owns the final clear. The
+  // remounting Stops tab sets it again for its own shape.
+  useEffect(() => () => setStopPlacementShapeId(null), [setStopPlacementShapeId]);
 
   // Make sure the place_stop handler in MapView reads the editing route as
   // the active route while this panel is open — otherwise the snap target
   // and route_stop assignment would be wrong for routes that aren't also
-  // the "selected" one.
-  if (fromRouteContext && useStore.getState().selectedRouteId !== editingRouteId) {
-    selectRoute(editingRouteId);
-  }
+  // the "selected" one. In an effect, not the render body: a store write
+  // during render updates other subscribed components mid-render.
+  useEffect(() => {
+    if (fromRouteContext && editingRouteId && useStore.getState().selectedRouteId !== editingRouteId) {
+      selectRoute(editingRouteId);
+    }
+  }, [fromRouteContext, editingRouteId, selectRoute]);
 
   // Form for manual entry. Defaults to empty; lat/lng are required to create.
   const [name, setName] = useState('');
@@ -118,16 +124,12 @@ export function CreateStopPanel() {
     });
     if (fromRouteContext && editingRouteId) {
       // Per-shape stop lists: tag the stop with the active shape (otherwise it
-      // shows up in neither shape's list) and append after that shape's stops.
-      const existing = routeStops.filter(
-        (rs) => rs.route_id === editingRouteId
-          && (activeShapeId ? rs.shape_id === activeShapeId : rs.direction_id === directionId),
-      );
-      addRouteStop({
+      // shows up in neither shape's list). appendRouteStop puts it after every
+      // sequence the pattern and its trips' stop_times already use.
+      appendRouteStop({
         route_id: editingRouteId,
         stop_id: id,
         direction_id: directionId,
-        stop_sequence: nextRouteStopSequence(existing),
         _snapped: false,
         shape_id: activeShapeId ?? undefined,
       });
