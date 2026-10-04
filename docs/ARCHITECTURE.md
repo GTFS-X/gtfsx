@@ -243,6 +243,19 @@ origin. This list is the source of truth.
 logout-all; per-IP+per-email rate limits; Turnstile on `/auth/signup`. Google
 OAuth (BE-16) is deferred.
 
+Activating a `pending_verification` account never carries over state the
+activator didn't prove they chose: Google sign-in and magic-link activation
+drop the pre-existing password credential and reset the display name; a
+verify-email link keeps them only when opened in the browser that requested
+that verify mail (`gb_signup` cookie, hash stored on the token), otherwise it
+activates without them and ignores the stored post-verify redirect.
+
+Staff impersonation: the staff identity to restore is bound server-side (KV
+`impersonation:session:<impersonated session id>`, written by
+`POST /api/admin/users/:id/impersonate`); `end-impersonation` reads it from
+the current session only. The `gb_impersonator` cookie is a UI hint, not an
+identity. Logout clears both.
+
 **Authorization (BE-20..22):** role matrix `owner` > `admin` > `editor` >
 `viewer`; many-to-many org membership; `staff=1` → `/admin`; no public read of
 editor state (published feeds public by design, drafts public-but-unguessable).
