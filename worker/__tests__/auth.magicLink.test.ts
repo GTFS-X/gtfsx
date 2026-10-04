@@ -103,4 +103,22 @@ describe('auth /magic-link', () => {
     const after = await dbGet<{ status: string }>(`SELECT status FROM user WHERE id = ?`, user.id);
     expect(after?.status).toBe('active');
   });
+
+  it('concurrent consumes of one link mint exactly one session (W1-08)', async () => {
+    // The race is timing-dependent, so repeat it a few times with fresh links.
+    for (let round = 0; round < 3; round++) {
+      const user = await seedUser({ email: `race-magic-${round}@example.com` });
+      await makeClient().post('/auth/magic-link/request', { email: user.email });
+      const token = capture.tokenFor(user.email);
+      expect(token).toBeTruthy();
+
+      const results = await Promise.all(
+        [0, 1, 2].map(() => makeClient().get(`/auth/magic-link/consume?token=${token}`)),
+      );
+      const signedIn = results.filter((r) => (r.headers.get('Set-Cookie') ?? '').startsWith('gb_session=')).length;
+      expect(signedIn).toBe(1);
+      const sessions = await dbGet<{ n: number }>(`SELECT COUNT(*) AS n FROM session WHERE user_id = ?`, user.id);
+      expect(sessions?.n).toBe(1);
+    }
+  });
 });

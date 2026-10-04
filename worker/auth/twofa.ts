@@ -260,22 +260,40 @@ function pendingPhoneOf(metadataJson: string | null): string | null {
 }
 
 /**
- * Shared post-check bookkeeping for a submitted code. On a wrong code, bump
- * attempts (the final allowed attempt kills the challenge) and throw; on a
- * correct code, consume the row. Used by both the token-resolved verify path
- * and the user-resolved phone-enrollment path.
+ * Atomically claim one attempt on a live challenge BEFORE the code is checked.
+ * The increment is a single guarded UPDATE, so parallel submissions each take
+ * a distinct slot and the cap holds: once `attempts` reaches MAX_ATTEMPTS (or
+ * the row is consumed/expired) no further claim succeeds and the caller gets
+ * `twofa_expired`. Returns the attempt count after this claim.
+ */
+async function claimAttempt(env: Env, challengeId: string): Promise<number> {
+  const claimed = await env.DB.prepare(
+    `UPDATE twofa_challenge SET attempts = attempts + 1
+      WHERE id = ? AND attempts < ? AND consumed_at IS NULL AND expires_at > ?
+      RETURNING attempts`,
+  )
+    .bind(challengeId, MAX_ATTEMPTS, Date.now())
+    .first<{ attempts: number }>();
+  if (!claimed) throw twofaExpired();
+  return claimed.attempts;
+}
+
+/**
+ * Shared post-check bookkeeping for a submitted code whose attempt was already
+ * claimed (see claimAttempt). On a wrong code, throw (the final allowed attempt
+ * reports the challenge as expired); on a correct code, consume the row —
+ * single-use, so only one of two concurrent correct submissions wins. Used by
+ * both the token-resolved verify path and the user-resolved phone-enrollment
+ * path.
  */
 async function recordAttempt(
   env: Env,
-  row: { id: string; user_id: string; purpose: TwofaPurpose; attempts: number },
+  row: { id: string; user_id: string; purpose: TwofaPurpose },
+  attempts: number,
   correct: boolean,
   ip?: string | null,
 ): Promise<void> {
   if (!correct) {
-    const attempts = row.attempts + 1;
-    await env.DB.prepare(`UPDATE twofa_challenge SET attempts = ? WHERE id = ?`)
-      .bind(attempts, row.id)
-      .run();
     await logAudit(env, {
       actorUserId: row.user_id,
       subjectType: 'session',
@@ -290,9 +308,12 @@ async function recordAttempt(
     throw twofaInvalidCode({ attempts_left: MAX_ATTEMPTS - attempts });
   }
 
-  await env.DB.prepare(`UPDATE twofa_challenge SET consumed_at = ? WHERE id = ?`)
+  const consumed = await env.DB.prepare(
+    `UPDATE twofa_challenge SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL`,
+  )
     .bind(Date.now(), row.id)
     .run();
+  if ((consumed.meta?.changes ?? 0) !== 1) throw twofaExpired();
   await logAudit(env, {
     actorUserId: row.user_id,
     subjectType: 'session',
@@ -342,6 +363,8 @@ export async function verifyChallengeCode(env: Env, opts: VerifyOpts): Promise<V
     throw twofaExpired();
   }
 
+  const attempts = await claimAttempt(env, row.id);
+
   let correct: boolean;
   if (row.method === 'sms') {
     // Twilio Verify owns the SMS code. Check against the pending phone during
@@ -353,7 +376,7 @@ export async function verifyChallengeCode(env: Env, opts: VerifyOpts): Promise<V
     correct = constantTimeEqualHex(expected, row.code_hash);
   }
 
-  await recordAttempt(env, row, correct, opts.ip);
+  await recordAttempt(env, row, attempts, correct, opts.ip);
 
   return {
     userId: row.user_id,
@@ -397,8 +420,9 @@ export async function verifyPhoneEnrollment(
   const phone = pendingPhoneOf(row.metadata_json);
   if (!phone) throw twofaExpired();
 
+  const attempts = await claimAttempt(env, row.id);
   const approved = await checkVerification(env, phone, opts.code);
-  await recordAttempt(env, row, approved, opts.ip);
+  await recordAttempt(env, row, attempts, approved, opts.ip);
   return { phone };
 }
 
