@@ -51,4 +51,32 @@ describe('applyFrequencyConversion + snapshot undo', () => {
     expect(restored.trips).toHaveLength(1);
     expect(restored.frequencies).toHaveLength(1);
   });
+
+  it('S2-02: an off-grid template is re-timed onto the first departure (no stale 00:00 trip)', () => {
+    const s = useStore.getState();
+    s.setStopTimes([
+      { trip_id: 'FQ', stop_id: 's1', stop_sequence: 1, arrival_time: '00:00:00', departure_time: '00:00:00' },
+      { trip_id: 'FQ', stop_id: 's2', stop_sequence: 2, arrival_time: '00:10:00', departure_time: '00:10:00' },
+      // An unrelated trip's rows with the same stop_sequence must be untouched.
+      { trip_id: 'OTHER', stop_id: 's1', stop_sequence: 1, arrival_time: '00:00:00', departure_time: '00:00:00' },
+    ] as StopTime[]);
+    const cur = useStore.getState();
+    const result = computeFrequencyConversion({
+      templateTripIds: ['FQ'], trips: cur.trips, stopTimes: cur.stopTimes, frequencies: cur.frequencies, routes: cur.routes,
+    });
+    expect(result.perTemplate[0].retimed).toBe(true);
+    cur.applyFrequencyConversion(result);
+
+    const after = useStore.getState();
+    const firstDepartures = after.stopTimes
+      .filter((x) => x.stop_sequence === 1 && x.trip_id !== 'OTHER')
+      .map((x) => x.departure_time)
+      .sort();
+    // 06:00–08:00 every 30 min → 4 trips; the template is one of them.
+    expect(firstDepartures).toEqual(['06:00:00', '06:30:00', '07:00:00', '07:30:00']);
+    expect(after.stopTimes.filter((x) => x.trip_id === 'FQ').map((x) => x.departure_time))
+      .toEqual(['06:00:00', '06:10:00']);
+    expect(after.stopTimes.find((x) => x.trip_id === 'OTHER')!.departure_time).toBe('00:00:00');
+    expect(after.trips).toHaveLength(4);
+  });
 });

@@ -114,11 +114,15 @@ export interface TripSlice {
    *  frequency windows, in one commit. Undone by snapshotting {trips, stopTimes,
    *  frequencies} beforehand and restoring them wholesale (the timetable bulk-op
    *  pattern). The trips/stopTimes/removedTemplateIds come from
-   *  `computeFrequencyConversion`. */
+   *  `computeFrequencyConversion`. `retimedTemplateStopTimes` (S2-02) replaces
+   *  the matching (trip_id, stop_sequence) rows of a template that sat off its
+   *  windows' grid, so the template takes over the first departure instead of
+   *  keeping its old time. */
   applyFrequencyConversion: (result: {
     newTrips: Trip[];
     newStopTimes: StopTime[];
     removedTemplateIds: string[];
+    retimedTemplateStopTimes?: StopTime[];
   }) => void;
 }
 
@@ -466,7 +470,15 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
       cross.translations = [...(cur.translations ?? []), ...snapshot.translations];
     }
   }),
-  applyFrequencyConversion: ({ newTrips, newStopTimes, removedTemplateIds }) => set((state) => {
+  applyFrequencyConversion: ({ newTrips, newStopTimes, removedTemplateIds, retimedTemplateStopTimes }) => set((state) => {
+    if (retimedTemplateStopTimes && retimedTemplateStopTimes.length > 0) {
+      const key = (st: StopTime) => `${st.trip_id}\u0000${st.stop_sequence}`;
+      const replacement = new Map(retimedTemplateStopTimes.map((st) => [key(st), st]));
+      for (let i = 0; i < state.stopTimes.length; i++) {
+        const r = replacement.get(key(state.stopTimes[i]));
+        if (r) state.stopTimes[i] = r;
+      }
+    }
     for (const t of newTrips) state.trips.push(t);
     for (const st of newStopTimes) state.stopTimes.push(st);
     const removed = new Set(removedTemplateIds);
