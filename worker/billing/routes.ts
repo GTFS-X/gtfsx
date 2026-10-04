@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppContext, Env } from '../env';
 import { requireAuth } from '../auth/middleware';
-import { forbidden, notFound, validationFailed, paymentRequired, badGateway, ApiError } from '../util/errors';
+import { conflict, forbidden, notFound, validationFailed, paymentRequired, badGateway, ApiError } from '../util/errors';
+import { hasLiveSubscription } from './liveSubscription';
 import { logAudit } from '../util/audit';
 import { clientIp } from '../util/rateLimit';
 import { requireOrgRole } from '../orgs/routes';
@@ -219,6 +220,26 @@ export function stripeFailure(
   );
 }
 
+/**
+ * Refuse a second paid checkout for an org that already has one: an Enterprise
+ * plan (staff grant — the resulting subscription webhook would overwrite it with
+ * 'agency') or a live Stripe subscription (a second one would double-bill). An
+ * in-app trial org (plan 'agency' with plan_expires_at, no subscription row) is
+ * still allowed to subscribe. Exported for a focused test — the full /checkout
+ * route needs a Stripe secret the worker test pool doesn't have.
+ */
+export async function assertOrgCanStartCheckout(env: Env, orgId: string): Promise<void> {
+  const org = await env.DB.prepare(`SELECT plan FROM organization WHERE id = ?`)
+    .bind(orgId)
+    .first<{ plan: string | null }>();
+  if (org?.plan === 'enterprise' || (await hasLiveSubscription(env, 'org', orgId))) {
+    throw conflict(
+      'This organization already has an active plan. Manage it from the billing portal instead.',
+      { reason: 'already_subscribed' },
+    );
+  }
+}
+
 billingRouter.post('/checkout', async (c) => {
   if (!billingReady(c.env)) {
     throw new ApiError(503, 'internal', 'Billing is not yet enabled in this environment.');
@@ -234,6 +255,7 @@ billingRouter.post('/checkout', async (c) => {
     throw validationFailed('Planner plans must be billed to an organization.');
   }
   await requireOrgRole(c.env, user, body.ownerId, 'admin');
+  await assertOrgCanStartCheckout(c.env, body.ownerId);
 
   const interval: Interval = body.interval;
   // Planner (DB id 'agency') is flat-priced with unlimited seats, so every
@@ -381,8 +403,45 @@ billingRouter.post('/trial', async (c) => {
 const portalSchema = z.object({
   ownerType: z.enum(['user', 'org']),
   ownerId: z.string().min(1),
-  returnUrl: z.string().url().optional(),
+  // Same-origin only: a path ("/orgs/x/billing") or an absolute URL on
+  // APP_ORIGIN. Anything else is rejected in resolvePortalReturnUrl.
+  returnUrl: z.string().max(512).optional(),
 });
+
+/**
+ * Where Stripe's billing portal sends the customer back to. A caller-supplied
+ * value must stay on APP_ORIGIN (absolute same-origin URL or a relative path);
+ * the default for an org is its slug-keyed billing page, which is what the SPA
+ * route resolves. Exported for a focused test (the portal route itself needs a
+ * Stripe secret).
+ */
+export async function resolvePortalReturnUrl(
+  env: Env,
+  ownerType: 'user' | 'org',
+  ownerId: string,
+  returnUrl: string | undefined,
+): Promise<string> {
+  const origin = new URL(env.APP_ORIGIN).origin;
+  if (returnUrl !== undefined) {
+    const isPath = returnUrl.startsWith('/') && !returnUrl.startsWith('//') && !returnUrl.startsWith('/\\');
+    const isAbsolute = /^https?:\/\//i.test(returnUrl);
+    let parsed: URL | null = null;
+    if (isPath || isAbsolute) {
+      try {
+        parsed = new URL(returnUrl, `${origin}/`);
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!parsed || parsed.origin !== origin) {
+      throw validationFailed('returnUrl must be a page on this site');
+    }
+    return `${origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  }
+  if (ownerType === 'user') return `${origin}/account/billing`;
+  const slug = await loadOrgSlug(env, ownerId);
+  return slug ? `${origin}/orgs/${encodeURIComponent(slug)}/billing` : `${origin}/account/billing`;
+}
 
 billingRouter.post('/portal', async (c) => {
   if (!billingReady(c.env)) {
@@ -404,12 +463,8 @@ billingRouter.post('/portal', async (c) => {
     });
   }
 
+  const returnUrl = await resolvePortalReturnUrl(c.env, body.ownerType, body.ownerId, body.returnUrl);
   const stripe = getStripe(c.env);
-  const returnUrl =
-    body.returnUrl
-    ?? (body.ownerType === 'user'
-      ? `${c.env.APP_ORIGIN}/account/billing`
-      : `${c.env.APP_ORIGIN}/orgs/${body.ownerId}/billing`);
 
   let session: Awaited<ReturnType<typeof stripe.billingPortal.sessions.create>>;
   try {

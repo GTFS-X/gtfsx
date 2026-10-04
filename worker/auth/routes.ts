@@ -38,6 +38,7 @@ import {
 } from './twofa';
 import { sendVerifyEmail, sendMagicLink, sendPasswordReset, sendWelcomeEmail } from '../email';
 import { maybeSendNewSigninAlert } from '../sms/alerts';
+import { TwilioVerifyError } from '../sms';
 import { verifyTurnstile } from '../util/turnstile';
 import { insertEvent } from '../events/insert';
 import { hashEmailHex } from '../marketing/ads/userIdentifiers';
@@ -275,8 +276,10 @@ authRouter.route('/google', googleRouter);
 // ─── Signup ────────────────────────────────────────────────────────────────
 //
 // Three paths based on the existing user row:
-//   - none / deleted_soft: fresh signup (insert user + credential + token, email).
+//   - none:                fresh signup (insert user + credential + token, email).
 //   - active / disabled:   409 — the email is in use by a real account.
+//   - deleted_soft:        409 reason=account_deleted — the row still holds the
+//                          (UNIQUE) email until the reaper purges it.
 //   - pending_verification: treat as a *retry*. Refresh the password credential,
 //     invalidate outstanding verify tokens, send a new verify email. This
 //     recovers users who hit a previous partial-signup bug (user row written
@@ -317,9 +320,8 @@ authRouter.post('/signup', async (c) => {
   }
 
   let autoActivatedUserId: string | null = null;
-  // Set true only on a genuinely fresh account creation (new user row, or a
-  // reactivated deleted_soft one) — NOT on the pending_verification retry path
-  // and NOT on the 409 conflict path. Gates the `sign_up` conversion event so
+  // Set true only on a genuinely fresh account creation (new user row) — NOT
+  // on the pending_verification retry path and NOT on the 409 conflict paths. Gates the `sign_up` conversion event so
   // it fires once per real signup, never on logins or repeat submissions.
   let freshSignup = false;
 
@@ -328,6 +330,15 @@ authRouter.post('/signup', async (c) => {
 
     if (existing && (existing.status === 'active' || existing.status === 'disabled')) {
       throw conflict('Account already exists — sign in instead');
+    }
+
+    if (existing && existing.status === 'deleted_soft') {
+      // user.email is UNIQUE and the soft-deleted row keeps it until the
+      // reaper purges the account, so a fresh INSERT would fail. Say why.
+      throw conflict(
+        'This email belongs to an account scheduled for deletion. Contact hello@gtfsx.com to restore it.',
+        { reason: 'account_deleted' },
+      );
     }
 
     if (existing && existing.status === 'pending_verification') {
@@ -408,7 +419,7 @@ authRouter.post('/signup', async (c) => {
       return;
     }
 
-    // Fresh signup path (no existing user, or existing is deleted_soft).
+    // Fresh signup path (no existing user).
     // Invitation-driven fresh signups go straight to active; everything else
     // starts pending_verification and waits for the email click.
     const now = Date.now();
@@ -587,6 +598,13 @@ authRouter.get('/verify', async (c) => {
     return alreadyVerifiedRedirect();
   }
 
+  // Single-use: claim the token before any side effect. A concurrent click
+  // that loses the claim lands on the "already verified" page the winner
+  // makes true.
+  if (!(await consumeAuthToken(c.env, resolved.tokenHash))) {
+    return alreadyVerifiedRedirect();
+  }
+
   // Clicked in the browser that requested this verify mail? If not, the
   // clicker owns the inbox but did not choose the password / profile fields
   // on this pending account — drop them, and ignore the stored redirect.
@@ -601,7 +619,6 @@ authRouter.get('/verify', async (c) => {
   )
     .bind(now, resolved.userId)
     .run();
-  await consumeAuthToken(c.env, resolved.tokenHash);
 
   const ip = clientIp(c.req.raw);
   const session = await createSession(c.env, {
@@ -874,6 +891,12 @@ authRouter.get('/magic-link/consume', async (c) => {
     return failRedirect();
   }
 
+  // Single-use: claim the token before any side effect, so concurrent
+  // consumes of one link mint at most one session.
+  if (!(await consumeAuthToken(c.env, resolved.tokenHash))) {
+    return failRedirect();
+  }
+
   const now = Date.now();
   if (userRow.status === 'pending_verification') {
     // A magic link proves inbox control, not that this person chose the
@@ -883,7 +906,6 @@ authRouter.get('/magic-link/consume', async (c) => {
       .bind(now, userRow.id)
       .run();
   }
-  await consumeAuthToken(c.env, resolved.tokenHash);
 
   const ip = clientIp(c.req.raw);
 
@@ -895,12 +917,22 @@ authRouter.get('/magic-link/consume', async (c) => {
   // /login with the challenge token in the URL fragment.
   const twofa = await twofaRequirement(c.env, userRow.id);
   if (twofa.required && twofa.method === 'sms') {
-    const challenge = await startChallenge(c.env, {
-      user: { id: userRow.id, email: userRow.email },
-      purpose: 'login',
-      method: 'sms',
-      ip,
-    });
+    let challenge: Awaited<ReturnType<typeof startChallenge>>;
+    try {
+      challenge = await startChallenge(c.env, {
+        user: { id: userRow.id, email: userRow.email },
+        purpose: 'login',
+        method: 'sms',
+        ip,
+      });
+    } catch (err) {
+      // A browser navigation, not an XHR: send the user back to /login with a
+      // readable reason instead of a JSON error page.
+      if (err instanceof TwilioVerifyError) {
+        return c.redirect(`${c.env.APP_ORIGIN}/login?error=sms_unavailable`, 302);
+      }
+      throw err;
+    }
     const frag = `twofa=${challenge.token}&method=${challenge.method}&dest=${encodeURIComponent(challenge.destination)}`;
     return c.redirect(`${c.env.APP_ORIGIN}/login#${frag}`, 302);
   }
@@ -953,6 +985,10 @@ authRouter.post('/password-reset/confirm', async (c) => {
   if (!resolved || resolved.consumedAt || resolved.expiresAt <= Date.now() || !resolved.userId) {
     throw validationFailed('Invalid or expired token');
   }
+  // Single-use: claim the token before changing anything.
+  if (!(await consumeAuthToken(c.env, resolved.tokenHash))) {
+    throw validationFailed('Invalid or expired token');
+  }
 
   const userId = resolved.userId;
   const newHash = await hashPassword(body.password);
@@ -979,7 +1015,6 @@ authRouter.post('/password-reset/confirm', async (c) => {
       .run();
   }
 
-  await consumeAuthToken(c.env, resolved.tokenHash);
   await invalidateAuthTokensForUser(c.env, userId, 'password_reset');
   await revokeAllSessions(c.env, userId);
 

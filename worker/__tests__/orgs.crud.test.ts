@@ -232,6 +232,78 @@ describe('/api/orgs CRUD', () => {
     // Owner still there.
     expect(ownerId).toBeTruthy();
   });
+
+  it('DELETE is blocked (409 active_subscription) while the org has a live Stripe subscription (W1-03)', async () => {
+    await dbRun(`DELETE FROM subscription`);
+    const { client } = await loggedInClient('paying-org-owner@example.com');
+    const created = await client.json<{ organization: { id: string } }>(
+      await client.post('/api/orgs', { slug: 'paying-org', name: 'Paying' }),
+    );
+    const orgId = created.organization.id;
+    const now = Date.now();
+    await dbRun(
+      `INSERT INTO subscription
+         (id, owner_type, owner_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
+          plan, status, current_period_start, current_period_end, created_at, updated_at)
+       VALUES ('subrow-del', 'org', ?, 'sub_del', 'cus_del', 'price_x', 'agency', 'active', ?, ?, ?, ?)`,
+      orgId, now, now + 1000, now, now,
+    );
+
+    const blocked = await client.delete(`/api/orgs/${orgId}`);
+    expect(blocked.status).toBe(409);
+    expect(((await blocked.json()) as { reason: string }).reason).toBe('active_subscription');
+    expect((await dbGet<{ deleted_at: number | null }>(`SELECT deleted_at FROM organization WHERE id = ?`, orgId))?.deleted_at).toBeNull();
+
+    await dbRun(`UPDATE subscription SET status = 'canceled' WHERE id = 'subrow-del'`);
+    expect((await client.delete(`/api/orgs/${orgId}`)).status).toBe(204);
+    await dbRun(`DELETE FROM subscription`);
+  });
+
+  it('DELETE takes the org feeds offline: unpublishes, revokes draft links, cancels schedules (W2-09)', async () => {
+    const { client, userId } = await loggedInClient('offline-owner@example.com');
+    const created = await client.json<{ organization: { id: string } }>(
+      await client.post('/api/orgs', { slug: 'offline-org', name: 'Offline' }),
+    );
+    const orgId = created.organization.id;
+    const now = Date.now();
+    const projectId = 'proj-offline';
+    const snapshotId = 'snap-offline';
+    await dbRun(
+      `INSERT INTO feed_project (id, slug, name, owner_type, owner_id, created_at, updated_at)
+       VALUES (?, 'offline-feed', 'Offline Feed', 'org', ?, ?, ?)`,
+      projectId, orgId, now, now,
+    );
+    await dbRun(
+      `INSERT INTO feed_snapshot (id, project_id, state_r2_key, zip_r2_key, zip_size, summary_json, created_at)
+       VALUES (?, ?, 's', 'z', 10, '{}', ?)`,
+      snapshotId, projectId, now,
+    );
+    await dbRun(
+      `INSERT INTO publication (project_id, snapshot_id, published_by_user_id, published_at, canonical_slug, zip_r2_key)
+       VALUES (?, ?, ?, ?, 'offline-feed', 'z')`,
+      projectId, snapshotId, userId, now,
+    );
+    await dbRun(
+      `INSERT INTO draft_link (token_hash, project_id, snapshot_id, created_by_user_id, expires_at, created_at)
+       VALUES ('dl-offline', ?, ?, ?, ?, ?)`,
+      projectId, snapshotId, userId, now + 86_400_000, now,
+    );
+    await dbRun(
+      `INSERT INTO scheduled_publish (id, project_id, snapshot_id, scheduled_for, status, created_at)
+       VALUES ('sched-offline', ?, ?, ?, 'pending', ?)`,
+      projectId, snapshotId, now + 3_600_000, now,
+    );
+
+    expect((await client.delete(`/api/orgs/${orgId}`)).status).toBe(204);
+
+    expect(await dbGet(`SELECT project_id FROM publication WHERE project_id = ?`, projectId)).toBeNull();
+    const history = await dbGet<{ action: string }>(
+      `SELECT action FROM publication_history WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`, projectId,
+    );
+    expect(history?.action).toBe('unpublish');
+    expect((await dbGet<{ revoked_at: number | null }>(`SELECT revoked_at FROM draft_link WHERE token_hash = 'dl-offline'`))?.revoked_at).not.toBeNull();
+    expect((await dbGet<{ status: string }>(`SELECT status FROM scheduled_publish WHERE id = 'sched-offline'`))?.status).toBe('cancelled');
+  });
 });
 
 describe('/api/orgs multi-org gate (multi_org → Enterprise)', () => {

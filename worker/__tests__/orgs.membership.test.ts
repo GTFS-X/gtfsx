@@ -100,6 +100,26 @@ describe('/api/orgs membership', () => {
     expect(res.status).toBe(403);
   });
 
+  it('admin cannot grant or change the admin role; owner can (W1-14)', async () => {
+    const { client: owner } = await loggedInClient('adminGate-owner@example.com');
+    const orgId = await createOrg(owner, 'admingate', 'Admin Gate');
+    const { client: admin, userId: adminId } = await loggedInClient('adminGate-admin@example.com');
+    const { userId: editorId } = await loggedInClient('adminGate-editor@example.com');
+    const { userId: otherAdminId } = await loggedInClient('adminGate-admin2@example.com');
+    await addMember(orgId, adminId, 'admin');
+    await addMember(orgId, editorId, 'editor');
+    await addMember(orgId, otherAdminId, 'admin');
+
+    expect((await admin.patch(`/api/orgs/${orgId}/members/${editorId}`, { role: 'admin' })).status).toBe(403);
+    expect((await admin.patch(`/api/orgs/${orgId}/members/${otherAdminId}`, { role: 'viewer' })).status).toBe(403);
+    const unchanged = await dbGet<{ role: string }>(
+      `SELECT role FROM organization_membership WHERE org_id = ? AND user_id = ?`, orgId, editorId,
+    );
+    expect(unchanged?.role).toBe('editor');
+
+    expect((await owner.patch(`/api/orgs/${orgId}/members/${editorId}`, { role: 'admin' })).status).toBe(204);
+  });
+
   it('last-owner protection: cannot demote the last owner (returns 409 last_owner)', async () => {
     const { client: owner, userId: ownerId } = await loggedInClient('soloOwner@example.com');
     const orgId = await createOrg(owner, 'soloorg', 'Solo');

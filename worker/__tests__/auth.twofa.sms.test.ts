@@ -317,6 +317,18 @@ describe('SMS 2FA — login challenge', () => {
     expect(me.status).toBe(200);
   });
 
+  it('a Twilio rate limit while sending the login code → 429 rate_limited, not 500 (W1-16)', async () => {
+    const user = await seedUser({ email: 'sms-login-429@example.com' });
+    await enableSmsFully(user.id, '+14065557777');
+    capture.nextStartError = { status: 429, code: 20429 };
+
+    const client = makeClient();
+    const res = await client.post('/auth/login', { email: user.email, password: user.password });
+    expect(res.status).toBe(429);
+    expect((await res.json() as { error: string }).error).toBe('rate_limited');
+    expect(client.cookie).toBeNull();
+  });
+
   it('5 wrong SMS codes invalidate the challenge → twofa_expired', async () => {
     const user = await seedUser({ email: 'sms-brute@example.com' });
     await enableSmsFully(user.id, '+14065558888');
@@ -395,6 +407,19 @@ describe('SMS 2FA — magic link', () => {
     expect(loc).toContain('method=sms');
     expect(client.cookie).toBeNull();
     expect(capture.starts.map((s) => s.to)).toContain('+14065551212');
+  });
+
+  it('a Twilio failure on magic-link consume redirects to /login?error=sms_unavailable (W1-16)', async () => {
+    const user = await seedUser({ email: 'sms-magic-down@example.com' });
+    await enableSmsFully(user.id, '+14065551213');
+    const client = makeClient();
+    const token = await magicToken(client, user.email);
+
+    capture.nextStartError = { status: 500, code: 20500 };
+    const res = await client.get(`/auth/magic-link/consume?token=${token}`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location') ?? '').toContain('/login?error=sms_unavailable');
+    expect(client.cookie).toBeNull();
   });
 
   it('an email-method user still skips 2FA on magic-link consume (signed straight in)', async () => {

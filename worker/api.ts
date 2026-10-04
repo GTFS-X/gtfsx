@@ -5,14 +5,13 @@ import type { AppContext } from './env';
 import { requireAuth } from './auth/middleware';
 import {
   ApiError,
-  badGateway,
   conflict,
   forbidden,
   invalidCredentials,
-  rateLimited,
   smsInvalidPhone,
   smsPhoneRequired,
   smsUnavailable,
+  twilioToApiError,
   twofaOrgRequired,
   validationFailed,
 } from './util/errors';
@@ -24,7 +23,6 @@ import {
   twilioConfigured,
   type TwofaMethod,
 } from './auth/twofa';
-import { TwilioVerifyError } from './sms';
 import { sendTwofaDisabledAlert } from './sms/alerts';
 import { hashPassword, verifyPassword } from './util/crypto';
 import { logAudit } from './util/audit';
@@ -41,6 +39,7 @@ import { projectsRouter } from './projects/routes';
 import { registerAlertRoutes } from './projects/alerts';
 import { computeUserUsage } from './me/usage';
 import { getUserTrialUsed } from './billing/trial';
+import { hasLiveSubscription, orgsWithLiveSubscriptionSoleOwnedBy } from './billing/liveSubscription';
 import { buildUserExport, EXPORT_RATE_KEY_PREFIX, EXPORT_RATE_WINDOW_SEC } from './me/export';
 
 const emailSchema = z.string().trim().toLowerCase().email();
@@ -53,6 +52,10 @@ const patchMeSchema = z.object({
 
 const changeEmailSchema = z.object({
   newEmail: emailSchema,
+  // Required when the account has a password credential (step-up, mirrors
+  // DELETE /me): a hijacked session alone must not be able to move the
+  // account's email — and with it the email 2FA factor — elsewhere.
+  currentPassword: z.string().min(1).max(256).optional(),
 });
 
 const changeEmailConfirmSchema = z.object({
@@ -103,26 +106,6 @@ async function orgRequires2fa(env: AppContext['Bindings'], userId: string): Prom
 function normalizePhone(raw: string): string | null {
   const cleaned = raw.replace(/[\s\-().]/g, '');
   return /^\+[1-9]\d{6,14}$/.test(cleaned) ? cleaned : null;
-}
-
-// Turn an error from the SMS layer into the ApiError we surface. Our own
-// ApiErrors (wrong/expired code, from verifyPhoneEnrollment) pass through; a
-// TwilioVerifyError maps by kind; anything else bubbles up as a 500.
-function twilioToApiError(err: unknown): unknown {
-  if (err instanceof ApiError) return err;
-  if (err instanceof TwilioVerifyError) {
-    switch (err.kind) {
-      case 'invalid_number':
-        return smsInvalidPhone();
-      case 'rate_limited':
-        return rateLimited('Too many verification attempts — try again later');
-      case 'unavailable':
-        return smsUnavailable();
-      default:
-        return badGateway('Text-message verification is temporarily unavailable');
-    }
-  }
-  return err;
 }
 
 // FROZEN CONTRACT — the in-app upgrade-nudge frontend POSTs this exact shape.
@@ -234,11 +217,25 @@ apiRouter.post('/me/change-email', requireAuth, async (c) => {
   const body = await parseJson(c, changeEmailSchema);
   const user = c.var.user!;
 
+  const credential = await c.env.DB.prepare(
+    `SELECT password_hash FROM credential WHERE user_id = ? AND kind = 'password' LIMIT 1`,
+  )
+    .bind(user.id)
+    .first<{ password_hash: string | null }>();
+  if (credential?.password_hash) {
+    if (!body.currentPassword) throw validationFailed('Current password required');
+    const ok = await verifyPassword(body.currentPassword, credential.password_hash);
+    if (!ok) throw invalidCredentials();
+  }
+
   if (body.newEmail === user.email) {
     throw conflict('New email is the same as current email');
   }
+  // No deleted_at filter: user.email is UNIQUE, so an address still held by a
+  // soft-deleted account is just as unavailable (the UPDATE at confirm would
+  // fail on the constraint).
   const existing = await c.env.DB.prepare(
-    `SELECT id FROM user WHERE email = ? AND (deleted_at IS NULL)`,
+    `SELECT id FROM user WHERE email = ?`,
   )
     .bind(body.newEmail)
     .first<{ id: string }>();
@@ -285,19 +282,33 @@ apiRouter.post('/me/change-email/confirm', requireAuth, async (c) => {
   const target = resolved.metadata?.targetEmail;
   if (typeof target !== 'string') throw validationFailed('Invalid token metadata');
 
-  // Re-check collision at confirm time to avoid a race.
+  // Re-check collision at confirm time to avoid a race. Soft-deleted accounts
+  // still hold their (UNIQUE) email, so they count too.
   const existing = await c.env.DB.prepare(
-    `SELECT id FROM user WHERE email = ? AND id != ? AND (deleted_at IS NULL)`,
+    `SELECT id FROM user WHERE email = ? AND id != ?`,
   )
     .bind(target, user.id)
     .first<{ id: string }>();
   if (existing) throw conflict('That email is already in use');
 
+  // Single-use: claim the token before changing anything.
+  if (!(await consumeAuthToken(c.env, resolved.tokenHash))) {
+    throw validationFailed('Invalid or expired token');
+  }
+
   const now = Date.now();
   await c.env.DB.prepare(`UPDATE user SET email = ?, updated_at = ? WHERE id = ?`)
     .bind(target, now, user.id)
     .run();
-  await consumeAuthToken(c.env, resolved.tokenHash);
+
+  // The sign-in identity changed: end every other session (as change-password
+  // does) so a session the owner doesn't control can't ride along.
+  const session = c.var.session!;
+  await c.env.DB.prepare(
+    `UPDATE session SET revoked_at = ? WHERE user_id = ? AND id != ? AND revoked_at IS NULL`,
+  )
+    .bind(now, user.id, session.id)
+    .run();
 
   await logAudit(c.env, {
     actorUserId: user.id,
@@ -338,6 +349,10 @@ apiRouter.post('/me/change-password', requireAuth, async (c) => {
   )
     .bind(now, user.id, session.id)
     .run();
+  // Outstanding reset / magic links were issued for the old credential state;
+  // they must not outlive a deliberate password change.
+  await invalidateAuthTokensForUser(c.env, user.id, 'password_reset');
+  await invalidateAuthTokensForUser(c.env, user.id, 'magic_link');
 
   await logAudit(c.env, {
     actorUserId: user.id,
@@ -554,11 +569,31 @@ apiRouter.delete('/me', requireAuth, async (c) => {
     if (!ok) throw invalidCredentials();
   }
 
+  // A live Stripe subscription must be canceled (billing portal) before the
+  // account that alone controls it goes away — otherwise the customer keeps
+  // being charged with no self-serve way back to the portal.
+  const blockingOrgs = await orgsWithLiveSubscriptionSoleOwnedBy(c.env, user.id);
+  if (blockingOrgs.length > 0 || (await hasLiveSubscription(c.env, 'user', user.id))) {
+    throw conflict(
+      'Cancel your active subscription in the billing portal before deleting your account.',
+      { reason: 'active_subscription', orgs: blockingOrgs },
+    );
+  }
+
   const now = Date.now();
   await c.env.DB.prepare(
     `UPDATE user SET status = 'deleted_soft', deleted_at = ?, updated_at = ? WHERE id = ?`,
   )
     .bind(now, now, user.id)
+    .run();
+  // Personal projects are not soft-deleted here, so a pending scheduled
+  // publish would otherwise still fire from the cron after the account is gone.
+  await c.env.DB.prepare(
+    `UPDATE scheduled_publish SET status = 'cancelled', executed_at = ?
+      WHERE status = 'pending'
+        AND project_id IN (SELECT id FROM feed_project WHERE owner_type = 'user' AND owner_id = ?)`,
+  )
+    .bind(now, user.id)
     .run();
   await revokeAllSessions(c.env, user.id);
   await revokeSession(c.env, session.id);
@@ -579,7 +614,8 @@ apiRouter.delete('/me', requireAuth, async (c) => {
 // Visibility rule: events where
 //   (a) the user IS the subject (subject_type='user' AND subject_id=user.id),
 //   (b) the user is the actor (actor_user_id=user.id),
-//   (c) the event is about a project the user owns (subject_type='project'
+//   (c) the event is about a project the user owns: subject_type 'project' or
+//       'publication' (subject_id = project id), or 'snapshot' (metadata.projectId),
 //       joined to feed_project.owner_type='user' AND owner_id=user.id).
 // Paginated by ULID id: pass `before=<last_id_seen>` for the next page.
 apiRouter.get('/me/audit', requireAuth, async (c) => {
@@ -602,11 +638,15 @@ apiRouter.get('/me/audit', requireAuth, async (c) => {
     SELECT e.id, e.actor_user_id, e.subject_type, e.subject_id, e.action,
            e.metadata_json, e.created_at
       FROM audit_event e
-      LEFT JOIN feed_project p ON e.subject_type = 'project' AND p.id = e.subject_id
+      LEFT JOIN feed_project p ON p.id = CASE
+             WHEN e.subject_type IN ('project', 'publication') THEN e.subject_id
+             WHEN e.subject_type = 'snapshot' THEN json_extract(e.metadata_json, '$.projectId')
+           END
      WHERE (
              (e.subject_type = 'user' AND e.subject_id = ?)
           OR e.actor_user_id = ?
-          OR (e.subject_type = 'project' AND p.owner_type = 'user' AND p.owner_id = ?)
+          OR (e.subject_type IN ('project', 'publication', 'snapshot')
+              AND p.owner_type = 'user' AND p.owner_id = ?)
            )
        ${beforeClause}
      ORDER BY e.id DESC

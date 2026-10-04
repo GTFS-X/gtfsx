@@ -12,6 +12,7 @@ import { ulid } from 'ulidx';
 import { FEATURE_PLANS, planHasFeature, type FeatureKey } from '../billing/plans';
 import { requirePublishAccess } from '../billing/middleware';
 import { PLAN_QUOTAS } from '../projects/quotas';
+import { ISOCHRONE_MISSES_PER_HOUR } from '../mapbox/isochrone';
 import { makeClient, type TestClient } from './_client';
 import {
   applyMigrations,
@@ -275,5 +276,19 @@ describe('GET /api/mapbox/isochrone (auth-gated Mapbox proxy)', () => {
       const res = await client.get(`/api/mapbox/isochrone?${q}`);
       expect(res.status, q).toBe(422);
     }
+  });
+
+  it('caps billed (cache-miss) upstream calls per account (W1-11)', async () => {
+    const calls = spyMapbox();
+    const { client, userId } = await freeClient('free-iso-rl@example.com');
+    // Fill this hour's bucket up to the cap without making ISOCHRONE_MISSES_PER_HOUR requests.
+    const bucket = Math.floor(Date.now() / 1000 / 3600);
+    await testEnv.KV.put(`rl:mapbox:iso:${userId}:${bucket}`, String(ISOCHRONE_MISSES_PER_HOUR - 1));
+
+    const ok = await client.get('/api/mapbox/isochrone?lon=-110.1111&lat=44.2222&contours_minutes=7');
+    expect(ok.status).toBe(200);
+    const limited = await client.get('/api/mapbox/isochrone?lon=-110.3333&lat=44.4444&contours_minutes=7');
+    expect(limited.status).toBe(429);
+    expect(calls).toHaveLength(1);
   });
 });

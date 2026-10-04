@@ -2,7 +2,8 @@
 //
 // All event handlers are idempotent: replaying any event must produce the
 // same end state. Idempotency is enforced by the stripe_event table
-// (Stripe's evt_xxx is the PK). Duplicate events short-circuit to 200.
+// (Stripe's evt_xxx is the PK). Duplicates of an already-processed event
+// short-circuit to 200; a redelivery of a failed one is dispatched again.
 
 import Stripe from 'stripe';
 import type { Env } from '../env';
@@ -72,8 +73,11 @@ export async function handleStripeWebhook(req: Request, env: Env): Promise<Respo
     return new Response('Invalid signature', { status: 400 });
   }
 
-  // Idempotency: insert into stripe_event first; if it already exists, this
-  // is a replay and we return 200 without re-running side effects.
+  // Idempotency: insert into stripe_event first. If it already exists, this is
+  // a redelivery. A redelivery of an event we already PROCESSED returns 200
+  // without re-running side effects. A redelivery of an event whose earlier
+  // attempt failed (processed_at still NULL) is Stripe's retry and must run the
+  // handlers again — they are idempotent upserts / guarded UPDATEs.
   const payloadHash = await sha256Hex(rawBody);
   const now = Date.now();
   try {
@@ -85,10 +89,17 @@ export async function handleStripeWebhook(req: Request, env: Env): Promise<Respo
   } catch (err) {
     const msg = (err as Error)?.message ?? '';
     if (msg.includes('UNIQUE') || msg.includes('PRIMARY KEY')) {
-      console.log(`[billing] duplicate event ${event.id} short-circuiting`);
-      return new Response('OK (duplicate)', { status: 200 });
+      const prior = await env.DB.prepare(`SELECT processed_at FROM stripe_event WHERE id = ?`)
+        .bind(event.id)
+        .first<{ processed_at: number | null }>();
+      if (prior?.processed_at != null) {
+        console.log(`[billing] duplicate event ${event.id} short-circuiting`);
+        return new Response('OK (duplicate)', { status: 200 });
+      }
+      console.log(`[billing] redelivery of unprocessed event ${event.id}; re-dispatching`);
+    } else {
+      throw err;
     }
-    throw err;
   }
 
   if (!isRelevantEvent(event.type)) {
@@ -101,7 +112,7 @@ export async function handleStripeWebhook(req: Request, env: Env): Promise<Respo
 
   try {
     await dispatchEvent(env, event);
-    await env.DB.prepare(`UPDATE stripe_event SET processed_at = ? WHERE id = ?`)
+    await env.DB.prepare(`UPDATE stripe_event SET processed_at = ?, error = NULL WHERE id = ?`)
       .bind(Date.now(), event.id)
       .run();
     return new Response('OK', { status: 200 });
@@ -277,6 +288,23 @@ export async function syncSubscription(env: Env, sub: Stripe.Subscription): Prom
 
   const item = sub.items.data[0];
   if (!item) return;
+
+  // Canceled is terminal in Stripe. Events can arrive out of order (a late
+  // `updated` with status=active after `deleted`), so never let a non-canceled
+  // status resurrect a subscription row we already recorded as canceled — that
+  // would re-grant the paid plan to an owner who is no longer paying.
+  if (sub.status !== 'canceled') {
+    const stored = await env.DB.prepare(
+      `SELECT status FROM subscription WHERE stripe_subscription_id = ?`,
+    )
+      .bind(sub.id)
+      .first<{ status: string }>();
+    if (stored?.status === 'canceled') {
+      console.warn(`[billing] ignoring stale ${sub.status} update for canceled subscription ${sub.id}`);
+      return;
+    }
+  }
+
   const priceId = item.price.id;
   const quantity = item.quantity ?? 1;
   const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id;
@@ -399,25 +427,68 @@ async function handleSubscriptionDeleted(env: Env, sub: Stripe.Subscription): Pr
     .run();
 
   if (owner) {
-    if (owner.ownerType === 'user') {
-      await env.DB.prepare(
-        `UPDATE user SET plan = 'free', plan_status = 'canceled', plan_renewal_at = NULL, updated_at = ? WHERE id = ?`,
-      )
-        .bind(now, owner.ownerId)
-        .run();
-    } else {
-      await env.DB.prepare(
-        `UPDATE organization SET plan = 'free', plan_status = 'canceled', plan_renewal_at = NULL WHERE id = ?`,
-      )
+    // Recompute the owner's plan instead of unconditionally downgrading:
+    //   - an Enterprise owner is a staff grant (Enterprise is never sold via
+    //     self-serve checkout), so a subscription ending must not downgrade it;
+    //   - another subscription for the same owner may still be live.
+    const ownerRow = owner.ownerType === 'user'
+      ? await env.DB.prepare(`SELECT plan FROM user WHERE id = ?`)
         .bind(owner.ownerId)
-        .run();
+        .first<{ plan: string | null }>()
+      : await env.DB.prepare(`SELECT plan FROM organization WHERE id = ?`)
+        .bind(owner.ownerId)
+        .first<{ plan: string | null }>();
+    const remaining = await env.DB.prepare(
+      `SELECT plan, status, current_period_end FROM subscription
+        WHERE owner_type = ? AND owner_id = ? AND status IN ('active', 'trialing')
+          AND stripe_subscription_id != ?
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+    )
+      .bind(owner.ownerType, owner.ownerId, sub.id)
+      .first<{ plan: string; status: string; current_period_end: number | null }>();
+
+    let outcome: 'kept_enterprise' | 'kept_other_subscription' | 'downgraded';
+    if (ownerRow?.plan === 'enterprise') {
+      outcome = 'kept_enterprise';
+    } else if (remaining && isPlan(remaining.plan)) {
+      outcome = 'kept_other_subscription';
+      const renewalAt = remaining.current_period_end || null;
+      if (owner.ownerType === 'user') {
+        await env.DB.prepare(
+          `UPDATE user SET plan = ?, plan_status = ?, plan_renewal_at = ?, updated_at = ? WHERE id = ?`,
+        )
+          .bind(remaining.plan, remaining.status, renewalAt, now, owner.ownerId)
+          .run();
+      } else {
+        await env.DB.prepare(
+          `UPDATE organization SET plan = ?, plan_status = ?, plan_renewal_at = ? WHERE id = ?`,
+        )
+          .bind(remaining.plan, remaining.status, renewalAt, owner.ownerId)
+          .run();
+      }
+    } else {
+      outcome = 'downgraded';
+      if (owner.ownerType === 'user') {
+        await env.DB.prepare(
+          `UPDATE user SET plan = 'free', plan_status = 'canceled', plan_renewal_at = NULL, updated_at = ? WHERE id = ?`,
+        )
+          .bind(now, owner.ownerId)
+          .run();
+      } else {
+        await env.DB.prepare(
+          `UPDATE organization SET plan = 'free', plan_status = 'canceled', plan_renewal_at = NULL WHERE id = ?`,
+        )
+          .bind(owner.ownerId)
+          .run();
+      }
     }
     await logAudit(env, {
       actorUserId: null,
       subjectType: owner.ownerType === 'org' ? 'org' : 'user',
       subjectId: owner.ownerId,
       action: 'billing.subscription_canceled',
-      metadata: { stripeSubscriptionId: sub.id },
+      metadata: { stripeSubscriptionId: sub.id, outcome },
     });
   }
 }

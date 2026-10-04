@@ -7,6 +7,7 @@ import { logAudit } from '../util/audit';
 import { createSession, sessionCookie } from './session';
 import { twofaRequirement, startChallenge } from './twofa';
 import { maybeSendNewSigninAlert } from '../sms/alerts';
+import { TwilioVerifyError } from '../sms';
 import { sendWelcomeEmail } from '../email';
 import { insertEvent } from '../events/insert';
 import { hashEmailHex } from '../marketing/ads/userIdentifiers';
@@ -321,7 +322,14 @@ googleRouter.get('/callback', async (c) => {
       .first<UserRow>();
 
     if (byEmail) {
-      if (byEmail.deleted_at || byEmail.status === 'deleted_soft' || byEmail.status === 'disabled') {
+      if (byEmail.deleted_at || byEmail.status === 'deleted_soft') {
+        // The address belongs to an account scheduled for deletion; the email
+        // column is UNIQUE, so a fresh Google account can't be created for it
+        // either. Say so instead of a generic Google failure.
+        c.header('Set-Cookie', clearStateCookie());
+        return c.redirect(`${origin}/login?error=account_deleted`, 302);
+      }
+      if (byEmail.status === 'disabled') {
         return fail();
       }
       userId = byEmail.id;
@@ -446,12 +454,23 @@ googleRouter.get('/callback', async (c) => {
     const acct = await c.env.DB.prepare(`SELECT email FROM user WHERE id = ?`)
       .bind(userId)
       .first<{ email: string }>();
-    const challenge = await startChallenge(c.env, {
-      user: { id: userId, email: acct?.email ?? email },
-      purpose: 'login',
-      method: twofa.method,
-      ip,
-    });
+    let challenge: Awaited<ReturnType<typeof startChallenge>>;
+    try {
+      challenge = await startChallenge(c.env, {
+        user: { id: userId, email: acct?.email ?? email },
+        purpose: 'login',
+        method: twofa.method,
+        ip,
+      });
+    } catch (err) {
+      // Browser navigation: bounce to /login with a readable reason instead of
+      // a JSON 500 when Twilio Verify can't send the SMS code.
+      if (err instanceof TwilioVerifyError) {
+        c.header('Set-Cookie', clearStateCookie());
+        return c.redirect(`${origin}/login?error=sms_unavailable`, 302);
+      }
+      throw err;
+    }
     c.header('Set-Cookie', clearStateCookie());
     c.header('Cache-Control', 'no-store');
     const frag = `twofa=${challenge.token}&method=${challenge.method}&dest=${encodeURIComponent(challenge.destination)}`;

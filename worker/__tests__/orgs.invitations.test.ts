@@ -8,6 +8,7 @@ import {
   env as testEnv,
   dbGet,
   dbRun,
+  extractToken,
   resetDb,
   seedUser,
   setupEmailCapture,
@@ -233,5 +234,37 @@ describe('/api/orgs invitations', () => {
     expect(body.invitations[0].orgId).toBe(orgId);
     expect(body.invitations[0].orgName).toBe('Pend');
     expect(body.invitations[0].role).toBe('editor');
+  });
+
+  it('?token= narrows /invitations/pending to the invitation that token belongs to (C4-09)', async () => {
+    const { client: ownerA } = await loggedInClient('multiA@example.com');
+    const orgA = await createOrg(ownerA, 'multi-a', 'Multi A');
+    const { client: ownerB } = await loggedInClient('multiB@example.com');
+    const orgB = await createOrg(ownerB, 'multi-b', 'Multi B');
+    await ownerA.post(`/api/orgs/${orgA}/invitations`, { email: 'two-invites@example.com', role: 'viewer' });
+    await ownerB.post(`/api/orgs/${orgB}/invitations`, { email: 'two-invites@example.com', role: 'editor' });
+
+    const mails = capture.emails.filter((e) => e.to === 'two-invites@example.com');
+    expect(mails).toHaveLength(2);
+    const tokenA = extractToken(mails[0].text) ?? extractToken(mails[0].html);
+    expect(tokenA).toBeTruthy();
+
+    const { client: invitee } = await loggedInClient('two-invites@example.com');
+    const all = await invitee.json<{ invitations: { orgId: string }[] }>(
+      await invitee.get('/api/orgs/invitations/pending'),
+    );
+    expect(all.invitations).toHaveLength(2);
+
+    const narrowed = await invitee.json<{ invitations: { orgId: string; role: string }[] }>(
+      await invitee.get(`/api/orgs/invitations/pending?token=${encodeURIComponent(tokenA!)}`),
+    );
+    expect(narrowed.invitations).toHaveLength(1);
+    expect(narrowed.invitations[0].orgId).toBe(orgA);
+    expect(narrowed.invitations[0].role).toBe('viewer');
+
+    const none = await invitee.json<{ invitations: unknown[] }>(
+      await invitee.get('/api/orgs/invitations/pending?token=not-a-real-token'),
+    );
+    expect(none.invitations).toHaveLength(0);
   });
 });

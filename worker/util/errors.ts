@@ -1,4 +1,5 @@
 import { HTTPException } from 'hono/http-exception';
+import { TwilioVerifyError } from '../sms';
 
 // Thin wrappers around Hono's HTTPException that give us consistent error
 // bodies ({ error: code, message: ... }) and typed codes.
@@ -103,3 +104,25 @@ export const badGateway = (msg = 'Upstream service error', extra?: Record<string
   new ApiError(502, 'bad_gateway', msg, extra);
 export const paymentRequired = (msg: string, extra?: Record<string, unknown>) =>
   new ApiError(402, 'payment_required', msg, extra);
+
+// Turn an error from the SMS layer into the ApiError we surface. Our own
+// ApiErrors (wrong/expired code, from verifyPhoneEnrollment) pass through; a
+// TwilioVerifyError maps by kind; anything else is returned unchanged (and
+// becomes a 500 in app.onError). Also applied centrally in app.onError so an
+// unwrapped Twilio failure on any route (login 2FA, resend, …) maps cleanly.
+export function twilioToApiError(err: unknown): unknown {
+  if (err instanceof ApiError) return err;
+  if (err instanceof TwilioVerifyError) {
+    switch (err.kind) {
+      case 'invalid_number':
+        return smsInvalidPhone();
+      case 'rate_limited':
+        return rateLimited('Too many verification attempts — try again later');
+      case 'unavailable':
+        return smsUnavailable();
+      default:
+        return badGateway('Text-message verification is temporarily unavailable');
+    }
+  }
+  return err;
+}

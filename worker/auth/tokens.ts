@@ -80,10 +80,19 @@ export async function resolveAuthToken(env: Env, token: string, kind: TokenKind)
   };
 }
 
-export async function consumeAuthToken(env: Env, tokenHash: string): Promise<void> {
-  await env.DB.prepare(`UPDATE auth_token SET consumed_at = ? WHERE token_hash = ?`)
+/**
+ * Atomically consume a single-use token. Returns true only for the one caller
+ * that flipped it from unconsumed to consumed; a concurrent second consume of
+ * the same token gets false. Callers must consume BEFORE acting on the token
+ * and treat false as "invalid / already used".
+ */
+export async function consumeAuthToken(env: Env, tokenHash: string): Promise<boolean> {
+  const res = await env.DB.prepare(
+    `UPDATE auth_token SET consumed_at = ? WHERE token_hash = ? AND consumed_at IS NULL`,
+  )
     .bind(Date.now(), tokenHash)
     .run();
+  return (res.meta?.changes ?? 0) === 1;
 }
 
 export async function invalidateAuthTokensForUser(env: Env, userId: string, kind: TokenKind): Promise<void> {

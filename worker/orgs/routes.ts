@@ -12,6 +12,8 @@ import {
   ApiError,
 } from '../util/errors';
 import { blockedFromAdditionalOrg } from '../billing/plans';
+import { hasLiveSubscription } from '../billing/liveSubscription';
+import { sha256Hex } from '../util/crypto';
 import type { Plan } from '../projects/quotas';
 import { logAudit } from '../util/audit';
 import { clientIp, rateLimit } from '../util/rateLimit';
@@ -357,16 +359,22 @@ orgsRouter.get('/', async (c) => {
 orgsRouter.get('/invitations/pending', async (c) => {
   const user = c.var.user!;
   const now = Date.now();
+  // Optional ?token=<raw invitation token>: the accept page passes the token
+  // from its URL so it previews THAT invitation, not just the newest one.
+  const rawToken = c.req.query('token');
+  const tokenFilter = rawToken ? ' AND t.token_hash = ?' : '';
+  const binds: unknown[] = [now, user.email];
+  if (rawToken) binds.push(await sha256Hex(rawToken));
   const res = await c.env.DB.prepare(
     `SELECT t.token_hash, t.email, t.expires_at, t.created_at, t.metadata_json
        FROM auth_token t
       WHERE t.kind = 'invitation'
         AND t.consumed_at IS NULL
         AND t.expires_at > ?
-        AND LOWER(t.email) = LOWER(?)
+        AND LOWER(t.email) = LOWER(?)${tokenFilter}
       ORDER BY t.created_at DESC`,
   )
-    .bind(now, user.email)
+    .bind(...binds)
     .all<{
       token_hash: string;
       email: string;
@@ -450,6 +458,12 @@ orgsRouter.post('/invitations/accept', async (c) => {
   // skip the seat-cap check entirely — see worker/billing/middleware.ts.
   await requireOrgSeatAvailable(c.env, orgId);
 
+  // Single-use: claim the invitation before joining, so one link can't be
+  // redeemed twice by concurrent requests.
+  if (!(await consumeAuthToken(c.env, resolved.tokenHash))) {
+    throw validationFailed('This invitation has already been used');
+  }
+
   const now = Date.now();
   await c.env.DB.prepare(
     `INSERT INTO organization_membership (org_id, user_id, role, created_at)
@@ -457,7 +471,6 @@ orgsRouter.post('/invitations/accept', async (c) => {
   )
     .bind(orgId, user.id, role, now)
     .run();
-  await consumeAuthToken(c.env, resolved.tokenHash);
 
   await logAudit(c.env, {
     actorUserId: user.id,
@@ -689,10 +702,50 @@ orgsRouter.delete('/:id', async (c) => {
   const id = c.req.param('id');
   const { org } = await requireOrgRole(c.env, user, id, 'owner');
 
+  // A live Stripe subscription must be canceled first: once the org is
+  // deleted its billing portal is unreachable, and Stripe would keep charging.
+  if (await hasLiveSubscription(c.env, 'org', id)) {
+    throw conflict(
+      'This organization has an active subscription. Cancel it in the billing portal before deleting the organization.',
+      { reason: 'active_subscription' },
+    );
+  }
+
   const now = Date.now();
   await c.env.DB.prepare(`UPDATE organization SET deleted_at = ? WHERE id = ?`)
     .bind(now, id)
     .run();
+
+  // Take the org's feeds offline now rather than when the trash reaper purges
+  // the projects: drop live publications, revoke draft links, and cancel
+  // pending scheduled publishes (the cron would otherwise re-publish them).
+  const orgProjects = `SELECT id FROM feed_project WHERE owner_type = 'org' AND owner_id = ? AND deleted_at IS NULL`;
+  const published = await c.env.DB.prepare(
+    `SELECT project_id, snapshot_id FROM publication WHERE project_id IN (${orgProjects})`,
+  )
+    .bind(id)
+    .all<{ project_id: string; snapshot_id: string | null }>();
+  for (const p of published.results ?? []) {
+    await c.env.DB.prepare(`DELETE FROM publication WHERE project_id = ?`).bind(p.project_id).run();
+    await c.env.DB.prepare(
+      `INSERT INTO publication_history (id, project_id, snapshot_id, action, actor_user_id, created_at)
+       VALUES (?, ?, ?, 'unpublish', ?, ?)`,
+    )
+      .bind(ulid(), p.project_id, p.snapshot_id, user.id, now)
+      .run();
+  }
+  await c.env.DB.prepare(
+    `UPDATE draft_link SET revoked_at = ? WHERE revoked_at IS NULL AND project_id IN (${orgProjects})`,
+  )
+    .bind(now, id)
+    .run();
+  await c.env.DB.prepare(
+    `UPDATE scheduled_publish SET status = 'cancelled', executed_at = ?
+      WHERE status = 'pending' AND project_id IN (${orgProjects})`,
+  )
+    .bind(now, id)
+    .run();
+
   // Cascade: soft-delete org-owned projects.
   await c.env.DB.prepare(
     `UPDATE feed_project
@@ -707,7 +760,7 @@ orgsRouter.delete('/:id', async (c) => {
     subjectType: 'org',
     subjectId: id,
     action: 'org.delete',
-    metadata: { slug: org.slug },
+    metadata: { slug: org.slug, unpublishedProjects: (published.results ?? []).map((p) => p.project_id) },
     ip: clientIp(c.req.raw),
   });
 
@@ -895,6 +948,11 @@ orgsRouter.patch('/:id/members/:userId', async (c) => {
   // Only owners can promote to owner.
   if (body.role === 'owner' && callerRole !== 'owner') {
     throw forbidden('Only an owner can grant owner role');
+  }
+  // Only owners can grant or change the admin role (matches the invite rule:
+  // admins may only invite editors/viewers).
+  if ((body.role === 'admin' || target.role === 'admin') && callerRole !== 'owner') {
+    throw forbidden('Only owners can grant or change the admin role');
   }
 
   // Last-owner protection: if we're demoting the last remaining owner, block.

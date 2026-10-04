@@ -178,6 +178,47 @@ describe('2FA — login challenge + verify', () => {
     expect((await fifth.json() as { error: string }).error).toBe('twofa_expired');
   });
 
+  it('parallel wrong guesses cannot exceed the attempt cap (W1-07)', async () => {
+    const user = await seedUser({ email: 'parallel-brute@example.com' });
+    await enableEmail2fa(user.id);
+    const { challenge } = await loginToChallenge(user);
+
+    // 12 concurrent wrong codes from 12 IPs (so the per-IP verify limit isn't what stops them).
+    const results = await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        makeClient()
+          .post('/auth/2fa/verify', { challenge, code: '000000' }, { headers: { 'CF-Connecting-IP': `198.51.100.${i + 1}` } })
+          .then(async (r) => ((await r.json()) as { error: string }).error),
+      ),
+    );
+    const invalid = results.filter((e) => e === 'twofa_invalid_code').length;
+    const expired = results.filter((e) => e === 'twofa_expired').length;
+    expect(invalid).toBeLessThanOrEqual(4);
+    expect(invalid + expired).toBe(12);
+    const row = await dbGet<{ attempts: number }>(`SELECT attempts FROM twofa_challenge WHERE user_id = ?`, user.id);
+    expect(row?.attempts).toBe(5);
+
+    // The challenge is dead even for the right code now.
+    const code = latestCode(capture, user.email);
+    const late = await makeClient().post('/auth/2fa/verify', { challenge, code });
+    expect((await late.json() as { error: string }).error).toBe('twofa_expired');
+  });
+
+  it('two concurrent correct submissions mint exactly one session (W1-07)', async () => {
+    const user = await seedUser({ email: 'parallel-ok@example.com' });
+    await enableEmail2fa(user.id);
+    const { challenge } = await loginToChallenge(user);
+    const code = latestCode(capture, user.email);
+
+    const [a, b] = await Promise.all([
+      makeClient().post('/auth/2fa/verify', { challenge, code }, { headers: { 'CF-Connecting-IP': '198.51.100.201' } }),
+      makeClient().post('/auth/2fa/verify', { challenge, code }, { headers: { 'CF-Connecting-IP': '198.51.100.202' } }),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([200, 400]);
+    const sessions = await dbGet<{ n: number }>(`SELECT COUNT(*) AS n FROM session WHERE user_id = ?`, user.id);
+    expect(sessions?.n).toBe(1);
+  });
+
   it('an expired challenge cannot be verified', async () => {
     const user = await seedUser({ email: 'ttl@example.com' });
     await enableEmail2fa(user.id);

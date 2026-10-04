@@ -13,6 +13,8 @@ import { maybeRenderMarketingPage } from './marketing/ssr';
 import { handleBookDemo } from './marketing/bookDemo';
 import { serveSitemap } from './forum/sitemap';
 import { errorDetail } from './util/redact';
+import { twilioToApiError, type ApiError } from './util/errors';
+import { TwilioVerifyError } from './sms';
 
 // Legacy aliases that were advertised from the old /about nav and may still
 // have inbound links. Their real content lives elsewhere, so 301 (permanent)
@@ -128,6 +130,11 @@ app.onError((err, c) => {
   const isApi = path.startsWith('/api') || path.startsWith('/auth');
   if (err instanceof Error && 'getResponse' in err && typeof err.getResponse === 'function') {
     return (err as unknown as { getResponse: () => Response }).getResponse();
+  }
+  // Twilio Verify failures that a route didn't wrap (login / 2FA verify /
+  // resend / disable for SMS-2FA users) map to their clean status, not a 500.
+  if (err instanceof TwilioVerifyError) {
+    return (twilioToApiError(err) as ApiError).getResponse();
   }
   // Redact PII/secrets before logging — Workers Observability captures this
   // console output verbatim (NF-72). See worker/util/redact.ts.
