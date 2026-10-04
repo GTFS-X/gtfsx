@@ -30,8 +30,10 @@ import { saveProjectNow } from '../db/serverPersistence';
 import { ApiError } from './authApi';
 
 export type ImportPersistResult =
-  /** No server feed attached — IndexedDB autosave genuinely covers it, and the
-   *  store has been marked clean. */
+  /** No server feed attached, so there is nowhere durable to write: the store
+   *  has been marked clean. The IndexedDB autosave is only a local cache of the
+   *  current draft (other drafts are pruned and nothing restores it on reload),
+   *  so "clean" here means "matches what was imported", not "saved". */
   | { kind: 'local' }
   /** The working-state PUT returned; saveProjectNow marked the store clean. */
   | { kind: 'saved' }
