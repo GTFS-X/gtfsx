@@ -5,8 +5,8 @@
 // (CoveragePanel, AccessIsochronePanel, useWalkshedProfile) with their async
 // inputs held open, then resolve them late.
 //
-// Not covered: TitleVIPanel has no stale-result guard at all (known, left by
-// B8); a Title VI run that resolves after a feed switch still renders.
+// TitleVIPanel's guard is pinned separately in
+// titlevi/__tests__/titleVIStaleGuard.test.ts.
 import '../../../test-utils/dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, renderHook, screen } from '@testing-library/react';
