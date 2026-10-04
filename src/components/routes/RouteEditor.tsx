@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
 import { featureEnabled } from '../../store/featuresSlice';
 import { FormField } from '../ui/FormField';
@@ -6,12 +8,44 @@ import { ROUTE_COLORS, getContrastTextColor } from '../../utils/colors';
 import { ROUTE_TYPES } from '../../utils/constants';
 import { TranslationsEditor } from '../translations/EntityTranslations';
 import { TABLE_SPEC } from '../../services/translations';
+import { parseRouteColorDraft } from './routePanelHelpers';
+
+/** Hex input with a local draft, so partial keystrokes ("#12A") aren't
+ *  reverted by the controlled value. Commits each time the draft becomes a
+ *  full 6-digit hex; an invalid draft snaps back on blur. */
+function RouteColorInput({ color, onCommit }: { color: string; onCommit: (hex: string) => void }) {
+  const [draft, setDraft] = useState(`#${color}`);
+  // Resync when the stored colour changes from elsewhere (a swatch, undo),
+  // but not when it changed because this draft just committed it.
+  const [syncedColor, setSyncedColor] = useState(color);
+  if (color !== syncedColor) {
+    setSyncedColor(color);
+    if (parseRouteColorDraft(draft) !== color) setDraft(`#${color}`);
+  }
+  return (
+    <input
+      value={draft}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        const hex = parseRouteColorDraft(e.target.value);
+        if (hex && hex !== color) onCommit(hex);
+      }}
+      onBlur={() => {
+        if (!parseRouteColorDraft(draft)) setDraft(`#${color}`);
+      }}
+      aria-label="Route color hex"
+      className="w-24 px-2 py-1 border-2 border-sand rounded-lg text-sm font-mono bg-cream focus:outline-none focus:border-coral"
+    />
+  );
+}
+
 export function RouteEditor() {
-  const {
-    routes, updateRoute,
-    selectedRouteId,
-    agencies,
-  } = useStore();
+  const { routes, updateRoute, selectedRouteId, agencies } = useStore(useShallow((s) => ({
+    routes: s.routes,
+    updateRoute: s.updateRoute,
+    selectedRouteId: s.selectedRouteId,
+    agencies: s.agencies,
+  })));
   // Flag-stop / continuous pickup-drop-off controls only appear when this
   // advanced feature is enabled for the feed (niche; off for most fixed-route).
   const showContinuous = useStore((s) => featureEnabled(s, 'continuousStops'));
@@ -107,18 +141,13 @@ export function RouteEditor() {
             className="w-10 h-10 rounded-lg"
             style={{ backgroundColor: `#${route.route_color}` }}
           />
-          <input
-            value={`#${route.route_color}`}
-            onChange={(e) => {
-              const hex = e.target.value.replace('#', '').toUpperCase();
-              if (/^[0-9A-F]{6}$/.test(hex)) {
-                updateRoute(route.route_id, {
-                  route_color: hex,
-                  route_text_color: getContrastTextColor(hex),
-                });
-              }
-            }}
-            className="w-24 px-2 py-1 border-2 border-sand rounded-lg text-sm font-mono bg-cream focus:outline-none focus:border-coral"
+          <RouteColorInput
+            key={route.route_id}
+            color={route.route_color}
+            onCommit={(hex) => updateRoute(route.route_id, {
+              route_color: hex,
+              route_text_color: getContrastTextColor(hex),
+            })}
           />
         </div>
         <div className="grid grid-cols-8 gap-1.5">

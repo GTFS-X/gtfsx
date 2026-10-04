@@ -5,10 +5,16 @@ import { AuthButton } from '../auth/AuthButton';
 
 export function RouteDeleteDialog() {
   const routeId = useStore((s) => s.routeDeleteConfirmId);
+  const exists = useStore((s) => routeId != null && s.routes.some((r) => r.route_id === routeId));
+  if (!routeId || !exists) return null;
+  // Keyed by route so the checkbox choices start fresh for each route instead
+  // of carrying over from the last dialog (this component is always mounted).
+  return <RouteDeleteDialogBody key={routeId} routeId={routeId} />;
+}
+
+function RouteDeleteDialogBody({ routeId }: { routeId: string }) {
   const setRouteDeleteConfirmId = useStore((s) => s.setRouteDeleteConfirmId);
-  const route = useStore((s) =>
-    routeId ? s.routes.find((r) => r.route_id === routeId) ?? null : null,
-  );
+  const route = useStore((s) => s.routes.find((r) => r.route_id === routeId) ?? null);
   const trips = useStore((s) => s.trips);
   const stops = useStore((s) => s.stops);
   const routeStops = useStore((s) => s.routeStops);
@@ -118,7 +124,7 @@ export function RouteDeleteDialog() {
           onChange={(e) => setDontWarnDelete(e.target.checked)}
           className="rounded"
         />
-        Don't warn me again
+        Don't ask again for routes with no trips or stops
       </label>
     </Modal>
   );
