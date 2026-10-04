@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
+import { historyTransaction } from '../../store/history';
+import { serviceOptions } from '../../services/serviceIds';
 import { featureEnabled } from '../../store/featuresSlice';
 import {
   formatTimeShort, gtfsTimeToSeconds, normalizeTimeInput, secondsToGtfsTime,
@@ -22,9 +25,10 @@ import { type PaneScope, useTimetableData } from './useTimetableData';
 import {
   planCascade, nextCompanionShapeId, generateExistingIds,
   clampSplitRatio, splitResizable, splitRatioFromPointer, SPLIT_MIN_PANE_PX, SPLIT_DEFAULT_RATIO,
-  swapRouteDirections,
+  swapRouteDirections, cellEditUpdate, cascadePrevTime, lastTimedTrip, type CellField,
 } from './timetableGridHelpers';
 import { TimetableGridPane } from './TimetableGridPane';
+import { copyTripsToService, repeatTrip, withContinuousOverride } from './timetableBulkOps';
 import { SplitDivider } from './timetableGridParts';
 import { TimetableToolbar, type ToolId } from './TimetableToolbar';
 import { GenerateDrawer, RuntimeDrawer, RepeatDrawer, FrequencyDrawer, type GenerateInput } from './TimetableDrawers';
@@ -51,7 +55,7 @@ function snapshotFeed(): Snap {
 }
 
 type PaneId = 'main' | 'opp';
-type CommitField = 'both' | 'arrival_time' | 'departure_time';
+type CommitField = CellField;
 type ModalState =
   | { type: 'duplicate'; paneId: PaneId; tripId: string }
   | { type: 'estimate'; paneId: PaneId; tripId: string }
@@ -72,12 +76,24 @@ type CascadeState = { paneId: PaneId; seq: number; stopId: string; stopName: str
  * grid + the separate SplitTimetable wrapper.
  */
 export function TimetableGrid() {
-  const store = useStore();
+  // Field-level subscription: a whole-store useStore() re-rendered the grid on
+  // every UI change (hover, panel toggles) anywhere in the app.
   const {
-    routes, trips, stops, routeStops, calendars, shapes,
-    setStopTime, addTrip, duplicateTrip, applyTripPattern, removeTrip, updateTrip,
+    routes, trips, stops, routeStops, calendars, calendarDates, shapes,
+    setStopTime, addTrip, duplicateTrip, applyTripPattern, removeTrip,
     renameTripId, interpolateStopTimes, skipStop, seedTripStops,
-  } = store;
+  } = useStore(useShallow((s) => ({
+    routes: s.routes, trips: s.trips, stops: s.stops, routeStops: s.routeStops, calendars: s.calendars, calendarDates: s.calendarDates, shapes: s.shapes,
+    setStopTime: s.setStopTime, addTrip: s.addTrip, duplicateTrip: s.duplicateTrip, applyTripPattern: s.applyTripPattern,
+    removeTrip: s.removeTrip, renameTripId: s.renameTripId,
+    interpolateStopTimes: s.interpolateStopTimes, skipStop: s.skipStop, seedTripStops: s.seedTripStops,
+  })));
+  // stopTimes only feeds the run-time default below (the panes read it through
+  // their own index).
+  const stopTimes = useStore((s) => s.stopTimes);
+  // Every service, including calendar_dates-only ones (C2-03).
+  const services = useMemo(() => serviceOptions({ calendars, calendarDates }), [calendars, calendarDates]);
+  const serviceLabel = (id: string | null | undefined) => services.find((o) => o.serviceId === id)?.label || id || '—';
 
   // Main-pane selection proxies the global timetable fields.
   const selectedRouteId = useStore((s) => s.selectedRouteId);
@@ -250,14 +266,23 @@ export function TimetableGrid() {
     toastTimer.current = setTimeout(() => setToast(null), 6500);
   }, []);
   // Snapshot, run the mutation, then show the Undo toast with the op's message.
-  const withUndo = useCallback((run: () => string) => {
+  // The mutation also runs as ONE history transaction, so Ctrl+Z reverts the
+  // whole bulk op rather than its last per-trip write.
+  const withUndo = useCallback((run: () => string, label = 'edit timetable') => {
     const snap = snapshotFeed();
-    undoToast(run(), snap);
+    undoToast(historyTransaction(label, run), snap);
   }, [undoToast]);
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     if (cascadeTimer.current) clearTimeout(cascadeTimer.current);
   }, []);
+
+  // No (valid) route selected: pick the first one. In an effect, not during
+  // render — a store write while rendering trips React's cross-component
+  // update warning.
+  useEffect(() => {
+    if (!route && routes.length > 0) selectRoute(routes[0].route_id);
+  }, [route, routes, selectRoute]);
 
   // Reset transient UI when the route changes / the selection key changes.
   useEffect(() => { setDrawer(null); setFreqEditTripId(null); setCascade(null); }, [selectedRouteId]);
@@ -291,18 +316,12 @@ export function TimetableGrid() {
   const onCell = useCallback((paneId: PaneId, tripId: string, seq: number, stopId: string, field: CommitField, normalized: string) => {
     const data = paneData(paneId);
     const st = data.findStopTime(tripId, seq);
-    const prevTime = st?.arrival_time || st?.departure_time || '';
+    // Δ is measured on the field that was edited (a departure edit must not be
+    // compared against the arrival).
+    const prevTime = cascadePrevTime(st, field);
     const prevSec = prevTime ? gtfsTimeToSeconds(prevTime) : null;
 
-    if (!normalized) {
-      setStopTime(tripId, stopId, seq, { arrival_time: '', departure_time: '' });
-    } else if (field === 'both') {
-      setStopTime(tripId, stopId, seq, { arrival_time: normalized, departure_time: normalized });
-    } else if (field === 'arrival_time') {
-      setStopTime(tripId, stopId, seq, { arrival_time: normalized, departure_time: st?.departure_time || normalized });
-    } else {
-      setStopTime(tripId, stopId, seq, { arrival_time: st?.arrival_time || normalized, departure_time: normalized });
-    }
+    setStopTime(tripId, stopId, seq, cellEditUpdate(st, field, normalized));
 
     // Cascade offer: an edited (previously-set) time changed by Δ, and later
     // trips have a time in this column → offer to shift them too.
@@ -387,7 +406,7 @@ export function TimetableGrid() {
     addTrip({
       trip_id: tripId,
       route_id: scope.routeId,
-      service_id: data.activeServiceId || calendars[0]?.service_id || '',
+      service_id: data.activeServiceId || services[0]?.serviceId || '',
       direction_id: scope.directionId,
       trip_headsign: route?.route_short_name || '',
       shape_id: data.noShapeBucket
@@ -400,9 +419,11 @@ export function TimetableGrid() {
 
   const onTimepoint = (paneId: PaneId, stopId: string, seq: number, on: boolean) => {
     const data = paneData(paneId);
-    for (const t of data.routeTrips) {
-      if (data.findStopTime(t.trip_id, seq)) setStopTime(t.trip_id, stopId, seq, { timepoint: on ? 1 : 0 });
-    }
+    historyTransaction(on ? 'mark timepoint' : 'clear timepoint', () => {
+      for (const t of data.routeTrips) {
+        if (data.findStopTime(t.trip_id, seq)) setStopTime(t.trip_id, stopId, seq, { timepoint: on ? 1 : 0 });
+      }
+    });
     say(on ? 'Marked as key timepoint — published time' : 'Timepoint off — times interpolate through this stop');
   };
 
@@ -414,11 +435,13 @@ export function TimetableGrid() {
   const onContinuous = (stopId: string, value: 'default' | 'none' | 'phone') => {
     if (!selectedRouteId) return;
     const enumVal: 0 | 1 | 2 | 3 | undefined = value === 'none' ? 1 : value === 'phone' ? 2 : undefined;
-    const all = useStore.getState().stopTimes;
-    for (const t of trips.filter((tr) => tr.route_id === selectedRouteId)) {
-      const st = all.find((s) => s.trip_id === t.trip_id && s.stop_id === stopId);
-      if (st) setStopTime(t.trip_id, stopId, st.stop_sequence, { continuous_pickup: enumVal, continuous_drop_off: enumVal });
-    }
+    // One pass over stop_times and one setStopTimes (one history step), instead
+    // of a full-array find + setStopTime per route trip. Each trip's first visit
+    // to the stop is patched, as before.
+    const routeTripIds = new Set(trips.filter((tr) => tr.route_id === selectedRouteId).map((tr) => tr.trip_id));
+    const st = useStore.getState();
+    const { next, patched } = withContinuousOverride(st.stopTimes, routeTripIds, stopId, enumVal);
+    if (patched > 0) historyTransaction('set continuous pickup', () => st.setStopTimes(next));
     say(value === 'default' ? 'Cleared pickup/drop-off override' : 'Continuous pickup override applied to all trips');
   };
 
@@ -446,7 +469,10 @@ export function TimetableGrid() {
     const ref: PatternRef = { routeId: selectedRouteId || '', directionId, shapeId: mainGenShapeId };
     const secs = currentPatternRunSecs(ref);
     return secs ? Math.round(secs / 60) : 20;
-  }, [selectedRouteId, directionId, mainGenShapeId]);
+    // currentPatternRunSecs reads the store directly; trips/stopTimes are deps so
+    // a generate or re-time on this pattern refreshes the drawer's default.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRouteId, directionId, mainGenShapeId, trips, stopTimes]);
 
   // Generate lays out a fresh day of service, so when the pane already has trips
   // the usual intent is to REPLACE them, not stack a second set on top. Apply
@@ -456,7 +482,6 @@ export function TimetableGrid() {
   const runGenerate = (input: GenerateInput, replace: boolean) => {
     if (!selectedRouteId || !activeServiceId) return;
     const doomed = replace ? routeTrips.map((t) => t.trip_id) : [];
-    const doomedSet = new Set(doomed);
     // Mint new IDs against everything that will SURVIVE the replace, so names
     // never collide with kept trips (other directions/services) yet still reuse
     // the numbers freed up by the trips we're about to drop.
@@ -473,9 +498,7 @@ export function TimetableGrid() {
     setModal(null);
     withUndo(() => {
       if (replace) {
-        for (const id of doomed) removeTrip(id); // drops the trip + its stop_times
-        const s = useStore.getState();
-        s.setFrequencies(s.frequencies.filter((f) => !doomedSet.has(f.trip_id))); // removeTrip leaves frequencies behind
+        for (const id of doomed) removeTrip(id); // drops the trip + its stop_times + frequencies
       }
       const st = useStore.getState();
       st.setTrips([...st.trips, ...result.trips]);
@@ -533,20 +556,16 @@ export function TimetableGrid() {
   };
 
   const applyRepeat = ({ headway, copies }: { headway: number; copies: number }) => {
-    if (routeTrips.length === 0) return;
+    // Copy the last TIMED trip: "+ Add trip" seeds blank trips, which sort last.
+    const last = lastTimedTrip(routeTrips, mainData.getStartSec);
+    if (!last) return;
+    const lastTrip = last.trip;
     setDrawer(null);
     withUndo(() => {
-      const lastTrip = routeTrips[routeTrips.length - 1];
-      const prefix = tripIdPrefixForRoute(route);
-      const existingIds = new Set(trips.map((t) => t.trip_id));
-      for (let i = 0; i < copies; i++) {
-        const offsetMinutes = headway * (i + 1);
-        const newId = mintTripId(prefix, existingIds);
-        existingIds.add(newId);
-        duplicateTrip(lastTrip.trip_id, newId, offsetMinutes);
-      }
+      // A frequency template's copies keep its windows (shifted).
+      repeatTrip(lastTrip.trip_id, headway, copies, tripIdPrefixForRoute(route), new Set(trips.map((t) => t.trip_id)));
       return `Added ${copies} trip${copies === 1 ? '' : 's'}`;
-    });
+    }, 'repeat last trip');
   };
 
   const onTool = (id: ToolId) => {
@@ -559,13 +578,12 @@ export function TimetableGrid() {
     const prefix = tripIdPrefixForRoute(route);
     const existingIds = new Set(trips.map((t) => t.trip_id));
     const sourceTrips = trips.filter((t) => t.route_id === selectedRouteId && t.direction_id === directionId && t.service_id === sourceServiceId);
-    for (const trip of sourceTrips) {
-      const newId = mintTripId(prefix, existingIds);
-      existingIds.add(newId);
-      duplicateTrip(trip.trip_id, newId, 0);
-      updateTrip(newId, { service_id: activeServiceId });
-    }
-    say(`Copied ${sourceTrips.length} trip${sourceTrips.length === 1 ? '' : 's'}`);
+    const target = activeServiceId;
+    // Snapshot Undo + one history step; frequency templates keep their windows.
+    withUndo(() => {
+      copyTripsToService(sourceTrips, target, prefix, existingIds);
+      return `Copied ${sourceTrips.length} trip${sourceTrips.length === 1 ? '' : 's'}`;
+    }, 'copy trips from service');
   };
 
   const onEditStops = () => {
@@ -705,7 +723,6 @@ export function TimetableGrid() {
 
   /* ---------- render guards ---------- */
   if (!route) {
-    if (routes.length > 0) selectRoute(routes[0].route_id);
     return (
       <div className="flex items-center justify-center h-full text-warm-gray text-sm">
         {routes.length === 0 ? 'Create a route first' : 'Select a route to view its timetable'}
@@ -730,7 +747,7 @@ export function TimetableGrid() {
   }
 
   const allTripIds = trips.map((t) => t.trip_id);
-  const ctxLabel = `${route.route_short_name || route.route_long_name || route.route_id} · ${directionName(route, directionId)} · ${calendars.find((c) => c.service_id === activeServiceId)?._description || activeServiceId || '—'}`;
+  const ctxLabel = `${route.route_short_name || route.route_long_name || route.route_id} · ${directionName(route, directionId)} · ${serviceLabel(activeServiceId)}`;
   const siblingWithTrips = mainData.serviceIdsWithTrips.find((sid) => sid !== activeServiceId);
 
   const renderMainPane = () => {
@@ -756,7 +773,7 @@ export function TimetableGrid() {
             <Button variant="secondary" icon="+" onClick={() => onAddTrip('main')}>Add a single trip</Button>
             {siblingWithTrips && (
               <Button variant="secondary" icon="⧉" onClick={() => handleCopyFromService(siblingWithTrips)}>
-                Copy from {calendars.find((c) => c.service_id === siblingWithTrips)?._description || siblingWithTrips}
+                Copy from {serviceLabel(siblingWithTrips)}
               </Button>
             )}
           </div>
@@ -768,7 +785,7 @@ export function TimetableGrid() {
         orderedStops={orderedStops}
         routeTrips={routeTrips}
         allTripIds={allTripIds}
-        timepointStopIds={mainData.timepointStopIds}
+        timepointSeqs={mainData.timepointSeqs}
         continuousOverrides={mainData.continuousOverrides}
         findStopTime={mainData.findStopTime}
         frequenciesByTrip={frequenciesByTrip}
@@ -806,7 +823,7 @@ export function TimetableGrid() {
         orderedStops={oppData.orderedStops}
         routeTrips={oppData.routeTrips}
         allTripIds={allTripIds}
-        timepointStopIds={oppData.timepointStopIds}
+        timepointSeqs={oppData.timepointSeqs}
         continuousOverrides={oppData.continuousOverrides}
         findStopTime={oppData.findStopTime}
         frequenciesByTrip={frequenciesByTrip}
@@ -872,7 +889,7 @@ export function TimetableGrid() {
         route={route}
         routes={routes}
         shapes={shapes}
-        calendars={calendars}
+        services={services}
         selectedRouteId={selectedRouteId}
         activeServiceId={activeServiceId}
         patterns={patterns}
@@ -901,7 +918,7 @@ export function TimetableGrid() {
       )}
       {drawer === 'repeat' && (
         <RepeatDrawer
-          lastStart={routeTrips.length ? formatTimeShort(mainData.getFirstDisplayedTime(routeTrips[routeTrips.length - 1].trip_id) || '') || '—' : '—'}
+          lastSec={lastTimedTrip(routeTrips, mainData.getStartSec)?.startSec ?? null}
           tripCount={routeTrips.length}
           onApply={applyRepeat}
           onCancel={() => setDrawer(null)}
@@ -909,6 +926,7 @@ export function TimetableGrid() {
       )}
       {drawer === 'frequency' && freqEditTripId && (
         <FrequencyDrawer
+          key={freqEditTripId}
           ctx={ctxLabel}
           tripId={freqEditTripId}
           initialWindows={frequenciesByTrip.get(freqEditTripId) ?? []}

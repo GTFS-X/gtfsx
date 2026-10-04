@@ -6,9 +6,9 @@ import {
   useRef,
   useState,
 } from 'react';
-import { formatTimeShort, normalizeTimeInput } from '../../utils/time';
+import { formatTimeShort } from '../../utils/time';
 import { Toggle } from '../ui/Toggle';
-import { navFrom, navTab, useAnchoredMenuPosition, useDismiss, type RowActionStyle } from './timetableGridHelpers';
+import { cellCommitDecision, navFrom, navTab, useAnchoredMenuPosition, useDismiss, type RowActionStyle } from './timetableGridHelpers';
 
 /* ============================================================================
    One editable time input (single mode + arr/dep parts)
@@ -33,16 +33,20 @@ function CellInput({ value, placeholder, ti, si, part, totalStops, nav, timeErro
   const [draft, setDraft] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
   const elRef = useRef<HTMLInputElement | null>(null);
+  // What the cell showed when it took focus. Leaving the cell with that text
+  // untouched is navigation, not an edit: the display is lossy (HH:MM drops
+  // seconds, the dwell is hidden in single mode, unpadded times get padded), so
+  // committing it would silently rewrite the stop_time.
+  const focusDisplayRef = useRef<string | null>(null);
   const display = value ? formatTimeShort(value) : '';
   const editing = draft !== null;
 
   const commit = useCallback((raw: string | null) => {
     if (raw === null) return;
-    const trimmed = raw.trim();
-    if (!trimmed) { onCommit(''); setInvalid(false); return; }
-    const normalized = normalizeTimeInput(trimmed);
-    if (normalized) { onCommit(normalized); setInvalid(false); }
-    else setInvalid(true);
+    const d = cellCommitDecision(raw, focusDisplayRef.current);
+    if (d.kind === 'invalid') { setInvalid(true); return; }
+    setInvalid(false);
+    if (d.kind === 'commit') onCommit(d.value);
   }, [onCommit]);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -82,7 +86,7 @@ function CellInput({ value, placeholder, ti, si, part, totalStops, nav, timeErro
       data-ti={ti}
       data-si={si}
       data-part={part}
-      onFocus={() => { setDraft(display); setInvalid(false); requestAnimationFrame(() => elRef.current?.select()); }}
+      onFocus={() => { focusDisplayRef.current = display; setDraft(display); setInvalid(false); requestAnimationFrame(() => elRef.current?.select()); }}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => { commit(draft); setDraft(null); }}
       onKeyDown={onKeyDown}
@@ -161,8 +165,9 @@ export function TimeCell(props: TimeCellProps) {
 
   if (arrDep) {
     const [a, d] = value.includes('/') ? value.split('/') : [value, value];
+    // Each half commits only its own field ('' = clear that half; the
+    // orchestrator collapses the stop onto the other half's time).
     const commit = (which: 'a' | 'd', raw: string) => {
-      if (!raw) { onCommit(''); return; }
       if (which === 'a') onCommitArr(raw);
       else onCommitDep(raw);
     };

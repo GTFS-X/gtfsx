@@ -5,6 +5,7 @@ import { type ShapePattern, twoPatternLabels } from '../ui/shapePatterns';
 import { PatternSelector } from '../ui/ShapePatternSelector';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
+import type { ServiceOption } from '../../services/serviceIds';
 import { Segmented } from '../ui/Segmented';
 import { useDismiss } from './timetableGridHelpers';
 
@@ -14,7 +15,8 @@ interface ToolbarProps {
   route: Route;
   routes: Route[];
   shapes: Shape[];
-  calendars: { service_id: string; _description?: string }[];
+  /** Service picker options: calendar.txt ∪ calendar_dates.txt (serviceOptions). */
+  services: ServiceOption[];
   selectedRouteId: string | null;
   activeServiceId: string | null;
   patterns: ShapePattern[];
@@ -196,7 +198,7 @@ function SplitViewButton({
  *  control stays reachable at 390px. */
 export function TimetableToolbar(props: ToolbarProps) {
   const {
-    route, routes, shapes, calendars, activeServiceId, patterns, effectiveShapeId,
+    route, routes, shapes, services, activeServiceId, patterns, effectiveShapeId,
     directionId, tripCount, departureNote, removeAllCount, oppositeOpen,
     onSelectRoute, onSelectService, onSelectPattern, onSelectDirection, onSetOpposite,
     canSwapDirections, onSwapDirections, onEditStops, onTool,
@@ -212,11 +214,11 @@ export function TimetableToolbar(props: ToolbarProps) {
           options={routes.map((r) => ({ id: r.route_id, name: r.route_short_name || r.route_long_name || r.route_id }))}
           aria-label="Route"
         />
-        {calendars.length > 0 && (
+        {services.length > 0 && (
           <Select
             value={activeServiceId || ''}
             onChange={onSelectService}
-            options={calendars.map((c) => ({ id: c.service_id, name: c._description || c.service_id }))}
+            options={services.map((o) => ({ id: o.serviceId, name: o.label }))}
             aria-label="Service pattern"
           />
         )}

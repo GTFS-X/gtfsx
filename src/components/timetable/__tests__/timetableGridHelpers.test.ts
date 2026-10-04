@@ -33,8 +33,8 @@ describe('computeRowErrors', () => {
     expect(computeRowErrors(['08:00', '08:05', '08:04'])).toEqual([false, false, true]);
   });
 
-  it('flags an equal (non-increasing) time', () => {
-    expect(computeRowErrors(['08:00', '08:00'])).toEqual([false, true]);
+  it('accepts an equal consecutive time (GTFS times are non-decreasing; C2-12)', () => {
+    expect(computeRowErrors(['08:00', '08:00'])).toEqual([false, false]);
   });
 
   it('flags an unparseable time', () => {

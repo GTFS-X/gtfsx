@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
+import { serviceOptions } from '../../services/serviceIds';
+import { useTimetableData } from './useTimetableData';
 import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
-import { computeShapePatterns } from '../ui/shapePatterns';
 import { PatternSelector } from '../ui/ShapePatternSelector';
 import { directionName } from '../../utils/constants';
 import { secondsToGtfsTime, formatTimeShort } from '../../utils/time';
@@ -24,7 +26,10 @@ const ROW_GAP = 22;     // minimum vertical px between adjacent stop gridlines
  * views stay consistent.
  */
 export function MareyChart() {
-  const { selectedRouteId, selectRoute, routes, trips, stops, routeStops, calendars, shapes } = useStore();
+  const { selectedRouteId, selectRoute, routes, calendars, calendarDates, shapes } = useStore(useShallow((s) => ({
+    selectedRouteId: s.selectedRouteId, selectRoute: s.selectRoute, routes: s.routes,
+    calendars: s.calendars, calendarDates: s.calendarDates, shapes: s.shapes,
+  })));
   const { byTrip: stopTimesByTrip } = useStopTimesIndex();
 
   const directionId = useStore((s) => s.timetableDirectionId);
@@ -34,46 +39,26 @@ export function MareyChart() {
   const selectedShapeId = useStore((s) => s.timetableShapeId);
   const setSelectedShapeId = useStore((s) => s.setTimetableShapeId);
 
-  const route = routes.find((r) => r.route_id === selectedRouteId);
-
-  const activeServiceId = useMemo(() => {
-    if (selectedServiceId && calendars.some((c) => c.service_id === selectedServiceId)) return selectedServiceId;
-    return calendars[0]?.service_id || null;
-  }, [selectedServiceId, calendars]);
-
-  // Mirror TimetableGrid's pattern handling so the chart shows the same scope.
-  const patterns = useMemo(
-    () => computeShapePatterns(selectedRouteId, trips, routeStops),
-    [selectedRouteId, trips, routeStops],
+  // Same derivation as the Timetable's main pane (patterns incl. no-shape
+  // buckets, earliest-departure default, calendar ∪ calendar_dates services),
+  // so the chart and the grid always show the same scope. Read-only: the chart
+  // doesn't rewrite the shared selection.
+  const tt = useTimetableData(
+    { routeId: selectedRouteId, directionId, serviceId: selectedServiceId, shapeId: selectedShapeId },
+    false,
   );
-  const effectiveShapeId = useMemo(() => {
-    if (patterns.length === 0) return null;
-    return patterns.some((p) => p.shapeId === selectedShapeId) ? selectedShapeId : patterns[0].shapeId;
-  }, [patterns, selectedShapeId]);
+  const { route, patterns, effectiveShapeId, activeServiceId, routeTrips } = tt;
+  const orderedStops = useMemo(() => tt.orderedStops.map((c) => c.stop), [tt.orderedStops]);
+  const services = useMemo(() => serviceOptions({ calendars, calendarDates }), [calendars, calendarDates]);
 
-  // Ordered stops — per-shape when a shape is selected, else by direction.
-  const orderedStops = useMemo(() => {
-    if (!selectedRouteId) return [];
-    const list = effectiveShapeId
-      ? routeStops.filter((rs) => rs.route_id === selectedRouteId && rs.shape_id === effectiveShapeId)
-      : routeStops.filter((rs) => rs.route_id === selectedRouteId && rs.direction_id === directionId);
-    return [...list]
-      .sort((a, b) => a.stop_sequence - b.stop_sequence)
-      .map((rs) => stops.find((s) => s.stop_id === rs.stop_id))
-      .filter(Boolean) as typeof stops;
-  }, [selectedRouteId, effectiveShapeId, directionId, routeStops, stops]);
-
-  // Trips for this route + service + shape/direction (same filter as Timetable).
-  const routeTrips = useMemo(() => {
-    if (!selectedRouteId) return [];
-    return trips.filter((t) => t.route_id === selectedRouteId
-      && (!activeServiceId || t.service_id === activeServiceId)
-      && (effectiveShapeId ? t.shape_id === effectiveShapeId : t.direction_id === directionId));
-  }, [selectedRouteId, trips, activeServiceId, effectiveShapeId, directionId]);
+  // No (valid) route selected: pick the first one, in an effect (not during render).
+  useEffect(() => {
+    if (!route && routes.length > 0) selectRoute(routes[0].route_id);
+  }, [route, routes, selectRoute]);
 
   const shape = useMemo(
-    () => (effectiveShapeId ? shapes.find((s) => s.shape_id === effectiveShapeId) : undefined),
-    [effectiveShapeId, shapes],
+    () => (effectiveShapeId && !tt.noShapeBucket ? shapes.find((s) => s.shape_id === effectiveShapeId) : undefined),
+    [effectiveShapeId, shapes, tt.noShapeBucket],
   );
 
   // Frequency build-out — the SAME pure expansion the grid uses (item #10). Any
@@ -101,7 +86,6 @@ export function MareyChart() {
   );
 
   if (!route) {
-    if (routes.length > 0) selectRoute(routes[0].route_id);
     return (
       <div className="flex items-center justify-center h-full text-warm-gray text-sm">
         {routes.length === 0 ? 'Create a route first' : 'Select a route to see its time–distance chart'}
@@ -126,15 +110,15 @@ export function MareyChart() {
             </option>
           ))}
         </select>
-        {calendars.length > 0 && (
+        {services.length > 0 && (
           <select
             value={activeServiceId || ''}
             onChange={(e) => setSelectedServiceId(e.target.value)}
             className="px-2 py-1 border border-sand rounded-md text-xs bg-cream focus:outline-none focus:border-coral"
           >
-            {calendars.map((cal) => (
-              <option key={cal.service_id} value={cal.service_id}>
-                {cal._description || cal.service_id}
+            {services.map((o) => (
+              <option key={o.serviceId} value={o.serviceId}>
+                {o.label}
               </option>
             ))}
           </select>
