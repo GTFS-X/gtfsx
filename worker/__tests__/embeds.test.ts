@@ -925,8 +925,10 @@ describe('embed routes', () => {
       expect(html).not.toContain(WEEKDAY_ONLY_TIME);
       expect(html).not.toContain(SATURDAY_ONLY_TIME);
       // A dead end with a date picker on it is still a dead end — Monday runs.
+      // The Monday after the requested Sunday, NOT the next Monday from today
+      // (which is today itself when the suite runs on a Monday).
       expect(html).toContain('Next service');
-      expect(html).toContain(`date=${ymdToInput(nextDow(1))}`);
+      expect(html).toContain(`date=${ymdToInput(plusDays(nextDow(0), 1))}`);
       // In range, so the coverage sentence stays out of the way.
       expect(html).not.toContain('This schedule covers');
     });
