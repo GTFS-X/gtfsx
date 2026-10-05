@@ -341,6 +341,19 @@ Design rationale is preserved in the decisions appendix of the archived
 
 ### Production — LIVE
 
+- **Security hotfix + codebase review — LIVE 2026-10-04 (main `f0b24ad`).**
+  `fix/security-hotfix` and `fix/codebase-review` shipped together: `/_import/proxy`
+  removed, forum search escaping, server-bound impersonation, plus the review fixes
+  (change-email current-password check, subscription-aware delete/checkout/grant
+  guards, unpublish cancelling schedules, refused deletes of in-use calendars and
+  Fares v2 rows, calendar_dates-only service editing, editor fixes, PBKDF2 >100k
+  iterations failing closed) and dev-only rendered component tests. No new
+  migrations (latest is 0032). Prod worker version `014e2953-dd1c-469b-b9d1-9016e8ab8b52`
+  (previous `629fb3a1-566d-4b4a-b7ef-d9bf88f29a6f`, the rollback target).
+- **Route-visibility "Hide all" regression fix (2026-10-05).** Follows the release
+  above: "Hide all" in the Routes panel now also hides flex-only routes. Branch
+  `fix/route-visibility-hide-all`, pushed to main as a fast-forward.
+
 - **Feed Health dashboard data now sourced from an external canonical export
   (2026-07-31).** The NTD/FTA-Weblinks/Mobility-Database pipeline that used to
   live in this repo (`scripts/feed-health/*`) has been extracted to a
@@ -697,18 +710,7 @@ Design rationale is preserved in the decisions appendix of the archived
 Work that exists in the repo but is **not** live in production. Delete an entry
 from here when it ships, and fold it into the Production list above.
 
-- **Security hotfix + codebase review (`fix/security-hotfix`, `fix/codebase-review`,
-  2026-10).** The hotfix (removed `/_import/proxy`, forum search escaping,
-  server-bound impersonation) is on staging only. `fix/codebase-review` builds on it
-  with the review fixes: change-email current-password check, subscription-aware
-  delete/checkout/grant guards, unpublish cancelling schedules, refused deletes of
-  in-use calendars and Fares v2 rows, calendar_dates-only service editing, and the
-  editor fixes, plus the fixes from the staging E2E pass (cancel-at-period-end no
-  longer blocks owner deletion, set-a-password for passwordless accounts,
-  deleted-account copy, PBKDF2 >100k iterations failing closed) and rendered
-  component tests (jsdom + Testing Library, dev-only). No new migrations (latest
-  is 0032). The API changes are already described in §3. Branch head `3bffba1`
-  is on staging (2026-10-04, version `f65b6b61`); not pushed, not on prod.
+(Nothing in flight beyond staging rehearsals; see below.)
 
 ### Staging — PARKED (since 2026-05-16)
 
@@ -721,6 +723,8 @@ Last manual deploy before this month: 2026-09-04. On **2026-10-04** the
 `fix/security-hotfix` branch (`a069b39`, version `802421db`) was deployed to
 staging only, for rehearsal; it is not on `main` or prod yet. Later the same day
 `fix/codebase-review` (`3bffba1`, version `f65b6b61`) replaced it on staging.
+That branch has since shipped to prod. As of 2026-10-05 staging runs
+`fix/route-visibility-hide-all` @ `872c687` (pre-rebase hash of the same fix).
 
 **Open catalog — the `public/catalog.json` hack is obsolete (issue #47, branch
 `feat/catalog-endpoint`).** `/catalog.json` is now a **dynamic worker route** on
