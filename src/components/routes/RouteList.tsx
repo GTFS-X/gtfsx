@@ -186,9 +186,13 @@ export function RouteList() {
                 <span className="ml-2 text-[10px] uppercase tracking-wide">Map</span>
               </div>
               {/* Bulk visibility shortcuts — show/hide every route in this panel
-                  on the map at once (operates on all managed routes regardless of
-                  the text/type filter). "Show all" clears the whole hidden set;
-                  Flex zones carry their own visibility in the Flex section. */}
+                  on the map at once, regardless of the text/type filter. Both
+                  act on ALL routes, including the flex-only routes listed in
+                  the Flex section below (their swatches and FlexLayer read the
+                  same hiddenRouteIds): "Show all" clears the hidden set and
+                  "Hide all" hides every route_id. Hiding only managedRoutes
+                  would leave flex zones on the map and un-hide a flex zone
+                  that was already hidden. */}
               <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide">
                 <button
                   type="button"
@@ -201,7 +205,7 @@ export function RouteList() {
                 <span className="text-sand" aria-hidden>·</span>
                 <button
                   type="button"
-                  onClick={() => setHiddenRouteIds(managedRoutes.map((r) => r.route_id))}
+                  onClick={() => setHiddenRouteIds(routes.map((r) => r.route_id))}
                   className="hover:text-coral transition-colors"
                   title="Hide all routes from the map"
                 >
