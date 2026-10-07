@@ -341,6 +341,18 @@ Design rationale is preserved in the decisions appendix of the archived
 
 ### Production — LIVE
 
+- **Self-hosted county lookup — BRANCH ONLY, awaiting go (2026-10-06).**
+  Branch `feat/self-hosted-county-lookup` replaces the FCC Area API
+  (`geo.fcc.gov/api/census/area`, 400ing CI runners since 2026-10-03) in
+  `lookupFips()` with `src/services/countyLookup.ts`, a point-in-polygon lookup
+  against our own county FlatGeobuf. The R2 object
+  `gtfs-builder-tiles/coverage/counties-2024.fgb` (25,174,352 bytes) is
+  **already uploaded** and served by the existing generic `/_coverage/:region.fgb`
+  route on prod and staging (no worker change); nothing reads it until the
+  branch ships. Side effect: Connecticut stops now resolve to planning regions
+  (09110-09190), which ACS 2024 needs; FCC's old CT county codes returned no ACS
+  block groups.
+
 - **Security hotfix + codebase review — LIVE 2026-10-04 (main `f0b24ad`).**
   `fix/security-hotfix` and `fix/codebase-review` shipped together: `/_import/proxy`
   removed, forum search escaping, server-bound impersonation, plus the review fixes
@@ -998,6 +1010,7 @@ release):
 |---|---|---|---|
 | **Demand dots** (display-only; not wired into the analysis pipeline) | `demand-dots/build_dots.py` | `<archive>.pmtiles` in `gtfs-builder-tiles` | `/_demand-tiles/<archive>/{z}/{x}/{y}.pbf`—the archive name is read out of the committed `demand-dots/demand-legend.json` (`demandLegend.ts`), not hardcoded in `DemandDotsLayer.tsx`; the legend currently names `us-2026f` (built + verified, **upload pending** — see §5) |
 | **Coverage blocks** (exact block-level counts behind the Coverage panel) | `demand-dots/coverage-pipeline/` (`build_coverage_blocks.py` per state, `build_us.py` to drive + merge) | `<region>.fgb` FlatGeobuf, `<region>` versioned per schema (`COVERAGE_REGION` in `blockCoverage.ts`; currently `us-v2`, prod still serving the old-schema `us` — see §5) | `/_coverage/<region>.fgb`, bbox range-reads |
+| **County boundaries** (point → state + county FIPS for the live-ACS Stop Coverage / service-area census path; replaced the FCC Area API) | `demand-dots/coverage-pipeline/build_counties.py` (TIGER/Line counties, simplified ~11 m) | `counties-<TIGER year>.fgb` FlatGeobuf (~25 MB); the vintage must match `ACS_YEAR` (CT planning regions). Key is `COUNTY_LAYER` in `src/services/countyLookup.ts`, currently `counties-2024`; rebuild under a NEW key, never overwrite (route is `immutable`) | `/_coverage/<key>.fgb`, bbox range-reads; uploaded with `wrangler r2 object put` (well under 300 MiB) |
 
 ### The ACS vintage is not a manual bump any more
 

@@ -29,13 +29,14 @@ on:
     branches: [main]
     paths:
       - 'src/services/demographics.ts'
+      - 'src/services/countyLookup.ts'
       - 'src/services/snapToRoad.ts'
       - 'tests/external/**'
       - '.github/workflows/external-apis.yml'
 
 jobs:
   contract-checks:
-    name: Hit real Census, FCC, Mapbox endpoints
+    name: Hit real Census, county-layer, Mapbox endpoints
     runs-on: ubuntu-latest
     env:
       CENSUS_API_KEY: ${{ secrets.VITE_CENSUS_API_KEY }}

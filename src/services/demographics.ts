@@ -1,4 +1,5 @@
 import { ACS_YEAR } from '../generated/acsVintage';
+import { lookupCounty } from './countyLookup';
 
 /**
  * Live-ACS block-group demographics — STRAIGHT COUNTS ONLY.
@@ -232,23 +233,16 @@ export async function fetchCensusData(
 }
 
 /**
- * Look up state + county FIPS codes for a lat/lon using the FCC Area API.
+ * Look up state + county FIPS codes for a lat/lon.
+ *
+ * Resolved against GTFS·X's self-hosted county-boundary layer (countyLookup.ts),
+ * not the FCC Area API this used to call. Throws "No FIPS results found…" for a
+ * point outside every county (non-US), as the FCC path did.
  */
 export async function lookupFips(
   lat: number,
   lon: number,
 ): Promise<{ stateFips: string; countyFips: string }> {
-  const res = await fetch(
-    `https://geo.fcc.gov/api/census/area?lat=${lat}&lon=${lon}&format=json`,
-  );
-  if (!res.ok) throw new Error(`FCC Area API request failed: ${res.status}`);
-
-  const data = await res.json();
-  const result = data.results?.[0];
-  if (!result) throw new Error('No FIPS results found for the given coordinates');
-
-  return {
-    stateFips: result.state_fips as string,
-    countyFips: (result.county_fips as string).slice(-3),
-  };
+  const { stateFips, countyFips } = await lookupCounty(lat, lon);
+  return { stateFips, countyFips };
 }

@@ -298,3 +298,25 @@ ship, because the schema break cuts BOTH ways:
 If a future schema change repeats this pattern, bump `COVERAGE_REGION` again
 (`us-v2` → `us-v3` → …) and repeat the same four steps — never edit an
 already-shipped key in place.
+
+
+---
+
+## County boundaries (`build_counties.py`) — a separate, small layer
+
+Not part of the block layer above. `build_counties.py` writes the county
+polygons that `src/services/countyLookup.ts` uses to turn a stop's lat/lon into
+state + county FIPS for the live-ACS Stop Coverage path (it replaced the FCC Area
+API). TIGER/Line counties (not the shoreline-clipped `cb_*` file, so piers and
+ferry terminals resolve), simplified at 0.0001° (~11 m), ~25 MB with a spatial
+index. Match the TIGER year to `ACS_YEAR` (Connecticut's planning regions), and
+ship each rebuild under a new key, bumping `COUNTY_LAYER`:
+
+```bash
+python build_counties.py --year 2024 --out ../../tiles/coverage/counties-2024.fgb
+unset CLOUDFLARE_API_TOKEN
+npx wrangler r2 object put gtfs-builder-tiles/coverage/counties-2024.fgb \
+  --file ../../tiles/coverage/counties-2024.fgb \
+  --content-type application/octet-stream --remote
+curl -sI https://www.gtfsx.com/_coverage/counties-2024.fgb   # content-length must match the local file
+```

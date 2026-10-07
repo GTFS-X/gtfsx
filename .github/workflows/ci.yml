@@ -10,7 +10,7 @@
 #   5. ui-smoke — Playwright SPA bootstrap check
 #   6. lint — eslint
 #
-# External-API contract checks (Census ACS, FCC FIPS, Mapbox snap-to-road)
+# External-API contract checks (Census ACS, self-hosted county layer, Mapbox snap-to-road)
 # live in external-apis.yml and run on a daily cron + on changes to the
 # files that call those services.
 

@@ -17,7 +17,14 @@
  * process exits non-zero if any check fails so CI marks the run red.
  */
 
+import { geojson as fgbGeojson } from 'flatgeobuf';
+import type { Feature } from 'geojson';
+import { COUNTY_LAYER, __setCountyReaderForTests, lookupCounty } from '../../src/services/countyLookup';
+
 const CENSUS_API_KEY = process.env.CENSUS_API_KEY ?? '';
+// Origin serving the self-hosted county layer. Prod by default; set
+// GTFSX_ORIGIN=https://staging.gtfsx.com to check a staging deploy.
+const GTFSX_ORIGIN = (process.env.GTFSX_ORIGIN ?? 'https://www.gtfsx.com').replace(/\/$/, '');
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN ?? '';
 // Referer to send with Mapbox requests so a URL-restricted token is accepted
 // server-side. Defaults to the prod origin; override via MAPBOX_REFERER if the
@@ -26,7 +33,7 @@ const MAPBOX_REFERER = process.env.MAPBOX_REFERER ?? 'https://gtfsx.com';
 
 // Known-good fixture: Gallatin County, Montana (state 30, county 031) —
 // Bozeman's home county. The bundled streamline feed lives here, so any
-// shape change in Census or FCC responses will affect a real user flow.
+// shape change in Census responses or the county layer will affect a real user flow.
 const FIXTURE = {
   stateFips: '30',
   countyFips: '031',
@@ -108,31 +115,43 @@ const checks: Check[] = [
     },
   },
   {
-    name: 'FCC Area API — lat/lon → state+county FIPS',
+    name: 'County layer — /_coverage/<COUNTY_LAYER>.fgb serves Range requests',
     async fn() {
-      const res = await fetch(
-        `https://geo.fcc.gov/api/census/area?lat=${FIXTURE.lat}&lon=${FIXTURE.lon}&format=json`,
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await httpBody(res)}`);
-      const data = await res.json();
-      const result = data.results?.[0];
-      assert(result, 'no results in FCC response');
-      assert(typeof result.state_fips === 'string', `state_fips type: ${typeof result.state_fips}`);
-      assert(typeof result.county_fips === 'string', `county_fips type: ${typeof result.county_fips}`);
+      // Replaced the FCC Area API check (FCC began 400ing CI runners in
+      // 2026-10). The county lookup now reads our own FlatGeobuf from R2 via
+      // the worker's Range-aware /_coverage route; a 200 (Range ignored) or a
+      // 404 (object missing) would break every lookup.
+      const res = await fetch(`${GTFSX_ORIGIN}/_coverage/${COUNTY_LAYER}.fgb`, {
+        headers: { Range: 'bytes=0-7' },
+      });
+      if (res.status !== 206) throw new Error(`expected 206, got HTTP ${res.status}: ${await httpBody(res)}`);
+      const magic = new Uint8Array(await res.arrayBuffer());
+      // FlatGeobuf magic bytes: "fgb" + major version 3.
       assert(
-        result.state_fips === FIXTURE.stateFips,
-        `expected state ${FIXTURE.stateFips}, got ${result.state_fips}`,
+        magic[0] === 0x66 && magic[1] === 0x67 && magic[2] === 0x62 && magic[3] === 3,
+        `not a FlatGeobuf v3 header: ${Array.from(magic).join(',')}`,
       );
-      // The editor slices the last 3 chars to get county FIPS — verify the
-      // field is still ≥ 3 chars long.
-      assert(
-        result.county_fips.length >= 3,
-        `county_fips too short to slice(-3): "${result.county_fips}"`,
+    },
+  },
+  {
+    name: 'County layer — lat/lon → state+county FIPS (real lookup code)',
+    async fn() {
+      // Runs the shipped lookupCounty() against the live layer; only the URL is
+      // made absolute (the app resolves it against window.location).
+      __setCountyReaderForTests(
+        (path, rect) =>
+          fgbGeojson.deserialize(
+            `${GTFSX_ORIGIN}${path.replace(/^https?:\/\/[^/]+/, '')}`,
+            rect,
+          ) as AsyncGenerator<Feature>,
       );
-      assert(
-        result.county_fips.slice(-3) === FIXTURE.countyFips,
-        `expected county ${FIXTURE.countyFips}, got ${result.county_fips.slice(-3)}`,
-      );
+      try {
+        const r = await lookupCounty(FIXTURE.lat, FIXTURE.lon);
+        assert(r.stateFips === FIXTURE.stateFips, `expected state ${FIXTURE.stateFips}, got ${r.stateFips}`);
+        assert(r.countyFips === FIXTURE.countyFips, `expected county ${FIXTURE.countyFips}, got ${r.countyFips}`);
+      } finally {
+        __setCountyReaderForTests(null);
+      }
     },
   },
   {

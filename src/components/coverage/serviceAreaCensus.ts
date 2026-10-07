@@ -2,7 +2,7 @@ import { fetchCensusData, lookupFips, type BlockGroupData } from '../../services
 
 /** Grid cell size (degrees) used to sample the service area for county lookups. */
 export const SERVICE_AREA_GRID_DEG = 0.1;
-/** Upper bound on FCC lookups per analysis (cells beyond this are dropped, densest first kept). */
+/** Upper bound on county lookups per analysis (cells beyond this are dropped, densest first kept). */
 export const MAX_SERVICE_AREA_CELLS = 40;
 const LOOKUP_CONCURRENCY = 4;
 const CENSUS_CONCURRENCY = 2;
@@ -55,7 +55,7 @@ export function sampleStopCells(stops: LatLon[], cap = MAX_SERVICE_AREA_CELLS): 
 /**
  * ACS block groups for EVERY county the stops fall in, not just the county of
  * the stops' centroid (C5-12). Stops are snapped to a coarse grid, each cell is
- * resolved to a state+county via the FCC Area API (capped), and each distinct
+ * resolved to a state+county via the self-hosted county layer (capped), and each distinct
  * county is fetched once; results are concatenated and de-duplicated by geoid.
  *
  * A cell whose lookup fails (e.g. over water) is skipped; if no cell resolves,

@@ -9,7 +9,7 @@
  *    selectors first; tracked separately.
  *  - Mapbox tile rendering — requires VITE_MAPBOX_TOKEN baked into the build,
  *    and Mapbox 401s are filtered out below so token absence isn't a failure.
- *  - External API contracts (Census, FCC, Mapbox) — covered by the daily
+ *  - External API contracts (Census, county layer, Mapbox) — covered by the daily
  *    workflow in .github/workflows/external-apis.yml.
  */
 import { expect, test } from '@playwright/test';

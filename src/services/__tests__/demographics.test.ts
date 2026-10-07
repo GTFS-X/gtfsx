@@ -267,29 +267,37 @@ describe('demographics.fetchCensusData', () => {
 });
 
 describe('demographics.lookupFips', () => {
-  afterEach(() => {
+  afterEach(async () => {
+    const { __setCountyReaderForTests } = await import('../countyLookup');
+    __setCountyReaderForTests(null);
     vi.unstubAllGlobals();
     vi.resetModules();
   });
 
-  it('returns last-3-digits county FIPS from FCC response', async () => {
-    mockFetchOnce([
-      { body: { results: [{ state_fips: '06', county_fips: '06001' }] } },
-    ]);
+  const gallatin = {
+    type: 'Feature',
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[[-111.5, 45], [-110.5, 45], [-110.5, 46], [-111.5, 46], [-111.5, 45]]],
+    },
+    properties: { geoid: '30031', statefp: '30', countyfp: '031', name: 'Gallatin' },
+  };
 
+  it('resolves state + 3-digit county FIPS from the self-hosted county layer', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const { __setCountyReaderForTests } = await import('../countyLookup');
+    __setCountyReaderForTests(() => (async function* () { yield gallatin as never; })());
     const { lookupFips } = await import('../demographics');
-    const result = await lookupFips(37.8, -122.2);
-    expect(result).toEqual({ stateFips: '06', countyFips: '001' });
+    // Same return shape callers have always had — no countyName leaks through.
+    await expect(lookupFips(45.68, -111.04)).resolves.toEqual({ stateFips: '30', countyFips: '031' });
+    // No third-party (FCC) request.
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('throws on FCC HTTP error', async () => {
-    mockFetchOnce([{ ok: false, status: 500, body: '' }]);
-    const { lookupFips } = await import('../demographics');
-    await expect(lookupFips(37.8, -122.2)).rejects.toThrow(/FCC Area API request failed: 500/);
-  });
-
-  it('throws when FCC returns no results for the coordinates', async () => {
-    mockFetchOnce([{ body: { results: [] } }]);
+  it('throws "No FIPS results" for a point outside every county (non-US)', async () => {
+    const { __setCountyReaderForTests } = await import('../countyLookup');
+    __setCountyReaderForTests(() => (async function* () {})());
     const { lookupFips } = await import('../demographics');
     await expect(lookupFips(0, 0)).rejects.toThrow(/No FIPS results/);
   });
