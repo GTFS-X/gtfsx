@@ -351,7 +351,9 @@ Design rationale is preserved in the decisions appendix of the archived
   route on prod and staging (no worker change); nothing reads it until the
   branch ships. Side effect: Connecticut stops now resolve to planning regions
   (09110-09190), which ACS 2024 needs; FCC's old CT county codes returned no ACS
-  block groups.
+  block groups. **Staging runs this branch** (version `6a469f94`, deployed
+  2026-10-06): Stop Coverage loads demographics on the staging demo with zero
+  FCC requests (three Range reads of the county layer, then the ACS call).
 
 - **Security hotfix + codebase review — LIVE 2026-10-04 (main `f0b24ad`).**
   `fix/security-hotfix` and `fix/codebase-review` shipped together: `/_import/proxy`
@@ -737,6 +739,7 @@ staging only, for rehearsal; it is not on `main` or prod yet. Later the same day
 `fix/codebase-review` (`3bffba1`, version `f65b6b61`) replaced it on staging.
 That branch has since shipped to prod. As of 2026-10-05 staging runs
 `fix/route-visibility-hide-all` @ `872c687` (pre-rebase hash of the same fix).
+Since 2026-10-06 staging runs `feat/self-hosted-county-lookup` (see Production, above).
 
 **Open catalog — the `public/catalog.json` hack is obsolete (issue #47, branch
 `feat/catalog-endpoint`).** `/catalog.json` is now a **dynamic worker route** on
