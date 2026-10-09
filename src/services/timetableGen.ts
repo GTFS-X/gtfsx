@@ -91,16 +91,37 @@ export function shapeLengthKm(shape: Shape | undefined): number {
   return total;
 }
 
+/** Average speed (mph) assumed for run-time estimates when the planner hasn't
+ *  set one — a rough bus average with no dwell time. */
+export const DEFAULT_AVG_SPEED_MPH = 20;
+/** Accepted range for a planner-set average speed, in mph. */
+export const MIN_AVG_SPEED_MPH = 3;
+export const MAX_AVG_SPEED_MPH = 80;
+
+export function isValidAvgSpeedMph(mph: unknown): mph is number {
+  return typeof mph === 'number' && Number.isFinite(mph)
+    && mph >= MIN_AVG_SPEED_MPH - 1e-9 && mph <= MAX_AVG_SPEED_MPH + 1e-9;
+}
+
+/** The average speed (mph) a route's run-time estimates use: the planner's
+ *  last Generate-service speed for that route (`_avg_speed_mph` — UI-only,
+ *  never exported), else {@link DEFAULT_AVG_SPEED_MPH}. */
+export function routeAvgSpeedMph(route: { _avg_speed_mph?: number } | undefined | null): number {
+  const v = route?._avg_speed_mph;
+  return isValidAvgSpeedMph(v) ? v : DEFAULT_AVG_SPEED_MPH;
+}
+
 /**
  * Suggest a total run time (seconds) for a pattern from its shape length and an
- * assumed average speed (mph). Used to pre-fill the Generate-service form so the
- * planner starts from a sensible number rather than a blank. Falls back to a
- * straight-line stop-to-stop length when there's no shape.
+ * assumed average speed (`avgSpeedMph`, default {@link DEFAULT_AVG_SPEED_MPH};
+ * no dwell). Used to pre-fill the Generate-service form so the planner starts
+ * from a sensible number rather than a blank. Falls back to a straight-line
+ * stop-to-stop length when there's no shape.
  */
 export function estimateRunSecs(
   opts: { shape?: Shape; routeStops?: RouteStop[]; stops?: Stop[]; avgSpeedMph?: number },
 ): number {
-  const mph = opts.avgSpeedMph && opts.avgSpeedMph > 0 ? opts.avgSpeedMph : 20;
+  const mph = opts.avgSpeedMph && opts.avgSpeedMph > 0 ? opts.avgSpeedMph : DEFAULT_AVG_SPEED_MPH;
   let km = shapeLengthKm(opts.shape);
   if (km <= 0 && opts.routeStops && opts.stops) {
     // No shape — sum straight-line distance between consecutive pattern stops.

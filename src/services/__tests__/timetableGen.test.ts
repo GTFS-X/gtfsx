@@ -1,7 +1,10 @@
 // B1 timetable generation — pure generator + a store→export round-trip.
 import { beforeEach, describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
-import { generateTrips, validateGenerateParams, estimateRunSecs, type GenerateTripsParams } from '../timetableGen';
+import {
+  generateTrips, validateGenerateParams, estimateRunSecs, routeAvgSpeedMph, isValidAvgSpeedMph,
+  DEFAULT_AVG_SPEED_MPH, type GenerateTripsParams,
+} from '../timetableGen';
 import { useStore } from '../../store';
 import { exportGtfsZip } from '../gtfsExport';
 import type { RouteStop } from '../../types/gtfs';
@@ -112,6 +115,59 @@ describe('estimateRunSecs', () => {
     expect(secs).toBeGreaterThan(300);
     expect(secs).toBeLessThan(2000);
   });
+
+  // A straight north-south shape ~11.1 km (0.1° of latitude) long.
+  const shape = {
+    shape_id: 'S',
+    points: [
+      { shape_pt_lat: 45.0, shape_pt_lon: -111.0, shape_pt_sequence: 1, shape_dist_traveled: 0 },
+      { shape_pt_lat: 45.1, shape_pt_lon: -111.0, shape_pt_sequence: 2, shape_dist_traveled: 0 },
+    ],
+  } as never;
+
+  it('defaults to 20 mph when no speed is given (unchanged behavior)', () => {
+    expect(DEFAULT_AVG_SPEED_MPH).toBe(20);
+    expect(estimateRunSecs({ shape })).toBe(estimateRunSecs({ shape, avgSpeedMph: 20 }));
+    // 11.12 km / (20 mph × 1.60934) ≈ 0.3455 h ≈ 1244 s.
+    expect(estimateRunSecs({ shape })).toBeGreaterThan(1235);
+    expect(estimateRunSecs({ shape })).toBeLessThan(1250);
+  });
+
+  it('scales inversely with the average speed (20 → 10 mph doubles it)', () => {
+    const at20 = estimateRunSecs({ shape, avgSpeedMph: 20 });
+    const at10 = estimateRunSecs({ shape, avgSpeedMph: 10 });
+    const at11 = estimateRunSecs({ shape, avgSpeedMph: 11 });
+    expect(Math.abs(at10 - 2 * at20)).toBeLessThanOrEqual(1);
+    // The Buffalo case: ~11 mph is ~1.82× the 20 mph estimate.
+    expect(at11 / at20).toBeCloseTo(20 / 11, 2);
+  });
+
+  it('ignores a non-positive speed and falls back to the default', () => {
+    expect(estimateRunSecs({ shape, avgSpeedMph: 0 })).toBe(estimateRunSecs({ shape }));
+    expect(estimateRunSecs({ shape, avgSpeedMph: -5 })).toBe(estimateRunSecs({ shape }));
+  });
+
+  it('the speed does not change the no-geometry 20-minute fallback', () => {
+    expect(estimateRunSecs({ avgSpeedMph: 10 })).toBe(20 * 60);
+  });
+});
+
+describe('routeAvgSpeedMph / isValidAvgSpeedMph', () => {
+  it('uses the route\'s remembered speed when valid, else 20 mph', () => {
+    expect(routeAvgSpeedMph(undefined)).toBe(20);
+    expect(routeAvgSpeedMph({})).toBe(20);
+    expect(routeAvgSpeedMph({ _avg_speed_mph: 11 })).toBe(11);
+    expect(routeAvgSpeedMph({ _avg_speed_mph: 1 })).toBe(20); // below range
+    expect(routeAvgSpeedMph({ _avg_speed_mph: 500 })).toBe(20); // above range
+    expect(routeAvgSpeedMph({ _avg_speed_mph: Number.NaN })).toBe(20);
+  });
+  it('accepts the 3–80 mph range inclusive', () => {
+    expect(isValidAvgSpeedMph(3)).toBe(true);
+    expect(isValidAvgSpeedMph(80)).toBe(true);
+    expect(isValidAvgSpeedMph(2.9)).toBe(false);
+    expect(isValidAvgSpeedMph(80.1)).toBe(false);
+    expect(isValidAvgSpeedMph('20')).toBe(false);
+  });
 });
 
 describe('round-trips through exportGtfsZip', () => {
@@ -142,5 +198,23 @@ describe('round-trips through exportGtfsZip', () => {
     // a known departure survives the round-trip
     expect(stCsv).toContain('06:00:00');
     expect(tripsCsv).toContain('R-1');
+  });
+
+  it('a remembered route speed (_avg_speed_mph) never reaches routes.txt', async () => {
+    const s = useStore.getState();
+    const prevRoutes = s.routes;
+    s.setRoutes([{
+      route_id: 'R', agency_id: 'A', route_short_name: '1', route_long_name: 'One',
+      route_type: 3, route_color: 'FF0000', route_text_color: 'FFFFFF', _avg_speed_mph: 11,
+    }]);
+    try {
+      const blob = await exportGtfsZip();
+      const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+      const routesCsv = await zip.file('routes.txt')!.async('string');
+      expect(routesCsv).toContain('One');
+      expect(routesCsv).not.toContain('avg_speed');
+    } finally {
+      s.setRoutes(prevRoutes);
+    }
   });
 });

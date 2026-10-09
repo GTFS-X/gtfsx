@@ -10,7 +10,7 @@ import {
 import { directionName } from '../../utils/constants';
 import type { Frequency, RouteStop, StopTime, Trip } from '../../types/gtfs';
 import {
-  generateTrips, validateGenerateParams, estimateRunSecs,
+  generateTrips, validateGenerateParams, estimateRunSecs, routeAvgSpeedMph, DEFAULT_AVG_SPEED_MPH,
   type GenerateTripsParams, type GenerateValidation,
 } from '../../services/timetableGen';
 import { applyPatternRunTime, applyPatternEstimate, currentPatternRunSecs, type PatternRef } from '../../services/runtimes';
@@ -97,6 +97,7 @@ export function TimetableGrid() {
 
   // Main-pane selection proxies the global timetable fields.
   const selectedRouteId = useStore((s) => s.selectedRouteId);
+  const unitSystem = useStore((s) => s.unitSystem);
   const selectRoute = useStore((s) => s.selectRoute);
   const directionId = useStore((s) => s.timetableDirectionId);
   const setDirectionId = useStore((s) => s.setTimetableDirectionId);
@@ -461,8 +462,8 @@ export function TimetableGrid() {
     validateGenerateParams({ startTime: input.startTime, endTime: input.endTime, headwaySecs: input.headwaySecs, runSecs: input.runSecs, routeStops: mainPatternRouteStops }),
   [mainPatternRouteStops]);
 
-  const endToEndDefault = useMemo(
-    () => Math.max(1, Math.round(estimateRunSecs({ shape, routeStops: mainPatternRouteStops, stops }) / 60)),
+  const estimateRunMin = useCallback(
+    (avgSpeedMph: number) => Math.max(1, Math.round(estimateRunSecs({ shape, routeStops: mainPatternRouteStops, stops, avgSpeedMph }) / 60)),
     [shape, mainPatternRouteStops, stops],
   );
   const currentRunMin = useMemo(() => {
@@ -499,6 +500,14 @@ export function TimetableGrid() {
     withUndo(() => {
       if (replace) {
         for (const id of doomed) removeTrip(id); // drops the trip + its stop_times + frequencies
+      }
+      // Remember the average speed on the route (UI-only `_avg_speed_mph`,
+      // never exported) inside the same undo step, so the next Generate and
+      // the Shapes-tab runtime readout start from it.
+      if (route && Math.abs(input.avgSpeedMph - routeAvgSpeedMph(route)) > 1e-9) {
+        useStore.getState().updateRoute(route.route_id, {
+          _avg_speed_mph: Math.abs(input.avgSpeedMph - DEFAULT_AVG_SPEED_MPH) < 1e-9 ? undefined : input.avgSpeedMph,
+        });
       }
       const st = useStore.getState();
       st.setTrips([...st.trips, ...result.trips]);
@@ -911,7 +920,7 @@ export function TimetableGrid() {
       />
 
       {drawer === 'generate' && (
-        <GenerateDrawer ctx={ctxLabel} endToEndDefault={endToEndDefault} getPreview={genPreview} onApply={applyGenerate} onCancel={() => setDrawer(null)} />
+        <GenerateDrawer ctx={ctxLabel} initialSpeedMph={routeAvgSpeedMph(route)} unitSystem={unitSystem} estimateRunMin={estimateRunMin} getPreview={genPreview} onApply={applyGenerate} onCancel={() => setDrawer(null)} />
       )}
       {drawer === 'runtime' && (
         <RuntimeDrawer ctx={ctxLabel} currentRun={currentRunMin} tripCount={routeTrips.length} estimateDefaults={ESTIMATE_DEFAULTS} onApply={applyRuntime} onEstimate={applyEstimate} onCancel={() => setDrawer(null)} />
