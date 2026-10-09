@@ -4,6 +4,8 @@ import { formatTimeShort, secondsToGtfsTime } from '../../utils/time';
 import { checkFrequencyDrawer, frequencyTimeLabel, headwayMinutesInput, parseHeadwayMinutes } from './timetableGridHelpers';
 import type { GenerateValidation, TimetableGenMode } from '../../services/timetableGen';
 import { windowDepartureCount, type FrequencyWindow } from '../../services/frequencyExpansion';
+import { speedUnit, type UnitSystem } from '../../utils/units';
+import { avgSpeedBounds, formatAvgSpeedInput, parseAvgSpeedInput } from './avgSpeedInput';
 
 /** The raw inputs a Generate submission carries up to the orchestrator, which
  *  builds the full GenerateTripsParams (it owns the pattern's routeStops / stops
@@ -14,6 +16,9 @@ export interface GenerateInput {
   headwaySecs: number;
   runSecs: number;
   mode: TimetableGenMode;
+  /** Average speed (mph) the end-to-end time was estimated at — remembered on
+   *  the route so the next estimate starts from it. */
+  avgSpeedMph: number;
 }
 
 const TIN = 'h-[30px] rounded-md border border-sand bg-white font-mono text-[12.5px] text-dark-brown px-2 text-center focus:outline-none focus:border-coral';
@@ -24,10 +29,15 @@ const VR = <span className="w-px h-[18px] bg-sand" aria-hidden="true" />;
 
 /* ---------- ✨ Generate trips ---------- */
 export function GenerateDrawer({
-  ctx, endToEndDefault, getPreview, onApply, onCancel,
+  ctx, initialSpeedMph, unitSystem, estimateRunMin, getPreview, onApply, onCancel,
 }: {
   ctx: string;
-  endToEndDefault: number;
+  /** Starting average speed (mph): the route's last-used speed, or the default. */
+  initialSpeedMph: number;
+  /** Display units for the speed field (mph / km/h). */
+  unitSystem: UnitSystem;
+  /** End-to-end minutes for this pattern at a given average speed (mph). */
+  estimateRunMin: (avgSpeedMph: number) => number;
   getPreview: (input: GenerateInput) => GenerateValidation;
   onApply: (input: GenerateInput) => void;
   onCancel: () => void;
@@ -35,14 +45,35 @@ export function GenerateDrawer({
   const [from, setFrom] = useState('06:00');
   const [to, setTo] = useState('22:00');
   const [head, setHead] = useState(30);
-  const [run, setRun] = useState(endToEndDefault);
+  const [run, setRun] = useState(() => estimateRunMin(initialSpeedMph));
   const [mode, setMode] = useState<TimetableGenMode>('explicit');
+  // The typed speed text belongs to the unit system it was typed in. If the
+  // preference flips while the drawer is open, re-show the last good mph value
+  // in the new unit rather than reinterpreting "20" as 20 km/h.
+  const [speed, setSpeed] = useState<{ mph: number; text: string; system: UnitSystem }>(
+    () => ({ mph: initialSpeedMph, text: formatAvgSpeedInput(initialSpeedMph, unitSystem), system: unitSystem }),
+  );
+  const speedText = speed.system === unitSystem ? speed.text : formatAvgSpeedInput(speed.mph, unitSystem);
+  const speedParse = parseAvgSpeedInput(speedText, unitSystem);
+  const { min: speedMin, max: speedMax } = avgSpeedBounds(unitSystem);
+  const onSpeedChange = (text: string) => {
+    const parsed = parseAvgSpeedInput(text, unitSystem);
+    setSpeed({ mph: parsed.ok ? parsed.mph : speed.mph, text, system: unitSystem });
+    // A new speed re-derives the end-to-end time; the planner can still
+    // override the minutes by hand afterwards.
+    if (parsed.ok) setRun(estimateRunMin(parsed.mph));
+  };
 
-  const input: GenerateInput = { startTime: from, endTime: to, headwaySecs: head * 60, runSecs: run * 60, mode };
+  const input: GenerateInput = {
+    startTime: from, endTime: to, headwaySecs: head * 60, runSecs: run * 60, mode, avgSpeedMph: speed.mph,
+  };
   const preview = getPreview(input);
-  const count = mode === 'frequency'
-    ? (preview.ok ? 'Creates 1 reference trip + a frequency window' : (preview.error ?? '—'))
-    : (preview.ok ? `Creates ${preview.tripCount} trip${preview.tripCount === 1 ? '' : 's'}` : (preview.error ?? '—'));
+  const canApply = preview.ok && speedParse.ok;
+  const count = !speedParse.ok
+    ? <span className="text-red-500">{speedParse.error}</span>
+    : mode === 'frequency'
+      ? (preview.ok ? 'Creates 1 reference trip + a frequency window' : (preview.error ?? '—'))
+      : (preview.ok ? `Creates ${preview.tripCount} trip${preview.tripCount === 1 ? '' : 's'}` : (preview.error ?? '—'));
 
   return (
     <Drawer
@@ -52,7 +83,7 @@ export function GenerateDrawer({
       sub={`${ctx} — set a window and an interval; we'll lay out the day's trips.`}
       count={count}
       applyLabel={mode === 'frequency' ? 'Generate frequency window' : `Generate ${preview.ok ? `${preview.tripCount} ` : ''}trips`}
-      canApply={preview.ok}
+      canApply={canApply}
       onApply={() => onApply(input)}
       onCancel={onCancel}
     >
@@ -76,9 +107,32 @@ export function GenerateDrawer({
           {h}
         </button>
       ))}
-      {VR}
-      <span>End to end</span>
-      <input className={TIN_NUM} type="number" min={1} value={run} title="Estimated from the route shape — adjust if needed" onChange={(e) => setRun(Math.max(1, Number(e.target.value) || 0))} />
+      <span className="basis-full h-0" />
+      <label htmlFor="gen-avg-speed">Average speed</label>
+      <input
+        id="gen-avg-speed"
+        className={`${TIN} w-[70px] ${speedParse.ok ? '' : 'border-red-400 focus:border-red-500'}`}
+        type="number"
+        min={speedMin}
+        max={speedMax}
+        step="any"
+        value={speedText}
+        aria-invalid={!speedParse.ok}
+        title={`Average bus speed for this route, without stop dwell time (${speedMin}–${speedMax} ${speedUnit(unitSystem)}). Sets the end-to-end time from the route's length.`}
+        onChange={(e) => onSpeedChange(e.target.value)}
+      />
+      <span>{speedUnit(unitSystem)}</span>
+      <span aria-hidden="true" className="text-warm-gray">→</span>
+      <label htmlFor="gen-end-to-end">End to end</label>
+      <input
+        id="gen-end-to-end"
+        className={TIN_NUM}
+        type="number"
+        min={1}
+        value={run}
+        title="Estimated from the route length at the average speed — adjust if needed"
+        onChange={(e) => setRun(Math.max(1, Number(e.target.value) || 0))}
+      />
       <span>min</span>
       <span className="basis-full h-0" />
       <label className="inline-flex items-center gap-1.5 cursor-pointer">

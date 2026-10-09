@@ -60,6 +60,7 @@ export interface Route {
   continuous_pickup?: 0 | 1 | 2 | 3;
   continuous_drop_off?: 0 | 1 | 2 | 3;
   _cost_per_revenue_hour?: number;  // UI-only
+  _avg_speed_mph?: number;          // UI-only — Generate-service average speed (run-time estimates)
   _vehicles_required?: number;      // UI-only
   _direction_0_name?: string;       // UI-only, default "Outbound"
   _direction_1_name?: string;       // UI-only, default "Inbound"

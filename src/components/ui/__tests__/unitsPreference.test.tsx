@@ -79,8 +79,8 @@ describe('units preference (#76)', () => {
   it('shape length follows the preference', async () => {
     const user = userEvent.setup();
     render(<><UnitsToggle /><RouteShapesTab /></>);
-    expect(screen.getByText(/6\.9 mi · \d+ mins/)).toBeInTheDocument();
+    expect(screen.getByText(/6\.9 mi · ≈ \d+ mins @ 20 mph/)).toBeInTheDocument();
     await user.click(screen.getByRole('radio', { name: 'Metric' }));
-    expect(screen.getByText(/11\.1 km · \d+ mins/)).toBeInTheDocument();
+    expect(screen.getByText(/11\.1 km · ≈ \d+ mins @ 32 km\/h/)).toBeInTheDocument();
   });
 });
