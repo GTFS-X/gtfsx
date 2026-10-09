@@ -337,23 +337,31 @@ Design rationale is preserved in the decisions appendix of the archived
 
 ## 5. Live environment state
 
-**As of 2026-07-31.** Keep this section current when deployed state changes.
+**As of 2026-10-09.** Keep this section current when deployed state changes.
 
 ### Production — LIVE
 
-- **Self-hosted county lookup — BRANCH ONLY, awaiting go (2026-10-06).**
-  Branch `feat/self-hosted-county-lookup` replaces the FCC Area API
-  (`geo.fcc.gov/api/census/area`, 400ing CI runners since 2026-10-03) in
-  `lookupFips()` with `src/services/countyLookup.ts`, a point-in-polygon lookup
-  against our own county FlatGeobuf. The R2 object
-  `gtfs-builder-tiles/coverage/counties-2024.fgb` (25,174,352 bytes) is
-  **already uploaded** and served by the existing generic `/_coverage/:region.fgb`
-  route on prod and staging (no worker change); nothing reads it until the
-  branch ships. Side effect: Connecticut stops now resolve to planning regions
-  (09110-09190), which ACS 2024 needs; FCC's old CT county codes returned no ACS
-  block groups. **Staging runs this branch** (version `6a469f94`, deployed
-  2026-10-06): Stop Coverage loads demographics on the staging demo with zero
-  FCC requests (three Range reads of the county layer, then the ACS call).
+- **Display-units preference (#76, PR #77) — LIVE 2026-10-09.** Imperial
+  (default) / metric toggle in Settings > Feature settings, the account menu and
+  Account settings. Per-browser only: `localStorage` key `gb_unit_system`
+  (`src/store/preferencesSlice.ts`), not a feed key, so it never dirties the feed
+  or enters undo. Every user-facing distance/speed readout goes through
+  `src/utils/units.ts`; stored GTFS data and calculations are unchanged. No
+  worker or migration change. User docs: `/docs/feature-settings/#units`.
+- **Shape length + stop spacing in the Routes panel (#74, #75) — LIVE 2026-10-09.**
+  Community PRs from mattwigway: shape length (and run time) in the Shapes tab,
+  stop-to-stop spacing in the Stops tab; follow-up `cc369b7` shows lengths in
+  miles, hides stats for empty shapes, and keeps spacing on one line. Now
+  rendered through the units preference above.
+- **Self-hosted county lookup — LIVE since ~2026-10-07 (main `0441b52`).**
+  `lookupFips()` uses `src/services/countyLookup.ts`, a point-in-polygon lookup
+  against our own county FlatGeobuf, instead of the FCC Area API
+  (`geo.fcc.gov/api/census/area`, which had been 400ing CI runners since
+  2026-10-03). Data: R2 `gtfs-builder-tiles/coverage/counties-2024.fgb`
+  (25,174,352 bytes), served by the existing generic `/_coverage/:region.fgb`
+  route on prod and staging (no worker change). Side effect: Connecticut stops
+  resolve to planning regions (09110-09190), which ACS 2024 needs; FCC's old CT
+  county codes returned no ACS block groups.
 
 - **Security hotfix + codebase review — LIVE 2026-10-04 (main `f0b24ad`).**
   `fix/security-hotfix` and `fix/codebase-review` shipped together: `/_import/proxy`
