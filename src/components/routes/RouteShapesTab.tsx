@@ -9,8 +9,8 @@ import { simplifyShapePoints, SIMPLIFY_LEVELS } from '../../services/simplifySha
 import { duplicateShapePoints, duplicateShapeRouteLink } from '../../services/shapeHelpers';
 import { deriveRouteShapeIds } from '../../services/routeShapes';
 import { computeShapePatterns } from '../ui/shapePatterns';
-import { estimateRunSecs, shapeLengthKm } from '../../services/timetableGen';
-import { formatDistance, formatShortDistance, kmToMeters } from '../../utils/units';
+import { estimateRunSecs, routeAvgSpeedMph, shapeLengthKm } from '../../services/timetableGen';
+import { formatDistance, formatShortDistance, formatSpeed, kmToMeters } from '../../utils/units';
 
 /**
  * Shapes subpanel for the Routes editor. Extracted out of RouteEditor.tsx so
@@ -87,6 +87,7 @@ export function RouteShapesTab() {
   const setPendingShapeEditId = useStore((s) => s.setPendingShapeEditId);
 
   const route = routes.find((r) => r.route_id === selectedRouteId);
+  const avgSpeedMph = routeAvgSpeedMph(route);
 
   const routeShapes = useMemo(() => {
     if (!selectedRouteId) return [];
@@ -331,7 +332,8 @@ export function RouteShapesTab() {
             // The runtime here is only based on the distance, not the number of stops
             // or the actual runtime of any trips on the route. But it should give an idea
             // in sketch planning about what the runtimes will be.
-            const runtimeDistanceBased = Math.round(estimateRunSecs({ shape }) / 60);
+            // The speed is the route's Generate-service average speed, else 20 mph.
+            const runtimeDistanceBased = Math.round(estimateRunSecs({ shape, avgSpeedMph }) / 60);
 
             return (
               <div key={shape!.shape_id} className="bg-cream rounded-lg text-sm">
@@ -359,7 +361,11 @@ export function RouteShapesTab() {
                       className="min-w-0 flex-1 text-dark-brown font-medium text-xs bg-transparent border border-transparent rounded px-1 py-0.5 -ml-1 hover:border-sand focus:border-coral focus:bg-white focus:outline-none placeholder:text-warm-gray placeholder:font-medium"
                     />
                     <span className="text-[10px] text-warm-gray whitespace-nowrap shrink-0">
-                      {hasLength && `${shapeLen} · ${runtimeDistanceBased} mins · `}{shape!.points.length} pts · {shapeTrips.length} trip{shapeTrips.length !== 1 ? 's' : ''}
+                      {hasLength && (
+                        <span title={`Estimated run time at an average speed of ${formatSpeed(avgSpeedMph, unitSystem)}, without stop dwell time. Change the speed under Trips → Generate trips.`}>
+                          {`${shapeLen} · ≈ ${runtimeDistanceBased} mins @ ${formatSpeed(avgSpeedMph, unitSystem)} · `}
+                        </span>
+                      )}{shape!.points.length} pts · {shapeTrips.length} trip{shapeTrips.length !== 1 ? 's' : ''}
                     </span>
                   </div>
                 </div>
