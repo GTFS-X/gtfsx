@@ -20,13 +20,3 @@ export function UnitsToggle() {
     />
   );
 }
-
-/** A labelled "Units" row for menus. */
-export function UnitsMenuRow() {
-  return (
-    <div className="flex items-center justify-between gap-2 px-3 py-1.5">
-      <span className="text-sm text-dark-brown">Units</span>
-      <UnitsToggle />
-    </div>
-  );
-}
