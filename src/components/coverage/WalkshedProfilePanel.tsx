@@ -140,6 +140,7 @@ export function WalkshedProfilePanel() {
 
 function WalkshedProfileBody() {
   const routes = useStore((s) => s.routes);
+  const unitSystem = useStore((s) => s.unitSystem);
 
   return (
     <ProfileGate
@@ -158,7 +159,7 @@ function WalkshedProfileBody() {
           <div className="space-y-2 rounded-lg bg-teal-light p-3">
             <div className="flex items-center gap-2">
               <h4 className="min-w-0 flex-1 font-heading text-sm font-bold text-teal">
-                Whole system ({bufferLabel(profiles.system.bufferMiles)} walk)
+                Whole system ({bufferLabel(profiles.system.bufferMiles, unitSystem)} walk)
               </h4>
               <button
                 onClick={() =>
@@ -215,6 +216,7 @@ function RouteProfileRow({
   color: string;
   profile: WalkshedProfile;
 }) {
+  const unitSystem = useStore((s) => s.unitSystem);
   return (
     <div className="space-y-1.5 rounded-lg bg-cream p-2.5">
       <div className="flex items-center gap-2">
@@ -224,7 +226,7 @@ function RouteProfileRow({
         />
         <span className="truncate font-heading text-sm font-bold text-dark-brown">{name}</span>
         <span className="ml-auto whitespace-nowrap text-[11px] text-warm-gray">
-          {bufferLabel(profile.bufferMiles)} · {fmt(profile.stopCount)} stops
+          {bufferLabel(profile.bufferMiles, unitSystem)} · {fmt(profile.stopCount)} stops
         </span>
       </div>
       <div className="grid grid-cols-4 gap-1 text-center">
@@ -259,6 +261,7 @@ function Cell({ label, value, title }: { label: string; value: number; title?: s
  */
 export function RouteWalkshedProfileTab() {
   const plan = useEditorPlan();
+  const unitSystem = useStore((s) => s.unitSystem);
   const routeId = useStore((s) => s.editingRouteId);
   const route = useStore((s) => s.routes.find((r) => r.route_id === s.editingRouteId) ?? null);
   const stops = useStore((s) => s.stops);
@@ -310,7 +313,7 @@ export function RouteWalkshedProfileTab() {
             <div className="space-y-4">
               <div className="space-y-2 rounded-lg bg-teal-light p-3">
                 <h4 className="font-heading text-sm font-bold text-teal">
-                  Route walkshed ({bufferLabel(profile.bufferMiles)} walk)
+                  Route walkshed ({bufferLabel(profile.bufferMiles, unitSystem)} walk)
                 </h4>
                 <WalkshedProfileTable profile={profile} />
                 <UnionNote profile={profile} />
@@ -373,6 +376,7 @@ export function RouteWalkshedProfileTab() {
  * reads — opening ten stops in a row costs zero extra fetches.
  */
 export function StopWalkshedProfile({ stopId }: { stopId: string }) {
+  const unitSystem = useStore((s) => s.unitSystem);
   const allRouteStops = useStore((s) => s.routeStops);
   const hiddenRouteIds = useStore((s) => s.hiddenRouteIds);
   return (
@@ -399,7 +403,7 @@ export function StopWalkshedProfile({ stopId }: { stopId: string }) {
           <div className="space-y-2">
             <div className="flex items-baseline justify-between">
               <h4 className="font-heading text-sm font-bold text-dark-brown">
-                Inside a {bufferLabel(profile.bufferMiles)} walk
+                Inside a {bufferLabel(profile.bufferMiles, unitSystem)} walk
               </h4>
               <span className="text-[10px] text-warm-gray">
                 {fmt(profile.blocksCounted)} census blocks

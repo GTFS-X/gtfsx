@@ -26,12 +26,14 @@ import { directionName } from '../../utils/constants';
 import type { Stop } from '../../types/gtfs';
 import { releaseStopPlacementShape } from './routePanelHelpers';
 import { spacingFt } from '../../services/stopAnalysis';
+import { feetToMeters, formatShortDistance, type UnitSystem } from '../../utils/units';
 
 function SortableStopItem({
   uid,
   stop,
   index,
   distFromPrevFt,
+  unitSystem,
   isSelected,
   routeColor,
   onSelect,
@@ -42,6 +44,7 @@ function SortableStopItem({
   stop: Stop;
   index: number;
   distFromPrevFt: number | null;
+  unitSystem: UnitSystem;
   isSelected: boolean;
   routeColor: string;
   onSelect: () => void;
@@ -100,7 +103,7 @@ function SortableStopItem({
         )}
       </button>
       {distFromPrevFt != null && (
-        <span className="text-[10px] text-warm-gray whitespace-nowrap shrink-0">{Math.round(distFromPrevFt)} ft</span>
+        <span className="text-[10px] text-warm-gray whitespace-nowrap shrink-0">{formatShortDistance(feetToMeters(distFromPrevFt), unitSystem)}</span>
       )}
       <button
         onClick={(e) => { e.stopPropagation(); onEdit(); }}
@@ -130,6 +133,7 @@ function SortableStopItem({
  */
 export function RouteStopsTab() {
   const routeId = useStore((s) => s.editingRouteId);
+  const unitSystem = useStore((s) => s.unitSystem);
   const route = useStore((s) => s.routes.find((r) => r.route_id === routeId));
   const routes = useStore((s) => s.routes);
   const stops = useStore((s) => s.stops);
@@ -434,6 +438,7 @@ export function RouteStopsTab() {
                     uid={uid}
                     stop={stop}
                     distFromPrevFt={distFromPrevFt}
+                    unitSystem={unitSystem}
                     index={i}
                     isSelected={selectedStopId === stop.stop_id}
                     routeColor={routeColor}

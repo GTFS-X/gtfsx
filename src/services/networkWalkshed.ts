@@ -46,6 +46,7 @@ import {
   BG_RADIUS_MILES,
   type CoverageResult,
 } from './coverageAnalysis';
+import { formatBufferMiles, type UnitSystem } from '../utils/units';
 
 /** Same-origin, auth-gated proxy for the Mapbox Isochrone API (worker/mapbox/isochrone.ts). */
 const ISOCHRONE_PROXY = '/api/mapbox/isochrone';
@@ -213,17 +214,28 @@ export function autoMinutesByStop(feed: FeedSlice): Map<string, WalkMinutes> {
   return out;
 }
 
-export const WALK_MINUTE_OPTIONS: { minutes: WalkMinutes; label: string }[] = [
-  { minutes: 5, label: '5 min walk (≈ ¼ mi)' },
-  { minutes: 10, label: '10 min walk (≈ ½ mi)' },
-  { minutes: 15, label: '15 min walk (≈ ¾ mi)' },
+/** Fixed walk-times and the straight-line distance each roughly equals. */
+export const WALK_MINUTE_OPTIONS: { minutes: WalkMinutes; approxMiles: number }[] = [
+  { minutes: 5, approxMiles: 0.25 },
+  { minutes: 10, approxMiles: 0.5 },
+  { minutes: 15, approxMiles: 0.75 },
 ];
 
+/** "10 min walk (≈ ½ mi)" / "10 min walk (≈ 800 m)". */
+export function walkMinutesLabel(minutes: number, approxMiles: number, system: UnitSystem): string {
+  return `${minutes} min walk (≈ ${formatBufferMiles(approxMiles, system, { glyph: true })})`;
+}
+
 /** Picker options: Auto (the default) above the fixed walk-times. */
-export const WALK_MODE_OPTIONS: { value: WalkMode; label: string }[] = [
-  { value: 'auto', label: 'Auto (by frequency)' },
-  ...WALK_MINUTE_OPTIONS.map((o) => ({ value: o.minutes as WalkMode, label: o.label })),
-];
+export function walkModeOptions(system: UnitSystem): { value: WalkMode; label: string }[] {
+  return [
+    { value: 'auto', label: 'Auto (by frequency)' },
+    ...WALK_MINUTE_OPTIONS.map((o) => ({
+      value: o.minutes as WalkMode,
+      label: walkMinutesLabel(o.minutes, o.approxMiles, system),
+    })),
+  ];
+}
 
 export type WalkshedStatus = 'ok' | 'capped' | 'error' | 'empty';
 

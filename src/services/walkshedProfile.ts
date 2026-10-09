@@ -67,6 +67,7 @@ import {
   type Bbox,
 } from './blockCoverage';
 import type { Route, RouteStop, Stop } from '../types/gtfs';
+import { formatBufferMiles, type UnitSystem } from '../utils/units';
 
 /* ──────────────────────────── categories ──────────────────────────── */
 
@@ -372,11 +373,10 @@ export function railStopIds(routeStops: readonly RouteStop[], routes: readonly R
   return out;
 }
 
-/** Miles → the "1/4 mi" / "1/2 mi" label the coverage UI already uses. */
-export function bufferLabel(miles: number): string {
-  if (miles === RAIL_BUFFER_MILES) return '1/2 mi';
-  if (miles === DEFAULT_BUFFER_MILES) return '1/4 mi';
-  return `${miles} mi`;
+/** Miles → the "1/4 mi" / "1/2 mi" label the coverage UI uses ("400 m" /
+ *  "800 m" in metric). */
+export function bufferLabel(miles: number, system: UnitSystem): string {
+  return formatBufferMiles(miles, system);
 }
 
 /** Stops served by a route, from the denormalized routeStops table. */

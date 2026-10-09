@@ -11,6 +11,7 @@ import { AuthButton } from '../auth/AuthButton';
 import { PlanBadge } from '../billing/PlanBadge';
 import { blockedFromAdditionalOrg } from '../billing/planConfig';
 import { shouldShowUpgradeEntry } from '../../services/proIntent';
+import { UnitsMenuRow } from '../ui/UnitsToggle';
 
 const ROLE_COLORS: Record<OrgRole, string> = {
   owner: 'bg-coral/15 text-coral border-coral/30',
@@ -89,6 +90,8 @@ export function UserMenuItems({ onClose }: { onClose?: () => void } = {}) {
         >
           About
         </a>
+        <div className="border-t border-sand my-1" />
+        <UnitsMenuRow />
       </>
     );
   }
@@ -194,6 +197,7 @@ export function UserMenuItems({ onClose }: { onClose?: () => void } = {}) {
       )}
 
       <div className="border-t border-sand my-1" />
+      <UnitsMenuRow />
       <button
         onClick={() => go('/account')}
         className="w-full text-left px-3 py-2 rounded-md text-sm text-dark-brown hover:bg-cream transition-colors"

@@ -11,6 +11,7 @@ import {
 import type { AppStore } from '../../store';
 import { Modal } from '../ui/Modal';
 import { AuthButton } from '../auth/AuthButton';
+import { UnitsToggle } from '../ui/UnitsToggle';
 
 // Human description of the data a feature owns, for the hide-vs-delete prompt.
 function describeData(s: AppStore, f: AdvancedFeature): string {
@@ -100,6 +101,20 @@ export function FeatureSettingsPanel() {
 
   return (
     <div className="space-y-4">
+      {/* Per-browser display preference (issue #76), not a feed setting. */}
+      <div className="rounded-lg border border-sand bg-white p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <span className="font-semibold text-dark-brown">Units</span>
+            <p className="mt-1 text-xs text-warm-gray">
+              How distances and speeds are shown (ft / mi / mph or m / km / km/h). Saved in this
+              browser for every feed; doesn&rsquo;t change your data or the GTFS you export.
+            </p>
+          </div>
+          <UnitsToggle />
+        </div>
+      </div>
+
       <p className="text-sm text-warm-gray">
         Turn advanced GTFS features on or off for this feed. Anything off is hidden
         from the editor to keep the workspace simple — turning it on (or importing a

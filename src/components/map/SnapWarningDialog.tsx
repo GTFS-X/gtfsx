@@ -1,12 +1,10 @@
-const METERS_PER_MILE = 1609.344;
+import { useStore } from '../../store';
+import { formatDistance, type UnitSystem } from '../../utils/units';
 
-/** Length in the feed's display units (miles, with a feet fallback under a
- *  tenth of a mile — mirrors StopCoveragePanel's fmtMiles). The editor has no
- *  metric toggle; distances are shown in miles throughout. */
-function fmtMiles(meters: number): string {
-  const mi = meters / METERS_PER_MILE;
-  if (mi < 0.1) return `${(mi * 5280).toFixed(0)} ft`;
-  return `${mi.toFixed(2)} mi`;
+/** Length in the user's units (miles/km, falling back to ft/m for short
+ *  lengths — same format as StopCoveragePanel's adjacent-stop distances). */
+function fmtLength(meters: number, system: UnitSystem): string {
+  return formatDistance(meters, system, { decimals: 2, shortBelow: true });
 }
 
 interface SnapWarningButton {
@@ -51,6 +49,7 @@ export function SnapWarningDialog({
   secondary,
   overlayClassName = 'absolute inset-0 z-20',
 }: SnapWarningDialogProps) {
+  const unitSystem = useStore((s) => s.unitSystem);
   const deltaMeters = lengths ? lengths.snappedMeters - lengths.currentMeters : 0;
   // Only worth showing the comparison when snapping actually changes the length
   // by something a user would care about (> ~30 m or > 1% of the current shape).
@@ -70,16 +69,16 @@ export function SnapWarningDialog({
           <div className="mb-4 rounded-lg bg-cream px-3 py-2 text-xs text-dark-brown">
             <div className="flex items-center justify-between">
               <span className="text-warm-gray">Current shape</span>
-              <span className="font-semibold tabular-nums">{fmtMiles(lengths.currentMeters)}</span>
+              <span className="font-semibold tabular-nums">{fmtLength(lengths.currentMeters, unitSystem)}</span>
             </div>
             <div className="flex items-center justify-between mt-0.5">
               <span className="text-warm-gray">After snapping</span>
-              <span className="font-semibold tabular-nums">{fmtMiles(lengths.snappedMeters)}</span>
+              <span className="font-semibold tabular-nums">{fmtLength(lengths.snappedMeters, unitSystem)}</span>
             </div>
             <div className="mt-1 flex items-center justify-between border-t border-sand pt-1">
               <span className="text-warm-gray">Difference</span>
               <span className="font-semibold tabular-nums text-coral">
-                {deltaMeters < 0 ? '-' : '+'}{fmtMiles(Math.abs(deltaMeters))}
+                {deltaMeters < 0 ? '-' : '+'}{fmtLength(Math.abs(deltaMeters), unitSystem)}
               </span>
             </div>
           </div>

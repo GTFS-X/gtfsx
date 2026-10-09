@@ -10,6 +10,7 @@ import { duplicateShapePoints, duplicateShapeRouteLink } from '../../services/sh
 import { deriveRouteShapeIds } from '../../services/routeShapes';
 import { computeShapePatterns } from '../ui/shapePatterns';
 import { estimateRunSecs, shapeLengthKm } from '../../services/timetableGen';
+import { formatDistance, formatShortDistance, kmToMeters } from '../../utils/units';
 
 /**
  * Shapes subpanel for the Routes editor. Extracted out of RouteEditor.tsx so
@@ -77,6 +78,7 @@ export function RouteShapesTab() {
   const [dupCopyStops, setDupCopyStops] = useState(true);
 
   const editingShapeId = useStore((s) => s.editingShapeId);
+  const unitSystem = useStore((s) => s.unitSystem);
   const mapMode = useStore((s) => s.mapMode);
   // Cross-component handoff: the RoutePopup's "Edit Shape" button writes a
   // shape id here and navigates the rail to Shapes; this tab runs its
@@ -324,7 +326,7 @@ export function RouteShapesTab() {
             // segment; empty/new shapes would otherwise show 0.0 mi and
             // estimateRunSecs's 20-minute default.
             const hasLength = shape!.points.length >= 2;
-            const shapeLenMi = shapeLengthKm(shape) / 1.609344;
+            const shapeLen = formatDistance(kmToMeters(shapeLengthKm(shape)), unitSystem);
 
             // The runtime here is only based on the distance, not the number of stops
             // or the actual runtime of any trips on the route. But it should give an idea
@@ -357,7 +359,7 @@ export function RouteShapesTab() {
                       className="min-w-0 flex-1 text-dark-brown font-medium text-xs bg-transparent border border-transparent rounded px-1 py-0.5 -ml-1 hover:border-sand focus:border-coral focus:bg-white focus:outline-none placeholder:text-warm-gray placeholder:font-medium"
                     />
                     <span className="text-[10px] text-warm-gray whitespace-nowrap shrink-0">
-                      {hasLength && `${shapeLenMi.toFixed(1)} mi · ${runtimeDistanceBased} mins · `}{shape!.points.length} pts · {shapeTrips.length} trip{shapeTrips.length !== 1 ? 's' : ''}
+                      {hasLength && `${shapeLen} · ${runtimeDistanceBased} mins · `}{shape!.points.length} pts · {shapeTrips.length} trip{shapeTrips.length !== 1 ? 's' : ''}
                     </span>
                   </div>
                 </div>
@@ -565,7 +567,7 @@ export function RouteShapesTab() {
                           >
                             <span className="font-semibold">{level.label}</span>
                             <span className="text-warm-gray">
-                              {level.description} → {preview.length} pts
+                              ~{formatShortDistance(level.precisionMeters, unitSystem, { roundStep: unitSystem === 'imperial' ? 5 : 1 })} precision → {preview.length} pts
                             </span>
                           </button>
                         );
