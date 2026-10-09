@@ -15,15 +15,27 @@ import {
 import { gtfsTimeToSeconds, secondsToGtfsTime } from '../../utils/time';
 import { historyTransaction } from '../../store/history';
 import { isFlexOnlyRoute } from '../../services/flexRoutes';
+import { longToMiles, longUnit, longUnitWord, milesToLong, type UnitSystem } from '../../utils/units';
 
 const DEFAULT_FLEX_BUFFER_MILES = 0.75;
+const MAX_FLEX_BUFFER_MILES = 25;
+/** Default buffer field text per unit system (0.75 mi ≈ 1.2 km). */
+const DEFAULT_BUFFER_INPUT: Record<UnitSystem, string> = {
+  imperial: String(DEFAULT_FLEX_BUFFER_MILES),
+  metric: String(Number(milesToLong(DEFAULT_FLEX_BUFFER_MILES, 'metric').toFixed(1))),
+};
+
+/** A zone's buffer (stored in miles) in the user's long unit: "0.75 mi" / "1.21 km". */
+function fmtBufferMiles(miles: number, system: UnitSystem): string {
+  return `${Number(milesToLong(miles, system).toFixed(2))} ${longUnit(system)}`;
+}
 
 /** One-line description of a zone's service-area shape for the zone list. */
-function describeFlexZoneShape(zone: FlexZone): string {
+function describeFlexZoneShape(zone: FlexZone, system: UnitSystem): string {
   const shape = flexZoneShape(zone);
   const polyCount = zone.geojson.features.length;
   const stopCount = zone.stopIds?.length ?? 0;
-  const polyText = `${polyCount} polygon${polyCount !== 1 ? 's' : ''}${zone.bufferMiles > 0 ? ` · ${zone.bufferMiles} mi buffer` : ''}`;
+  const polyText = `${polyCount} polygon${polyCount !== 1 ? 's' : ''}${zone.bufferMiles > 0 ? ` · ${fmtBufferMiles(zone.bufferMiles, system)} buffer` : ''}`;
   const stopText = `${stopCount} stop${stopCount !== 1 ? 's' : ''}`;
   switch (shape) {
     case 'mixed': return `${polyText} + ${stopText}`;
@@ -128,9 +140,14 @@ export function FlexEditor() {
     setMapMode, setEditingFlexZoneId,
     flexZoneDetailId, setFlexZoneDetailId,
   } = useStore();
+  const unitSystem = useStore((s) => s.unitSystem);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [bufferInput, setBufferInput] = useState<string>(String(DEFAULT_FLEX_BUFFER_MILES));
+  // Buffer field text, kept per unit system so switching units shows that
+  // system's own default rather than reinterpreting the typed number.
+  const [bufferInputs, setBufferInputs] = useState<Record<UnitSystem, string>>(DEFAULT_BUFFER_INPUT);
+  const bufferInput = bufferInputs[unitSystem];
+  const setBufferInput = (v: string) => setBufferInputs((cur) => ({ ...cur, [unitSystem]: v }));
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [confirmDeleteZoneId, setConfirmDeleteZoneId] = useState<string | null>(null);
   // Inline-rename state for the zone name. Keyed by zone id so only one row
@@ -179,13 +196,16 @@ export function FlexEditor() {
     return route && route.route_type !== 0 && !hiddenRouteIds.includes(route.route_id);
   });
 
-  const bufferMiles = Number(bufferInput);
-  const bufferValid = Number.isFinite(bufferMiles) && bufferMiles > 0 && bufferMiles <= 25;
+  // The field is in the user's long unit (mi or km); generation works in miles.
+  const bufferValue = Number(bufferInput);
+  const bufferMiles = longToMiles(bufferValue, unitSystem);
+  const maxBufferInUnits = Math.floor(milesToLong(MAX_FLEX_BUFFER_MILES, unitSystem));
+  const bufferValid = Number.isFinite(bufferValue) && bufferValue > 0 && bufferValue <= maxBufferInUnits;
 
   const handleGenerate = useCallback(() => {
     setError(null);
     if (!bufferValid) {
-      setError('Buffer must be between 0 and 25 miles.');
+      setError(`Buffer must be between 0 and ${maxBufferInUnits} ${longUnitWord(unitSystem)}.`);
       return;
     }
     setGenerating(true);
@@ -213,7 +233,7 @@ export function FlexEditor() {
     } finally {
       setGenerating(false);
     }
-  }, [shapes, routes, trips, stopTimes, hiddenRouteIds, bufferMiles, bufferValid, setFlexZoneDetailId]);
+  }, [shapes, routes, trips, stopTimes, hiddenRouteIds, bufferMiles, bufferValid, maxBufferInUnits, unitSystem, setFlexZoneDetailId]);
 
   const handleDrawZone = () => {
     setMapMode('draw_flex_zone');
@@ -302,7 +322,7 @@ export function FlexEditor() {
                     </div>
                   )}
                   <p className="text-[11px] text-warm-gray">
-                    {describeFlexZoneShape(zone)}
+                    {describeFlexZoneShape(zone, unitSystem)}
                     {hasBooking && ' · booking set'}
                     {zone.fareId && ` · fare ${zone.fareId}`}
                   </p>
@@ -405,13 +425,13 @@ export function FlexEditor() {
                 <input
                   type="number"
                   min="0.1"
-                  max="25"
-                  step="0.25"
+                  max={maxBufferInUnits}
+                  step={unitSystem === 'metric' ? 0.5 : 0.25}
                   value={bufferInput}
                   onChange={(e) => setBufferInput(e.target.value)}
                   className="w-20 px-2 py-1 border border-sand rounded text-xs text-dark-brown bg-white focus:outline-none focus:border-teal"
                 />
-                <span className="text-[11px] text-warm-gray">miles</span>
+                <span className="text-[11px] text-warm-gray">{longUnitWord(unitSystem)}</span>
               </div>
               {error && <p className="text-[11px] text-red-600">{error}</p>}
               <button
@@ -419,7 +439,7 @@ export function FlexEditor() {
                 disabled={generating || !hasShapes || !bufferValid}
                 className="w-full px-3 py-2 bg-teal text-white rounded-lg text-xs font-heading font-bold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {generating ? 'Generating…' : `Generate ${bufferValid ? bufferMiles : '?'} mi Buffer`}
+                {generating ? 'Generating…' : `Generate ${bufferValid ? bufferValue : '?'} ${longUnit(unitSystem)} Buffer`}
               </button>
               {!hasShapes && (
                 <p className="text-[11px] text-warm-gray">Draw route shapes on the map to enable.</p>

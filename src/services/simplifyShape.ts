@@ -42,10 +42,11 @@ export function simplifyShapePoints(
 }
 
 /**
- * Pre-defined simplification levels with approximate descriptions.
+ * Pre-defined simplification levels with their approximate precision in
+ * meters (formatted for display in the user's units).
  */
 export const SIMPLIFY_LEVELS = [
-  { label: 'Light', tolerance: 0.00003, description: '~3m precision' },
-  { label: 'Medium', tolerance: 0.00007, description: '~8m precision' },
-  { label: 'Heavy', tolerance: 0.0002, description: '~20m precision' },
+  { label: 'Light', tolerance: 0.00003, precisionMeters: 3 },
+  { label: 'Medium', tolerance: 0.00007, precisionMeters: 8 },
+  { label: 'Heavy', tolerance: 0.0002, precisionMeters: 20 },
 ] as const;

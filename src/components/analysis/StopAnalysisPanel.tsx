@@ -17,12 +17,37 @@ import {
   type FeedSlice,
   type BalancingCandidate,
 } from '../../services/stopAnalysis';
+import {
+  feetToMeters,
+  feetToShort,
+  formatShortDistance,
+  shortToFeet,
+  shortUnit,
+  type UnitSystem,
+} from '../../utils/units';
 
 type MapOverlayKind = 'balancing' | 'intensity' | 'accessibility' | null;
 
-function fmtFt(ft: number | null): string {
+function fmtFt(ft: number | null, system: UnitSystem): string {
   if (ft == null) return '—';
-  return `${Math.round(ft).toLocaleString()} ft`;
+  return formatShortDistance(feetToMeters(ft), system);
+}
+
+/** A feet-valued threshold edited in the user's short unit (ft or m). The
+ *  analysis keeps working in feet; only the field shows/accepts m. */
+function FtField({ label, valueFt, onChangeFt, stepFt, system }: {
+  label: string; valueFt: number; onChangeFt: (ft: number) => void; stepFt: number; system: UnitSystem;
+}) {
+  const metric = system === 'metric';
+  return (
+    <NumField
+      label={`${label} (${shortUnit(system)})`}
+      value={Math.round(feetToShort(valueFt, system))}
+      onChange={(v) => onChangeFt(shortToFeet(v, system))}
+      // Imperial steps stay 50/100 ft; metric uses round 10/25 m.
+      step={metric ? (stepFt >= 100 ? 25 : 10) : stepFt}
+    />
+  );
 }
 function fmtMin(min: number | null): string {
   if (min == null) return '—';
@@ -112,11 +137,17 @@ function NumField({ label, value, onChange, step = 1 }: { label: string; value: 
 /* ── histogram ── */
 
 function SpacingHistogram({
-  bins, tooCloseFt, hardMaxFt, targetMinFt, targetMaxFt,
+  bins, tooCloseFt, hardMaxFt, targetMinFt, targetMaxFt, system,
 }: {
   bins: { lo: number; hi: number; count: number }[];
   tooCloseFt: number; hardMaxFt: number; targetMinFt: number; targetMaxFt: number;
+  system: UnitSystem;
 }) {
+  // Bins are in feet; label them in the user's unit (metric rounded to 10 m).
+  const axis = (ft: number) =>
+    formatShortDistance(feetToMeters(ft), system, { roundStep: system === 'metric' ? 10 : 1 });
+  const binLabel = (lo: number, hi: number) =>
+    `${Math.round(feetToShort(lo, system)).toLocaleString('en-US')}–${axis(hi)}`;
   const max = Math.max(1, ...bins.map((b) => b.count));
   return (
     <div>
@@ -133,13 +164,13 @@ function SpacingHistogram({
               key={b.lo}
               className="flex-1 rounded-t-sm"
               style={{ height: `${(b.count / max) * 100}%`, backgroundColor: color, minHeight: b.count ? 2 : 0 }}
-              title={`${b.lo}–${b.hi} ft: ${b.count}`}
+              title={`${binLabel(b.lo, b.hi)}: ${b.count}`}
             />
           );
         })}
       </div>
       <div className="flex justify-between text-[9px] text-warm-gray mt-0.5 px-1">
-        <span>0</span><span>1,500 ft</span><span>3,000+ ft</span>
+        <span>0</span><span>{axis(1500)}</span><span>{axis(3000).replace(/ /, '+ ')}</span>
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[10px] text-warm-gray">
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: '#E07A5F' }} />Too close</span>
@@ -162,6 +193,7 @@ export function StopAnalysisPanel() {
   const setStopAnalysisOverlay = useStore((s) => s.setStopAnalysisOverlay);
   const setBottomPanelOpen = useStore((s) => s.setBottomPanelOpen);
   const setBottomPanelTab = useStore((s) => s.setBottomPanelTab);
+  const unitSystem = useStore((s) => s.unitSystem);
 
   // Candidate pending a remove confirmation (destructive: edits stop_times).
   const [removeTarget, setRemoveTarget] = useState<BalancingCandidate | null>(null);
@@ -254,7 +286,7 @@ export function StopAnalysisPanel() {
       {/* ── Feature 1: Stop spacing ── */}
       <Section
         title="Stop spacing distribution"
-        subtitle={`median ${fmtFt(spacing.medianFt)} · ${spacing.pairCount.toLocaleString()} segments`}
+        subtitle={`median ${fmtFt(spacing.medianFt, unitSystem)} · ${spacing.pairCount.toLocaleString()} segments`}
         open={!!open.spacing}
         onToggle={() => toggle('spacing')}
       >
@@ -264,12 +296,13 @@ export function StopAnalysisPanel() {
           hardMaxFt={hardMaxFt}
           targetMinFt={DEFAULT_SPACING_BENCHMARKS.urbanMinFt}
           targetMaxFt={DEFAULT_SPACING_BENCHMARKS.suburbanMaxFt}
+          system={unitSystem}
         />
         <div className="grid grid-cols-4 gap-2">
-          <Stat label="Median" value={fmtFt(spacing.medianFt)} />
-          <Stat label="Mean" value={fmtFt(spacing.meanFt)} />
-          <Stat label="p10" value={fmtFt(spacing.p10Ft)} />
-          <Stat label="p90" value={fmtFt(spacing.p90Ft)} />
+          <Stat label="Median" value={fmtFt(spacing.medianFt, unitSystem)} />
+          <Stat label="Mean" value={fmtFt(spacing.meanFt, unitSystem)} />
+          <Stat label="p10" value={fmtFt(spacing.p10Ft, unitSystem)} />
+          <Stat label="p90" value={fmtFt(spacing.p90Ft, unitSystem)} />
         </div>
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
           <span className="text-[#E07A5F] font-semibold">{spacing.tooCloseCount} too close</span>
@@ -277,8 +310,8 @@ export function StopAnalysisPanel() {
           <span className="text-[#C0612F] font-semibold">{spacing.aboveMaxCount} too far</span>
         </div>
         <div className="flex gap-2">
-          <NumField label="Too-close (ft)" value={tooCloseFt} onChange={setTooCloseFt} step={50} />
-          <NumField label="Hard max (ft)" value={hardMaxFt} onChange={setHardMaxFt} step={100} />
+          <FtField label="Too-close" valueFt={tooCloseFt} onChangeFt={setTooCloseFt} stepFt={50} system={unitSystem} />
+          <FtField label="Hard max" valueFt={hardMaxFt} onChangeFt={setHardMaxFt} stepFt={100} system={unitSystem} />
         </div>
         <div>
           <div className="flex items-center justify-between mb-1">
@@ -297,7 +330,7 @@ export function StopAnalysisPanel() {
               >
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: `#${r.routeColor}` }} />
                 <span className="flex-1 text-left truncate text-dark-brown">{r.routeName}</span>
-                <span className="tabular-nums text-warm-gray">{fmtFt(r.medianFt)}</span>
+                <span className="tabular-nums text-warm-gray">{fmtFt(r.medianFt, unitSystem)}</span>
               </button>
             ))}
             {spacing.perRoute.length > 12 && (
@@ -321,7 +354,7 @@ export function StopAnalysisPanel() {
           )}
         </div>
         <div className="flex gap-2">
-          <NumField label="Threshold (ft)" value={balanceThresholdFt} onChange={setBalanceThresholdFt} step={50} />
+          <FtField label="Threshold" valueFt={balanceThresholdFt} onChangeFt={setBalanceThresholdFt} stepFt={50} system={unitSystem} />
           <NumField label="Sec / stop" value={dwellSeconds} onChange={setDwellSeconds} step={1} />
         </div>
         <p className="text-[10px] text-warm-gray">
@@ -344,7 +377,7 @@ export function StopAnalysisPanel() {
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: `#${c.routeColor}` }} />
                     <span className="font-semibold text-dark-brown truncate">{c.routeName}</span>
-                    <span className="ml-auto tabular-nums text-warm-gray">{fmtFt(c.spacingFt)}</span>
+                    <span className="ml-auto tabular-nums text-warm-gray">{fmtFt(c.spacingFt, unitSystem)}</span>
                   </div>
                   <div className="text-warm-gray truncate">{c.stopAName} → {c.stopBName}</div>
                   <div className="text-[10px] text-warm-gray mt-0.5">
@@ -365,7 +398,7 @@ export function StopAnalysisPanel() {
             </div>
           </>
         ) : (
-          <p className="text-xs text-warm-gray italic">No consecutive stops closer than {balanceThresholdFt} ft.</p>
+          <p className="text-xs text-warm-gray italic">No consecutive stops closer than {fmtFt(balanceThresholdFt, unitSystem)}.</p>
         )}
       </Section>
 

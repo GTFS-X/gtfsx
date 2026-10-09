@@ -29,7 +29,7 @@ import {
   coverageFromWalkshed,
   walkshedGeoJSON,
   autoMinutesByStop,
-  WALK_MODE_OPTIONS,
+  walkModeOptions,
   AUTO_FREQUENT_MINUTES,
   AUTO_INFREQUENT_MINUTES,
   FREQUENT_HEADWAY_MAX_MIN,
@@ -44,16 +44,18 @@ import {
   type BlockCoverageResult,
 } from '../../services/blockCoverage';
 import { WalkshedProfilePanel } from './WalkshedProfilePanel';
+import { formatBufferMiles, formatBufferMilesRange, type UnitSystem } from '../../utils/units';
 
 function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
 /** Prose for the intro line describing the walkshed area for the chosen mode. */
-function walkAreaDescription(mode: WalkMode): string {
+function walkAreaDescription(mode: WalkMode, system: UnitSystem): string {
+  const approx = (mi: number) => formatBufferMiles(mi, system, { glyph: true });
   return mode === 'auto'
-    ? `walk along the street network sized per stop — ${AUTO_FREQUENT_MINUTES}-min (≈½ mi) at ` +
-        `frequent stops, ${AUTO_INFREQUENT_MINUTES}-min (≈¼ mi) elsewhere`
+    ? `walk along the street network sized per stop — ${AUTO_FREQUENT_MINUTES}-min (≈${approx(0.5)}) at ` +
+        `frequent stops, ${AUTO_INFREQUENT_MINUTES}-min (≈${approx(0.25)}) elsewhere`
     : `${mode}-minute walk along the street network`;
 }
 
@@ -66,17 +68,17 @@ function walkBadgeLabel(
 }
 
 /** Buffer/walk label for one route result. Walk label wins in network mode. */
-function bufferLabel(bufferMiles: number, walkLabel: string | null): string {
+function bufferLabel(bufferMiles: number, walkLabel: string | null, system: UnitSystem): string {
   if (walkLabel != null) return walkLabel;
-  return bufferMiles === 0.5 ? '1/2 mi' : '1/4 mi';
+  return formatBufferMiles(bufferMiles === 0.5 ? 0.5 : 0.25, system);
 }
 
 /** System-level walkshed descriptor for the CSV "buffer" column. */
-function systemBufferLabel(walkshed: CoverageData['walkshed']): string {
+function systemBufferLabel(walkshed: CoverageData['walkshed'], system: UnitSystem): string {
   if (walkshed?.mode === 'network') {
     return walkshed.auto ? 'auto walk network' : `${walkshed.minutes}-min walk network`;
   }
-  return '1/4-1/2 mi buffer';
+  return `${formatBufferMilesRange(0.25, 0.5, system, { dash: '-' })} buffer`;
 }
 
 /** Equity share for a CSV cell: percent to 1 dp, blank when no data. */
@@ -136,12 +138,13 @@ function buildCoverageCsvRows(
   data: CoverageData,
   routes: Route[],
   includePerRoute: boolean,
+  system: UnitSystem,
 ): Record<string, string | number>[] {
   const rows: Record<string, string | number>[] = [];
 
   // System + per-route rows use the EXACT block tabulation when available
   // (block-level regions), else the block-group estimate.
-  rows.push(csvRow('System', '', systemBufferLabel(data.walkshed), data.blockResult ?? data.systemResult));
+  rows.push(csvRow('System', '', systemBufferLabel(data.walkshed, system), data.blockResult ?? data.systemResult));
 
   // County baseline: whole-county totals + unweighted baseline shares, the
   // denominator the on-screen equity ratios compare against. Always the
@@ -183,7 +186,7 @@ function buildCoverageCsvRows(
       const route = routes.find((r) => r.route_id === routeId);
       const name = route ? route.route_short_name || route.route_long_name : routeId;
       const r = data.routeBlockResults?.find((x) => x.routeId === routeId)?.result ?? result;
-      rows.push(csvRow(name, routeId, bufferLabel(result.bufferMiles, walkLabel), r));
+      rows.push(csvRow(name, routeId, bufferLabel(result.bufferMiles, walkLabel, system), r));
     }
   }
 
@@ -209,6 +212,7 @@ export function CoveragePanel() {
   // network_walksheds), both granted to every plan since Sep 2026.
   const plan = useEditorPlan();
   const coverageData = useStore((s) => s.coverageData);
+  const unitSystem = useStore((s) => s.unitSystem);
   const isFetchingCoverage = useStore((s) => s.isFetchingCoverage);
   const coverageError = useStore((s) => s.coverageError);
   const setCoverageData = useStore((s) => s.setCoverageData);
@@ -433,8 +437,8 @@ export function CoveragePanel() {
       <p className="text-xs text-warm-gray">
         Population, households, workers, and equity demographics within a{' '}
         {useNetworkWalksheds && canUseWalksheds
-          ? walkAreaDescription(walkMode)
-          : 'straight-line ¼–½ mi buffer'}{' '}
+          ? walkAreaDescription(walkMode, unitSystem)
+          : `straight-line ${formatBufferMilesRange(0.25, 0.5, unitSystem, { glyph: true })} buffer`}{' '}
         of stops, from US Census ACS data.
       </p>
 
@@ -491,14 +495,14 @@ export function CoveragePanel() {
                     ? ' (auto walk network)'
                     : ` (${coverageData.walkshed.minutes}-min walk network)`
                   : routes.some((r) => r.route_type === 0)
-                    ? ' (¼ mi buffer; ½ mi for tram)'
-                    : ' (¼ mi buffer)'}
+                    ? ` (${formatBufferMiles(0.25, unitSystem, { glyph: true })} buffer; ${formatBufferMiles(0.5, unitSystem, { glyph: true })} for tram)`
+                    : ` (${formatBufferMiles(0.25, unitSystem, { glyph: true })} buffer)`}
               </h3>
               <CsvButton
                 onClick={() =>
                   exportCsv(
                     'coverage-analysis.csv',
-                    buildCoverageCsvRows(coverageData, routes, planHasFeature(plan, 'analysis_basic')),
+                    buildCoverageCsvRows(coverageData, routes, planHasFeature(plan, 'analysis_basic'), unitSystem),
                   )
                 }
               />
@@ -608,6 +612,7 @@ export function CoveragePanel() {
                     routeName={route.route_short_name || route.route_long_name}
                     routeColor={route.route_color}
                     bufferMiles={result.bufferMiles}
+                    unitSystem={unitSystem}
                     walkLabel={walkBadgeLabel(coverageData.walkshed)}
                     population={r.totalPopulation}
                     households={r.totalHouseholds}
@@ -652,6 +657,7 @@ function WalkshedModeControl({
   onMode: (m: WalkMode) => void;
 }) {
   const target = planDisplayName(cheapestPlanFor('network_walksheds'));
+  const unitSystem = useStore((s) => s.unitSystem);
 
   if (needsSignIn) {
     return <SignInRequiredLink label="Network walksheds (street distance)" />;
@@ -698,7 +704,7 @@ function WalkshedModeControl({
               }
               className="rounded border border-sand bg-white px-2 py-1 text-xs text-dark-brown"
             >
-              {WALK_MODE_OPTIONS.map((o) => (
+              {walkModeOptions(unitSystem).map((o) => (
                 <option key={String(o.value)} value={String(o.value)}>
                   {o.label}
                 </option>
@@ -708,8 +714,8 @@ function WalkshedModeControl({
           {mode === 'auto' && (
             <p className="text-[11px] text-warm-gray">
               Each stop's walkshed is sized by its service frequency:{' '}
-              {AUTO_FREQUENT_MINUTES}-min (≈½ mi) where headway is ≤ {FREQUENT_HEADWAY_MAX_MIN} min,
-              otherwise {AUTO_INFREQUENT_MINUTES}-min (≈¼ mi).
+              {AUTO_FREQUENT_MINUTES}-min (≈{formatBufferMiles(0.5, unitSystem, { glyph: true })}) where headway is ≤ {FREQUENT_HEADWAY_MAX_MIN} min,
+              otherwise {AUTO_INFREQUENT_MINUTES}-min (≈{formatBufferMiles(0.25, unitSystem, { glyph: true })}).
             </p>
           )}
         </div>
@@ -834,6 +840,7 @@ function RouteRow({
   routeName,
   routeColor,
   bufferMiles,
+  unitSystem,
   walkLabel,
   population,
   households,
@@ -843,6 +850,7 @@ function RouteRow({
   routeName: string;
   routeColor: string;
   bufferMiles: number;
+  unitSystem: UnitSystem;
   /** Network-mode walk-time badge ('auto' / '10 min walk'); null = straight-line. */
   walkLabel: string | null;
   population: number;
@@ -864,7 +872,7 @@ function RouteRow({
           {routeName}
         </span>
         <span className="ml-auto text-[11px] text-warm-gray whitespace-nowrap">
-          {bufferLabel(bufferMiles, walkLabel)}
+          {bufferLabel(bufferMiles, walkLabel, unitSystem)}
         </span>
       </div>
       <div className="grid grid-cols-4 gap-1 text-center">

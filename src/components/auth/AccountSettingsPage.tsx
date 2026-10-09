@@ -32,6 +32,7 @@ import { useStore } from '../../store';
 import { signOutLocally } from '../layout/signOut';
 import { passwordSectionMode } from './passwordNoticeHelpers';
 import { ACCOUNT_DELETED_PARAM, DELETE_ACCOUNT_DESCRIPTION } from './loginErrors';
+import { UnitsToggle } from '../ui/UnitsToggle';
 
 export function AccountSettingsPage() {
   const navigate = useNavigate();
@@ -121,6 +122,8 @@ export function AccountSettingsPage() {
         onUpdated={(user) => setCurrentUser({ ...currentUser, ...user })}
       />
       <Divider />
+      <PreferencesSection />
+      <Divider />
       <ChangeEmailSection />
       <Divider />
       {passwordSectionMode(currentUser.hasPassword) === 'set' ? (
@@ -168,6 +171,18 @@ function SectionHeader({ title, description }: { title: string; description?: st
     <div className="mb-3">
       <h2 className="font-heading font-bold text-base text-dark-brown">{title}</h2>
       {description && <p className="text-xs text-warm-gray mt-0.5">{description}</p>}
+    </div>
+  );
+}
+
+function PreferencesSection() {
+  return (
+    <div>
+      <SectionHeader
+        title="Units"
+        description="How distances and speeds are shown in the editor. Saved in this browser; your feed data is unchanged."
+      />
+      <UnitsToggle />
     </div>
   );
 }

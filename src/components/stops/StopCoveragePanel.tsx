@@ -6,6 +6,7 @@ import { calculateCoverage, demographicShares, baselineShares } from '../../serv
 import { fetchCensusData, lookupFips, type BlockGroupData } from '../../services/demographics';
 import { StopWalkshedProfile } from '../coverage/WalkshedProfilePanel';
 import { directionName } from '../../utils/constants';
+import { formatBufferMiles, formatBufferMilesAdjective, formatDistance, milesToMeters } from '../../utils/units';
 
 // Module-level cache so navigating between stops in the same county doesn't
 // re-fetch Census data. Keyed by `${stateFips}-${countyFips}`. Survives
@@ -39,6 +40,7 @@ export function StopCoveragePanel() {
   const routes = useStore((s) => s.routes);
   const routeStops = useStore((s) => s.routeStops);
   const coverageData = useStore((s) => s.coverageData);
+  const unitSystem = useStore((s) => s.unitSystem);
   // Per-stop Census fetch. Reuses system Coverage's blockGroups when
   // present; otherwise looks up FIPS for THIS stop and fetches its county.
   // Cached at the module level so adjacent stops in the same county don't
@@ -189,10 +191,8 @@ export function StopCoveragePanel() {
 
   if (!stop) return null;
 
-  const fmtMiles = (m: number) => {
-    if (m < 0.1) return `${(m * 5280).toFixed(0)} ft`;
-    return `${m.toFixed(2)} mi`;
-  };
+  const fmtMiles = (m: number) =>
+    formatDistance(milesToMeters(m), unitSystem, { decimals: 2, shortBelow: true });
   const fmtNum = (n: number) => n.toLocaleString();
 
   const jumpToStop = (stopId: string) => setEditingStopId(stopId);
@@ -264,7 +264,7 @@ export function StopCoveragePanel() {
                   bufferMiles === b ? 'bg-coral text-white' : 'text-warm-gray hover:text-dark-brown'
                 }`}
               >
-                {b === 0.25 ? '1/4 mi' : '1/2 mi'}
+                {formatBufferMiles(b, unitSystem)}
               </button>
             ))}
           </div>
@@ -306,7 +306,7 @@ export function StopCoveragePanel() {
         ) : null}
         <p className="mt-1.5 text-[10px] text-warm-gray">
           <span className="font-semibold text-dark-brown">Estimate.</span> Block-group apportionment
-          within a {bufferMiles === 0.25 ? '1/4-mile' : '1/2-mile'} straight-line buffer, using the
+          within a {formatBufferMilesAdjective(bufferMiles, unitSystem)} straight-line buffer, using the
           same circle-overlap method as the system Coverage panel. Block groups inherit their parent
           tract's centroid, so at this scale adjacent stops can look alike — the exact census-block
           profile below is the sharper instrument.
