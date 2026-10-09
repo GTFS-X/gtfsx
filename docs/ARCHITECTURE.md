@@ -749,6 +749,11 @@ staging only, for rehearsal; it is not on `main` or prod yet. Later the same day
 That branch has since shipped to prod. As of 2026-10-05 staging runs
 `fix/route-visibility-hide-all` @ `872c687` (pre-rebase hash of the same fix).
 Since 2026-10-06 staging runs `feat/self-hosted-county-lookup` (see Production, above).
+Since **2026-10-09** staging runs `feature/units-preference-sync` (account-level
+display units, #76 follow-up; version `050e127c`), and **staging D1 is migrated
+through 0033** (`0033_user_unit_system`, applied 2026-10-09; pre-migration
+time-travel bookmark `0000344a-00000000-000050ff-58b93d0615aaf4f49a523472169ecd63`).
+**Prod D1 is still at 0032**: apply 0033 to prod before that branch merges.
 
 **Open catalog — the `public/catalog.json` hack is obsolete (issue #47, branch
 `feat/catalog-endpoint`).** `/catalog.json` is now a **dynamic worker route** on
