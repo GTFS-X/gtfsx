@@ -99,9 +99,9 @@ function SortableStopItem({
           <span className="text-[10px] text-warm-gray">Code: {stop.stop_code}</span>
         )}
       </button>
-              {distFromPrevFt && (
-          <span className="text-[10px] text-warm-gray">{Math.round(distFromPrevFt)} ft</span>
-        )}
+      {distFromPrevFt != null && (
+        <span className="text-[10px] text-warm-gray whitespace-nowrap shrink-0">{Math.round(distFromPrevFt)} ft</span>
+      )}
       <button
         onClick={(e) => { e.stopPropagation(); onEdit(); }}
         className="text-coral hover:text-[#d4603a] text-[10px] font-semibold shrink-0 opacity-0 group-hover:opacity-100 transition-opacity px-1"
@@ -201,8 +201,8 @@ export function RouteStopsTab() {
 
         // calculate stop spacing
         const prevStop = index >= 1 ? stops.find((s) => s.stop_id === array[index - 1].stop_id) : null;
-        // NB this is crow-flies distance from previous stop, will underestimate spacing at corners,
-        // but this m
+        // NB this is crow-flies distance from previous stop, so it will underestimate
+        // spacing at corners, but it is a quick sketch-planning signal.
         const distFromPrevFt = stop && prevStop ? spacingFt(prevStop, stop) : null;
 
         return stop && rs._uid ? { uid: rs._uid, stop, distFromPrevFt } : null;
