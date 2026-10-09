@@ -146,6 +146,7 @@ delivered once.
 | `0027_open_catalog` | `feed_project.catalog_publisher_type` (NULL / `official` / `community` — the open-catalog opt-in + declaration) + `feed_project.mdb_source_id` (Mobility DB source id for the switcher/update path); `publication.catalog_meta_json` (per-publish geography/metadata for `/catalog.json`, computed once at publish). See `docs/catalog-spec.md`. |
 | `0028`–`0031` | Not documented here — see `worker/migrations/` (`assistant_messages`, `self_serve_trial`, `braid`, `twofa`). |
 | `0032_event_email_hash` | `event.oci_email_sha256` — hex(sha256(normalized email)) for the Google Ads `userData` identifier, plus a partial index on `ts`. Hash only; never a plaintext address. See `worker/marketing/ads/README.md` → "User identifiers". |
+| `0033_user_unit_system` | `user.unit_system` TEXT, NULL or `imperial`/`metric` (CHECK). Account-level display-units preference (#76); display-only, no plan gate. |
 
 ---
 
@@ -165,7 +166,7 @@ origin. This list is the source of truth.
 | _(no endpoint)_ SMS security alerts | `worker/sms/alerts.ts` — best-effort transactional texts to opted-in users (verified phone + consent) on a new-device sign-in (fired from the `createSession` points in `auth/routes.ts` password/2FA/magic-link + `auth/google.ts`; 90-day same-user-agent suppression, capped 2/user/day via KV) and on 2FA disable (`/api/me/twofa/confirm`). Posts to Twilio's Messages API through `TWILIO_MESSAGING_SERVICE_SID` (approved A2P Messaging Service `MG…`) + the API-key trio; inert until set. Never throws — an alert failure (incl. opt-out `21610`) can't break the login/disable. Audited `user.sms_alert_sent` (kind only) |
 | `POST /auth/logout` · `/auth/logout-all` | End current / all sessions |
 | `POST /auth/password-reset/request` · `/auth/password-reset/confirm` | Forgot-password flow |
-| `GET/PATCH /api/me`, `POST /api/me/change-email` · `/change-email/confirm`, `POST /api/me/password`, `DELETE /api/me`, `GET /api/me/export` | Profile, email/password change, soft-delete, data export. `change-email` takes `{newEmail, currentPassword?}`: a user with a password credential must send the current password (missing → 422, wrong → 401); an OAuth-only user sends none. `confirm` (the link in the mail to the new address) swaps the address, revokes other sessions, and sends a best-effort notice to the previous address. `DELETE /api/me` returns 409 `{reason:'active_subscription', orgs}` while the user has a live personal subscription or solely owns an org with one |
+| `GET/PATCH /api/me`, `POST /api/me/change-email` · `/change-email/confirm`, `POST /api/me/password`, `DELETE /api/me`, `GET /api/me/export` | Profile, email/password change, soft-delete, data export. `GET /api/me` returns `user.unitSystem` (`'imperial'`/`'metric'`, or `null` = never chosen, default imperial); `PATCH /api/me` takes `{displayName?, unitSystem?}` with a strict body (unknown keys or a non-enum value → 422). The SPA reconciles it with the browser's `gb_unit_system` on session load (`src/services/unitPreferenceSync.ts`). `change-email` takes `{newEmail, currentPassword?}`: a user with a password credential must send the current password (missing → 422, wrong → 401); an OAuth-only user sends none. `confirm` (the link in the mail to the new address) swaps the address, revokes other sessions, and sends a best-effort notice to the previous address. `DELETE /api/me` returns 409 `{reason:'active_subscription', orgs}` while the user has a live personal subscription or solely owns an org with one |
 | `GET/POST /api/orgs`, `GET/PATCH/DELETE /api/orgs/:id`, `*/logo`, `*/invitations[...]`, `*/members/:uid`, `*/transfer`, `/api/orgs/invitations/accept`, `GET /api/orgs/invitations/pending[?token=]` | Org lifecycle, branding, membership, invitations, transfer. `DELETE /api/orgs/:id` returns 409 `{reason:'active_subscription'}` while the org has a live subscription. Only an owner may grant the `admin` role (403 otherwise). `invitations/pending?token=` filters to that invitation |
 | `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/:id`, `*/transfer`, `*/working-state` | Project CRUD + workspace transfer + working-state sync (If-Match). Changing a published feed's slug, or deleting it without `?unpublish=1`, returns 409 `{reason:'published', canonicalSlug}`. Delete cancels pending scheduled publishes and revokes draft links |
 | `POST/GET /api/projects/:id/snapshots`, `*/snapshots/:sid/state`, `*/restore`, `DELETE *` | Snapshots (list/create/fetch/restore/delete) |
@@ -756,6 +757,11 @@ staging only, for rehearsal; it is not on `main` or prod yet. Later the same day
 That branch has since shipped to prod. As of 2026-10-05 staging runs
 `fix/route-visibility-hide-all` @ `872c687` (pre-rebase hash of the same fix).
 Since 2026-10-06 staging runs `feat/self-hosted-county-lookup` (see Production, above).
+Since **2026-10-09** staging runs `feature/units-preference-sync` (account-level
+display units, #76 follow-up; version `050e127c`), and **staging D1 is migrated
+through 0033** (`0033_user_unit_system`, applied 2026-10-09; pre-migration
+time-travel bookmark `0000344a-00000000-000050ff-58b93d0615aaf4f49a523472169ecd63`).
+**Prod D1 is still at 0032**: apply 0033 to prod before that branch merges.
 
 **Open catalog — the `public/catalog.json` hack is obsolete (issue #47, branch
 `feat/catalog-endpoint`).** `/catalog.json` is now a **dynamic worker route** on

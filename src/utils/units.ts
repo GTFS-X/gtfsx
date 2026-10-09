@@ -207,6 +207,19 @@ export function loadUnitSystem(): UnitSystem {
   }
 }
 
+/** The choice explicitly stored in this browser, or null if none was ever
+ *  made (unlike loadUnitSystem, which falls back to the default). Drives the
+ *  one-time push of a pre-sign-in choice up to the account. */
+export function readStoredUnitSystem(): UnitSystem | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(UNIT_SYSTEM_STORAGE_KEY);
+    return isUnitSystem(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
 export function persistUnitSystem(system: UnitSystem): void {
   try {
     if (typeof window === 'undefined') return;
