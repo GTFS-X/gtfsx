@@ -350,8 +350,8 @@ Design rationale is preserved in the decisions appendix of the archived
   step; stripped from GTFS export by `stripUIFields`). The Shapes-tab readout uses
   it: "≈ 41 mins @ 10 mph". No gating, worker or migration change.
 - **Display-units preference (#76, PR #77) — LIVE 2026-10-09.** Imperial
-  (default) / metric toggle in Settings > Feature settings, the account menu and
-  Account settings. Per-browser only: `localStorage` key `gb_unit_system`
+  (default) / metric toggle in Settings > Feature settings and
+  Account settings (not in the profile menu). Per-browser only: `localStorage` key `gb_unit_system`
   (`src/store/preferencesSlice.ts`), not a feed key, so it never dirties the feed
   or enters undo. Every user-facing distance/speed readout goes through
   `src/utils/units.ts`; stored GTFS data and calculations are unchanged. No
