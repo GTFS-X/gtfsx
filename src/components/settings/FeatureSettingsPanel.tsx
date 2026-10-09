@@ -101,14 +101,16 @@ export function FeatureSettingsPanel() {
 
   return (
     <div className="space-y-4">
-      {/* Per-browser display preference (issue #76), not a feed setting. */}
+      {/* Per-user display preference (issue #76), not a feed setting: cached in
+          this browser, and saved to the account when signed in. */}
       <div className="rounded-lg border border-sand bg-white p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <span className="font-semibold text-dark-brown">Units</span>
             <p className="mt-1 text-xs text-warm-gray">
-              How distances and speeds are shown (ft / mi / mph or m / km / km/h). Saved in this
-              browser for every feed; doesn&rsquo;t change your data or the GTFS you export.
+              How distances and speeds are shown (ft / mi / mph or m / km / km/h). Applies to every
+              feed and follows your account when you&rsquo;re signed in; doesn&rsquo;t change your
+              data or the GTFS you export.
             </p>
           </div>
           <UnitsToggle />

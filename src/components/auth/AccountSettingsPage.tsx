@@ -180,7 +180,7 @@ function PreferencesSection() {
     <div>
       <SectionHeader
         title="Units"
-        description="How distances and speeds are shown in the editor. Saved in this browser; your feed data is unchanged."
+        description="How distances and speeds are shown in the editor. Saved to your account, so it follows you to other devices; your feed data is unchanged."
       />
       <UnitsToggle />
     </div>

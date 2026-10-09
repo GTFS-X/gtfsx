@@ -47,9 +47,33 @@ const emailSchema = z.string().trim().toLowerCase().email();
 const passwordSchema = z.string().min(10).max(256);
 const displayNameSchema = z.string().trim().min(1).max(120);
 
-const patchMeSchema = z.object({
-  displayName: displayNameSchema.optional(),
-});
+// Display-units preference (issue #76). Display-only; NULL in D1 = never chosen
+// (clients default to imperial). Strict enum: anything else is a 400.
+const unitSystemSchema = z.enum(['imperial', 'metric']);
+type UnitSystem = z.infer<typeof unitSystemSchema>;
+
+const patchMeSchema = z
+  .object({
+    displayName: displayNameSchema.optional(),
+    unitSystem: unitSystemSchema.optional(),
+  })
+  .strict();
+
+// Read user.unit_system (migration 0033) for GET /me. Kept out of the session
+// loader on purpose: if a deploy ever lands before the migration, only this
+// field degrades to null instead of every authenticated request failing.
+async function readUnitSystem(env: AppContext['Bindings'], userId: string): Promise<UnitSystem | null> {
+  try {
+    const row = await env.DB.prepare(`SELECT unit_system FROM user WHERE id = ?`)
+      .bind(userId)
+      .first<{ unit_system: string | null }>();
+    const parsed = unitSystemSchema.safeParse(row?.unit_system);
+    return parsed.success ? parsed.data : null;
+  } catch (err) {
+    if (err instanceof Error && /no such column/i.test(err.message)) return null;
+    throw err;
+  }
+}
 
 const changeEmailSchema = z.object({
   newEmail: emailSchema,
@@ -150,6 +174,7 @@ apiRouter.get('/me', requireAuth, async (c) => {
   const session = c.var.session;
   const binding = session ? await readImpersonationBinding(c.env, session.id) : null;
   const impersonating = !!binding && binding.targetUserId === user.id;
+  const unitSystem = await readUnitSystem(c.env, user.id);
   return c.json({
     user: {
       id: user.id,
@@ -162,6 +187,7 @@ apiRouter.get('/me', requireAuth, async (c) => {
       trialUsed,
       hasPassword: !!passwordRow,
       impersonating,
+      unitSystem,
     },
     usage: { user: usage },
   });
@@ -211,6 +237,14 @@ apiRouter.patch('/me', requireAuth, async (c) => {
     });
   }
 
+  if (body.unitSystem !== undefined) {
+    // Preference only: no audit row (it is not a security- or billing-relevant
+    // change) and updated_at is left alone so it keeps meaning "profile edit".
+    await c.env.DB.prepare(`UPDATE user SET unit_system = ? WHERE id = ?`)
+      .bind(body.unitSystem, user.id)
+      .run();
+  }
+
   const row = await c.env.DB.prepare(
     `SELECT id, email, display_name, status, staff FROM user WHERE id = ?`,
   )
@@ -225,6 +259,7 @@ apiRouter.patch('/me', requireAuth, async (c) => {
       displayName: row.display_name,
       status: row.status,
       staff: row.staff === 1,
+      unitSystem: await readUnitSystem(c.env, user.id),
     },
   });
 });

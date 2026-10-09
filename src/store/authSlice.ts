@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 import { me as fetchMe, type AuthedUser } from '../services/authApi';
 import { readDevAuth, installDevSessionCookie } from '../dev/devAuth';
 import type { OrgsSlice } from './orgsSlice';
+import type { PreferencesSlice } from './preferencesSlice';
 
 export interface AuthSlice {
   currentUser: AuthedUser | null;
@@ -17,7 +18,7 @@ export interface AuthSlice {
 // types honest without introducing a circular import at runtime (orgsSlice
 // doesn't import anything from authSlice).
 export const createAuthSlice: StateCreator<
-  AuthSlice & OrgsSlice,
+  AuthSlice & OrgsSlice & PreferencesSlice,
   [['zustand/immer', never]],
   [],
   AuthSlice
@@ -63,6 +64,8 @@ export const createAuthSlice: StateCreator<
       // Fetch the user's org memberships so the workspace switcher is
       // populated before the user opens it.
       get().loadOrgs().catch(() => {});
+      // Account-level display units (issue #76). Never throws.
+      void get().syncUnitSystemFromAccount(user);
     } catch {
       set((state) => {
         state.currentUser = null;
@@ -86,6 +89,7 @@ export const createAuthSlice: StateCreator<
     });
     if (user && user.id !== prevId) {
       get().loadOrgs().catch(() => {});
+      void get().syncUnitSystemFromAccount(user);
     }
   },
 

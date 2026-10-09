@@ -30,6 +30,12 @@ export interface AuthedUser {
    * binding (GET /api/me). Undefined on login/signup responses.
    */
   impersonating?: boolean;
+  /**
+   * Account-level display-units preference (issue #76; GET/PATCH /api/me).
+   * null = never chosen (default imperial). Undefined on login/signup
+   * responses, which don't carry it; the client then fetches /api/me.
+   */
+  unitSystem?: 'imperial' | 'metric' | null;
 }
 
 export interface MeResponse {
@@ -99,6 +105,10 @@ export function logoutAll(): Promise<void> {
 
 export function me(): Promise<MeResponse> {
   return request<MeResponse>('/api/me');
+}
+
+export function updateUnitSystem(unitSystem: 'imperial' | 'metric'): Promise<{ user: AuthedUser }> {
+  return request<{ user: AuthedUser }>('/api/me', { method: 'PATCH', body: { unitSystem } });
 }
 
 export function updateProfile(input: { displayName?: string }): Promise<{ user: AuthedUser }> {
