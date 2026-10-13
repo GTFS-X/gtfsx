@@ -162,7 +162,7 @@
       "id": "access-isochrones",
       "name": "Transit access isochrones",
       "category": "panel",
-      "purpose": "Drop a pin and see where a rider can reach on your network in 15/30/45 minutes (walk + wait + in-vehicle), with population, jobs, and equity populations in each contour.",
+      "purpose": "Drop a pin and see where a rider can reach on your network in 15/30/45 minutes (walk + wait + in-vehicle), with population, resident workers, and equity populations in each contour.",
       "whenToUse": "Showing schedule-based travel-time reach from a point.",
       "clickPath": "Left rail → Access, then drop a pin on the map.",
       "deepLink": { "sidebarSection": "access-isochrones" },
