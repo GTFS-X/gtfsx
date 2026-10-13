@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Papa from 'papaparse';
 import { useStore } from '../../store';
@@ -12,7 +12,7 @@ import { SignInRequiredLink } from '../billing/SignInRequired';
 import { planHasFeature, cheapestPlanFor, planDisplayName } from '../billing/planConfig';
 import { downloadBlob } from '../../services/gtfsExport';
 import { fetchServiceAreaBlockGroups } from './serviceAreaCensus';
-import { beginAnalysis } from './analysisEpoch';
+import { beginAnalysis, useFeedKey } from './analysisEpoch';
 import { ACS_YEAR } from '../../generated/acsVintage';
 import type { CoverageData } from '../../store/coverageSlice';
 import {
@@ -234,6 +234,10 @@ export function CoveragePanel() {
   // Non-blocking notice when the walkshed run fell back to the straight-line
   // buffer (API error / over the request cap). Cleared on each analysis.
   const [walkshedNotice, setWalkshedNotice] = useState<string | null>(null);
+  // The notice describes the previous feed's run; drop it when the feed
+  // changes (the store-held result and error are cleared by the load itself).
+  const feedKey = useFeedKey();
+  useEffect(() => { setWalkshedNotice(null); }, [feedKey]);
 
   const handleAnalyze = useCallback(async () => {
     if (stops.length === 0) return;

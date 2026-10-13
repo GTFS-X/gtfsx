@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { immerWithHistory } from './historyMiddleware';
-import { bindHistory } from './history';
+import { bindHistory, onFeedLoad } from './history';
 import { createAgencySlice, type AgencySlice } from './agencySlice';
 import { createCalendarSlice, type CalendarSlice } from './calendarSlice';
 import { createRouteSlice, type RouteSlice } from './routeSlice';
@@ -108,6 +108,26 @@ bindHistory({
   // History only ever applies a complete, patched state with replace=true.
   setState: (next, replace) =>
     useStore.setState(next as unknown as AppStore, replace),
+});
+
+// A new feed is going into the store: bump the feed-load counter and drop every
+// analysis result, error and in-flight spinner that belonged to the outgoing
+// feed. The analysis guard (analysisEpoch.ts) keys on feedLoadSeq, so a run
+// still in flight for the old feed is dropped when it lands (C5-09). Done here,
+// not in resetEditorState, because not every load path calls that reset.
+onFeedLoad(() => {
+  useStore.setState((s) => {
+    s.feedLoadSeq += 1;
+    s.coverageData = null;
+    s.coverageError = null;
+    s.isFetchingCoverage = false;
+    s.accessResult = null;
+    s.accessError = null;
+    s.accessRunning = false;
+    s.walkshedProfiles = null;
+    s.walkshedProfileError = null;
+    s.isProfilingWalksheds = false;
+  });
 });
 
 // Expose store and test runner for testing/debugging

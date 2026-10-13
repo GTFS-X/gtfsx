@@ -4,7 +4,7 @@ import { useVisibleFeed } from '../../hooks/useVisibleFeed';
 import { RouteScopeNote } from '../ui/RouteScopeNote';
 import { useStore } from '../../store';
 import { fetchServiceAreaBlockGroups } from '../coverage/serviceAreaCensus';
-import { beginAnalysis, bumpAnalysisEpoch } from '../coverage/analysisEpoch';
+import { beginAnalysis, bumpAnalysisEpoch, useFeedKey } from '../coverage/analysisEpoch';
 import { TITLE_VI_METHOD_NOTE, titleVIBasisLabel } from './titleVIText';
 import { calculateTitleVI, type TitleVIResult, type TitleVIGroup } from '../../services/titleVI';
 
@@ -71,16 +71,18 @@ export function TitleVIPanel() {
   const [result, setResult] = useState<TitleVIResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const projectId = useStore((s) => s.projectId);
+  const feedKey = useFeedKey();
 
-  // A different feed: drop the previous feed's result and any run still in
-  // flight for it (C5-09, same guard as Coverage / Access / Walkshed).
+  // A different feed (project switch, or any feed load/replace, including an
+  // anonymous replace-import that keeps the project id): drop the previous
+  // feed's result and any run still in flight for it (C5-09, same guard as
+  // Coverage / Access / Walkshed).
   useEffect(() => {
     bumpAnalysisEpoch('titlevi');
     setResult(null);
     setError(null);
     setLoading(false);
-  }, [projectId]);
+  }, [feedKey]);
 
   const handleAnalyze = useCallback(async () => {
     if (stops.length === 0) return;

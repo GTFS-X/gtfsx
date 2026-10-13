@@ -23,6 +23,14 @@ export interface ProjectSlice {
   // rather than create a duplicate (issue #47, docs/catalog-spec.md §7). Set
   // only for genuine MDB imports (never guessed); see setMdbSourceId.
   mdbSourceId: number | null;
+  /**
+   * Bumped every time a feed is loaded into the editor (import, replace-import,
+   * project open, snapshot apply, variant switch: every loadingFeed() path).
+   * Session-only, never persisted. An anonymous replace-import keeps the same
+   * projectId, so async analyses key on this as well to tell feeds apart
+   * (C5-09, components/coverage/analysisEpoch.ts).
+   */
+  feedLoadSeq: number;
   setProjectName: (name: string) => void;
   markDirty: () => void;
   /**
@@ -58,6 +66,7 @@ export const createProjectSlice: StateCreator<ProjectSlice, [['zustand/immer', n
   isDirty: false,
   licenseSpdx: null,
   mdbSourceId: null,
+  feedLoadSeq: 0,
   setProjectName: (name) => set((state) => {
     if (state.projectName === name) return;
     state.projectName = name;

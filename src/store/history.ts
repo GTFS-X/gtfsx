@@ -274,10 +274,22 @@ export function resetHistory(): void {
   syncUi();
 }
 
+// Called at the start of every loadingFeed(). The store wires this to bump its
+// feed-load counter (feedLoadSeq), the signal the analysis panels key on to
+// drop results computed for the outgoing feed (C5-09). Kept as a hook so this
+// module stays store-agnostic.
+let feedLoadListener: (() => void) | null = null;
+export function onFeedLoad(listener: (() => void) | null): void {
+  feedLoadListener = listener;
+}
+
 /** Suppress history while `fn` runs (a bulk feed load), then reset both stacks.
  *  The idiom for every "load a different feed into the store" path. */
 export function loadingFeed<T>(fn: () => T): T {
-  const result = runWithoutHistory(fn);
+  const result = runWithoutHistory(() => {
+    feedLoadListener?.();
+    return fn();
+  });
   resetHistory();
   return result;
 }

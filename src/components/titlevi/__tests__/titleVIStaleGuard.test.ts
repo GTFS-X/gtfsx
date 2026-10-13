@@ -35,9 +35,10 @@ describe('Title VI analysis guard', () => {
     expect(body).toMatch(/finally \{\s*if \(isCurrent\(\)\) setLoading\(false\);/);
   });
 
-  it('a feed switch clears the shown result and invalidates an in-flight run', () => {
+  it('a feed change (switch or same-project replace) clears the shown result and invalidates an in-flight run', () => {
     expect(src).toMatch(
-      /useEffect\(\(\) => \{\s*bumpAnalysisEpoch\('titlevi'\);\s*setResult\(null\);[\s\S]*?\}, \[projectId\]\);/,
+      /useEffect\(\(\) => \{\s*bumpAnalysisEpoch\('titlevi'\);\s*setResult\(null\);[\s\S]*?\}, \[feedKey\]\);/,
     );
+    // Rendered coverage of the replace-import case: coverage/__tests__/analysisFeedReplace.test.tsx.
   });
 });
