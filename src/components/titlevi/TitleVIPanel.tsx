@@ -48,7 +48,11 @@ function GroupColumn({ label, group, isMinority }: { label: string; group: Title
         {label}
       </p>
       <div>
-        <p className="font-heading font-bold text-lg text-dark-brown">{fmt(group.avgDailyTrips)}</p>
+        {/* An empty group has no average (the service returns 0 for it); show
+            n/a, matching the ratio, rather than a misleading 0. */}
+        <p className="font-heading font-bold text-lg text-dark-brown">
+          {group.count === 0 ? 'n/a' : fmt(group.avgDailyTrips)}
+        </p>
         <p className="text-[11px] text-warm-gray">avg. daily trips</p>
       </div>
       <div>
