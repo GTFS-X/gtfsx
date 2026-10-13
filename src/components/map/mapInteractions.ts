@@ -87,6 +87,22 @@ export function nextShapeEditSnapshot(
   return { shapeId, points: JSON.parse(JSON.stringify(points)) as ShapePoint[] };
 }
 
+/**
+ * True when the edit buffer's coordinates ([lon, lat] pairs) are exactly the
+ * shape's stored points. Every vertex drag is already committed to the store
+ * as it happens (draw.update), and Simplify commits its points before edit
+ * mode starts, so by Save time the store usually holds the edited geometry.
+ * Save must not rewrite it then: the rewrite records a no-op "reshape route"
+ * undo step on top of the real one (E1 follow-up).
+ */
+export function shapeMatchesCoords(points: ShapePoint[], coords: number[][]): boolean {
+  if (points.length !== coords.length) return false;
+  for (let i = 0; i < points.length; i++) {
+    if (points[i].shape_pt_lon !== coords[i][0] || points[i].shape_pt_lat !== coords[i][1]) return false;
+  }
+  return true;
+}
+
 export function primeShapeEditSnapshot(shapeId: string, points: ShapePoint[]): void {
   primedShapeEditSnapshot = { shapeId, points: JSON.parse(JSON.stringify(points)) as ShapePoint[] };
 }

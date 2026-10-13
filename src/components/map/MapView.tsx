@@ -52,6 +52,7 @@ import {
   isTextEntryTarget,
   nextShapeEditSnapshot,
   pointerHitsStop,
+  shapeMatchesCoords,
   type ShapeEditSnapshot,
 } from './mapInteractions';
 
@@ -472,7 +473,14 @@ export function MapView() {
       const all = drawRef.current.getAll();
       if (all.features.length > 0) {
         const feature = all.features[0];
-        if (feature.geometry.type === 'LineString') {
+        const stored = useStore.getState().shapes.find((s) => s.shape_id === currentEditingId);
+        // Only write when the buffer differs from the store: drags and Simplify
+        // are already committed (and recorded as their own undo step), so an
+        // unconditional rewrite here added a second, no-op undo step.
+        if (
+          feature.geometry.type === 'LineString' &&
+          !(stored && shapeMatchesCoords(stored.points, feature.geometry.coordinates))
+        ) {
           const coords = feature.geometry.coordinates;
           const points = coords.map((c: number[], i: number) => ({
             shape_pt_lat: c[1],
