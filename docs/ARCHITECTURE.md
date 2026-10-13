@@ -341,6 +341,14 @@ Design rationale is preserved in the decisions appendix of the archived
 
 ### Production — LIVE
 
+- **Undo/analysis-staleness fixes — LIVE 2026-10-13** (`dc706e9`, 5 commits).
+  Shape Simplify then Save is a single undo step (Save skips the write when the
+  draw buffer already equals the store). Coverage, Title VI and Access results are
+  cleared after a replace-import via a `feedLoadSeq` counter in `history.ts` and
+  the `analysisEpoch.ts` guard. Access Isochrones gate copy says "resident
+  workers" (`planConfig.ts`, assistant manifest and corpus). The Title VI
+  empty-group tile shows n/a. No worker, billing or migration change. Verified on
+  prod: bundle `index-CFInp5hz.js` to `index-Be1Hcnor.js`.
 - **Configurable average speed for run-time estimates — LIVE 2026-10-09.**
   "Average speed" field in the Generate trips drawer (default 20 mph, 3–80 mph,
   shown/typed in mph or km/h per the units preference) re-derives the end-to-end
@@ -756,6 +764,7 @@ staging only, for rehearsal; it is not on `main` or prod yet. Later the same day
 That branch has since shipped to prod. As of 2026-10-05 staging runs
 `fix/route-visibility-hide-all` @ `872c687` (pre-rebase hash of the same fix).
 Since 2026-10-06 staging runs `feat/self-hosted-county-lookup` (see Production, above).
+As of 2026-10-13 staging has been rehearsed with `fix/undo-and-analysis-staleness` (`dc706e9`), which is now identical to prod `main`.
 
 **Open catalog — the `public/catalog.json` hack is obsolete (issue #47, branch
 `feat/catalog-endpoint`).** `/catalog.json` is now a **dynamic worker route** on
