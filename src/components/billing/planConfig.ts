@@ -186,7 +186,7 @@ export const FEATURE_COPY: Record<FeatureKey, { title: string; description: stri
   },
   access_isochrones: {
     title: 'Transit access isochrones',
-    description: 'Drop a pin and see where a rider can reach on your network in 15 / 30 / 45 minutes (combining walk access, wait, and in-vehicle time), with the population, jobs, and equity populations inside each contour.',
+    description: 'Drop a pin and see where a rider can reach on your network in 15 / 30 / 45 minutes (combining walk access, wait, and in-vehicle time), with the population, resident workers, and equity populations inside each contour.',
   },
   assistant: {
     title: 'Ask GTFS·X',
