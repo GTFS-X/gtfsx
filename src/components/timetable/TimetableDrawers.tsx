@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { Drawer } from '../ui/Drawer';
 import { formatTimeShort, secondsToGtfsTime } from '../../utils/time';
-import { checkFrequencyDrawer, frequencyTimeLabel, headwayMinutesInput, parseHeadwayMinutes } from './timetableGridHelpers';
+import { checkFrequencyDrawer, frequencyTimeLabel, headwayMinutesInput, parseHeadwayMinutes, parseShiftMinutes } from './timetableGridHelpers';
 import type { GenerateValidation, TimetableGenMode } from '../../services/timetableGen';
 import { windowDepartureCount, type FrequencyWindow } from '../../services/frequencyExpansion';
 import { speedUnit, type UnitSystem } from '../../utils/units';
@@ -349,6 +349,104 @@ export function FrequencyDrawer({
       })}
       <button type="button" onClick={() => setWindows((ws) => [...ws, { ...DEFAULT_WINDOW }])}
         className="basis-full text-left text-[12.5px] font-heading font-bold text-teal hover:text-[#0d7a6f]">+ Add window</button>
+    </Drawer>
+  );
+}
+
+/* ---------- ⇆ Shift selected trips ---------- */
+
+/** What a candidate shift would do, computed by the orchestrator from the
+ *  live feed (`planShiftTrips` + `newBlockOverlaps`) as the planner types. */
+export interface ShiftPreview {
+  ok: boolean;
+  error?: string;
+  tripCount: number;
+  /** frequencies.txt windows that move with their template trips. */
+  windowCount: number;
+  /** Selected trips that carry a block_id. */
+  blockedTripCount: number;
+  /** Block overlaps the shift would CREATE (blocks are never reassigned). */
+  newOverlaps: { blockId: string; tripA: string; tripB: string }[];
+}
+
+const SHIFT_PRESETS = [-15, -10, -5, 5, 10, 15];
+const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)}`;
+
+export function ShiftDrawer({
+  ctx, getPreview, onApply, onCancel,
+}: {
+  /** e.g. "7 trips selected · Outbound". */
+  ctx: string;
+  getPreview: (deltaMin: number) => ShiftPreview;
+  onApply: (deltaMin: number) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState('+10');
+  const delta = parseShiftMinutes(text);
+  const preview: ShiftPreview | null = useMemo(() => (delta == null ? null : getPreview(delta)), [delta, getPreview]);
+  const canApply = !!preview?.ok;
+  const n = preview?.tripCount ?? 0;
+  const trips = `${n} trip${n === 1 ? '' : 's'}`;
+
+  let count: ReactNode;
+  if (delta == null) count = <span className="text-red-500">Enter whole minutes, e.g. +10 or -5.</span>;
+  else if (!preview?.ok) count = <span className="text-red-500">{preview?.error ?? '—'}</span>;
+  else {
+    const parts = [`Moves ${trips} ${delta > 0 ? 'later' : 'earlier'} by ${Math.abs(delta)} min`];
+    if (preview.windowCount > 0) parts.push(`${preview.windowCount} frequency window${preview.windowCount === 1 ? '' : 's'} move too`);
+    count = parts.join(' · ');
+  }
+
+  const overlapNote = preview?.ok && preview.newOverlaps.length > 0 ? (
+    <span className="basis-full text-[11.5px] text-red-600">
+      ⚠ Creates {preview.newOverlaps.length} block conflict{preview.newOverlaps.length === 1 ? '' : 's'}{' '}
+      ({preview.newOverlaps.slice(0, 2).map((o) => `block ${o.blockId}: ${o.tripA} ↔ ${o.tripB}`).join('; ')}
+      {preview.newOverlaps.length > 2 ? '; …' : ''}). Block assignments are kept as they are; fix them in the Blocks view (Quick Block, or drag a trip).
+    </span>
+  ) : preview?.ok && preview.blockedTripCount > 0 ? (
+    <span className="basis-full text-[11.5px] text-warm-gray">
+      {preview.blockedTripCount} of these trip{preview.blockedTripCount === 1 ? ' is' : 's are'} on a block. Block assignments are kept as they are; check layovers in the Blocks view.
+    </span>
+  ) : null;
+
+  return (
+    <Drawer
+      icon="⇆"
+      iconClassName="bg-teal-light text-teal"
+      title="Shift trips"
+      sub={`${ctx} — every arrival and departure moves by the same amount; run times stay intact.`}
+      count={count}
+      applyLabel={canApply && delta != null ? `Shift ${trips} ${signed(delta)} min` : 'Shift trips'}
+      canApply={canApply}
+      onApply={() => { if (delta != null) onApply(delta); }}
+      onCancel={onCancel}
+    >
+      <label htmlFor="shift-minutes">Shift by</label>
+      <input
+        id="shift-minutes"
+        autoFocus
+        className={`${TIN_NUM} w-[64px] ${delta == null ? 'border-red-400 focus:border-red-500' : ''}`}
+        inputMode="numeric"
+        value={text}
+        aria-invalid={delta == null}
+        title="Minutes: positive = later, negative = earlier"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && canApply && delta != null) onApply(delta); }}
+      />
+      <span>min</span>
+      {SHIFT_PRESETS.map((p) => (
+        <button
+          key={p}
+          type="button"
+          onClick={() => setText(p > 0 ? `+${p}` : String(p))}
+          className={`h-6 px-2 rounded border font-heading font-bold text-[11.5px] tabular-nums ${
+            delta === p ? 'bg-coral border-coral text-white' : 'bg-white border-sand text-warm-gray hover:border-coral hover:text-[#d4603a]'
+          }`}
+        >
+          {signed(p)}
+        </button>
+      ))}
+      {overlapNote}
     </Drawer>
   );
 }

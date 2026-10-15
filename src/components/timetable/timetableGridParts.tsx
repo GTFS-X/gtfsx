@@ -205,18 +205,53 @@ interface TripCellProps {
   headway: string | null; // e.g. "+30m", or null when hints are off
   irregular: boolean;
   onRename: (id: string) => void;
+  /** Ticked for a bulk action (Shift trips…). */
+  selected: boolean;
+  /** Checkbox click; `shiftKey` extends from the pane's last-clicked row. */
+  onToggleSelect: (shiftKey: boolean) => void;
 }
 
-export function TripCell({ tripId, isDuplicate, width, headway, irregular, onRename }: TripCellProps) {
+/** Trip-row / header select checkbox. Controlled; the click (not change) event
+ *  carries shiftKey for range select, and a shift-mousedown is swallowed so
+ *  the browser doesn't drag-select the grid's text. */
+export function SelectCheckbox({
+  checked, indeterminate = false, label, onToggle,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  label: string;
+  onToggle: (shiftKey: boolean) => void;
+}) {
+  return (
+    <input
+      type="checkbox"
+      ref={(el) => { if (el) el.indeterminate = indeterminate; }}
+      checked={checked}
+      readOnly
+      aria-label={label}
+      title={label}
+      onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
+      onClick={(e) => onToggle(e.shiftKey)}
+      className="shrink-0 w-[13px] h-[13px] accent-coral cursor-pointer"
+    />
+  );
+}
+
+export function TripCell({ tripId, isDuplicate, width, headway, irregular, onRename, selected, onToggleSelect }: TripCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(tripId);
   return (
     <th
       scope="row"
-      className="sticky left-0 z-[2] bg-white border-r border-sand border-b border-[#F5F0EB] px-2 whitespace-nowrap overflow-hidden text-left"
+      className={`sticky left-0 z-[2] ${selected ? 'bg-coral-light' : 'bg-white'} border-r border-sand border-b border-[#F5F0EB] px-2 whitespace-nowrap overflow-hidden text-left`}
       style={{ width, maxWidth: width }}
     >
       <span className="inline-flex items-center gap-1.5">
+        <SelectCheckbox
+          checked={selected}
+          label={`Select ${tripId} (shift-click to select a range)`}
+          onToggle={onToggleSelect}
+        />
         {editing ? (
           <input
             autoFocus

@@ -765,6 +765,9 @@ That branch has since shipped to prod. As of 2026-10-05 staging runs
 `fix/route-visibility-hide-all` @ `872c687` (pre-rebase hash of the same fix).
 Since 2026-10-06 staging runs `feat/self-hosted-county-lookup` (see Production, above).
 As of 2026-10-13 staging has been rehearsed with `fix/undo-and-analysis-staleness` (`dc706e9`), which is now identical to prod `main`.
+Since **2026-10-15** staging runs `feature/shift-trips` (`2eb4ec4`, version
+`ebf2f52d`, bundle `index-Bdz87ihd.js`): the timetable "Shift trips…" multi-select
+bulk shift. Frontend only; no worker, billing or migration change. Not on prod.
 
 **Open catalog — the `public/catalog.json` hack is obsolete (issue #47, branch
 `feat/catalog-endpoint`).** `/catalog.json` is now a **dynamic worker route** on

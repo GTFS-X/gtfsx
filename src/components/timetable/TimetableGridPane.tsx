@@ -3,10 +3,10 @@ import { formatTimeShort, gtfsTimeToSeconds } from '../../utils/time';
 import type { OrderedStop } from './useTimetableData';
 import type { Trip, StopTime } from '../../types/gtfs';
 import { expandFrequencyTrip, type FrequencyWindow, type VirtualTrip } from '../../services/frequencyExpansion';
-import { ActionCell, ColResizer, ColumnMenu, HeadwayToggle, RowMenu, TimeCell, TripCell } from './timetableGridParts';
+import { ActionCell, ColResizer, ColumnMenu, HeadwayToggle, RowMenu, SelectCheckbox, TimeCell, TripCell } from './timetableGridParts';
 import {
   computeRowErrors, rowTimeValue, actColWidth, defaultColWidth,
-  COL_MIN, COL_MAX, TRIP_COL_MIN, TRIP_COL_DEFAULT,
+  COL_MIN, COL_MAX, TRIP_COL_MIN, TRIP_COL_DEFAULT, tripSelectionRange,
   type RowActionStyle,
 } from './timetableGridHelpers';
 
@@ -41,6 +41,11 @@ interface PaneProps {
   onTimepoint: (stopId: string, seq: number, on: boolean) => void;
   onArrDep: (stopId: string, on: boolean) => void;
   onContinuous: (stopId: string, value: 'default' | 'none' | 'phone') => void;
+  /** Trips ticked for a bulk action (shared across both panes; ids are unique). */
+  selectedTripIds: ReadonlySet<string>;
+  /** Set `ids` to `selected` — a single row, a shift-click range, or the
+   *  header's select-all-in-this-pane. */
+  onSelectTrips: (ids: string[], selected: boolean) => void;
 }
 
 /** One timetable pane — the spreadsheet grid: sticky Trip column, sticky actions
@@ -52,7 +57,7 @@ export function TimetableGridPane(props: PaneProps) {
     orderedStops, routeTrips, allTripIds, timepointSeqs, continuousOverrides, findStopTime,
     frequenciesByTrip, arrDepStops, rowActions, showHeadways, showColumnMenu, showContinuous, scrollRef,
     onCell, onSkip, onRestore, onRename, onRowAction, onAddTrip, onToggleRowActions, onToggleHeadways,
-    onTimepoint, onArrDep, onContinuous,
+    onTimepoint, onArrDep, onContinuous, selectedTripIds, onSelectTrips,
   } = props;
 
   const arrDepSet = useMemo(() => new Set(arrDepStops), [arrDepStops]);
@@ -140,6 +145,22 @@ export function TimetableGridPane(props: PaneProps) {
     return rows.sort((a, b) => a.startSec - b.startSec);
   }, [routeTrips, frequenciesByTrip, orderedStops, findStopTime]);
 
+  // Selection: real trips only, in the order the rows are displayed, so a
+  // shift-click range matches what the planner sees between the two rows.
+  const displayedTripIds = useMemo(
+    () => mergedRows.flatMap((r) => (r.kind === 'real' ? [r.trip.trip_id] : [])),
+    [mergedRows],
+  );
+  const selectAnchor = useRef<string | null>(null);
+  const toggleRow = (tripId: string, shiftKey: boolean) => {
+    const ids = tripSelectionRange(displayedTripIds, selectAnchor.current, tripId, shiftKey);
+    if (ids.length === 0) return;
+    onSelectTrips(ids, !selectedTripIds.has(tripId));
+    selectAnchor.current = tripId;
+  };
+  const paneSelected = displayedTripIds.filter((id) => selectedTripIds.has(id)).length;
+  const allSelected = displayedTripIds.length > 0 && paneSelected === displayedTripIds.length;
+
   const canApplyAll = routeTrips.length > 1;
   const canEstimate = orderedStops.length >= 2;
 
@@ -159,6 +180,12 @@ export function TimetableGridPane(props: PaneProps) {
           <tr>
             <th className="sticky top-0 left-0 z-[5] bg-white border-b-2 border-sand border-r border-sand px-2 py-2 text-left align-middle overflow-visible" style={{ width: tripW }}>
               <span className="relative inline-flex items-center gap-1.5 font-heading font-bold text-[11.5px] text-brown">
+                <SelectCheckbox
+                  checked={allSelected}
+                  indeterminate={paneSelected > 0 && !allSelected}
+                  label={allSelected ? 'Deselect all trips in this pane' : 'Select all trips in this pane'}
+                  onToggle={() => { onSelectTrips(displayedTripIds, !allSelected); selectAnchor.current = null; }}
+                />
                 Trip
                 <HeadwayToggle on={showHeadways} onToggle={onToggleHeadways} />
               </span>
@@ -274,6 +301,8 @@ export function TimetableGridPane(props: PaneProps) {
                   headway={showHeadways && delta != null ? `${delta > 0 ? '+' : ''}${delta}m` : null}
                   irregular={hwCommon != null && delta != null && delta !== hwCommon}
                   onRename={(id) => onRename(trip.trip_id, id)}
+                  selected={selectedTripIds.has(trip.trip_id)}
+                  onToggleSelect={(shiftKey) => toggleRow(trip.trip_id, shiftKey)}
                 />
                 <ActionCell
                   mode={rowActions}
