@@ -39,7 +39,7 @@
     }
   },
   "datePublished": "2026-05-01",
-  "dateModified": "2026-06-08",
+  "dateModified": "2026-10-15",
   "mainEntityOfPage": {
     "@type": "WebPage",
     "@id": "https://www.gtfsx.com/docs/timetables-and-trips/"
@@ -95,6 +95,16 @@
         <li><strong>First stop time</strong> — type into the leftmost cell. Everything downstream interpolates from this.</li>
       </ul>
       <p>To create a series of trips at a fixed headway, fill in one trip, then click <strong>Repeat last trip…</strong> in the Trip tools row. Enter a headway (15 min, 30 min, etc.) and a count; the editor spawns N copies of the trip, each offset by the headway. Much faster than typing a full weekday schedule by hand.</p>
+
+      <h2 id="shift-trips">Shifting several trips at once</h2>
+      <p>To move a group of trips earlier or later, tick them and use <strong>Shift trips…</strong>. Every row has a checkbox beside its trip ID. <strong>Shift-click</strong> a second checkbox to tick every trip between the two, and the checkbox in the <strong>Trip</strong> column header selects every trip in that pane. In <strong>Split View</strong> each direction has its own header checkbox, so &ldquo;shift all the inbound trips by 10 minutes&rdquo; is one tick and one click.</p>
+      <p>With trips ticked, the Trip tools row shows <strong>Shift N trips…</strong>. Enter the minutes (positive is later, negative is earlier, or use the &minus;15&hellip;+15 presets) and apply. Every arrival and departure of each selected trip moves by the same amount, so run times, dwells and the spacing between the selected trips are unchanged. Blank (interpolated) stops stay blank. The whole shift is <strong>one Undo</strong>, from the toast or with Ctrl/Cmd+Z.</p>
+      <ul>
+        <li><strong>After midnight.</strong> Times past midnight use GTFS's over-24-hour form: 23:55 shifted +10 becomes <code>24:05:00</code>, shown as 00:05 +1d.</li>
+        <li><strong>Before midnight is refused.</strong> A shift that would put any selected time before 00:00 is rejected and names the trips, instead of squashing them. Shift by less, or untick those trips.</li>
+        <li><strong>Frequency-based trips.</strong> Shifting a <a href="#frequencies">frequency template</a> also moves its <code>frequencies.txt</code> windows, the same way Duplicate and Repeat do, so the departures it builds out move too.</li>
+        <li><strong>Blocks.</strong> Shifting never changes a trip's <code>block_id</code>. If the shift would make two trips on the same vehicle overlap, the drawer says which block and trips before you apply, and the <a href="/docs/service-planning/">Blocks view</a> flags the overlap in red. Re-run <strong>Quick Block</strong> or drag the trip to another vehicle. This is how you test the classic move: offset one direction by a few minutes and see whether the day still blocks with fewer buses.</li>
+      </ul>
 
       <h2 id="interpolation">Interpolation</h2>
       <p>Once the first stop time is set, open the trip's <strong>actions menu</strong> (the wrench button beside the trip ID) and choose <strong>Interpolate stop times</strong> (⟿) to auto-fill intermediate stop times. The editor computes the segment lengths from the route shape, divides by an assumed average speed, and fills the cells.</p>

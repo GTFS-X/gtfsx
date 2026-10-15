@@ -9,7 +9,7 @@ import type { ServiceOption } from '../../services/serviceIds';
 import { Segmented } from '../ui/Segmented';
 import { useDismiss } from './timetableGridHelpers';
 
-export type ToolId = 'generate' | 'runtime' | 'repeat' | 'removeall';
+export type ToolId = 'generate' | 'runtime' | 'repeat' | 'shift' | 'removeall';
 
 interface ToolbarProps {
   route: Route;
@@ -40,6 +40,9 @@ interface ToolbarProps {
   onSwapDirections: () => void;
   onEditStops: () => void;
   onTool: (id: ToolId) => void;
+  /** Trips ticked in the grid (either pane) — drives "Shift N trips…". */
+  selectedCount: number;
+  onClearSelection: () => void;
 }
 
 /** Cell-semantics popover behind the "?" in the trip count — replaces the
@@ -201,7 +204,7 @@ export function TimetableToolbar(props: ToolbarProps) {
     route, routes, shapes, services, activeServiceId, patterns, effectiveShapeId,
     directionId, tripCount, departureNote, removeAllCount, oppositeOpen,
     onSelectRoute, onSelectService, onSelectPattern, onSelectDirection, onSetOpposite,
-    canSwapDirections, onSwapDirections, onEditStops, onTool,
+    canSwapDirections, onSwapDirections, onEditStops, onTool, selectedCount, onClearSelection,
   } = props;
 
   return (
@@ -288,6 +291,27 @@ export function TimetableToolbar(props: ToolbarProps) {
         <Button variant="secondary" icon="↻" title="Add copies of the last trip at a set interval" onClick={() => onTool('repeat')} disabled={tripCount === 0}>
           Repeat last trip…
         </Button>
+        <Button
+          variant="secondary"
+          icon="⇆"
+          title={selectedCount > 0
+            ? 'Move every stop time of the ticked trips earlier or later'
+            : 'Tick trips in the grid (shift-click for a range, or the header box for the whole pane), then shift them'}
+          onClick={() => onTool('shift')}
+          disabled={selectedCount === 0}
+        >
+          {selectedCount > 0 ? `Shift ${selectedCount} trip${selectedCount === 1 ? '' : 's'}…` : 'Shift trips…'}
+        </Button>
+        {selectedCount > 0 && (
+          <button
+            type="button"
+            onClick={onClearSelection}
+            title="Clear the trip selection"
+            className="shrink-0 font-heading font-bold text-[11.5px] text-warm-gray underline underline-offset-2 hover:text-[#d4603a] whitespace-nowrap"
+          >
+            Clear
+          </button>
+        )}
         {/* Danger action sits with the other trip tools (owner reference), not
             pushed to the far right — a small gap sets it apart. */}
         <span className="w-3 shrink-0" aria-hidden="true" />

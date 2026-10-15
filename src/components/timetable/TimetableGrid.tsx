@@ -25,13 +25,13 @@ import { type PaneScope, useTimetableData } from './useTimetableData';
 import {
   planCascade, nextCompanionShapeId, generateExistingIds,
   clampSplitRatio, splitResizable, splitRatioFromPointer, SPLIT_MIN_PANE_PX, SPLIT_DEFAULT_RATIO,
-  swapRouteDirections, cellEditUpdate, cascadePrevTime, lastTimedTrip, type CellField,
+  swapRouteDirections, cellEditUpdate, cascadePrevTime, lastTimedTrip, applyTripSelection, type CellField,
 } from './timetableGridHelpers';
 import { TimetableGridPane } from './TimetableGridPane';
-import { copyTripsToService, repeatTrip, withContinuousOverride } from './timetableBulkOps';
+import { copyTripsToService, repeatTrip, withContinuousOverride, planShiftTrips, newBlockOverlaps, shiftTrips } from './timetableBulkOps';
 import { SplitDivider } from './timetableGridParts';
 import { TimetableToolbar, type ToolId } from './TimetableToolbar';
-import { GenerateDrawer, RuntimeDrawer, RepeatDrawer, FrequencyDrawer, type GenerateInput } from './TimetableDrawers';
+import { GenerateDrawer, RuntimeDrawer, RepeatDrawer, FrequencyDrawer, ShiftDrawer, type GenerateInput, type ShiftPreview } from './TimetableDrawers';
 import { FlexTimetablePanel } from './FlexTimetablePanel';
 import { findFlexZoneForRoute, isFlexRoute } from './flexRouteMatch';
 import type { ShapePattern } from '../ui/shapePatterns';
@@ -190,7 +190,7 @@ export function TimetableGrid() {
   }, [selectedRouteId, patterns.length, trips, activeServiceId, oppDir, companionPattern, oppData.routeTrips.length]);
 
   /* ---------- drawer / modal / toast / cascade state ---------- */
-  const [drawer, setDrawer] = useState<'generate' | 'runtime' | 'repeat' | 'frequency' | null>(null);
+  const [drawer, setDrawer] = useState<'generate' | 'runtime' | 'repeat' | 'frequency' | 'shift' | null>(null);
   const [freqEditTripId, setFreqEditTripId] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -312,6 +312,31 @@ export function TimetableGrid() {
 
   const paneData = (id: PaneId) => (id === 'opp' ? oppData : mainData);
   const paneScopeOf = (id: PaneId) => (id === 'opp' ? companionScope : mainScope);
+
+  /* ---------- trip selection (Shift trips…) ---------- */
+  // Ticked trip ids, shared by both panes (trip ids are feed-unique). The
+  // EFFECTIVE selection is intersected with the trips currently on screen, so
+  // closing the split, switching direction or deleting a trip can never leave
+  // an invisible trip quietly selected for a bulk shift.
+  const [selectedTrips, setSelectedTrips] = useState<Set<string>>(() => new Set());
+  useEffect(() => { setSelectedTrips(new Set()); }, [selectedRouteId, activeServiceId]);
+  const visibleTripIds = useMemo(() => {
+    const ids = new Set(routeTrips.map((t) => t.trip_id));
+    if (oppositeOpen && hasOpposite) for (const t of oppData.routeTrips) ids.add(t.trip_id);
+    return ids;
+  }, [routeTrips, oppositeOpen, hasOpposite, oppData.routeTrips]);
+  const effectiveSelection = useMemo(
+    () => new Set([...selectedTrips].filter((id) => visibleTripIds.has(id))),
+    [selectedTrips, visibleTripIds],
+  );
+  const onSelectTrips = useCallback((ids: string[], selected: boolean) => {
+    setSelectedTrips((prev) => applyTripSelection(prev, ids, selected));
+  }, []);
+  // Nothing left to shift (selection cleared or scrolled out of scope): close
+  // the drawer rather than leave it pointing at zero trips.
+  useEffect(() => {
+    if (drawer === 'shift' && effectiveSelection.size === 0) setDrawer(null);
+  }, [drawer, effectiveSelection.size]);
 
   /* ---------- cell + row mutations ---------- */
   const onCell = useCallback((paneId: PaneId, tripId: string, seq: number, stopId: string, field: CommitField, normalized: string) => {
@@ -577,6 +602,38 @@ export function TimetableGrid() {
     }, 'repeat last trip');
   };
 
+  // Shift trips: preview on every keystroke from the live feed, then apply as
+  // one withUndo step (snapshot toast Undo + one history transaction). Block
+  // assignments are never touched; a shift that makes a block overlap is named
+  // in the drawer and the toast, and the Blocks Gantt (which derives from the
+  // same stop_times) re-flags it live.
+  const shiftPreview = useCallback((deltaMin: number): ShiftPreview => {
+    const st = useStore.getState();
+    const plan = planShiftTrips(st.stopTimes, st.frequencies, effectiveSelection, deltaMin, visibleTripIds);
+    const blockedTripCount = st.trips.filter((t) => t.block_id && effectiveSelection.has(t.trip_id)).length;
+    if (!plan.ok) return { ok: false, error: plan.error, tripCount: effectiveSelection.size, windowCount: 0, blockedTripCount, newOverlaps: [] };
+    const newOverlaps = blockedTripCount > 0 ? newBlockOverlaps(st.trips, st.frequencies, st.stopTimes, plan.stopTimes) : [];
+    return { ok: true, tripCount: plan.tripCount, windowCount: plan.windowCount, blockedTripCount, newOverlaps };
+    // Reads the store directly; trips/stopTimes/frequencies are deps so the
+    // drawer's memoized preview refreshes when the feed changes under it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveSelection, visibleTripIds, trips, stopTimes, frequencies]);
+
+  const applyShift = (deltaMin: number) => {
+    const ids = new Set(effectiveSelection);
+    const preview = shiftPreview(deltaMin);
+    if (!preview.ok) return;
+    setDrawer(null);
+    withUndo(() => {
+      const plan = shiftTrips(ids, deltaMin);
+      if (!plan.ok) return plan.error;
+      const n = plan.tripCount;
+      const conflicts = preview.newOverlaps.length;
+      return `Shifted ${n} trip${n === 1 ? '' : 's'} by ${deltaMin > 0 ? '+' : ''}${deltaMin} min`
+        + (conflicts > 0 ? ` · ${conflicts} block conflict${conflicts === 1 ? '' : 's'}, see Blocks` : '');
+    }, 'shift trips');
+  };
+
   const onTool = (id: ToolId) => {
     if (id === 'removeall') setModal({ type: 'removeall' });
     else setDrawer((d) => (d === id ? null : id));
@@ -758,6 +815,15 @@ export function TimetableGrid() {
   const allTripIds = trips.map((t) => t.trip_id);
   const ctxLabel = `${route.route_short_name || route.route_long_name || route.route_id} · ${directionName(route, directionId)} · ${serviceLabel(activeServiceId)}`;
   const siblingWithTrips = mainData.serviceIdsWithTrips.find((sid) => sid !== activeServiceId);
+  const shiftCtx = (() => {
+    const inMain = routeTrips.filter((t) => effectiveSelection.has(t.trip_id)).length;
+    const inOpp = effectiveSelection.size - inMain;
+    const where = inMain > 0 && inOpp > 0
+      ? `${directionName(route, directionId)} + ${directionName(route, companionDir)}`
+      : directionName(route, inOpp > 0 ? companionDir : directionId);
+    const n = effectiveSelection.size;
+    return `${n} selected trip${n === 1 ? '' : 's'} · ${route.route_short_name || route.route_long_name || route.route_id} · ${where} · ${serviceLabel(activeServiceId)}`;
+  })();
 
   const renderMainPane = () => {
     if (!mainData.hasStops) {
@@ -815,6 +881,8 @@ export function TimetableGrid() {
         onTimepoint={(stopId, seq, on) => onTimepoint('main', stopId, seq, on)}
         onArrDep={onArrDep}
         onContinuous={onContinuous}
+        selectedTripIds={effectiveSelection}
+        onSelectTrips={onSelectTrips}
       />
     );
   };
@@ -853,6 +921,8 @@ export function TimetableGrid() {
         onTimepoint={(stopId, seq, on) => onTimepoint('opp', stopId, seq, on)}
         onArrDep={onArrDep}
         onContinuous={onContinuous}
+        selectedTripIds={effectiveSelection}
+        onSelectTrips={onSelectTrips}
       />
     );
   };
@@ -917,6 +987,8 @@ export function TimetableGrid() {
         onSwapDirections={() => setModal({ type: 'swapdir' })}
         onEditStops={onEditStops}
         onTool={onTool}
+        selectedCount={effectiveSelection.size}
+        onClearSelection={() => setSelectedTrips(new Set())}
       />
 
       {drawer === 'generate' && (
@@ -930,6 +1002,14 @@ export function TimetableGrid() {
           lastSec={lastTimedTrip(routeTrips, mainData.getStartSec)?.startSec ?? null}
           tripCount={routeTrips.length}
           onApply={applyRepeat}
+          onCancel={() => setDrawer(null)}
+        />
+      )}
+      {drawer === 'shift' && effectiveSelection.size > 0 && (
+        <ShiftDrawer
+          ctx={shiftCtx}
+          getPreview={shiftPreview}
+          onApply={applyShift}
           onCancel={() => setDrawer(null)}
         />
       )}

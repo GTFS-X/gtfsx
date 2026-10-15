@@ -6,8 +6,9 @@ import { validateFrequencyWindows, type FrequencyWindow } from '../../services/f
    Layout constants + content-based column widths (HANDOFF §5)
    ========================================================================== */
 
-export const TRIP_COL_MIN = 58;
-export const TRIP_COL_DEFAULT = 78;
+// The Trip column carries a select checkbox ahead of the id (Shift trips…).
+export const TRIP_COL_MIN = 72;
+export const TRIP_COL_DEFAULT = 96;
 export const COL_MIN = 58;
 export const COL_MAX = 300;
 
@@ -480,6 +481,46 @@ export function planCascade(params: {
   const laterIds = orderedTripIds.slice(idx + 1).filter((id) => params.hasTimeAt(id));
   if (laterIds.length === 0) return null;
   return { deltaMin, laterIds };
+}
+
+/** The trip ids a checkbox click toggles, in the pane's displayed order. A
+ *  plain click toggles just `clickedId`; a shift-click with an anchor in the
+ *  same list toggles the whole inclusive range anchor…clicked (either way
+ *  round). Every id in the range is set to the clicked row's NEW state, the
+ *  spreadsheet convention. Pure. */
+export function tripSelectionRange(
+  orderedIds: readonly string[],
+  anchorId: string | null,
+  clickedId: string,
+  shiftKey: boolean,
+): string[] {
+  const to = orderedIds.indexOf(clickedId);
+  if (to < 0) return [];
+  const from = shiftKey && anchorId ? orderedIds.indexOf(anchorId) : -1;
+  if (from < 0) return [clickedId];
+  const [lo, hi] = from <= to ? [from, to] : [to, from];
+  return orderedIds.slice(lo, hi + 1);
+}
+
+/** Parse the Shift trips field: a whole number of minutes, sign optional
+ *  ("+10", "-5", "10"); a typographic minus is accepted. null = not a number. */
+export function parseShiftMinutes(text: string): number | null {
+  const t = text.trim().replace(/^−/, '-');
+  if (!/^[+-]?\d+$/.test(t)) return null;
+  return Number(t);
+}
+
+/** Apply a checkbox toggle to a selection set (returns a new set). */
+export function applyTripSelection(
+  prev: ReadonlySet<string>,
+  ids: readonly string[],
+  selected: boolean,
+): Set<string> {
+  const next = new Set(prev);
+  for (const id of ids) {
+    if (selected) next.add(id); else next.delete(id);
+  }
+  return next;
 }
 
 /** Resolve the companion (right) pane's pattern after the main (left) pane's
