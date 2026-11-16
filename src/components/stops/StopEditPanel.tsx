@@ -95,6 +95,17 @@ export function StopEditPanel() {
         onChange={(v) => updateStop(stop.stop_id, { stop_code: v })}
         placeholder="Rider-facing code"
       />
+      {/* platform_code: only meaningful on a stop/platform (location_type 0)
+          inside a station, so shown there or whenever a value is already set. */}
+      {((stop.location_type ?? 0) === 0 && (stop.parent_station || stop.platform_code)) && (
+        <FormField
+          label="Platform Code"
+          value={stop.platform_code || ''}
+          onChange={(v) => updateStop(stop.stop_id, { platform_code: v || undefined })}
+          placeholder='e.g. "G" or "3"'
+          testId="field-stop-platform-code"
+        />
+      )}
       <FormField
         label="Description"
         value={stop.stop_desc || ''}

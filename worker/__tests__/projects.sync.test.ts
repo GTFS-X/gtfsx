@@ -147,6 +147,30 @@ describe('/api/projects/:id/working-state', () => {
     expect(await getRes.json()).toEqual({ hello: 'world', n: 42 });
   });
 
+  // Files the editor doesn't model ride in the working state verbatim
+  // (src/services/feedPassthrough.ts): UTF-8 text as a string, other bytes as
+  // base64. The worker stores the blob opaquely, so both must come back exact.
+  it('round-trips passthroughFiles (text + base64) and per-row _extra columns unchanged', async () => {
+    const client = await loggedInClient('syncpassthrough@example.com');
+    const proj = await client.json<{ id: string }>(
+      await client.post('/api/projects', { name: 'Passthrough' }),
+    );
+    const state = {
+      stops: [{ stop_id: 'S1', stop_name: 'A', _extra: { tts_stop_name: 'ay' } }],
+      passthroughFiles: [
+        { name: 'calendar_attributes.txt', encoding: 'utf8', data: '\uFEFFservice_id,service_description\r\nWK,Mon–Fri\r\n' },
+        { name: 'docs/logo.png', encoding: 'base64', data: 'iVBORw0KGgr//gCAww==' },
+      ],
+    };
+    await client.put(`/api/projects/${proj.id}/working-state`, undefined, {
+      body: await gzip(JSON.stringify(state)),
+      headers: { 'Content-Encoding': 'gzip', 'If-Match': '0' },
+    });
+    const getRes = await client.get(`/api/projects/${proj.id}/working-state`);
+    expect(getRes.status).toBe(200);
+    expect(await getRes.json()).toEqual(state);
+  });
+
   it('stale If-Match on second write returns 409 conflict with currentVersion', async () => {
     const client = await loggedInClient('sync4@example.com');
     const proj = await client.json<{ id: string }>(

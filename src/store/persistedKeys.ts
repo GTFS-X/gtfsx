@@ -31,6 +31,10 @@ export const SMALL_KEYS = [
   // translations.txt — translated names/headsigns/URLs, keyed to the records
   // above (or to an exact value via field_value).
   'translations',
+  // Files from the imported ZIP the editor doesn't model, kept verbatim and
+  // written back on export (services/feedPassthrough.ts). Not undoable: they
+  // only change when a feed is loaded, so they are not in HISTORY_KEYS.
+  'passthroughFiles',
   'featureSettings',
   'dismissedValidations',
   'projectId', 'projectName',

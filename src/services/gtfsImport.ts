@@ -90,6 +90,9 @@ function applyImportToStore(data: Awaited<ReturnType<typeof importGtfsZip>>) {
   store.setFareTransferRules(data.fareTransferRules);
   store.setFlexZones(data.flexZones);
   store.setTranslations(data.translations);
+  // Older ImportData producers (a My-feeds snapshot saved before passthrough
+  // files existed) may lack the key.
+  store.setPassthroughFiles(data.passthroughFiles ?? []);
 
   // Seed per-feed feature settings from what the imported feed contains, so its
   // advanced sections (frequencies, stations, transfers) show up — "the feed
@@ -156,6 +159,10 @@ function serviceSignature(id: string, src: ServiceDef): string {
  * range and calendar_dates) matches an existing one reuses it.
  *
  * The whole merge is a single undo step.
+ *
+ * Passthrough files (feedPassthrough.ts) do not come across: they describe the
+ * source feed as a whole, so the host keeps its own. Per-row extra columns do
+ * ride along on the merged entities.
  */
 export function mergeImportIntoStore(
   data: Awaited<ReturnType<typeof importGtfsZip>>,

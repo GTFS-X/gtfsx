@@ -19,6 +19,9 @@ export interface Agency {
    * empty column is ever emitted.
    */
   external_id?: string;
+  /** Imported columns the editor doesn't model, kept per row and re-emitted
+   *  on export (services/feedPassthrough.ts). */
+  _extra?: Record<string, string>;
 }
 
 export interface Calendar {
@@ -33,12 +36,18 @@ export interface Calendar {
   start_date: string; // YYYYMMDD
   end_date: string;   // YYYYMMDD
   _description?: string; // UI-only
+  /** Imported columns the editor doesn't model, kept per row and re-emitted
+   *  on export (services/feedPassthrough.ts). */
+  _extra?: Record<string, string>;
 }
 
 export interface CalendarDate {
   service_id: string;
   date: string;           // YYYYMMDD
   exception_type: 1 | 2;  // 1=added, 2=removed
+  /** Imported columns the editor doesn't model, kept per row and re-emitted
+   *  on export (services/feedPassthrough.ts). */
+  _extra?: Record<string, string>;
 }
 
 export interface Route {
@@ -64,6 +73,9 @@ export interface Route {
   _vehicles_required?: number;      // UI-only
   _direction_0_name?: string;       // UI-only, default "Outbound"
   _direction_1_name?: string;       // UI-only, default "Inbound"
+  /** Imported columns the editor doesn't model, kept per row and re-emitted
+   *  on export (services/feedPassthrough.ts). */
+  _extra?: Record<string, string>;
 }
 
 export interface ShapePoint {
@@ -98,6 +110,11 @@ export interface Stop {
   stop_timezone?: string;
   wheelchair_boarding: number;
   level_id?: string; // FK to levels.txt — which level (floor) this stop is on
+  /** Platform identifier for a platform stop (e.g. "G", "3"). */
+  platform_code?: string;
+  /** Imported columns the editor doesn't model, kept per row and re-emitted
+   *  on export (services/feedPassthrough.ts). */
+  _extra?: Record<string, string>;
 }
 
 export interface Trip {
@@ -110,6 +127,9 @@ export interface Trip {
   block_id?: string;
   shape_id?: string;
   wheelchair_accessible?: number;
+  /** Imported columns the editor doesn't model, kept per row and re-emitted
+   *  on export (services/feedPassthrough.ts). */
+  _extra?: Record<string, string>;
 }
 
 export interface StopTime {
@@ -130,6 +150,9 @@ export interface StopTime {
    */
   continuous_pickup?: 0 | 1 | 2 | 3;
   continuous_drop_off?: 0 | 1 | 2 | 3;
+  /** Imported columns the editor doesn't model, kept per row and re-emitted
+   *  on export (services/feedPassthrough.ts). */
+  _extra?: Record<string, string>;
 }
 
 export interface FeedInfo {

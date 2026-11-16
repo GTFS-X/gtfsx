@@ -29,6 +29,7 @@ import { createWalkshedProfileSlice, type WalkshedProfileSlice } from './walkshe
 import { createAssistantSlice, type AssistantSlice } from './assistantSlice';
 import { createTranslationsSlice, type TranslationsSlice } from './translationsSlice';
 import { createPreferencesSlice, type PreferencesSlice } from './preferencesSlice';
+import { createPassthroughSlice, type PassthroughSlice } from './passthroughSlice';
 
 export type AppStore = AgencySlice &
   CalendarSlice &
@@ -57,6 +58,7 @@ export type AppStore = AgencySlice &
   WalkshedProfileSlice &
   AssistantSlice &
   TranslationsSlice &
+  PassthroughSlice &
   PreferencesSlice;
 
 // Zustand-immer slice composition: each create*Slice is typed against its
@@ -95,6 +97,7 @@ export const useStore = create<AppStore>()(
     ...(createWalkshedProfileSlice as any)(...a),
     ...(createAssistantSlice as any)(...a),
     ...(createTranslationsSlice as any)(...a),
+    ...(createPassthroughSlice as any)(...a),
     ...(createPreferencesSlice as any)(...a),
   }))
 );

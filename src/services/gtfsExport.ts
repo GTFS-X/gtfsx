@@ -7,6 +7,8 @@ import type { Route, ShapePoint, Trip } from '../types/gtfs';
 import { exportableTranslations, translationCsvColumns } from './translations';
 import { allServiceIds } from './serviceIds';
 import { fillShapeDistances } from './shapeDistance';
+import { KNOWN_FIELD_SETS, MODELED_FILES } from './gtfsParse';
+import { isWritablePassthrough, passthroughBytes, withExtraColumns } from './feedPassthrough';
 
 /** Last-resort safety net when a shape arrives at the exporter without real
  *  distances. Returns a new array; does NOT mutate the store. */
@@ -44,6 +46,14 @@ function stripUIFields<T extends object>(obj: T): Record<string, unknown> {
     }
   }
   return result;
+}
+
+/** stripUIFields, plus the row's imported columns the editor doesn't model
+ *  (`_extra`, see feedPassthrough.ts) flattened back into columns. Rows without
+ *  them — e.g. created in the editor — get blank cells via toCSV's key union. */
+function csvRowFor(file: string): (obj: object) => Record<string, unknown> {
+  const known = KNOWN_FIELD_SETS[file];
+  return (obj) => withExtraColumns(stripUIFields(obj), obj, known);
 }
 
 /** Build the feed_info.txt row (returns null if we don't have enough info to
@@ -339,21 +349,21 @@ export async function exportGtfsZip(): Promise<Blob> {
   // agency has a non-empty value, and a feed where none do is byte-identical to
   // one that never knew about the field (no empty column, no header change).
   if (state.agencies.length > 0) {
-    zip.file('agency.txt', toCSV(state.agencies.map(stripUIFields)));
+    zip.file('agency.txt', toCSV(state.agencies.map(csvRowFor('agency.txt'))));
   }
 
   // calendar.txt
   if (state.calendars.length > 0) {
-    zip.file('calendar.txt', toCSV(state.calendars.map(stripUIFields)));
+    zip.file('calendar.txt', toCSV(state.calendars.map(csvRowFor('calendar.txt'))));
   }
 
   // calendar_dates.txt
   if (state.calendarDates.length > 0) {
-    zip.file('calendar_dates.txt', toCSV(state.calendarDates.map(stripUIFields)));
+    zip.file('calendar_dates.txt', toCSV(state.calendarDates.map(csvRowFor('calendar_dates.txt'))));
   }
 
   // routes.txt (+ flex-synthesized routes for zones without an assigned route)
-  const allRoutes = [...state.routes.map(stripUIFields), ...flex.routes];
+  const allRoutes = [...state.routes.map(csvRowFor('routes.txt')), ...flex.routes];
   if (allRoutes.length > 0) {
     zip.file('routes.txt', toCSV(allRoutes));
   }
@@ -382,8 +392,9 @@ export async function exportGtfsZip(): Promise<Blob> {
     // Round coordinates to 6 decimals (~0.1 m) — plenty for transit, and keeps
     // stops.txt clean instead of carrying float noise from map drags.
     const round6 = (n: unknown) => (typeof n === 'number' ? Math.round(n * 1e6) / 1e6 : n);
+    const stopRow = csvRowFor('stops.txt');
     zip.file('stops.txt', toCSV(state.stops.map((s) => {
-      const clean = stripUIFields(s);
+      const clean = stopRow(s);
       // Generic nodes (3) and boarding areas (4) may have no coordinates; the
       // importer holds a blank as 0,0, so write that back as blank cells.
       const lt = s.location_type ?? 0;
@@ -398,8 +409,9 @@ export async function exportGtfsZip(): Promise<Blob> {
   // trips.txt — populate trip_headsign from route direction names if not already set
   if (state.trips.length > 0 || flex.trips.length > 0) {
     const routeMap = new Map(state.routes.map((r) => [r.route_id, r]));
+    const tripRow = csvRowFor('trips.txt');
     const fixedTrips = state.trips.map((trip) => {
-      const clean = stripUIFields(trip);
+      const clean = tripRow(trip);
       if (!clean.trip_headsign) {
         const route = routeMap.get(trip.route_id);
         if (route) {
@@ -429,8 +441,9 @@ export async function exportGtfsZip(): Promise<Blob> {
   // not by blanking fields here (an earlier version inverted the spec and
   // produced MobilityData `missing_trip_edge` errors on every feed).
   if (state.stopTimes.length > 0 || flex.flexStopTimes.length > 0) {
+    const stopTimeRow = csvRowFor('stop_times.txt');
     const fixedRows = state.stopTimes.map((st) => {
-      const row = stripUIFields(st);
+      const row = stopTimeRow(st);
       const hasTime = !!st.arrival_time || !!st.departure_time;
       if (!hasTime) {
         // Interpolated: keep both times blank and mark the row approximate.
@@ -615,6 +628,17 @@ export async function exportGtfsZip(): Promise<Blob> {
     ));
   if (bookingRows.length > 0) {
     zip.file('booking_rules.txt', toCSV(bookingRows));
+  }
+
+  // Files the editor doesn't model, kept verbatim from the import
+  // (feedPassthrough.ts) — written back byte for byte. Never over a file the
+  // exporter wrote above, nor under a name the editor models even when this
+  // export had nothing to write for it: the modeled data wins.
+  for (const f of state.passthroughFiles ?? []) {
+    if (!isWritablePassthrough(f)) continue;
+    const base = f.name.split('/').pop() ?? f.name;
+    if (MODELED_FILES.has(base) || zip.file(f.name)) continue;
+    zip.file(f.name, passthroughBytes(f));
   }
 
   return await zip.generateAsync({ type: 'blob' });

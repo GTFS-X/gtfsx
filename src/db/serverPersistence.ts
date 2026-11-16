@@ -129,6 +129,8 @@ export function resetStoreEntities() {
   state.setTransfers([] as never);
   // translations.txt — same cross-feed-leak guard as transfers.
   state.setTranslations([] as never);
+  // Verbatim passthrough files — same cross-feed-leak guard.
+  state.setPassthroughFiles([]);
   state.setFeatureSettings({});
   state.setDismissedValidations([]);
   state.setLicenseSpdx(null);
@@ -330,6 +332,9 @@ function applySnapshotToStoreInner(
   // translations.txt. Cleared above, so a snapshot that predates the key loads
   // with no translations instead of inheriting the previous feed's.
   if (Array.isArray(g('translations'))) state.setTranslations(g('translations') as never);
+  // Verbatim passthrough files. Cleared above, so a snapshot saved before they
+  // existed loads with none.
+  if (Array.isArray(g('passthroughFiles'))) state.setPassthroughFiles(g('passthroughFiles') as never);
   if (g('featureSettings') && typeof g('featureSettings') === 'object') {
     state.setFeatureSettings(g('featureSettings') as never);
   }

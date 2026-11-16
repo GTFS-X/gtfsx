@@ -14,6 +14,10 @@ import type { FlexZone, BookingRule } from '../store/flexSlice';
 import { backfillMissingRouteStops } from './routeStopMigration';
 import { parseTranslationRows } from './translations';
 import { fillShapeDistances } from './shapeDistance';
+import {
+  encodePassthroughFile, isJunkZipEntry, extraColumnsOf, EXTRA_COLUMN_FILES, PASSTHROUGH_MAX_BYTES,
+  type PassthroughFile,
+} from './feedPassthrough';
 
 
 type CsvRow = Record<string, string>;
@@ -30,9 +34,9 @@ function findNested(zip: JSZip, name: string): JSZip.JSZipObject[] {
 }
 
 /**
- * The columns the importer reads, per file. Anything else in a file the editor
- * reads is dropped on export, so the import reports it (a passthrough
- * for unmodelled columns is an open product decision).
+ * The columns the importer reads, per file. Anything else in one of the
+ * EXTRA_COLUMN_FILES is kept per row and re-emitted on export (feedPassthrough);
+ * in any other file it is dropped on export, and the import reports which.
  */
 const FLEX_STOP_TIME_FIELDS = [
   'location_id', 'location_group_id', 'start_pickup_drop_off_window', 'end_pickup_drop_off_window',
@@ -45,7 +49,7 @@ export const KNOWN_FIELDS: Record<string, readonly string[]> = {
   'calendar_dates.txt': ['service_id', 'date', 'exception_type'],
   'routes.txt': ['route_id', 'agency_id', 'route_short_name', 'route_long_name', 'route_desc', 'route_type', 'route_url', 'route_color', 'route_text_color', 'continuous_pickup', 'continuous_drop_off'],
   'shapes.txt': ['shape_id', 'shape_pt_lat', 'shape_pt_lon', 'shape_pt_sequence', 'shape_dist_traveled'],
-  'stops.txt': ['stop_id', 'stop_code', 'stop_name', 'stop_desc', 'stop_lat', 'stop_lon', 'zone_id', 'stop_url', 'location_type', 'parent_station', 'stop_timezone', 'wheelchair_boarding', 'level_id'],
+  'stops.txt': ['stop_id', 'stop_code', 'stop_name', 'stop_desc', 'stop_lat', 'stop_lon', 'zone_id', 'stop_url', 'location_type', 'parent_station', 'stop_timezone', 'wheelchair_boarding', 'level_id', 'platform_code'],
   'trips.txt': ['trip_id', 'route_id', 'service_id', 'trip_headsign', 'trip_short_name', 'direction_id', 'block_id', 'shape_id', 'wheelchair_accessible', 'safe_duration_factor', 'safe_duration_offset'],
   'stop_times.txt': ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence', 'stop_headsign', 'pickup_type', 'drop_off_type', 'shape_dist_traveled', 'timepoint', 'continuous_pickup', 'continuous_drop_off', ...FLEX_STOP_TIME_FIELDS],
   'feed_info.txt': ['feed_publisher_name', 'feed_publisher_url', 'feed_lang', 'default_lang', 'feed_start_date', 'feed_end_date', 'feed_version', 'feed_contact_email', 'feed_contact_url'],
@@ -71,6 +75,24 @@ export const KNOWN_FIELDS: Record<string, readonly string[]> = {
   'location_group_stops.txt': ['location_group_id', 'stop_id'],
   'translations.txt': ['table_name', 'field_name', 'language', 'translation', 'record_id', 'record_sub_id', 'field_value'],
 };
+
+/** KNOWN_FIELDS as sets, for the per-row extra-column split. */
+export const KNOWN_FIELD_SETS: Record<string, ReadonlySet<string>> = Object.fromEntries(
+  Object.entries(KNOWN_FIELDS).map(([file, cols]) => [file, new Set(cols)]),
+);
+
+/** Every file the editor reads and writes. A passthrough file with one of
+ *  these names is never kept or written: the modeled data wins. */
+export const MODELED_FILES: ReadonlySet<string> = new Set([
+  ...Object.keys(KNOWN_FIELDS),
+  'locations.geojson',
+]);
+
+/** Unmodelled columns of a row in one of the EXTRA_COLUMN_FILES, to spread into
+ *  the entity built from it. */
+function extra(file: string, row: Record<string, unknown>): { _extra?: Record<string, string> } {
+  return extraColumnsOf(row, KNOWN_FIELD_SETS[file]);
+}
 
 /** Most parse-error warnings reported per file before summarizing the rest. */
 const MAX_PARSE_WARNINGS_PER_FILE = 5;
@@ -112,7 +134,11 @@ function parseCSV<T = CsvRow>(
       const known = new Set(knownFields);
       const dropped = result.meta.fields.map((f) => f.trim()).filter((f) => f && !known.has(f));
       if (dropped.length > 0) {
-        warnings.push(`${fileName}: column${dropped.length === 1 ? '' : 's'} ${dropped.join(', ')} ${dropped.length === 1 ? 'is' : 'are'} not supported by the editor and will not be included when the feed is exported.`);
+        const cols = `${fileName}: column${dropped.length === 1 ? '' : 's'} ${dropped.join(', ')}`;
+        const isAre = dropped.length === 1 ? 'is' : 'are';
+        warnings.push(EXTRA_COLUMN_FILES.has(fileName)
+          ? `${cols} ${isAre} not editable in GTFS·X but will be kept unchanged in exports.`
+          : `${cols} ${isAre} not supported by the editor and will not be included when the feed is exported.`);
       }
     }
   }
@@ -212,6 +238,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
   fareTransferRules: FareTransferRule[];
   flexZones: FlexZone[];
   translations: Translation[];
+  passthroughFiles: PassthroughFile[];
   warnings: string[];
 }> {
   const report: ImportProgress = onProgress ?? (() => {});
@@ -266,6 +293,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
         agency_fare_url: row.agency_fare_url,
         agency_email: row.agency_email,
         external_id: String(row.external_id ?? '').trim() || undefined,
+        ...extra('agency.txt', row),
       }))
     : [];
 
@@ -284,6 +312,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
         start_date: String(row.start_date),
         end_date: String(row.end_date),
         _description: describeService(num(row.monday), num(row.tuesday), num(row.wednesday), num(row.thursday), num(row.friday), num(row.saturday), num(row.sunday)),
+        ...extra('calendar.txt', row),
       }))
     : [];
 
@@ -294,6 +323,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
         service_id: String(row.service_id),
         date: String(row.date),
         exception_type: num(row.exception_type) as 1 | 2,
+        ...extra('calendar_dates.txt', row),
       }))
     : [];
 
@@ -314,6 +344,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
           ? (num(row.continuous_pickup) as 0 | 1 | 2 | 3) : undefined,
         continuous_drop_off: row.continuous_drop_off !== undefined && row.continuous_drop_off !== ''
           ? (num(row.continuous_drop_off) as 0 | 1 | 2 | 3) : undefined,
+        ...extra('routes.txt', row),
       }))
     : [];
 
@@ -368,6 +399,8 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
         stop_timezone: row.stop_timezone || undefined,
         wheelchair_boarding: num(row.wheelchair_boarding),
         level_id: row.level_id || undefined,
+        platform_code: row.platform_code || undefined,
+        ...extra('stops.txt', row),
       }))
     : [];
 
@@ -385,6 +418,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
     block_id: row.block_id ? String(row.block_id) : undefined,
     shape_id: row.shape_id ? String(row.shape_id) : undefined,
     wheelchair_accessible: row.wheelchair_accessible !== undefined ? num(row.wheelchair_accessible) : undefined,
+    ...extra('trips.txt', row),
   }));
 
   // GTFS-Flex puts safe_duration_factor / safe_duration_offset on trips.txt.
@@ -436,6 +470,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
         ? (num(row.continuous_pickup) as 0 | 1 | 2 | 3) : undefined,
       continuous_drop_off: row.continuous_drop_off !== undefined && row.continuous_drop_off !== ''
         ? (num(row.continuous_drop_off) as 0 | 1 | 2 | 3) : undefined,
+      ...extra('stop_times.txt', row),
     });
   }
   const flexTripIds = new Set<string>(flexStopTimeRows.map((r) => String(r.trip_id)));
@@ -1199,17 +1234,37 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
     }
   }
 
-  // Files in the archive the importer never looked at are dropped on export.
-  const ignored = new Set<string>();
+  // Files in the archive the editor doesn't model are kept verbatim and written
+  // back, byte for byte, on every export (feedPassthrough). Paths are taken
+  // relative to the feed's folder, so a feed nested in a subfolder (flattened
+  // to the root on export) keeps its extra files beside the standard ones.
+  // A file named like one the editor models is never kept — a nested duplicate
+  // of stops.txt would collide with the stops.txt the exporter writes.
+  report({ phase: 'Keeping other files…' });
+  const candidates: { name: string; entry: JSZip.JSZipObject }[] = [];
   zip.forEach((path, entry) => {
-    if (entry.dir || /(^|\/)__MACOSX\//.test(path)) return;
+    if (entry.dir || isJunkZipEntry(path)) return;
     const base = path.split('/').pop() ?? path;
-    if (!base || base.startsWith('.') || readNames.has(base)) return;
-    ignored.add(base);
+    if (readNames.has(base) || MODELED_FILES.has(base)) return;
+    const name = subfolder && path.startsWith(`${subfolder}/`) ? path.slice(subfolder.length + 1) : path;
+    candidates.push({ name, entry });
   });
-  if (ignored.size > 0) {
-    const list = [...ignored].sort();
-    warnings.push(`${list.join(', ')} ${list.length === 1 ? 'is' : 'are'} not supported by the editor and will not be included when the feed is exported.`);
+  candidates.sort((a, b) => a.name.localeCompare(b.name));
+  const passthroughFiles: PassthroughFile[] = [];
+  const tooLarge: string[] = [];
+  let keptBytes = 0;
+  for (const { name, entry } of candidates) {
+    const bytes = await entry.async('uint8array');
+    if (keptBytes + bytes.byteLength > PASSTHROUGH_MAX_BYTES) { tooLarge.push(name); continue; }
+    keptBytes += bytes.byteLength;
+    passthroughFiles.push(encodePassthroughFile(name, bytes));
+  }
+  if (passthroughFiles.length > 0) {
+    const list = passthroughFiles.map((f) => f.name);
+    warnings.push(`${list.join(', ')} ${list.length === 1 ? 'is' : 'are'} not editable in GTFS·X but will be kept unchanged in exports.`);
+  }
+  if (tooLarge.length > 0) {
+    warnings.push(`${tooLarge.join(', ')} ${tooLarge.length === 1 ? 'is' : 'are'} too large to keep (other files are limited to ${PASSTHROUGH_MAX_BYTES / (1024 * 1024)} MB in total) and will not be included when the feed is exported.`);
   }
 
   return {
@@ -1221,7 +1276,7 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
     fareAreas, stopAreas, fareNetworks, routeNetworks,
     timeframes, riderCategories, fareMedia,
     fareProducts, fareLegRules, fareTransferRules,
-    flexZones, translations, warnings,
+    flexZones, translations, passthroughFiles, warnings,
   };
 }
 
