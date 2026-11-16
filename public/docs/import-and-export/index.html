@@ -39,7 +39,7 @@
     }
   },
   "datePublished": "2026-05-01",
-  "dateModified": "2026-07-12",
+  "dateModified": "2026-11-16",
   "mainEntityOfPage": {
     "@type": "WebPage",
     "@id": "https://www.gtfsx.com/docs/import-and-export/"
@@ -89,7 +89,7 @@
       <p>Click <strong>Import</strong> in the top bar, select a ZIP. The editor parses every supported file and surfaces an import summary:</p>
       <ul>
         <li><strong>Counts</strong> — agencies, routes, stops, trips, stop_times, shapes, calendars, fares, flex zones, transfers.</li>
-        <li><strong>Warnings</strong> — unknown route types, malformed values, and anything in the ZIP the editor couldn't make sense of.</li>
+        <li><strong>Warnings</strong> — unknown route types, malformed values, and any files or columns the editor can't edit (they are kept, see <a href="#round-trip">Round-trip behavior</a>).</li>
       </ul>
       <p>After import, the editor loads the feed and you can edit it. Subsequent export produces a ZIP that's structurally identical for every file the editor supports.</p>
 
@@ -112,9 +112,13 @@
         <li><strong><code>directions.txt</code>, <code>frequencies.txt</code>, <code>pathways.txt</code>, <code>levels.txt</code></strong> — supported on import; partially supported in the editor; written back on export.</li>
         <li><strong><code>translations.txt</code></strong> — imported row for row and written back on export, editable in the <a href="/docs/translations/">Translations</a> section. Rows that would be invalid in the exported feed (for example, a translation of a record that no longer exists) stay in the editor but are left out of the export, and validation lists them.</li>
       </ul>
-      <div class="callout">
-        <p><strong>Columns and files the editor doesn't know are dropped, not preserved.</strong> The importer reads a fixed set of GTFS files and, within each, a fixed set of spec fields. A custom column your agency added to <code>routes.txt</code>, or a non-GTFS file you shipped alongside the standard ones, will not survive an import-then-export cycle. If you depend on a non-standard field, keep the authoritative copy outside GTFS·X. The one deliberate exception is <a href="/docs/ntd-id/#external-id-column"><code>external_id</code></a> on <code>agency.txt</code>, which the importer reads onto each agency and the exporter writes back.</p>
-      </div>
+      <h3 id="unsupported-files">Files and columns the editor doesn't edit</h3>
+      <p>These are kept and written back rather than dropped:</p>
+      <ul>
+        <li><strong>Other files</strong> in the ZIP (for example <code>calendar_attributes.txt</code>, <code>realtime_routes.txt</code>, <code>attributions.txt</code>, or a README) are stored with the feed exactly as imported and included, byte for byte, in every export, download, published feed and draft link. You can't edit them in GTFS·X. macOS clutter (<code>__MACOSX/</code>, <code>.DS_Store</code>) is ignored. They're limited to 20 MB in total; anything beyond that is listed in the import summary and left out.</li>
+        <li><strong>Extra columns</strong> on <code>agency.txt</code>, <code>routes.txt</code>, <code>stops.txt</code>, <code>trips.txt</code>, <code>stop_times.txt</code>, <code>calendar.txt</code> and <code>calendar_dates.txt</code> (for example <code>route_sort_order</code>, <code>bikes_allowed</code>, <code>tts_stop_name</code>, or your own custom column) are kept on each row and written back. They stay with the row: if you delete a stop its values go with it, and a stop or trip you add in the editor gets blank values for those columns. Extra columns on other files are still dropped, and the import summary says which.</li>
+      </ul>
+      <p>If you later edit the same data in GTFS·X (for example, a file the editor gains support for), the edited data replaces the stored copy.</p>
 
       <h2 id="limits">Limits</h2>
       <ul>
