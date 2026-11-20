@@ -12,11 +12,13 @@ import { unreachableTimetableTripIds } from '../components/ui/shapePatterns';
 // which would make this file (and the whole validation graph) unloadable in the
 // tsx editor-test harness.
 import { feedNeedsShapes } from './shapesFromStopsPlan';
+import { findStaleStopDistances, STALE_STOP_DISTANCE_M } from './shapeDistRecompute';
 import {
   findDecreasingShapeDistances,
   findDecreasingStopTimeDistances,
   findFastTravel,
   findStopsTooFarFromShape,
+  makeStopLatLngResolver,
   checkFeedExpiry,
   findRouteLongNameContainsShort,
   findRouteSameNameAndDesc,
@@ -604,6 +606,22 @@ export function runValidation(state: AppStore): ValidationMessage[] {
       `Stop "${f.stopName}" is ${Math.round(f.distanceMeters)} m from shape "${f.shape_id}" on route "${f.route_id}" — past the 100 m the alignment should stay within. Move the stop onto the route, or fix the shape.`,
       'stop', f.stop_id,
     ));
+  }
+
+  // Stale stop distances (MobilityData stop_too_far_from_shape_using_user_
+  // distance). stop_times.shape_dist_traveled, walked along the shape's own
+  // distance column, lands well away from the stop — typically because the
+  // shape was edited after the distances were written. One message per shape;
+  // the fix recomputes them along the current geometry (or clears them).
+  for (const f of findStaleStopDistances(state.shapes, state.trips, state.stopTimes, makeStopLatLngResolver(state.stops))) {
+    const km = f.worstMeters >= 1000 ? `${(f.worstMeters / 1000).toFixed(1)} km` : `${Math.round(f.worstMeters)} m`;
+    const m = msg(
+      'warning',
+      `Shape "${f.shape_id}": the shape_dist_traveled of ${f.stopCount} stop${f.stopCount === 1 ? '' : 's'} on ${f.tripIds.length} trip${f.tripIds.length === 1 ? '' : 's'} no longer matches the shape (up to ${km} off, past the ${STALE_STOP_DISTANCE_M} m limit), so apps that use the distances put those stops in the wrong place. Recompute the distances along the shape, or clear them.`,
+      'shape', f.shape_id,
+    );
+    m.fix = { id: 'recompute-shape-distances' };
+    messages.push(m);
   }
 
   // Feed-expiry heads-up (MobilityData feed_expiration_date7_days / _30_days).

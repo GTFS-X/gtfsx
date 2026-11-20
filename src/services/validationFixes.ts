@@ -44,6 +44,13 @@ export interface ValidationFix {
   /** Mutate the store to resolve `message`; return an undo handle. Omitted
    *  for `interactive` fixes (there's no one-click mutation to run). */
   apply?: (message: ValidationMessage) => ValidationFixResult;
+  /**
+   * An alternative remedy for the same messages, offered beside the main one
+   * (e.g. "Clear" next to "Recompute"). Must be a registered, non-interactive
+   * fix; the panel renders it as a secondary button and calls it with the
+   * same message(s).
+   */
+  secondary?: ValidationFixId;
 }
 
 const FIXES: Record<ValidationFixId, ValidationFix> = {
@@ -196,6 +203,55 @@ const FIXES: Record<ValidationFixId, ValidationFix> = {
     },
   },
 
+  'recompute-shape-distances': {
+    id: 'recompute-shape-distances',
+    label: 'Recompute',
+    description:
+      'Recomputes shape_dist_traveled along the shape as it is now: the shape\'s own column, '
+      + 'and the stop distances of every trip on it, found by placing each stop on the shape '
+      + 'in stop order (a loop or out-and-back that passes a stop twice gets the right pass). '
+      + 'Values stay in the unit the feed already uses. A trip whose stops can\'t be placed '
+      + 'has its distances cleared instead. Fix all recomputes every flagged shape in the feed. '
+      + 'You can undo this.',
+    secondary: 'clear-shape-distances',
+    apply: (message) => {
+      const shapeId = message.entity_id ?? '';
+      const report = useStore.getState().recalcShapeDistances(shapeId);
+      const changed = !!report && (report.stopTimesChanged > 0 || report.shapeChanged);
+      const cleared = report?.tripsCleared.length ?? 0;
+      return {
+        fixId: 'recompute-shape-distances',
+        changed,
+        label: !report
+          ? `Shape "${shapeId}" not found — nothing changed.`
+          : `Recomputed distances on shape "${shapeId}" (${report.tripsRecomputed} trip${report.tripsRecomputed === 1 ? '' : 's'}, ${report.unit})`
+            + (cleared > 0 ? `; cleared ${cleared} trip${cleared === 1 ? '' : 's'} whose stops couldn't be placed.` : '.'),
+        undo: () => { if (report) useStore.getState().restoreShapeDistances(report.snapshot); },
+      };
+    },
+  },
+
+  'clear-shape-distances': {
+    id: 'clear-shape-distances',
+    label: 'Clear',
+    description:
+      'Removes stop_times.shape_dist_traveled from every trip on the shape. The column is '
+      + 'optional; without it, apps place stops by their coordinates instead. The shape\'s own '
+      + 'distances are recomputed from its geometry so they stay consistent. You can undo this.',
+    apply: (message) => {
+      const shapeId = message.entity_id ?? '';
+      const report = useStore.getState().clearShapeDistances(shapeId);
+      return {
+        fixId: 'clear-shape-distances',
+        changed: !!report && report.stopTimesChanged > 0,
+        label: report
+          ? `Cleared ${report.stopTimesChanged} stop distance${report.stopTimesChanged === 1 ? '' : 's'} on shape "${shapeId}".`
+          : `Shape "${shapeId}" not found — nothing changed.`,
+        undo: () => { if (report) useStore.getState().restoreShapeDistances(report.snapshot); },
+      };
+    },
+  },
+
   'remove-invalid-translations': {
     id: 'remove-invalid-translations',
     label: 'Remove',
@@ -280,9 +336,10 @@ export function applyWheelchairFill(value: number): ValidationFixResult {
  *  when the message has no fix, its id isn't registered, or it's `interactive`
  *  (no `apply` — the caller should open its dialog instead; see
  *  components/validation/ValidationPanel.tsx). */
-export function applyValidationFix(message: ValidationMessage): ValidationFixResult | null {
+export function applyValidationFix(message: ValidationMessage, overrideFixId?: ValidationFixId): ValidationFixResult | null {
   if (!message.fix) return null;
-  const fix = FIXES[message.fix.id];
+  if (overrideFixId && FIXES[message.fix.id]?.secondary !== overrideFixId) return null;
+  const fix = FIXES[overrideFixId ?? message.fix.id];
   if (!fix || !fix.apply) return null;
   return fix.apply(message);
 }
@@ -306,17 +363,21 @@ export function applyValidationFix(message: ValidationMessage): ValidationFixRes
  * that affordance for them (see ValidationPanel.tsx), but this guard holds
  * even if a caller passes one in directly.
  */
-export function applyValidationFixBatch(messages: ValidationMessage[]): ValidationFixResult | null {
+export function applyValidationFixBatch(messages: ValidationMessage[], overrideFixId?: ValidationFixId): ValidationFixResult | null {
   const results: ValidationFixResult[] = [];
   let total = 0;
   let changed = 0;
   let fixId: ValidationFixId | null = null;
   for (const m of messages) {
     if (!m.fix) continue;
-    const fix = FIXES[m.fix.id];
+    // overrideFixId runs a message's SECONDARY remedy (e.g. Clear instead of
+    // Recompute) — only when the message's own fix declares it.
+    const id = overrideFixId && FIXES[m.fix.id]?.secondary === overrideFixId ? overrideFixId : m.fix.id;
+    if (overrideFixId && id !== overrideFixId) continue;
+    const fix = FIXES[id];
     if (!fix || !fix.apply) continue;
     total++;
-    fixId = m.fix.id;
+    fixId = id;
     const r = fix.apply(m);
     results.push(r);
     if (r.changed) changed++;

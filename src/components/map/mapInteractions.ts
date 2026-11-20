@@ -57,6 +57,32 @@ export function pointerHitsStop(map: QueryMap, point: PointLike, stopId: string)
 export interface ShapeEditSnapshot {
   shapeId: string;
   points: ShapePoint[];
+  /** Pre-edit stop_times.shape_dist_traveled of the shape's trips, so Cancel
+   *  restores them exactly instead of re-projecting (which could differ from
+   *  the feed's original values). Absent → Cancel recomputes instead. */
+  stopDists?: StopDistRow[];
+}
+
+/** One stop_times row's shape_dist_traveled (undefined = absent). */
+export interface StopDistRow {
+  trip_id: string;
+  stop_sequence: number;
+  value: number | undefined;
+}
+
+/** The stop distances of every trip on `shapeId`, for an edit snapshot. */
+export function captureStopDists(
+  shapeId: string,
+  trips: { trip_id: string; shape_id?: string }[],
+  stopTimes: { trip_id: string; stop_sequence: number; shape_dist_traveled?: number }[],
+): StopDistRow[] {
+  const ids = new Set(trips.filter((t) => t.shape_id === shapeId).map((t) => t.trip_id));
+  if (ids.size === 0) return [];
+  const out: StopDistRow[] = [];
+  for (const st of stopTimes) {
+    if (ids.has(st.trip_id)) out.push({ trip_id: st.trip_id, stop_sequence: st.stop_sequence, value: st.shape_dist_traveled });
+  }
+  return out;
 }
 
 /**
@@ -77,6 +103,7 @@ export function nextShapeEditSnapshot(
   prev: ShapeEditSnapshot | null,
   shapeId: string,
   points: ShapePoint[],
+  stopDists?: StopDistRow[],
 ): ShapeEditSnapshot {
   // A primed snapshot is consumed (or discarded) by the first edit that
   // starts after it, so it can never leak into a later, unrelated edit.
@@ -84,7 +111,7 @@ export function nextShapeEditSnapshot(
   primedShapeEditSnapshot = null;
   if (prev && prev.shapeId === shapeId) return prev;
   if (primed && primed.shapeId === shapeId) return primed;
-  return { shapeId, points: JSON.parse(JSON.stringify(points)) as ShapePoint[] };
+  return { shapeId, points: JSON.parse(JSON.stringify(points)) as ShapePoint[], stopDists };
 }
 
 /**
@@ -103,8 +130,8 @@ export function shapeMatchesCoords(points: ShapePoint[], coords: number[][]): bo
   return true;
 }
 
-export function primeShapeEditSnapshot(shapeId: string, points: ShapePoint[]): void {
-  primedShapeEditSnapshot = { shapeId, points: JSON.parse(JSON.stringify(points)) as ShapePoint[] };
+export function primeShapeEditSnapshot(shapeId: string, points: ShapePoint[], stopDists?: StopDistRow[]): void {
+  primedShapeEditSnapshot = { shapeId, points: JSON.parse(JSON.stringify(points)) as ShapePoint[], stopDists };
 }
 
 /** True when a key event comes from a text field (the PlaceStopDialog name box,

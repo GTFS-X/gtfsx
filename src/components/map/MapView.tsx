@@ -41,6 +41,13 @@ import { suggestStopName } from '../../services/suggestStopName';
 import { createDrawnShape } from '../../services/routeShapes';
 import { resolveStopPlacement } from '../../services/stopPlacement';
 import { trimShapeAtPoint } from '../../services/shapeHelpers';
+import { commitShapeGeometry, useShapeDistNotice } from '../../services/shapeEdit';
+import { routeThroughStops } from '../../services/routeGeometry';
+import { historyTransaction } from '../../store/history';
+import {
+  SHAPE_EDIT_EVENT, SHAPE_EDIT_MODE, shapeEditController, type ShapeEditEvent,
+} from './shapeEditMode';
+import { isContiguous, spliceSegment, type LngLat } from './shapeRangeEdit';
 import {
   STOP_CIRCLES_LAYER_ID,
   STOP_CLUSTERS_LAYER_ID,
@@ -48,6 +55,7 @@ import {
   isStopPointLayer,
 } from './stopLayerIds';
 import {
+  captureStopDists,
   expandStopCluster,
   isTextEntryTarget,
   nextShapeEditSnapshot,
@@ -119,10 +127,14 @@ export function MapView() {
   // button. Captured at click time so a per-shape variant on the same route
   // is reachable without having to disambiguate after the fact.
   const [popupShapeId, setPopupShapeId] = useState<string | null>(null);
-  // Whether mapbox-gl-draw currently has at least one vertex (mid-point or
-  // existing) selected. Gates the on-map "Delete Selected Vertex" button so
-  // it doesn't sit there unreachable when nothing is selected.
-  const [editVertexSelected, setEditVertexSelected] = useState(false);
+  // Shape editor selection / redraw state, reported by the draw mode
+  // (shapeEditMode.ts fires SHAPE_EDIT_EVENT on the map).
+  const [shapeSel, setShapeSel] = useState<ShapeEditEvent | null>(null);
+  const [redrawBusy, setRedrawBusy] = useState(false);
+  // Short-lived message on the shape-edit toolbar (refused delete, snap failure,
+  // stop distances cleared).
+  const [shapeEditMsg, setShapeEditMsg] = useState<{ text: string; nonce: number } | null>(null);
+  const distNotice = useShapeDistNotice((s) => s.notice);
   const [popupLngLat, setPopupLngLat] = useState<{ lng: number; lat: number } | null>(null);
   const [popupDirectionId, setPopupDirectionId] = useState<0 | 1>(0);
   const [popupFlexZoneId, setPopupFlexZoneId] = useState<string | null>(null);
@@ -346,6 +358,13 @@ export function MapView() {
           return;
         }
         if (currentMode === 'edit_shape') {
+          // Esc first backs out of a Redraw-segment in progress.
+          if (shapeEditController.redraw) {
+            shapeEditController.redraw = null;
+            shapeEditController.requestRender?.();
+            setShapeSel((prev) => (prev ? { ...prev, redrawWaypoints: null } : prev));
+            return;
+          }
           setShowDiscardConfirm(true);
           return;
         }
@@ -481,15 +500,8 @@ export function MapView() {
           feature.geometry.type === 'LineString' &&
           !(stored && shapeMatchesCoords(stored.points, feature.geometry.coordinates))
         ) {
-          const coords = feature.geometry.coordinates;
-          const points = coords.map((c: number[], i: number) => ({
-            shape_pt_lat: c[1],
-            shape_pt_lon: c[0],
-            shape_pt_sequence: i,
-            shape_dist_traveled: 0,
-          }));
-          useStore.getState().updateShapePoints(currentEditingId, points);
-          useStore.getState().recalcShapeDistances(currentEditingId);
+          const coords = feature.geometry.coordinates as number[][];
+          commitShapeGeometry(currentEditingId, coords.map((c) => ({ shape_pt_lat: c[1], shape_pt_lon: c[0] })));
         }
       }
       drawRef.current.deleteAll();
@@ -504,9 +516,19 @@ export function MapView() {
     const currentEditingId = useStore.getState().editingShapeId;
     const snapshot = originalShapePointsRef.current;
     if (currentEditingId && snapshot && snapshot.shapeId === currentEditingId) {
-      useStore.getState().updateShapePoints(currentEditingId, snapshot.points);
-      useStore.getState().recalcShapeDistances(currentEditingId);
+      // Put back the pre-edit points WITH their original distances, and the
+      // trips' original stop distances, exactly — re-projecting could differ
+      // from the values the feed came with. One undo step.
+      historyTransaction('discard shape edit', () => {
+        useStore.getState().updateShapePoints(currentEditingId, snapshot.points);
+        if (snapshot.stopDists) {
+          useStore.getState().restoreShapeDistances({ shapes: [], stopTimes: snapshot.stopDists });
+        } else {
+          useStore.getState().recalcShapeDistances(currentEditingId);
+        }
+      });
     }
+    shapeEditController.redraw = null;
     if (drawRef.current) drawRef.current.deleteAll();
     editDrawFeatureIdRef.current = null;
     originalShapePointsRef.current = null;
@@ -679,6 +701,32 @@ export function MapView() {
     };
   }, [saveShapeEdit, discardShapeEdit, saveFlexZoneEdit, discardFlexZoneEdit]);
 
+  // (Re)load a shape into the draw buffer and enter the shape editor mode.
+  // Used on entering edit mode and after a Redraw-segment splice (the draw
+  // buffer doesn't follow store writes on its own).
+  const loadShapeIntoDraw = useCallback((shapeId: string) => {
+    const draw = drawRef.current;
+    if (!draw) return;
+    const shape = useStore.getState().shapes.find((s) => s.shape_id === shapeId);
+    if (!shape) return;
+    draw.deleteAll();
+    const feature: GeoJSON.Feature<GeoJSON.LineString> = {
+      type: 'Feature',
+      properties: { shape_id: shapeId },
+      geometry: {
+        type: 'LineString',
+        coordinates: [...shape.points]
+          .sort((a, b) => a.shape_pt_sequence - b.shape_pt_sequence)
+          .map((p) => [p.shape_pt_lon, p.shape_pt_lat]),
+      },
+    };
+    const ids = draw.add(feature);
+    const featureId = Array.isArray(ids) ? ids[0] : ids;
+    editDrawFeatureIdRef.current = featureId;
+    // Vertices are immediately editable (range select, Redraw segment, …).
+    draw.changeMode(SHAPE_EDIT_MODE, { featureId });
+  }, []);
+
   // Load shape / flex zone into draw when entering the relevant editing mode
   useEffect(() => {
     // Any mode other than edit_shape ends the shape edit; drop its snapshot so
@@ -695,28 +743,12 @@ export function MapView() {
 
       // Snapshot original points for discard (kept across re-runs for the
       // same shape; see nextShapeEditSnapshot).
+      const st = useStore.getState();
       originalShapePointsRef.current = nextShapeEditSnapshot(
         originalShapePointsRef.current, currentEditingId, shape.points,
+        captureStopDists(currentEditingId, st.trips, st.stopTimes),
       );
-
-      // Clear any existing draw features
-      drawRef.current.deleteAll();
-
-      // Add the shape as a LineString feature
-      const feature: GeoJSON.Feature<GeoJSON.LineString> = {
-        type: 'Feature',
-        properties: { shape_id: currentEditingId },
-        geometry: {
-          type: 'LineString',
-          coordinates: shape.points.map((p) => [p.shape_pt_lon, p.shape_pt_lat]),
-        },
-      };
-      const ids = drawRef.current.add(feature);
-      const featureId = Array.isArray(ids) ? ids[0] : ids;
-      editDrawFeatureIdRef.current = featureId;
-
-      // Switch to direct_select mode so vertices are immediately editable
-      drawRef.current.changeMode('direct_select', { featureId });
+      loadShapeIntoDraw(currentEditingId);
     } else if (currentMode === 'edit_flex_zone' && currentFlexZoneId) {
       const zone = useStore.getState().flexZones.find((z) => z.id === currentFlexZoneId);
       if (!zone || zone.geojson.features.length === 0) return;
@@ -754,33 +786,111 @@ export function MapView() {
       try { drawRef.current.changeMode('simple_select'); } catch { /* ignore */ }
       editDrawFeatureIdRef.current = null;
       originalShapePointsRef.current = null;
-      setEditVertexSelected(false);
     }
-  }, [mapMode, editingShapeId, editingFlexZoneId]);
+  }, [mapMode, editingShapeId, editingFlexZoneId, loadShapeIntoDraw]);
 
-  // Track vertex-selection state from mapbox-gl-draw so the on-map
-  // "Delete Selected Vertex" button can hide when nothing is selected.
-  // Only relevant while we're in edit_shape — listener detaches otherwise.
+  // Shape-editor selection reports from the draw mode (range, redraw).
   useEffect(() => {
     if (mapMode !== 'edit_shape') {
-      setEditVertexSelected(false);
+      setShapeSel(null);
+      shapeEditController.redraw = null;
       return;
     }
     const map = mapRef.current?.getMap();
     if (!map) return;
-    const onChange = (e: { points?: unknown[] }) => {
-      setEditVertexSelected(Array.isArray(e.points) && e.points.length > 0);
-    };
-    // mapbox-gl-draw's draw.* events aren't in the mapbox-gl event-name type,
-    // but the runtime accepts arbitrary strings — cast through unknown to
-    // satisfy the type checker without an @ts-expect-error.
     const m = map as unknown as {
-      on: (ev: string, h: (e: { points?: unknown[] }) => void) => void;
-      off: (ev: string, h: (e: { points?: unknown[] }) => void) => void;
+      on: (ev: string, h: (e: ShapeEditEvent) => void) => void;
+      off: (ev: string, h: (e: ShapeEditEvent) => void) => void;
     };
-    m.on('draw.selectionchange', onChange);
-    return () => { m.off('draw.selectionchange', onChange); };
+    const onSel = (e: ShapeEditEvent) => {
+      setShapeSel({ selected: e.selected, total: e.total, anchor: e.anchor, redrawWaypoints: e.redrawWaypoints });
+      if (e.refused) setShapeEditMsg((prev) => ({ text: e.refused!, nonce: (prev?.nonce ?? 0) + 1 }));
+    };
+    m.on(SHAPE_EDIT_EVENT, onSel);
+    return () => { m.off(SHAPE_EDIT_EVENT, onSel); };
   }, [mapMode]);
+
+  // Stop distances cleared by a geometry commit → show on the edit toolbar.
+  useEffect(() => {
+    if (distNotice) setShapeEditMsg((prev) => ({ text: distNotice.text, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, [distNotice]);
+
+  // Auto-dismiss the toolbar message.
+  useEffect(() => {
+    if (!shapeEditMsg) return;
+    const t = setTimeout(() => setShapeEditMsg(null), 7000);
+    return () => clearTimeout(t);
+  }, [shapeEditMsg]);
+
+  // Redraw segment: replace the selected run with a new path the user clicks
+  // out (start vertex → waypoints → end vertex), optionally snapped to roads
+  // with Mapbox Directions — the same routing primitive shapes-from-stops uses.
+  const beginRedrawSegment = useCallback(() => {
+    const sel = shapeSel?.selected ?? [];
+    if (sel.length < 2 || !isContiguous(sel)) return;
+    shapeEditController.redraw = { startIdx: sel[0], endIdx: sel[sel.length - 1], waypoints: [] };
+    shapeEditController.requestRender?.();
+    setShapeSel((prev) => (prev ? { ...prev, redrawWaypoints: [] } : prev));
+  }, [shapeSel]);
+
+  const cancelRedrawSegment = useCallback(() => {
+    shapeEditController.redraw = null;
+    shapeEditController.requestRender?.();
+    setShapeSel((prev) => (prev ? { ...prev, redrawWaypoints: null } : prev));
+  }, []);
+
+  const undoRedrawWaypoint = useCallback(() => {
+    const rd = shapeEditController.redraw;
+    if (!rd || rd.waypoints.length === 0) return;
+    rd.waypoints.pop();
+    shapeEditController.requestRender?.();
+    setShapeSel((prev) => (prev ? { ...prev, redrawWaypoints: [...rd.waypoints] } : prev));
+  }, []);
+
+  const applyRedrawSegment = useCallback(async (snap: boolean) => {
+    const rd = shapeEditController.redraw;
+    const shapeId = useStore.getState().editingShapeId;
+    const draw = drawRef.current;
+    if (!rd || !shapeId || !draw) return;
+    const feature = draw.getAll().features[0];
+    if (!feature || feature.geometry.type !== 'LineString') return;
+    const coords = feature.geometry.coordinates as LngLat[];
+    const start = coords[rd.startIdx];
+    const end = coords[rd.endIdx];
+    if (!start || !end) return;
+    const through: LngLat[] = [start, ...rd.waypoints, end];
+    let path: LngLat[] = through;
+    if (snap) {
+      setRedrawBusy(true);
+      try {
+        const routed = await routeThroughStops(through);
+        if (routed.status === 'failed') {
+          setShapeEditMsg((prev) => ({
+            text: "Couldn't snap that path to roads. Add a waypoint or two along the road, or use Apply straight.",
+            nonce: (prev?.nonce ?? 0) + 1,
+          }));
+          return;
+        }
+        path = routed.coords;
+      } finally {
+        setRedrawBusy(false);
+      }
+    }
+    // The user may have cancelled while the route was in flight.
+    if (shapeEditController.redraw !== rd || useStore.getState().editingShapeId !== shapeId) return;
+    const next = spliceSegment(coords, rd.startIdx, rd.endIdx, path);
+    shapeEditController.redraw = null;
+    commitShapeGeometry(
+      shapeId,
+      next.map((c) => ({ shape_pt_lat: c[1], shape_pt_lon: c[0] })),
+      'redraw segment',
+    );
+    loadShapeIntoDraw(shapeId);
+  }, [loadShapeIntoDraw]);
+
+  const deleteSelectedVertices = useCallback(() => {
+    if (drawRef.current) drawRef.current.trash();
+  }, []);
 
   // Drag-to-move stop in move_stop mode
   const draggingStopRef = useRef(false);
@@ -1044,15 +1154,11 @@ export function MapView() {
     if (currentState.mapMode === 'edit_shape' && currentState.editingShapeId) {
       const feature = e.features[0];
       if (!feature || feature.geometry.type !== 'LineString') return;
-      const coords = feature.geometry.coordinates;
-      const points = coords.map((c: number[], i: number) => ({
-        shape_pt_lat: c[1],
-        shape_pt_lon: c[0],
-        shape_pt_sequence: i,
-        shape_dist_traveled: 0,
-      }));
-      currentState.updateShapePoints(currentState.editingShapeId, points);
-      currentState.recalcShapeDistances(currentState.editingShapeId);
+      const coords = feature.geometry.coordinates as number[][];
+      commitShapeGeometry(
+        currentState.editingShapeId,
+        coords.map((c) => ({ shape_pt_lat: c[1], shape_pt_lon: c[0] })),
+      );
     }
   }, []);
 
@@ -1103,8 +1209,7 @@ export function MapView() {
       // If the helper refused (would have left fewer than 2 points), bail
       // without mutating; the user can pick a different click point.
       if (newPoints !== shape.points) {
-        currentState.updateShapePoints(shapeId, newPoints);
-        currentState.recalcShapeDistances(shapeId);
+        commitShapeGeometry(shapeId, newPoints, 'trim shape');
       }
       window.__trimShapeId = undefined;
       window.__trimShapeSide = undefined;
@@ -1395,7 +1500,7 @@ export function MapView() {
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex flex-wrap items-center justify-center gap-2 w-[min(92vw,560px)]">
           <div className="bg-coral text-white px-4 py-2 rounded-full text-[13px] font-heading font-semibold shadow-md flex items-center gap-2">
             <div className="w-2 h-2 bg-white rounded-full animate-pulse shrink-0" />
-            <span className="max-[600px]:hidden">{editingLabel ? `Editing ${editingLabel}` : 'Editing Shape'} — Drag vertices, click midpoints to add</span>
+            <span className="max-[600px]:hidden">{editingLabel ? `Editing ${editingLabel}` : 'Editing Shape'} — Drag vertices · Shift-click for a range · Alt-click to add</span>
             <span className="min-[601px]:hidden">{editingLabel ? `Editing ${editingLabel}` : 'Editing Shape'}</span>
           </div>
           <button
@@ -1413,19 +1518,85 @@ export function MapView() {
         </div>
       )}
 
-      {/* Delete Selected Vertex stays at the bottom of the map — only shows
-          when the user actually has a vertex / midpoint selected in mapbox-
-          gl-draw, so it doesn't sit there unreachable. */}
-      {mapMode === 'edit_shape' && editVertexSelected && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-10">
-          <button
-            onClick={() => { if (drawRef.current) drawRef.current.trash(); }}
-            className="px-4 py-2 bg-white text-red-600 rounded-full text-xs font-heading font-bold shadow-md hover:bg-red-50 transition-colors border border-red-200"
-          >
-            Delete Selected Vertex
-          </button>
+      {/* Shape-edit selection toolbar. Shows what's selected (a vertex, or a
+          Shift-click range with its vertex numbers so you can tell which leg
+          of an overlapping shape you picked), Delete, and Redraw segment.
+          While redrawing, it guides the waypoint clicks. */}
+      {mapMode === 'edit_shape' && (shapeSel?.selected.length || shapeSel?.redrawWaypoints || shapeEditMsg) ? (
+        <div
+          className="absolute bottom-16 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2 w-[min(94vw,640px)]"
+          data-testid="shape-edit-toolbar"
+        >
+          {shapeEditMsg && (
+            <div role="status" className="bg-dark-brown/90 text-white text-xs px-3 py-1.5 rounded-lg shadow-md text-center">
+              {shapeEditMsg.text}
+            </div>
+          )}
+          {shapeSel?.redrawWaypoints ? (
+            <div className="flex flex-wrap items-center justify-center gap-2 bg-white/95 rounded-full shadow-md border border-sand px-3 py-1.5">
+              <span className="text-xs font-heading font-semibold text-dark-brown">
+                Redraw: click the new path ({shapeSel.redrawWaypoints.length} point{shapeSel.redrawWaypoints.length === 1 ? '' : 's'})
+              </span>
+              <button
+                onClick={() => applyRedrawSegment(true)}
+                disabled={redrawBusy}
+                className="px-3 py-1 bg-teal text-white rounded-full text-xs font-heading font-bold hover:bg-teal/90 disabled:opacity-50"
+              >
+                {redrawBusy ? 'Snapping…' : 'Snap to roads'}
+              </button>
+              <button
+                onClick={() => applyRedrawSegment(false)}
+                disabled={redrawBusy}
+                className="px-3 py-1 bg-white text-dark-brown rounded-full text-xs font-heading font-bold border border-sand hover:bg-sand disabled:opacity-50"
+              >
+                Apply straight
+              </button>
+              <button
+                onClick={undoRedrawWaypoint}
+                disabled={redrawBusy || shapeSel.redrawWaypoints.length === 0}
+                className="px-3 py-1 bg-white text-warm-gray rounded-full text-xs font-heading font-bold border border-sand hover:bg-sand disabled:opacity-40"
+              >
+                Undo point
+              </button>
+              <button
+                onClick={cancelRedrawSegment}
+                disabled={redrawBusy}
+                className="px-3 py-1 bg-white text-warm-gray rounded-full text-xs font-heading font-bold border border-sand hover:bg-sand"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : shapeSel && shapeSel.selected.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-center gap-2 bg-white/95 rounded-full shadow-md border border-sand px-3 py-1.5">
+              <span className="text-xs font-heading font-semibold text-dark-brown" data-testid="shape-edit-selection">
+                {shapeSel.selected.length === 1
+                  ? `Vertex ${shapeSel.selected[0] + 1} of ${shapeSel.total}`
+                  : isContiguous(shapeSel.selected)
+                    ? `Vertices ${shapeSel.selected[0] + 1}–${shapeSel.selected[shapeSel.selected.length - 1] + 1} of ${shapeSel.total} (${shapeSel.selected.length})`
+                    : `${shapeSel.selected.length} vertices of ${shapeSel.total}`}
+              </span>
+              <button
+                onClick={deleteSelectedVertices}
+                className="px-3 py-1 bg-white text-red-600 rounded-full text-xs font-heading font-bold border border-red-200 hover:bg-red-50"
+              >
+                {shapeSel.selected.length === 1 ? 'Delete vertex' : `Delete ${shapeSel.selected.length} vertices`}
+              </button>
+              {shapeSel.selected.length >= 2 && isContiguous(shapeSel.selected) && (
+                <button
+                  onClick={beginRedrawSegment}
+                  className="px-3 py-1 bg-purple text-white rounded-full text-xs font-heading font-bold hover:opacity-90"
+                  title="Draw a replacement path for the selected segment; it can snap to roads"
+                >
+                  Redraw segment
+                </button>
+              )}
+              {shapeSel.selected.length === 1 && (
+                <span className="text-[11px] text-warm-gray">Shift-click another vertex to select a range</span>
+              )}
+            </div>
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       {/* Flex zone editing controls */}
       {mapMode === 'edit_flex_zone' && (

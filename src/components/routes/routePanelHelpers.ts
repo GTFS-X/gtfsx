@@ -5,7 +5,8 @@ import { deriveRouteShapeIds } from '../../services/routeShapes';
 import { flexOnlyRouteIds } from '../../services/flexRoutes';
 import { gtfsTimeToSeconds } from '../../utils/time';
 import { historyTransaction } from '../../store/history';
-import { primeShapeEditSnapshot } from '../map/mapInteractions';
+import { primeShapeEditSnapshot, captureStopDists } from '../map/mapInteractions';
+import { raiseShapeDistNotice } from '../../services/shapeEdit';
 import type { Calendar, Route, RouteStop, Shape, ShapePoint, Stop, StopTime, Trip } from '../../types/gtfs';
 import type { FlexZone } from '../../store/flexSlice';
 import type { RouteDetailTab } from '../../types/ui';
@@ -182,9 +183,10 @@ export function applyShapeSimplification(shapeId: string, simplified: ShapePoint
   const state = useStore.getState();
   const original = state.shapes.find((s) => s.shape_id === shapeId)?.points;
   if (!original) return;
-  primeShapeEditSnapshot(shapeId, original);
-  historyTransaction('Simplify shape', () => {
+  primeShapeEditSnapshot(shapeId, original, captureStopDists(shapeId, state.trips, state.stopTimes));
+  const report = historyTransaction('Simplify shape', () => {
     state.updateShapePoints(shapeId, simplified);
-    useStore.getState().recalcShapeDistances(shapeId);
+    return useStore.getState().recalcShapeDistances(shapeId);
   });
+  raiseShapeDistNotice(report);
 }

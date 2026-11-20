@@ -16,7 +16,7 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { resetStore, store } from '../../../test-utils/store';
-import { historyDepths, undo, COALESCE_WINDOW_MS } from '../../../store/history';
+import { historyDepths, undo, resetHistory, COALESCE_WINDOW_MS } from '../../../store/history';
 import type { Route, Shape, ShapePoint, Trip } from '../../../types/gtfs';
 
 type Feature = GeoJSON.Feature<GeoJSON.LineString>;
@@ -162,6 +162,38 @@ describe('Route › Shapes edit session undo (E1 follow-up)', () => {
     await user.click(tab().getByRole('button', { name: 'Save' }));
     expect(points()[0].shape_pt_lat).toBeCloseTo(ORIGINAL[0].shape_pt_lat - 0.001, 9);
     act(() => { undo(); });
+    expect(points()).toEqual(ORIGINAL);
+  });
+
+  it('a drag recomputes stop distances; Cancel restores the feed\'s original values exactly', async () => {
+    // Stops on the shape with the feed's own (slightly idiosyncratic) values.
+    const original = [0, 333.3, 888.8];
+    act(() => {
+      store().setStops([
+        { stop_id: 'a', stop_name: 'a', stop_lat: ORIGINAL[0].shape_pt_lat, stop_lon: ORIGINAL[0].shape_pt_lon },
+        { stop_id: 'b', stop_name: 'b', stop_lat: ORIGINAL[3].shape_pt_lat, stop_lon: ORIGINAL[3].shape_pt_lon },
+        { stop_id: 'c', stop_name: 'c', stop_lat: ORIGINAL[8].shape_pt_lat, stop_lon: ORIGINAL[8].shape_pt_lon },
+      ] as never);
+      store().setStopTimes(['a', 'b', 'c'].map((id, i) => ({
+        trip_id: 'T1', stop_id: id, stop_sequence: i + 1, arrival_time: '', departure_time: '', shape_dist_traveled: original[i],
+      })) as never);
+    });
+    resetHistory();
+    const dists = () => store().stopTimes.map((r) => r.shape_dist_traveled);
+    const user = userEvent.setup();
+    renderEditor();
+    await user.click(tab().getByRole('button', { name: 'Edit Shape' }));
+
+    // Drag the first vertex 0.002° south: every stop distance grows by ~222 m.
+    const dragged = coords(ORIGINAL).map((c, i) => (i === 0 ? [c[0], c[1] - 0.002] : c));
+    draw.features = [{ ...(draw.features[0] as Feature), geometry: { type: 'LineString', coordinates: dragged } }];
+    act(() => draw.onUpdate!({ features: draw.features }));
+    expect(dists()[2]! - dists()[1]!).toBeCloseTo(5 * (dists()[1]! - dists()[0]!) / 3, -1);
+    expect(dists()[0]!).toBeGreaterThan(200);
+    expect(historyDepths().undo).toBe(1);
+
+    await user.click(tab().getByRole('button', { name: 'Cancel' }));
+    expect(dists()).toEqual(original);
     expect(points()).toEqual(ORIGINAL);
   });
 });

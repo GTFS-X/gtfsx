@@ -3,6 +3,7 @@ import { useControl } from 'react-map-gl/mapbox';
 import MapboxDraw, { type DrawEvent } from '@mapbox/mapbox-gl-draw';
 
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
+import { ShapeEditMode, SHAPE_EDIT_MODE } from './shapeEditMode';
 
 interface DrawControlProps {
   onCreate?: (e: DrawEvent) => void;
@@ -11,13 +12,13 @@ interface DrawControlProps {
   drawRef?: import('react').MutableRefObject<MapboxDraw | null>;
 }
 
-// Custom direct_select mode that prevents dragging the entire feature.
-// The mode object is opaque (Record<string, unknown>) — we spread it and
+// Custom direct_select mode that prevents dragging the entire feature (used
+// for flex-zone polygons). The mode object is opaque — we spread it and
 // override one method, which is the pattern Draw expects.
 const DirectSelectNoDrag = {
   ...MapboxDraw.modes.direct_select,
   dragFeature() {
-    // no-op: prevent dragging the entire route/shape
+    // no-op: prevent dragging the entire zone
   },
 };
 
@@ -51,17 +52,54 @@ export function DrawControl({ onCreate, onUpdate, onDelete, drawRef }: DrawContr
         modes: {
           ...MapboxDraw.modes,
           direct_select: DirectSelectNoDrag,
+          // Shapes (LineStrings) edit in their own mode: range selection,
+          // select-priority hit testing, Redraw segment. See shapeEditMode.ts.
+          [SHAPE_EDIT_MODE]: ShapeEditMode as unknown as typeof MapboxDraw.modes.direct_select,
         },
         styles: [
           // Line being drawn/edited
           {
             id: 'gl-draw-line',
             type: 'line',
-            filter: ['all', ['==', '$type', 'LineString'], ['!=', 'mode', 'static']],
+            filter: ['all', ['==', '$type', 'LineString'], ['!=', 'mode', 'static'], ['!in', 'meta', 'range', 'redraw_preview']],
             paint: {
               'line-color': '#E8734A',
               'line-width': 4,
               'line-dasharray': [2, 1],
+            },
+          },
+          // Selected range of a shape (Shift-click range selection)
+          {
+            id: 'gl-draw-range',
+            type: 'line',
+            filter: ['all', ['==', '$type', 'LineString'], ['==', 'meta', 'range']],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+              'line-color': '#1F8A8A',
+              'line-width': 9,
+              'line-opacity': 0.55,
+            },
+          },
+          // Redraw-segment preview: start vertex → waypoints → end vertex
+          {
+            id: 'gl-draw-redraw-preview',
+            type: 'line',
+            filter: ['all', ['==', '$type', 'LineString'], ['==', 'meta', 'redraw_preview']],
+            paint: {
+              'line-color': '#7B68EE',
+              'line-width': 3,
+              'line-dasharray': [1, 1],
+            },
+          },
+          {
+            id: 'gl-draw-redraw-waypoint',
+            type: 'circle',
+            filter: ['all', ['==', '$type', 'Point'], ['==', 'meta', 'redraw_waypoint']],
+            paint: {
+              'circle-radius': 6,
+              'circle-color': '#7B68EE',
+              'circle-stroke-color': '#FFFFFF',
+              'circle-stroke-width': 2,
             },
           },
           // Active (selected) vertices — larger with highlight ring

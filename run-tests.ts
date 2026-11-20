@@ -35,6 +35,8 @@ import { pointInPolygon } from './src/utils/geometry';
 import { stopsInsidePolygon } from './src/components/fares/fareZoneHelpers';
 import { computeShapePatterns } from './src/components/ui/shapePatterns';
 import { createDrawnShape, deriveRouteShapeIds } from './src/services/routeShapes';
+import { commitShapeGeometry } from './src/services/shapeEdit';
+import { cumulativeMeters } from './src/services/shapeDistRecompute';
 import { gtfsTimeToSeconds, secondsToGtfsTime } from './src/utils/time';
 import type { RouteStop, Stop, Trip } from './src/types/gtfs';
 
@@ -1656,6 +1658,74 @@ async function main() {
     s().renameTripId('b-outbound-on-weekends', 'b-out-we');
     assert('29d: trip rename carries its stop_times translation',
       s().translations.some((t) => t.table_name === 'stop_times' && t.record_id === 'b-out-we'));
+  }
+
+  // Shape edits keep shape_dist_traveled honest (stale-distance validator,
+  // Recompute / Clear fixes, recompute-on-edit, undo, export).
+  console.log('\nPhase 30: shape_dist_traveled recompute after shape edits');
+  {
+    resetHistory();
+    loadImportIntoStore(await importGtfsZip((await buildFixtureZip()) as unknown as File));
+    const shapeId = 'a-downtown-all-day-s0';
+    const tripsOn = s().trips.filter((t) => t.shape_id === shapeId).map((t) => t.trip_id);
+    assert('30a: fixture has trips on the shape', tripsOn.length > 0, String(tripsOn.length));
+    const stopDists = () => s().stopTimes.filter((r) => tripsOn.includes(r.trip_id))
+      .sort((a, b) => a.trip_id.localeCompare(b.trip_id) || a.stop_sequence - b.stop_sequence)
+      .map((r) => r.shape_dist_traveled);
+    const fill = s().recalcShapeDistances(shapeId, { fillMissing: true });
+    const filled = stopDists();
+    assert('30a: fillMissing publishes stop distances for the shape\'s trips',
+      !!fill && fill.tripsRecomputed === tripsOn.length && filled.every((v) => typeof v === 'number'),
+      JSON.stringify(fill && { r: fill.tripsRecomputed, c: fill.tripsCleared }));
+    const staleMsgs = () => runValidation(s()).filter((m) => m.fix?.id === 'recompute-shape-distances');
+    assert('30a: fresh distances raise no stale-distance warning', staleMsgs().length === 0,
+      JSON.stringify(staleMsgs().map((m) => m.message)));
+
+    // The old bug: extend the shape at its start and refresh only the shape's
+    // own column — stop distances now point ~1 km back along the line.
+    const shape = s().shapes.find((x) => x.shape_id === shapeId)!;
+    const first = shape.points[0];
+    const ext = [0.004, 0.003, 0.002, 0.001].map((d, i) => ({
+      shape_pt_lat: first.shape_pt_lat + d, shape_pt_lon: first.shape_pt_lon, shape_pt_sequence: i, shape_dist_traveled: 0,
+    }));
+    const extended = [...ext, ...shape.points.map((p, i) => ({ ...p, shape_pt_sequence: i + ext.length }))];
+    const cum = cumulativeMeters(extended.map((p) => [p.shape_pt_lon, p.shape_pt_lat] as [number, number]));
+    s().updateShapePoints(shapeId, extended.map((p, i) => ({ ...p, shape_dist_traveled: cum[i] })));
+    const flagged = staleMsgs();
+    assert('30b: validator flags the stale stop distances on that shape (warning, fixable)',
+      flagged.length === 1 && flagged[0].entity_id === shapeId && flagged[0].severity === 'warning',
+      JSON.stringify(flagged.map((m) => m.message)));
+
+    const fixed = applyValidationFixBatch(flagged);
+    assert('30c: Recompute fix clears the warning', !!fixed?.changed && staleMsgs().length === 0, fixed?.label);
+    const recomputed = stopDists();
+    assert('30c: every stop moved by the extension length (~445 m)',
+      recomputed.every((v, i) => Math.abs((v as number) - (filled[i] as number) - cum[ext.length]) < 5),
+      JSON.stringify(recomputed.slice(0, 4)));
+    undo();
+    assert('30d: undo brings the stale values (and the warning) back', staleMsgs().length === 1);
+    redo();
+    assert('30d: redo re-applies the recompute', staleMsgs().length === 0);
+
+    const stCsv = await readExportedFile(await exportGtfsZip(), 'stop_times.txt');
+    const header = stCsv.split(/\r?\n/)[0].split(',');
+    assert('30e: export writes stop_times.shape_dist_traveled', header.includes('shape_dist_traveled'), header.join(','));
+
+    // Editing geometry through the editor path recomputes as part of the edit.
+    resetHistory();
+    const trimmed = s().shapes.find((x) => x.shape_id === shapeId)!.points.slice(ext.length);
+    const report = commitShapeGeometry(shapeId, trimmed);
+    assert('30f: a shape edit recomputes stop distances in the same step',
+      !!report && report.tripsRecomputed === tripsOn.length && staleMsgs().length === 0 && historyDepths().undo === 1,
+      JSON.stringify({ r: report?.tripsRecomputed, d: historyDepths() }));
+    assert('30f: back to the original distances after removing the extension',
+      stopDists().every((v, i) => Math.abs((v as number) - (filled[i] as number)) < 0.5));
+
+    // Secondary remedy: Clear.
+    s().updateShapePoints(shapeId, extended.map((p, i) => ({ ...p, shape_dist_traveled: cum[i] })));
+    const cleared = applyValidationFixBatch(staleMsgs(), 'clear-shape-distances');
+    assert('30g: Clear removes the shape\'s stop distances',
+      !!cleared?.changed && stopDists().every((v) => v === undefined) && staleMsgs().length === 0, cleared?.label);
   }
 
   // ---- SUMMARY ----
