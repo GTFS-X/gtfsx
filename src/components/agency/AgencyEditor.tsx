@@ -9,7 +9,7 @@ import { US_TIMEZONES } from '../../utils/constants';
 import { agencyReferenceCount, newAgencyDraft, timezoneOptions } from './agencyHelpers';
 import type { Agency } from '../../types/gtfs';
 import { TranslationsEditor, type TranslationTarget } from '../translations/EntityTranslations';
-import { LanguagePicker } from '../translations/LanguagePicker';
+import { FeedInfoEditor } from './FeedInfoEditor';
 import { TABLE_SPEC } from '../../services/translations';
 
 /**
@@ -35,7 +35,6 @@ export function AgencyEditor() {
   const {
     agencies, addAgency, updateAgencyAt, renameAgencyIdAt, removeAgencyAt,
     routes, fareAttributes,
-    feedInfo, updateFeedInfo,
   } = useStore();
 
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -293,71 +292,10 @@ export function AgencyEditor() {
       </button>
 
       <RailDivider />
-      <RailSubHeading>Feed Info</RailSubHeading>
-      {/* feed_publisher is fixed to GTFS·X on every export and publish (see
-          gtfsExport buildFeedInfoRow). The prior/imported publisher is shown
-          here read-only for reference but is never written to the exported
-          feed_info.txt. */}
-      <FormField
-        label="Prior publisher"
-        value={feedInfo?.feed_publisher_name || ''}
-        onChange={() => {}}
-        disabled
-        placeholder="None — published as GTFS·X"
-      />
-      <FormField
-        label="Prior publisher URL"
-        value={feedInfo?.feed_publisher_url || ''}
-        onChange={() => {}}
-        disabled
-        placeholder="None — published as GTFS·X"
-      />
-      {/* feed_lang: the language the feed's original text is in. Shown as
-          the actual stored value (blank = unset; the exporter then falls back to
-          the agency language) so the translations rules can be read off it. */}
-      <FormField label="Feed Language" testId="field-feed-language">
-        <LanguagePicker
-          value={feedInfo?.feed_lang ?? ''}
-          onChange={(v) => updateFeedInfo({ feed_lang: v })}
-          allowMultilingual
-          placeholder={`Not set (exports as ${agency.agency_lang || 'en'})`}
-          ariaLabel="Feed language"
-          testId="feed-lang-input"
-        />
-      </FormField>
-      <FormField label="Default Language" testId="field-default-language">
-        <LanguagePicker
-          value={feedInfo?.default_lang ?? ''}
-          onChange={(v) => updateFeedInfo({ default_lang: v || undefined })}
-          placeholder="Optional (e.g. en)"
-          ariaLabel="Default language"
-          testId="default-lang-input"
-        />
-        <p className="text-[11px] text-warm-gray mt-1">
-          The language apps show when they don&rsquo;t know the rider&rsquo;s. Usually your main language.
-        </p>
-      </FormField>
-      <FormField
-        label="Feed Version"
-        value={feedInfo?.feed_version || ''}
-        onChange={(v) => updateFeedInfo({ feed_version: v })}
-        placeholder="e.g., 2026-03"
-      />
-      <TranslationsEditor
-        title="Feed info translations"
-        targets={FEED_INFO_FIELDS.map((f) => ({
-          id: `feed_info-${f.field}`,
-          label: f.label,
-          original: String((feedInfo as Record<string, unknown> | null)?.[f.field] ?? ''),
-          table: 'feed_info' as const,
-          field: f.field,
-        }))}
-      />
+      <FeedInfoEditor agencyLang={agency.agency_lang} />
     </div>
   );
 }
-
-const FEED_INFO_FIELDS = TABLE_SPEC.feed_info.translatable.filter((f) => f.common);
 
 function agencyTargets(agency: Agency): TranslationTarget[] {
   return TABLE_SPEC.agency.translatable

@@ -15,6 +15,7 @@
 import type { ValidationFixId, ValidationMessage } from '../types/ui';
 import { useStore } from '../store';
 import { omittedTranslationIndices } from './translations';
+import { serviceDateRange } from './feedInfo';
 
 /** The result of applying a fix: a human label for the undo toast, whether
  *  anything actually changed (false → caller can skip the toast), and a closure
@@ -228,7 +229,53 @@ const FIXES: Record<ValidationFixId, ValidationFix> = {
       };
     },
   },
+
+  'feed-info-dates-from-service': {
+    id: 'feed-info-dates-from-service',
+    label: 'Fix',
+    description:
+      "Sets feed_info's start and end dates to the span your service calendar covers (the "
+      + 'earliest to the latest date in calendar.txt and added calendar_dates.txt service), so '
+      + "apps stop reading the feed as expired. Nothing else changes. You can undo this.",
+    apply: () => applyServiceDatesToFeedInfo('feed-info-dates-from-service'),
+  },
 };
+
+/** Set feed_info.feed_start_date / feed_end_date from the service calendar.
+ *  Shared by the validation fix recipe and the "Set dates from service
+ *  calendar" button in Agency → Feed Info. Creates feed_info when the feed has
+ *  none. Returns a ValidationFixResult so both callers can offer undo. */
+export function applyServiceDatesToFeedInfo(
+  fixId: ValidationFixId = 'feed-info-dates-from-service',
+): ValidationFixResult {
+  const state = useStore.getState();
+  const range = serviceDateRange(state.calendars, state.calendarDates);
+  const before = state.feedInfo;
+  const prev = { start: before?.feed_start_date, end: before?.feed_end_date };
+  if (!range) {
+    return { fixId, changed: false, label: 'No service calendar dates to copy.', undo: () => {} };
+  }
+  const changed = prev.start !== range.start || prev.end !== range.end;
+  if (changed) state.updateFeedInfo({ feed_start_date: range.start, feed_end_date: range.end });
+  const pretty = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+  return {
+    fixId,
+    changed,
+    label: changed
+      ? `Set feed dates to ${pretty(range.start)} – ${pretty(range.end)} from the service calendar.`
+      : 'Feed dates already match the service calendar.',
+    undo: () => {
+      if (!changed) return;
+      if (before === null) {
+        // feed_info didn't exist before: drop only the two dates, keeping
+        // anything typed into the panel since.
+        useStore.getState().updateFeedInfo({ feed_start_date: undefined, feed_end_date: undefined });
+        return;
+      }
+      useStore.getState().updateFeedInfo({ feed_start_date: prev.start, feed_end_date: prev.end });
+    },
+  };
+}
 
 /** Look up a registered fix by id (undefined if the id isn't in the catalog —
  *  e.g. a message persisted with an id this build no longer ships). */

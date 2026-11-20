@@ -748,7 +748,12 @@ Design rationale is preserved in the decisions appendix of the archived
 Work that exists in the repo but is **not** live in production. Delete an entry
 from here when it ships, and fold it into the Production list above.
 
-(Nothing in flight beyond staging rehearsals; see below.)
+- **feed_info editor** — branch `feat/feed-info-editor` (not merged, not deployed). Frontend
+  only; no worker route, D1 or migration change. Publisher stays GTFS·X (read-only). The publish path does not rewrite feed_info: the ZIP is rendered client-side by
+  `exportGtfsZip` (`buildFeedInfoRow`), and the worker only reads `state.feedInfo` for the
+  sidecars (`feed_info.json` title/dates, `dmfr.json` title, catalog provider/contact). Those
+  reads are unchanged: the sidecar title/provider still use the stored (imported) publisher name while
+  the ZIP names GTFS·X. See REQUIREMENTS §1.8.
 
 ### Staging — PARKED (since 2026-05-16)
 

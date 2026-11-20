@@ -29,6 +29,7 @@ import {
   type FeedSlice,
 } from './src/services/stopAnalysis';
 import { useStore } from './src/store';
+import { serviceDateRange } from './src/services/feedInfo';
 import { undo, redo, resetHistory, historyDepths } from './src/store/history';
 import { getUSHolidaysForYear, getUSHolidaysInRange } from './src/utils/holidays';
 import { pointInPolygon } from './src/utils/geometry';
@@ -347,6 +348,19 @@ async function main() {
   assert('phone updated', s().agencies[0].agency_phone === '406-555-1234');
   s().updateFeedInfo({ feed_version: 'test-2026' });
   assert('feed version updated', s().feedInfo?.feed_version === 'test-2026');
+  // feed_info editor: a stale imported window (feed_end_date behind the service
+  // calendar) is flagged with a one-click fix that resets it to the calendar.
+  s().updateFeedInfo({ feed_start_date: '20181228', feed_end_date: '20190301', feed_contact_email: 'gtfs@example.org' });
+  const staleFeedMsg = runValidation(s()).find(m => m.fix?.id === 'feed-info-dates-from-service');
+  assert('feed_info: stale end date flagged with a fix', !!staleFeedMsg);
+  const svcRange = serviceDateRange(s().calendars, s().calendarDates);
+  if (staleFeedMsg) applyValidationFixBatch([staleFeedMsg]);
+  assert('feed_info: fix sets dates from the service calendar',
+    !!svcRange && s().feedInfo?.feed_start_date === svcRange.start && s().feedInfo?.feed_end_date === svcRange.end,
+    `${s().feedInfo?.feed_start_date}..${s().feedInfo?.feed_end_date} vs ${svcRange?.start}..${svcRange?.end}`);
+  assert('feed_info: warning cleared after fix',
+    !runValidation(s()).some(m => m.fix?.id === 'feed-info-dates-from-service'));
+  const feedInfoAfterEdit = { ...s().feedInfo };
 
   // ---- PHASE 4: MODIFY CALENDARS ----
   console.log('\nPhase 4: Modify Calendars');
@@ -481,6 +495,12 @@ async function main() {
   assert('round-trip agency phone', s().agencies[0]?.agency_phone === '406-555-1234');
   assert('round-trip new route', !!s().routes.find(r => r.route_id === 'test-route'));
   assert('round-trip route color', s().routes.find(r => r.route_id === blueline?.route_id)?.route_color === 'FF0000');
+  assert('round-trip feed_info edits',
+    s().feedInfo?.feed_version === 'test-2026'
+      && s().feedInfo?.feed_contact_email === 'gtfs@example.org'
+      && s().feedInfo?.feed_start_date === feedInfoAfterEdit.feed_start_date
+      && s().feedInfo?.feed_end_date === feedInfoAfterEdit.feed_end_date,
+    JSON.stringify(s().feedInfo));
 
   const postErrors = runValidation(s()).filter(m => m.severity === 'error');
   // Round-trip preserves the feed's validity profile: the same 4 c-outbound
