@@ -611,11 +611,9 @@ export function runValidation(state: AppStore): ValidationMessage[] {
   // verbatim, so a malformed date / URL / email or an inverted window ships as
   // an invalid feed (MobilityData invalid_date / invalid_url / invalid_email /
   // start_and_end_range_out_of_order, all errors). Language codes are reported
-  // by validateTranslations below. A half-filled "own publisher" is only a
-  // warning: the export falls back to GTFS·X, so nothing invalid ships.
+  // by validateTranslations below.
   for (const issue of validateFeedInfo(state.feedInfo, { includeLanguages: false })) {
-    const isPublisher = issue.field === 'feed_publisher_name' || issue.field === 'feed_publisher_url';
-    const m = msg(isPublisher ? 'warning' : 'error', `Feed info: ${issue.message}`, 'agency');
+    const m = msg('error', `Feed info: ${issue.message}`, 'agency');
     m.field = issue.field;
     messages.push(m);
   }

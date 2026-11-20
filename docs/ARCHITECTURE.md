@@ -740,8 +740,8 @@ Design rationale is preserved in the decisions appendix of the archived
   checks the 22 Spanish rows against the published svt-demo and prints a console
   snippet to paste with the svt-demo project open; then Save + Publish.
   Known gaps: stop_times translations are not remapped when a stop's sequence
-  changes; extra columns are not preserved; attributions are omitted, and so are
-  feed_publisher rows unless the feed opted in to naming its own publisher.
+  changes; extra columns are not preserved; attributions and feed_publisher rows
+  are omitted.
 
 ### Not yet deployed (in flight)
 
@@ -749,11 +749,10 @@ Work that exists in the repo but is **not** live in production. Delete an entry
 from here when it ships, and fold it into the Production list above.
 
 - **feed_info editor** — branch `feat/feed-info-editor` (not merged, not deployed). Frontend
-  only plus one shared helper (`shared/feedPublisher.ts`); no worker route, D1 or migration
-  change. The publish path does not rewrite feed_info: the ZIP is rendered client-side by
+  only; no worker route, D1 or migration change. Publisher stays GTFS·X (read-only). The publish path does not rewrite feed_info: the ZIP is rendered client-side by
   `exportGtfsZip` (`buildFeedInfoRow`), and the worker only reads `state.feedInfo` for the
   sidecars (`feed_info.json` title/dates, `dmfr.json` title, catalog provider/contact). Those
-  reads are unchanged: the sidecar title/provider still use the stored publisher name even when
+  reads are unchanged: the sidecar title/provider still use the stored (imported) publisher name while
   the ZIP names GTFS·X. See REQUIREMENTS §1.8.
 
 ### Staging — PARKED (since 2026-05-16)

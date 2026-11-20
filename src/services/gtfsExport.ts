@@ -9,7 +9,7 @@ import { allServiceIds } from './serviceIds';
 import { fillShapeDistances } from './shapeDistance';
 import { KNOWN_FIELD_SETS, MODELED_FILES } from './gtfsParse';
 import { isWritablePassthrough, passthroughBytes, withExtraColumns } from './feedPassthrough';
-import { effectiveFeedPublisher } from '../../shared/feedPublisher';
+import { GTFSX_PUBLISHER_NAME, GTFSX_PUBLISHER_URL } from './feedInfo';
 
 /** Last-resort safety net when a shape arrives at the exporter without real
  *  distances. Returns a new array; does NOT mutate the store. */
@@ -59,9 +59,10 @@ function csvRowFor(file: string): (obj: object) => Record<string, unknown> {
 
 /** Build the feed_info.txt row. Every value the user entered in Agency → Feed
  *  Info is written exactly as entered (trimmed); nothing is invented except the
- *  two spec-required slots: feed_publisher_name/url come from
- *  effectiveFeedPublisher (GTFS·X unless the publisher opted in to naming
- *  itself; see shared/feedPublisher.ts) and a blank feed_lang falls back to the
+ *  two spec-required slots: feed_publisher_name/url are always GTFS·X (the tool
+ *  that builds and publishes the feed; product decision 2026-06-22 — a feed's
+ *  prior/imported publisher stays in state.feedInfo, shown read-only in the
+ *  editor, but is never exported), and a blank feed_lang falls back to the
  *  primary agency's language. Emitting this file clears the validator's
  *  `missing_recommended_file` warning for feed_info.txt, so every export
  *  carries one, including feeds that never had feed_info. */
@@ -72,15 +73,14 @@ export function buildFeedInfoRow(
   const userInfo = state.feedInfo;
   const val = (v: string | undefined) => (typeof v === 'string' ? v.trim() : '');
 
-  const publisher = effectiveFeedPublisher(userInfo);
   const lang = val(userInfo?.feed_lang)
     || primary?.agency_lang
     || (typeof navigator !== 'undefined' ? navigator.language?.slice(0, 2) : undefined)
     || 'en';
 
   const row: Record<string, unknown> = {
-    feed_publisher_name: publisher.name,
-    feed_publisher_url: publisher.url,
+    feed_publisher_name: GTFSX_PUBLISHER_NAME,
+    feed_publisher_url: GTFSX_PUBLISHER_URL,
     feed_lang: lang,
   };
   for (const key of FEED_INFO_OPTIONAL_FIELDS) {

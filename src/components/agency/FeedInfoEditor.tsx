@@ -6,11 +6,10 @@ import { TranslationsEditor } from '../translations/EntityTranslations';
 import { LanguagePicker } from '../translations/LanguagePicker';
 import { TABLE_SPEC } from '../../services/translations';
 import {
-  gtfsDateToIso, isoToGtfsDate, isValidGtfsDate, nextFeedVersion, serviceDateRange, validateFeedInfo,
+  GTFSX_PUBLISHER_NAME, gtfsDateToIso, isoToGtfsDate, isValidGtfsDate, nextFeedVersion, serviceDateRange, validateFeedInfo,
   type FeedInfoField,
 } from '../../services/feedInfo';
 import { applyServiceDatesToFeedInfo } from '../../services/validationFixes';
-import { GTFSX_PUBLISHER_NAME, GTFSX_PUBLISHER_URL, effectiveFeedPublisher } from '../../../shared/feedPublisher';
 import type { FeedInfo } from '../../types/gtfs';
 
 const FEED_INFO_FIELDS = TABLE_SPEC.feed_info.translatable.filter((f) => f.common);
@@ -23,9 +22,9 @@ const prettyDate = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6
  * on the first edit. Edits go through the store's undo history like any other
  * feed change.
  *
- * Publisher: the export names GTFS·X unless the publisher opts in to naming
- * itself (shared/feedPublisher.ts). Without the opt-in, an imported publisher
- * is shown read-only for reference.
+ * Publisher: fixed to GTFS·X on every export and publish (product decision
+ * 2026-06-22, gtfsExport buildFeedInfoRow). The prior/imported publisher is
+ * shown read-only for reference but never written to feed_info.txt.
  */
 export function FeedInfoEditor({ agencyLang }: { agencyLang?: string }) {
   const feedInfo = useStore((s) => s.feedInfo);
@@ -36,8 +35,6 @@ export function FeedInfoEditor({ agencyLang }: { agencyLang?: string }) {
   const range = serviceDateRange(calendars, calendarDates);
   const issues = validateFeedInfo(feedInfo);
   const errorFor = (field: FeedInfoField) => issues.find((i) => i.field === field)?.message;
-  const own = feedInfo?._publisher_override === true;
-  const publisher = effectiveFeedPublisher(feedInfo);
 
   // Blank optional fields are stored as absent, not '', so they stay out of
   // the exported row and the "changed" checks.
@@ -54,46 +51,20 @@ export function FeedInfoEditor({ agencyLang }: { agencyLang?: string }) {
         feed is current.
       </p>
 
-      {/* ── Publisher ─────────────────────────────────────────────── */}
-      <label className="flex items-start gap-2 mb-2 text-xs text-dark-brown cursor-pointer">
-        <input
-          type="checkbox"
-          className="mt-0.5 accent-coral"
-          checked={own}
-          onChange={(e) => updateFeedInfo({ _publisher_override: e.target.checked || undefined })}
-          data-testid="feed-publisher-override"
-        />
-        <span>
-          Publish under my own name
-          <span className="block text-[11px] text-warm-gray leading-snug">
-            {own
-              ? (publisher.own
-                ? 'feed_info.txt names you as the publisher.'
-                : `Fill in both fields; until then the feed is published as ${GTFSX_PUBLISHER_NAME}.`)
-              : `Off: feed_info.txt names ${GTFSX_PUBLISHER_NAME} (${GTFSX_PUBLISHER_URL}) as the publisher.`}
-          </span>
-        </span>
-      </label>
+      {/* ── Publisher (read-only; always GTFS·X on export) ──────── */}
       <FormField
-        label={own ? 'Publisher Name' : 'Prior publisher'}
-        testId="field-feed-publisher-name"
+        label="Prior publisher"
         value={feedInfo?.feed_publisher_name || ''}
-        onChange={(v) => updateFeedInfo({ feed_publisher_name: v })}
-        disabled={!own}
-        required={own}
-        error={own ? errorFor('feed_publisher_name') : undefined}
-        placeholder={own ? 'e.g. Valley Transit' : `None (published as ${GTFSX_PUBLISHER_NAME})`}
+        onChange={() => {}}
+        disabled
+        placeholder={`None (published as ${GTFSX_PUBLISHER_NAME})`}
       />
       <FormField
-        label={own ? 'Publisher URL' : 'Prior publisher URL'}
-        testId="field-feed-publisher-url"
-        type="url"
+        label="Prior publisher URL"
         value={feedInfo?.feed_publisher_url || ''}
-        onChange={(v) => updateFeedInfo({ feed_publisher_url: v })}
-        disabled={!own}
-        required={own}
-        error={own ? errorFor('feed_publisher_url') : undefined}
-        placeholder={own ? 'https://' : `None (published as ${GTFSX_PUBLISHER_NAME})`}
+        onChange={() => {}}
+        disabled
+        placeholder={`None (published as ${GTFSX_PUBLISHER_NAME})`}
       />
 
       {/* ── Languages ─────────────────────────────────────────────── */}

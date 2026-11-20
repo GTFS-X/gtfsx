@@ -7,8 +7,13 @@
 import type { Calendar, CalendarDate, FeedInfo } from '../types/gtfs';
 import { isWellFormedLanguageTag, MULTILINGUAL_FEED_LANG } from './translations';
 
+/** feed_info publisher on every export and publish (gtfsExport
+ *  buildFeedInfoRow; product decision 2026-06-22). */
+export const GTFSX_PUBLISHER_NAME = 'GTFS·X';
+export const GTFSX_PUBLISHER_URL = 'https://gtfsx.com';
+
 export type FeedInfoField =
-  | 'feed_publisher_name' | 'feed_publisher_url' | 'feed_lang' | 'default_lang'
+  | 'feed_lang' | 'default_lang'
   | 'feed_start_date' | 'feed_end_date' | 'feed_version'
   | 'feed_contact_email' | 'feed_contact_url';
 
@@ -69,9 +74,9 @@ export function isValidEmail(e: string | undefined | null): boolean {
 /**
  * Spec problems with the values a user has entered. Blank optional fields are
  * fine. feed_lang is required by the spec, but the exporter fills it from the
- * agency language when blank, so blank is not an issue here; the publisher
- * pair is only checked when the publisher opts in to naming itself (otherwise
- * the export writes GTFS·X and the stored values are display-only).
+ * agency language when blank, so blank is not an issue here. The publisher
+ * pair is not checked: the export always writes GTFS·X there, and the stored
+ * (imported) values are display-only.
  *
  * `includeLanguages` = false lets the validator skip feed_lang/default_lang,
  * which the translations rules in validation.ts already report.
@@ -83,17 +88,6 @@ export function validateFeedInfo(
   const out: FeedInfoIssue[] = [];
   if (!info) return out;
   const t = (v: string | undefined) => (v ?? '').trim();
-
-  if (info._publisher_override) {
-    if (!t(info.feed_publisher_name)) {
-      out.push({ field: 'feed_publisher_name', message: 'Publisher name is required when you publish under your own name.' });
-    }
-    if (!t(info.feed_publisher_url)) {
-      out.push({ field: 'feed_publisher_url', message: 'Publisher URL is required when you publish under your own name.' });
-    } else if (!isValidFeedUrl(info.feed_publisher_url)) {
-      out.push({ field: 'feed_publisher_url', message: 'Publisher URL must be a full web address starting with http:// or https://.' });
-    }
-  }
 
   if (opts.includeLanguages !== false) {
     const fl = t(info.feed_lang);

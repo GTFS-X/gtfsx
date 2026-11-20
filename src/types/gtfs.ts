@@ -165,10 +165,6 @@ export interface FeedInfo {
   feed_version?: string;
   feed_contact_email?: string;
   feed_contact_url?: string;
-  /** UI-only (never exported as a column): the publisher opted in to naming
-   *  itself as feed_publisher_name/url instead of GTFS·X. See
-   *  shared/feedPublisher.ts. */
-  _publisher_override?: boolean;
 }
 
 export interface FareAttribute {

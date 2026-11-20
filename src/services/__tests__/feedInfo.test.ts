@@ -1,8 +1,8 @@
 // feed_info.txt editor: spec validation, the service-calendar date helper, the
 // version bump, the feed_end_date-behind-service validation rule + its one-click
-// fix, the publisher opt-in, and the import → edit → export round-trip.
+// fix, the fixed GTFS·X publisher, and the import → edit → export round-trip.
 //
-// See services/feedInfo.ts, shared/feedPublisher.ts, services/gtfsExport.ts
+// See services/feedInfo.ts, services/gtfsExport.ts
 // (buildFeedInfoRow), services/validation.ts, services/validationFixes.ts.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -17,10 +17,9 @@ import { runValidation } from '../validation';
 import { applyValidationFix, applyServiceDatesToFeedInfo, getValidationFix } from '../validationFixes';
 import {
   feedEndBehindService, gtfsDateToIso, isoToGtfsDate, isValidEmail, isValidFeedUrl, isValidGtfsDate,
-  nextFeedVersion, serviceDateRange, validateFeedInfo,
+  nextFeedVersion, serviceDateRange, validateFeedInfo, GTFSX_PUBLISHER_NAME, GTFSX_PUBLISHER_URL,
 } from '../feedInfo';
 import { analyzeTranslations } from '../translations';
-import { effectiveFeedPublisher, GTFSX_PUBLISHER_NAME, GTFSX_PUBLISHER_URL } from '../../../shared/feedPublisher';
 import type { Calendar, CalendarDate, FeedInfo } from '../../types/gtfs';
 
 const FIXTURE = path.resolve(__dirname, '../../../tests/fixtures/sample-gtfs-feed');
@@ -108,10 +107,8 @@ describe('validateFeedInfo', () => {
     expect(validateFeedInfo(bad, { includeLanguages: false })).toEqual([]);
     expect(validateFeedInfo(info({ feed_lang: 'mul' }))).toEqual([]);
   });
-  it('requires the publisher pair only when publishing under your own name', () => {
-    expect(validateFeedInfo(info())).toEqual([]);
-    const fields = validateFeedInfo(info({ _publisher_override: true, feed_publisher_url: 'agency.gov' })).map((i) => i.field);
-    expect(fields).toEqual(['feed_publisher_name', 'feed_publisher_url']);
+  it('never checks the publisher pair (always GTFS·X on export)', () => {
+    expect(validateFeedInfo(info({ feed_publisher_name: '', feed_publisher_url: 'not a url' }))).toEqual([]);
   });
 });
 
@@ -218,24 +215,13 @@ describe('validation rule + fix: feed_end_date behind the service calendar', () 
 });
 
 describe('publisher', () => {
-  it('defaults to GTFS·X; an imported publisher alone never reaches the export', () => {
-    expect(effectiveFeedPublisher(info({ feed_publisher_name: 'Old', feed_publisher_url: 'https://old.example.org' })))
-      .toEqual({ name: GTFSX_PUBLISHER_NAME, url: GTFSX_PUBLISHER_URL, own: false });
-  });
-  it('the opt-in names the publisher, but only with both fields filled', () => {
-    expect(effectiveFeedPublisher(info({ _publisher_override: true, feed_publisher_name: ' Valley ', feed_publisher_url: 'https://valley.example.gov' })))
-      .toEqual({ name: 'Valley', url: 'https://valley.example.gov', own: true });
-    expect(effectiveFeedPublisher(info({ _publisher_override: true, feed_publisher_name: 'Valley' })).own).toBe(false);
-  });
-  it('publisher translations are exportable only when the publisher names itself', () => {
+  it('publisher translations stay omitted (the export always names GTFS·X)', () => {
     const feed = {
       agencies: [], stops: [], routes: [], trips: [], stopTimes: [], pathways: [], levels: [],
       translations: [{ table_name: 'feed_info', field_name: 'feed_publisher_name', language: 'es', translation: 'Tránsito' }],
     };
     expect(analyzeTranslations({ ...feed, feedInfo: info({ feed_publisher_name: 'Valley', feed_publisher_url: 'https://v.example.gov' }) }))
       .toEqual([{ index: 0, kind: 'publisher-overwritten' }]);
-    expect(analyzeTranslations({ ...feed, feedInfo: info({ _publisher_override: true, feed_publisher_name: 'Valley', feed_publisher_url: 'https://v.example.gov' }) }))
-      .toEqual([]);
   });
 });
 
@@ -265,16 +251,15 @@ describe('round-trip: import → edit → export', () => {
       feed_version: '20261120',
       feed_contact_email: 'gtfs@valley.example.gov',
     });
-    expect(out.header).not.toMatch(/_publisher_override/);
   });
 
-  it('writes the publisher\'s own name when opted in', async () => {
+  it('an imported or edited publisher never reaches the export', async () => {
     loadImportIntoStore(await importGtfsZip(await fixtureZip()));
-    useStore.getState().updateFeedInfo({ _publisher_override: true, feed_publisher_name: 'Valley Transit', feed_publisher_url: 'https://valley.example.gov' });
+    expect(useStore.getState().feedInfo?.feed_publisher_name).toBe('Some Transit Authority');
+    useStore.getState().updateFeedInfo({ feed_publisher_name: 'Valley Transit', feed_publisher_url: 'https://valley.example.gov' });
     const out = (await exportedFeedInfo())!;
-    expect(out.row.feed_publisher_name).toBe('Valley Transit');
-    expect(out.row.feed_publisher_url).toBe('https://valley.example.gov');
-    expect(out.header).not.toMatch(/_publisher_override/);
+    expect(out.row.feed_publisher_name).toBe(GTFSX_PUBLISHER_NAME);
+    expect(out.row.feed_publisher_url).toBe(GTFSX_PUBLISHER_URL);
   });
 
   it('is stable: export → import → export gives the same feed_info.txt', async () => {
