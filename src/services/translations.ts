@@ -15,6 +15,7 @@
 import type {
   Agency, FeedInfo, Level, Pathway, Route, Stop, StopTime, Translation, Trip,
 } from '../types/gtfs';
+import { effectiveFeedPublisher } from '../../shared/feedPublisher';
 
 export type TranslationTableName =
   | 'agency' | 'stops' | 'routes' | 'trips' | 'stop_times'
@@ -410,9 +411,12 @@ export function analyzeTranslations(feed: TranslationFeed): TranslationIssue[] {
   const issues: TranslationIssue[] = [];
   const idx = new FeedIndex(feed);
   const seen = new Set<string>();
+  // When the publisher names itself, the exported feed_publisher_* ARE the
+  // stored values, so translating them is legitimate again.
+  const ownPublisher = effectiveFeedPublisher(feed.feedInfo).own;
 
   feed.translations.forEach((t, index) => {
-    const kind = firstIssue(t, idx);
+    const kind = firstIssue(t, idx, ownPublisher);
     if (kind && OMITTED_ISSUES.has(kind)) {
       issues.push({ index, kind });
       return;
@@ -428,10 +432,11 @@ export function analyzeTranslations(feed: TranslationFeed): TranslationIssue[] {
   return issues;
 }
 
-/** feed_info fields the exporter always overwrites with GTFS·X's own values. */
+/** feed_info fields the exporter overwrites with GTFS·X's own values unless the
+ *  publisher opted in to naming itself (shared/feedPublisher.ts). */
 export const PUBLISHER_FIELDS: ReadonlySet<string> = new Set(['feed_publisher_name', 'feed_publisher_url']);
 
-function firstIssue(t: Translation, idx: FeedIndex): TranslationIssueKind | null {
+function firstIssue(t: Translation, idx: FeedIndex, ownPublisher: boolean): TranslationIssueKind | null {
   if (!t.table_name || !t.field_name || !t.language || t.translation == null || t.translation === '') {
     return 'missing-required';
   }
@@ -465,7 +470,11 @@ function firstIssue(t: Translation, idx: FeedIndex): TranslationIssueKind | null
     if (!found) return 'missing-record';
   }
 
-  if (spec.table === 'feed_info' && PUBLISHER_FIELDS.has(t.field_name)) return 'publisher-overwritten';
+  if (spec.table === 'feed_info' && PUBLISHER_FIELDS.has(t.field_name)) {
+    if (!ownPublisher) return 'publisher-overwritten';
+    if (fieldValue && !idx.hasValue(spec.table, t.field_name, fieldValue)) return 'unmatched-value';
+    return null;
+  }
 
   const translatable = spec.translatable.some((f) => f.field === t.field_name);
   if (!translatable) {

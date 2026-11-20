@@ -22,6 +22,7 @@ import {
   findRouteSameNameAndDesc,
   findDuplicateRouteNames,
 } from './validationQuality';
+import { feedEndBehindService, serviceDateRange, todayGtfsDate, validateFeedInfo } from './feedInfo';
 import {
   analyzeTranslations, isWellFormedLanguageTag, languagesOverlap, OMITTED_ISSUES, MULTILINGUAL_FEED_LANG,
   type TranslationIssueKind,
@@ -606,6 +607,41 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     ));
   }
 
+  // feed_info.txt values (Agency → Feed Info). The exporter writes them
+  // verbatim, so a malformed date / URL / email or an inverted window ships as
+  // an invalid feed (MobilityData invalid_date / invalid_url / invalid_email /
+  // start_and_end_range_out_of_order, all errors). Language codes are reported
+  // by validateTranslations below. A half-filled "own publisher" is only a
+  // warning: the export falls back to GTFS·X, so nothing invalid ships.
+  for (const issue of validateFeedInfo(state.feedInfo, { includeLanguages: false })) {
+    const isPublisher = issue.field === 'feed_publisher_name' || issue.field === 'feed_publisher_url';
+    const m = msg(isPublisher ? 'warning' : 'error', `Feed info: ${issue.message}`, 'agency');
+    m.field = issue.field;
+    messages.push(m);
+  }
+
+  // feed_end_date behind the service calendar — the stale-import case (e.g. a
+  // feed_info window exported years ago over calendars since extended). Apps
+  // and validators read feed_end_date as the feed's expiry, so the feed looks
+  // expired or expiring while its service runs on. One-click fix: reset the
+  // window to the service calendar's span. When this fires, the expiry heads-up
+  // below judges the service window instead of the stale feed_end_date, so the
+  // two never double-report the same date.
+  const serviceRange = serviceDateRange(state.calendars, state.calendarDates);
+  const feedEndBehind = feedEndBehindService(state.feedInfo, serviceRange);
+  if (feedEndBehind) {
+    const todayStr = todayGtfsDate();
+    const past = feedEndBehind.feedEnd < todayStr;
+    const m = msg(
+      'warning',
+      `Feed info end date ${prettyGtfs(feedEndBehind.feedEnd)} ${past ? 'is in the past and ' : ''}is earlier than the service calendar, which runs through ${prettyGtfs(feedEndBehind.serviceEnd)}. Trip planners and validators treat feed_end_date as the feed's expiry, so they'll ${past ? 'drop this feed as expired' : 'drop this feed early'}. Set the feed dates from the service calendar.`,
+      'agency', undefined,
+    );
+    m.field = 'feed_end_date';
+    m.fix = { id: 'feed-info-dates-from-service' };
+    messages.push(m);
+  }
+
   // Feed-expiry heads-up (MobilityData feed_expiration_date7_days / _30_days).
   // Complements the per-service "expired" warning above with a PRE-expiry nudge —
   // the silent failure #50 calls out for rural feeds. Dismissible per feed.
@@ -613,8 +649,10 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     const now = new Date();
     const todayInt = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
     const expiry = checkFeedExpiry(
-      state.feedInfo?.feed_end_date,
-      state.calendars.map((c) => c.end_date).filter((d): d is string => !!d),
+      feedEndBehind ? undefined : state.feedInfo?.feed_end_date,
+      feedEndBehind && serviceRange
+        ? [serviceRange.end]
+        : state.calendars.map((c) => c.end_date).filter((d): d is string => !!d),
       todayInt,
     );
     if (expiry) {

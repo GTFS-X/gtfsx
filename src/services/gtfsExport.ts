@@ -9,6 +9,7 @@ import { allServiceIds } from './serviceIds';
 import { fillShapeDistances } from './shapeDistance';
 import { KNOWN_FIELD_SETS, MODELED_FILES } from './gtfsParse';
 import { isWritablePassthrough, passthroughBytes, withExtraColumns } from './feedPassthrough';
+import { effectiveFeedPublisher } from '../../shared/feedPublisher';
 
 /** Last-resort safety net when a shape arrives at the exporter without real
  *  distances. Returns a new array; does NOT mutate the store. */
@@ -56,41 +57,42 @@ function csvRowFor(file: string): (obj: object) => Record<string, unknown> {
   return (obj) => withExtraColumns(stripUIFields(obj), obj, known);
 }
 
-/** Build the feed_info.txt row (returns null if we don't have enough info to
- *  produce the three required fields). User-provided `state.feedInfo` always
- *  wins; the three required slots — feed_publisher_name / feed_publisher_url /
- *  feed_lang — fall back to the primary agency when unset. Optional fields
- *  only appear when the user explicitly set them. Emitting this file clears
- *  the validator's `missing_recommended_file` warning for feed_info.txt. */
-function buildFeedInfoRow(state: ReturnType<typeof useStore.getState>): Record<string, unknown> | null {
+/** Build the feed_info.txt row. Every value the user entered in Agency → Feed
+ *  Info is written exactly as entered (trimmed); nothing is invented except the
+ *  two spec-required slots: feed_publisher_name/url come from
+ *  effectiveFeedPublisher (GTFS·X unless the publisher opted in to naming
+ *  itself; see shared/feedPublisher.ts) and a blank feed_lang falls back to the
+ *  primary agency's language. Emitting this file clears the validator's
+ *  `missing_recommended_file` warning for feed_info.txt, so every export
+ *  carries one, including feeds that never had feed_info. */
+export function buildFeedInfoRow(
+  state: Pick<ReturnType<typeof useStore.getState>, 'agencies' | 'feedInfo'>,
+): Record<string, unknown> {
   const primary = state.agencies[0];
   const userInfo = state.feedInfo;
+  const val = (v: string | undefined) => (typeof v === 'string' ? v.trim() : '');
 
-  // Always attribute the publisher to GTFS·X — the tool that builds and publishes
-  // the feed. A feed's prior/imported publisher stays in state.feedInfo (shown
-  // read-only in the editor) but is never written to the exported feed_info.txt.
-  const publisher_name = 'GTFS·X';
-  const publisher_url = 'https://gtfsx.com';
-  const lang = userInfo?.feed_lang
+  const publisher = effectiveFeedPublisher(userInfo);
+  const lang = val(userInfo?.feed_lang)
     || primary?.agency_lang
     || (typeof navigator !== 'undefined' ? navigator.language?.slice(0, 2) : undefined)
     || 'en';
 
-  if (!publisher_name || !publisher_url) return null;
-
   const row: Record<string, unknown> = {
-    feed_publisher_name: publisher_name,
-    feed_publisher_url: publisher_url,
+    feed_publisher_name: publisher.name,
+    feed_publisher_url: publisher.url,
     feed_lang: lang,
   };
-  if (userInfo?.default_lang) row.default_lang = userInfo.default_lang;
-  if (userInfo?.feed_start_date) row.feed_start_date = userInfo.feed_start_date;
-  if (userInfo?.feed_end_date) row.feed_end_date = userInfo.feed_end_date;
-  if (userInfo?.feed_version) row.feed_version = userInfo.feed_version;
-  if (userInfo?.feed_contact_email) row.feed_contact_email = userInfo.feed_contact_email;
-  if (userInfo?.feed_contact_url) row.feed_contact_url = userInfo.feed_contact_url;
+  for (const key of FEED_INFO_OPTIONAL_FIELDS) {
+    const v = val(userInfo?.[key]);
+    if (v) row[key] = v;
+  }
   return row;
 }
+
+const FEED_INFO_OPTIONAL_FIELDS = [
+  'default_lang', 'feed_start_date', 'feed_end_date', 'feed_version', 'feed_contact_email', 'feed_contact_url',
+] as const;
 
 /** trips.txt row for a flex trip. safe_duration_* are trips.txt fields in the
  *  flex spec (they are NOT stop_times fields). */
@@ -551,10 +553,7 @@ export async function exportGtfsZip(): Promise<Blob> {
   // raises a `missing_recommended_file` warning when absent). When the user
   // hasn't filled out feed info explicitly, synthesize the three required
   // fields from the primary agency so every export carries a valid file.
-  const feedInfoRow = buildFeedInfoRow(state);
-  if (feedInfoRow) {
-    zip.file('feed_info.txt', toCSV([feedInfoRow]));
-  }
+  zip.file('feed_info.txt', toCSV([buildFeedInfoRow(state)]));
 
   // translations.txt — written only when there are rows to write. Rows that
   // would make the file invalid (a record that no longer exists, a malformed
