@@ -63,25 +63,6 @@
   </div>
 </header>
 
-<!-- ============================== ANNOUNCEMENT — free planning (Sep 2026) + free hosting (Oct 2026) ============================== -->
-<!-- Mirrors the in-editor FreePlanningBanner (src/components/layout/FreePlanningBanner.tsx). -->
-<section class="announce" id="free-planning" aria-labelledby="free-planning-title">
-  <div class="wrap">
-    <div class="announce-card">
-      <span class="announce-pill">News</span>
-      <div class="announce-body">
-        <h2 id="free-planning-title">Planning, publishing, and hosting are now free</h2>
-        <p>Every planning tool in GTFS·X (cost estimation, demographic coverage, Title&nbsp;VI analysis, access isochrones, and scenario comparison) is now free to use, and so are publishing and hosting your feed: a stable feed URL, rider mini-site and embeds, Mobility Database submission, Service Alerts, and snapshot history. We built GTFS·X to give transit practitioners a good tool, and that&rsquo;s our priority. This applies for the foreseeable future, but it&rsquo;s not guaranteed forever. Organizational and team management remains a paid feature.</p>
-        <div class="announce-ctas">
-          <a href="/demo" class="btn btn-primary btn-sm" data-cta="home_free_planning_demo">Try the planning tools <span class="arrow">→</span></a>
-          <a href="/pricing" class="textlink" data-cta="home_free_planning_pricing">What&rsquo;s free and what&rsquo;s paid</a>
-        </div>
-      </div>
-      <button type="button" class="announce-close" aria-label="Dismiss announcement">&times;</button>
-    </div>
-  </div>
-</section>
-
 <main>
 
 <!-- ============================== HERO — two panels: Editor (free) / Planner ============================== -->
@@ -627,21 +608,6 @@
         btn.setAttribute('aria-expanded', String(!open));
       });
     }
-  })();
-
-  // Free planning + hosting announcement: dismissible per browser. The key was
-  // bumped to v2 for the Oct 2026 hosting news so earlier dismissals show it again. Storage can be
-  // unavailable (private mode, blocked site data); then it simply shows again.
-  (function () {
-    var KEY = 'gtfsx_free_planning_banner_v2';
-    var el = document.getElementById('free-planning');
-    if (!el) return;
-    try { if (localStorage.getItem(KEY) === '1') { el.hidden = true; return; } } catch (e) {}
-    var btn = el.querySelector('.announce-close');
-    if (btn) btn.addEventListener('click', function () {
-      el.hidden = true;
-      try { localStorage.setItem(KEY, '1'); } catch (e) {}
-    });
   })();
 
   // Scroll reveal

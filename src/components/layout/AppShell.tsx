@@ -16,7 +16,6 @@ import { RouteDeleteDialog } from '../routes/RouteDeleteDialog';
 import { FrequencyConvertDialog } from '../timetable/FrequencyConvertDialog';
 import { FloatingHelp } from './FloatingHelp';
 import { ProUpgradeToast } from '../billing/ProUpgradeToast';
-import { FreePlanningBanner } from './FreePlanningBanner';
 import { HistoryToast } from './HistoryToast';
 import { undo, redo } from '../../store/history';
 import { useStore } from '../../store';
@@ -72,7 +71,6 @@ export function AppShell() {
   return (
     <div className="h-full flex flex-col">
       <TopBar />
-      <FreePlanningBanner />
       <WelcomeBanner />
       <SetPasswordNotice />
       <PartnerBanner />
