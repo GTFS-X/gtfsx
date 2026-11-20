@@ -75,7 +75,7 @@ function speedKph(distanceKm: number, laterArrivalSec: number, earlierDepartureS
 
 /** A stop's coordinate, falling back to its parent_station's like MobilityData's
  *  StopUtil.getStopOrParentLatLng. null when neither has real coordinates. */
-function makeStopLatLngResolver(stops: Stop[]): (stopId: string) => LngLat | null {
+export function makeStopLatLngResolver(stops: Stop[]): (stopId: string) => LngLat | null {
   const byId = new Map(stops.map((s) => [s.stop_id, s]));
   const resolve = (stopId: string, depth = 0): LngLat | null => {
     const s = byId.get(stopId);

@@ -8,6 +8,7 @@ import { SnapWarningDialog } from '../map/SnapWarningDialog';
 import { simplifyShapePoints, SIMPLIFY_LEVELS } from '../../services/simplifyShape';
 import { duplicateShapePoints, duplicateShapeRouteLink } from '../../services/shapeHelpers';
 import { deriveRouteShapeIds } from '../../services/routeShapes';
+import { commitShapeGeometry } from '../../services/shapeEdit';
 import { computeShapePatterns } from '../ui/shapePatterns';
 import { estimateRunSecs, routeAvgSpeedMph, shapeLengthKm } from '../../services/timetableGen';
 import { formatDistance, formatShortDistance, formatSpeed, kmToMeters } from '../../utils/units';
@@ -42,7 +43,7 @@ export function RouteShapesTab() {
     setEditingShapeId, setRouteDetailTab, setStopsPanelShapeId, setStopPlacementDirection,
     addShape, addTrip,
     removeShapeFromRoute, renameShape,
-    updateShapePoints, recalcShapeDistances,
+    recalcShapeDistances,
     hiddenShapeIds, toggleShapeVisibility,
   } = useStore(useShallow((s) => ({
     routes: s.routes, trips: s.trips, shapes: s.shapes,
@@ -53,7 +54,7 @@ export function RouteShapesTab() {
     setStopsPanelShapeId: s.setStopsPanelShapeId, setStopPlacementDirection: s.setStopPlacementDirection,
     addShape: s.addShape, addTrip: s.addTrip,
     removeShapeFromRoute: s.removeShapeFromRoute, renameShape: s.renameShape,
-    updateShapePoints: s.updateShapePoints, recalcShapeDistances: s.recalcShapeDistances,
+    recalcShapeDistances: s.recalcShapeDistances,
     hiddenShapeIds: s.hiddenShapeIds, toggleShapeVisibility: s.toggleShapeVisibility,
   })));
 
@@ -192,14 +193,7 @@ export function RouteShapesTab() {
   // Write a snapped polyline back onto a shape (re-sequenced; distances
   // recomputed). Shared by the clean-snap path and the "Snap anyway" choice.
   const applySnappedPoints = (shapeId: string, snapped: [number, number][]) => {
-    const newPoints = snapped.map((c, i) => ({
-      shape_pt_lat: c[1],
-      shape_pt_lon: c[0],
-      shape_pt_sequence: i,
-      shape_dist_traveled: 0,
-    }));
-    updateShapePoints(shapeId, newPoints);
-    recalcShapeDistances(shapeId);
+    commitShapeGeometry(shapeId, snapped.map((c) => ({ shape_pt_lat: c[1], shape_pt_lon: c[0] })), 'snap shape to roads');
   };
 
   const handleResnapShape = (shapeId: string) => {

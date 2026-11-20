@@ -8,7 +8,7 @@ import {
 } from '../../services/validationFixes';
 import { groupValidationMessages } from '../../services/validationGrouping';
 import { noShapeBucketId } from '../ui/shapePatterns';
-import type { ValidationMessage } from '../../types/ui';
+import type { ValidationFixId, ValidationMessage } from '../../types/ui';
 import { Badge } from '../ui/Badge';
 import { ShapesFromStopsDialog } from '../shapes/ShapesFromStopsDialog';
 import {
@@ -107,6 +107,15 @@ export function ValidationPanel() {
     ) state.setSidebarSection('fares');
     else if (m.entity_type === 'flex_zone') state.setSidebarSection('flex');
     else if (m.entity_type === 'translation') state.setSidebarSection('translations');
+    else if (m.entity_type === 'shape') {
+      // A shape issue opens the route that uses the shape, on its Shapes tab.
+      const trip = m.entity_id ? state.trips.find((t) => t.shape_id === m.entity_id) : undefined;
+      state.setSidebarSection('routes');
+      if (trip) {
+        state.selectRoute(trip.route_id);
+        state.setRouteDetailTab('shapes');
+      }
+    }
     else if (m.entity_type === 'route') {
       state.setSidebarSection('routes');
       if (m.entity_id) state.selectRoute(m.entity_id);
@@ -144,15 +153,15 @@ export function ValidationPanel() {
     });
   };
 
-  const applySingle = (m: ValidationMessage) => {
-    const result = applyValidationFix(m);
+  const applySingle = (m: ValidationMessage, overrideFixId?: ValidationFixId) => {
+    const result = applyValidationFix(m, overrideFixId);
     // Only surface the undo toast when the fix actually changed something
     // (re-clicking an already-fixed message is a no-op).
     if (result?.changed) setFixUndo(result);
   };
 
-  const applyBatch = (msgs: ValidationMessage[]) => {
-    const result = applyValidationFixBatch(msgs);
+  const applyBatch = (msgs: ValidationMessage[], overrideFixId?: ValidationFixId) => {
+    const result = applyValidationFixBatch(msgs, overrideFixId);
     // Always toast a batch (it reports "X of N", incl. "all already fine"), but
     // only keep an undo handle when something actually changed.
     if (result) setFixUndo(result.changed ? result : null);
@@ -210,6 +219,15 @@ export function ValidationPanel() {
             className="shrink-0 self-center mr-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-teal text-white hover:bg-teal/90 transition-colors"
           >
             {getValidationFix(m.fix.id)!.label}
+          </button>
+        )}
+        {m.fix && getValidationFix(m.fix.id)?.secondary && getValidationFix(getValidationFix(m.fix.id)!.secondary!) && (
+          <button
+            onClick={() => applySingle(m, getValidationFix(m.fix!.id)!.secondary)}
+            title={getValidationFix(getValidationFix(m.fix.id)!.secondary!)!.description}
+            className="shrink-0 self-center mr-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white border border-teal text-teal hover:bg-teal-light transition-colors"
+          >
+            {getValidationFix(getValidationFix(m.fix.id)!.secondary!)!.label}
           </button>
         )}
         {isDismissible(m) && (
@@ -405,8 +423,8 @@ export function ValidationPanel() {
           <FixRecipeRail
             group={selectedGroup}
             focused={focusedMessage}
-            onFixOne={() => focusedMessage && applySingle(focusedMessage)}
-            onFixAll={() => selectedGroup && applyBatch(selectedGroup.messages)}
+            onFixOne={(alt) => focusedMessage && applySingle(focusedMessage, alt)}
+            onFixAll={(alt) => selectedGroup && applyBatch(selectedGroup.messages, alt)}
             onWheelchairFill={applyWheelchair}
             onOpenInteractiveFix={() => setShowShapesDialog(true)}
           />
@@ -427,8 +445,10 @@ function FixRecipeRail({
 }: {
   group: ReturnType<typeof groupValidationMessages>[number] | null;
   focused: ValidationMessage | null;
-  onFixOne: () => void;
-  onFixAll: () => void;
+  /** Apply the focused message's fix (or, with `alt`, its secondary remedy). */
+  onFixOne: (alt?: ValidationFixId) => void;
+  /** Apply the group's fix to every message (or, with `alt`, the secondary). */
+  onFixAll: (alt?: ValidationFixId) => void;
   onWheelchairFill: (value: number) => void;
   /** Open the dialog for an `interactive` fix (currently just
    *  generate-shapes-from-stops — see services/validationFixes.ts). */
@@ -448,6 +468,7 @@ function FixRecipeRail({
   // level either — "Fix this one" stays disabled for them (the button itself
   // doesn't even render once `fix.interactive` is true; see below).
   const focusedFixable = !!(focusedFixDef && !focusedFixDef.interactive);
+  const secondary = fix?.secondary ? getValidationFix(fix.secondary) : undefined;
   return (
     <div className="p-3 flex flex-col gap-2.5">
       <p className="font-heading font-bold text-[13px] text-dark-brown">Fix recipe</p>
@@ -490,7 +511,7 @@ function FixRecipeRail({
         <div className="flex flex-col gap-1.5">
           {focused && (
             <button
-              onClick={onFixOne}
+              onClick={() => onFixOne()}
               disabled={!focusedFixable}
               className="px-3 py-1.5 rounded-md text-[12px] font-semibold bg-white border border-teal text-teal hover:bg-teal-light transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -499,11 +520,35 @@ function FixRecipeRail({
           )}
           {group.fixableCount > 0 && (
             <button
-              onClick={onFixAll}
+              onClick={() => onFixAll()}
               className="px-3 py-1.5 rounded-md text-[12px] font-semibold bg-teal text-white hover:bg-teal/90 transition-colors"
             >
               Fix all {group.fixableCount} of this type
             </button>
+          )}
+          {secondary && (
+            <>
+              <p className="text-[11px] text-warm-gray leading-snug mt-1">
+                Or {secondary.label.toLowerCase()}: {secondary.description}
+              </p>
+              {focused && (
+                <button
+                  onClick={() => onFixOne(secondary.id)}
+                  disabled={!focusedFixable}
+                  className="px-3 py-1.5 rounded-md text-[12px] font-semibold bg-white border border-teal text-teal hover:bg-teal-light transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {secondary.label} this one
+                </button>
+              )}
+              {group.fixableCount > 0 && (
+                <button
+                  onClick={() => onFixAll(secondary.id)}
+                  className="px-3 py-1.5 rounded-md text-[12px] font-semibold bg-white border border-teal text-teal hover:bg-teal-light transition-colors"
+                >
+                  {secondary.label} all {group.fixableCount}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}

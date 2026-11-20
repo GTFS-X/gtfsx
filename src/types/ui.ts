@@ -76,7 +76,9 @@ export type ValidationFixId =
   | 'generate-shapes-from-stops'
   | 'clear-route-desc'
   | 'remove-invalid-translations'
-  | 'feed-info-dates-from-service';
+  | 'feed-info-dates-from-service'
+  | 'recompute-shape-distances'
+  | 'clear-shape-distances';
 
 export interface ValidationMessage {
   id: string;

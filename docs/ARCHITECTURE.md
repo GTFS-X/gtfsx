@@ -754,6 +754,19 @@ from here when it ships, and fold it into the Production list above.
   sidecars (`feed_info.json` title/dates, `dmfr.json` title, catalog provider/contact). Those
   reads are unchanged: the sidecar title/provider still use the stored (imported) publisher name while
   the ZIP names GTFS·X. See REQUIREMENTS §1.8.
+- **Shape editor range tools + `shape_dist_traveled` recompute** — branch
+  `feat/shape-editor-range-and-dist`, awaiting go. Key modules:
+  `src/services/shapeDistRecompute.ts` (pure: unit detection, monotonic DP
+  projection of stops onto a shape, stale-distance finder used by the
+  validator), `src/store/shapeSlice.ts` (`recalcShapeDistances` now rewrites
+  stop_times too and returns a report + snapshot; `clearShapeDistances`,
+  `restoreShapeDistances`), `src/services/shapeEdit.ts`
+  (`commitShapeGeometry`: points + recompute as ONE `historyTransaction`; the
+  two writes no longer coalesce once stop_times are touched),
+  `src/components/map/shapeEditMode.ts` (custom mapbox-gl-draw mode
+  `shape_edit`, registered beside `direct_select`, which flex-zone polygons
+  still use; reports selection via a `gtfsx.shapeedit` map event) and
+  `shapeRangeEdit.ts` (pure hit-test / range / splice helpers).
 
 ### Staging — PARKED (since 2026-05-16)
 
