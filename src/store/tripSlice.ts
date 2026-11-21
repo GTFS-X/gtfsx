@@ -65,6 +65,11 @@ export interface TripSlice {
   setStopTime: (trip_id: string, stop_id: string, stop_sequence: number, updates: Partial<StopTime>) => void;
   setStopTimes: (stopTimes: StopTime[]) => void;
   renameTripId: (oldId: string, newId: string) => void;
+  /** Set trips.wheelchair_accessible (0 = no info, 1 = accessible, 2 = not
+   *  accessible) on the given trips, or on every trip with `'all'`. Overwrites
+   *  whatever the trips had. One store update, so one undo step. Returns how
+   *  many trips changed. */
+  setTripsWheelchairAccessible: (tripIds: readonly string[] | 'all', value: 0 | 1 | 2) => number;
   /** Copy a trip (and its stop_times) under `newTripId`, shifted by
    *  `offsetMinutes`. With `cloneFrequencies`, the source trip's frequencies.txt
    *  windows are copied to the new trip too (shifted by the same offset), so a
@@ -184,6 +189,20 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
     }
   }),
   setStopTimes: (stopTimes) => set((state) => { state.stopTimes = stopTimes; }),
+  setTripsWheelchairAccessible: (tripIds, value) => {
+    const ids = tripIds === 'all' ? null : new Set(tripIds);
+    const needsChange = (t: Trip) => (!ids || ids.has(t.trip_id)) && t.wheelchair_accessible !== value;
+    const count = get().trips.filter(needsChange).length;
+    // Skip the store update when nothing would change, so a no-op click does
+    // not leave an empty undo step.
+    if (count === 0) return 0;
+    set((state) => {
+      for (const t of state.trips) {
+        if (needsChange(t)) t.wheelchair_accessible = value;
+      }
+    });
+    return count;
+  },
   renameTripId: (oldId, newId) => set((state) => {
     const trip = state.trips.find((t) => t.trip_id === oldId);
     if (!trip) return;

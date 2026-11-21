@@ -2,7 +2,13 @@ import { useMemo } from 'react';
 import { useStore } from '../../store';
 import { useStopTimesIndex } from '../../hooks/useStopTimesIndex';
 import { buildRouteTripRows } from './routePanelHelpers';
-import { directionName } from '../../utils/constants';
+import { WHEELCHAIR_ACCESSIBLE, directionName } from '../../utils/constants';
+import { TripWheelchairBulk } from './TripWheelchairBulk';
+import { tripWheelchairValue } from './tripWheelchair';
+
+/** Short labels for the narrow per-trip picker (the header is ♿, titled
+ *  "Wheelchair accessible"). */
+const TRIP_WHEELCHAIR_SHORT: [0 | 1 | 2, string][] = [[0, 'Unknown'], [1, 'Yes'], [2, 'No']];
 
 function fmtTime(t: string | undefined): string {
   if (!t) return '—';
@@ -54,7 +60,9 @@ export function RouteTripsTab() {
           </button>
         </div>
       ) : (
-        <div className="rounded-lg border border-sand overflow-hidden mb-3">
+        <>
+        <TripWheelchairBulk routeId={route.route_id} />
+        <div className="rounded-lg border border-sand overflow-x-auto mb-3">
           <table className="w-full text-sm">
             <thead className="bg-cream text-[10px] uppercase tracking-wide text-warm-gray">
               <tr>
@@ -63,6 +71,10 @@ export function RouteTripsTab() {
                 <th className="text-left px-2.5 py-1.5 font-semibold">Start</th>
                 <th className="text-left px-2.5 py-1.5 font-semibold">End</th>
                 <th className="text-left px-2.5 py-1.5 font-semibold" title="Vehicle blocking — group consecutive trips on the same vehicle">Block</th>
+                <th className="text-left px-1 py-1.5 font-semibold" title="Can a rider using a wheelchair board the vehicle on this trip?">
+                  <span aria-hidden="true">♿</span>
+                  <span className="sr-only">Wheelchair accessible</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -93,16 +105,31 @@ export function RouteTripsTab() {
                       className="w-20 px-1.5 py-0.5 text-xs border border-transparent hover:border-sand focus:border-coral focus:bg-white rounded bg-transparent font-mono"
                     />
                   </td>
+                  <td className="px-1 py-1">
+                    <select
+                      value={tripWheelchairValue(trip)}
+                      onChange={(e) => updateTrip(trip.trip_id, { wheelchair_accessible: Number(e.target.value) })}
+                      aria-label={`Wheelchair access for trip ${trip.trip_id}`}
+                      title={`Wheelchair accessible: ${WHEELCHAIR_ACCESSIBLE[tripWheelchairValue(trip)]}`}
+                      className="w-[64px] px-0.5 py-0.5 text-xs border border-transparent hover:border-sand focus:border-coral focus:bg-white rounded bg-transparent"
+                    >
+                      {TRIP_WHEELCHAIR_SHORT.map(([v, label]) => (
+                        <option key={v} value={v}>{label}</option>
+                      ))}
+                    </select>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
           {tripsWithMeta.length > 50 && (
             <div className="px-2.5 py-1.5 text-[11px] text-warm-gray bg-cream border-t border-sand">
-              Showing 50 of {tripsWithMeta.length} trips. Open the timetable to edit.
+              Showing 50 of {tripsWithMeta.length} trips. Open the timetable to edit. Wheelchair access
+              above applies to all of them.
             </div>
           )}
         </div>
+        </>
       )}
       <button
         onClick={handleEditTimetable}

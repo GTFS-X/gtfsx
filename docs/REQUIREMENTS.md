@@ -113,6 +113,7 @@ Stops are placed in the context of the currently-selected route. Default behavio
 - ✅ Per-route timetable grid (rows = trips, columns = stops, cells = times).
 - ✅ "Edit Stops" shortcut in the timetable toolbar opens the route's Stops editor; clicking a stop on the map opens its properties panel directly. The route's **Stops tab** has the reverse jump — an "Open timetable editor" button (mirror of the Trips tab's button).
 - ✅ Trip metadata: headsign, direction, service pattern, block_id, wheelchair_accessible. Direction is set from the pattern (shape) a trip is created on and flipped route-wide with **Swap directions** (see §1.2).
+- ✅ **Trip wheelchair access** (`trips.wheelchair_accessible`, 2026-11) — route **Trips tab**: a per-trip picker (♿ column: Unknown / Yes / No) and a **Wheelchair access** bulk set for every trip on the route or the whole feed ("all buses accessible"), one undo step (`setTripsWheelchairAccessible`). Before this the field round-tripped from imports but had no editor, so editor-built feeds exported every trip as unknown.
 - ✅ Auto-interpolate intermediate stop times from distance + speed.
 - ✅ Estimate stop times from the drawn route's road-network travel time (Mapbox Map Matching, `◷` per trip): per-stop travel along the matched path + a configurable per-stop dwell (default 18 s) and bus-vs-car speed factor (default 1.3). Fill one trip, then ⇶ to all.
 - ✅ Apply a trip's stop sequence + relative timing to every other trip on the route/direction (`⇶`), each keeping its own start time.
@@ -137,6 +138,7 @@ Fare information is **strongly encouraged**. Empty-fare feeds are flagged promin
 
 - ✅ Fare attributes (price, currency, payment method, transfer policy, transfer duration).
 - ✅ Fare rules — flat-route fares, zone-to-zone matrices.
+- ✅ **Flex zone fares keep their "All routes" scope** (2026-11). A zone's fare exports as a `fare_rules` row on the zone's route, and any `route_id` row limits a fare to the listed routes, so an "All routes" fare used to shrink to the zone on export. `buildFareRuleRows` now also lists every fixed route for a zone fare with no rules of its own (other zones' flex-only routes excluded); import folds a zone fare whose rows list exactly every fixed route back into "All routes". A fare the user restricted keeps exactly its routes plus the zone row. The Route Rules tab says when a fare is also a zone's fare.
 - ✅ Multiple fare types (regular, reduced, etc., via additional `fare_id`s).
 - ✅ Empty-fare warning banner + export-time validation warning.
 - 🟡 Zone editor — basic zone assignment per stop is supported; no map-drawing zone editor yet.
