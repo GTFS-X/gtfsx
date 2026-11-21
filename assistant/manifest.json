@@ -306,7 +306,7 @@
       "id": "validation-fixes",
       "name": "One-click validation fixes",
       "category": "fix",
-      "purpose": "Auto-fix common validation issues: fill blank first/last-stop times, bulk-fill missing wheelchair_boarding, remove orphan/ghost trips, delete unused stops, clear a route_desc that only repeats the name.",
+      "purpose": "Auto-fix common validation issues: fill blank first/last-stop times, bulk-fill missing wheelchair_boarding, remove orphan/ghost trips, delete unused stops, clear a route_desc that only repeats the name, recompute stop distances (shape_dist_traveled) that are blank or no longer match the shape.",
       "whenToUse": "A validation message shows a 'Fix' button — clearing a class of errors quickly.",
       "clickPath": "Bottom panel → Validation tab → 'Fix' on a message (or 'Fix all N of this type').",
       "deepLink": { "bottomTab": "validation" },
@@ -349,6 +349,30 @@
       "plan": "all",
       "docs": ["/docs/routes-and-shapes/"],
       "limitations": ""
+    },
+    {
+      "id": "recompute-distances",
+      "name": "Recompute stop distances",
+      "category": "tool",
+      "purpose": "Re-measure shape_dist_traveled (how far along the shape each stop is) for every trip on a route's shapes, without editing the shapes. Fills blank distances and fixes ones that no longer match the line, in the unit the feed already uses.",
+      "whenToUse": "After moving, swapping or adding stops, when some stop distances went blank or the validator says stop distances don't match the shape.",
+      "clickPath": "Left rail → Routes → open a route → Shapes tab → 'Recompute distances'. The Validation tab's 'Recompute' fix does the same for one shape.",
+      "deepLink": { "sidebarSection": "routes" },
+      "plan": "all",
+      "docs": ["/docs/routes-and-shapes/"],
+      "limitations": "Shape geometry never changes. Trips whose stops are too far from the shape to place have their distances removed. Feeds that don't publish stop distances aren't given any. One Undo reverses it."
+    },
+    {
+      "id": "trip-wheelchair-access",
+      "name": "Trip wheelchair access",
+      "category": "tool",
+      "purpose": "Set trips.wheelchair_accessible (can a rider using a wheelchair board the vehicle) per trip, or for every trip on a route or in the whole feed at once.",
+      "whenToUse": "Marking a fleet as accessible ('all buses have ramps'), or marking trips run with a vehicle that isn't accessible.",
+      "clickPath": "Left rail → Routes → open a route → Trips tab. Use the 'Wheelchair access' box (This route / Whole feed, then Accessible / Not Accessible / Unknown) or the ♿ column for one trip.",
+      "deepLink": { "sidebarSection": "routes" },
+      "plan": "all",
+      "docs": ["/docs/timetables-and-trips/"],
+      "limitations": "The per-trip column lists a route's first 50 trips; the bulk set covers all of them. Stop accessibility (wheelchair_boarding) is set on stops instead."
     },
     {
       "id": "generate-trips",
