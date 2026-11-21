@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
 import Papa from 'papaparse';
 import { useStore } from '../../store';
-import { exportGtfsZip } from '../gtfsExport';
+import { buildFareRuleRows, exportGtfsZip } from '../gtfsExport';
 import { importGtfsZip } from '../gtfsParse';
 
 type Row = Record<string, string>;
@@ -103,5 +103,87 @@ describe('flex zone fare round-trip', () => {
     expect(fareRules).toHaveLength(1);
     expect(fareRules[0].fare_id).toBe('flexfare');
     expect(routeIds.has(fareRules[0].route_id)).toBe(true);
+  });
+});
+
+// A fare the Fares panel shows as "All routes" (no rules of its own) that is
+// also a zone's fare: the zone's route_id row alone would narrow the fare to
+// that one route in GTFS, and every fixed route would lose it on export.
+describe('zone fare that applies to all routes', () => {
+  function addFixedRoutes() {
+    const s = useStore.getState();
+    s.setRoutes([
+      ...s.routes,
+      { route_id: 'R1', agency_id: 'A', route_short_name: '1', route_type: 3 } as never,
+      { route_id: 'R2', agency_id: 'A', route_short_name: '2', route_type: 3 } as never,
+    ]);
+  }
+
+  async function fareRoutes(bytes: Uint8Array, fareId: string): Promise<string[]> {
+    return (await rows(bytes, 'fare_rules.txt'))
+      .filter((r) => r.fare_id === fareId)
+      .map((r) => r.route_id)
+      .sort();
+  }
+
+  it('exports a row for every fixed route alongside the zone row', async () => {
+    addFixedRoutes();
+    const bytes = await exportBytes();
+    expect(await fareRoutes(bytes, 'flexfare')).toEqual(['R1', 'R2', 'route-mqoatwpi-11']);
+  });
+
+  it('re-import folds the rows back into "All routes" and keeps the zone link', async () => {
+    addFixedRoutes();
+    const parsed = await importGtfsZip(await exportBytes() as unknown as File);
+    expect(parsed.flexZones[0].fareId).toBe('flexfare');
+    expect(parsed.fareRules.filter((r) => r.fare_id === 'flexfare')).toEqual([]);
+  });
+
+  it('a fare restricted by the user keeps only its routes plus the zone row', async () => {
+    addFixedRoutes();
+    useStore.getState().setFareRules([{ fare_id: 'flexfare', route_id: 'R1' }]);
+    const bytes = await exportBytes();
+    expect(await fareRoutes(bytes, 'flexfare')).toEqual(['R1', 'route-mqoatwpi-11']);
+
+    const parsed = await importGtfsZip(bytes as unknown as File);
+    expect(parsed.fareRules.filter((r) => r.fare_id === 'flexfare')).toEqual([{ fare_id: 'flexfare', route_id: 'R1' }]);
+  });
+
+  it('a feed with only the zone route still exports just the zone row', async () => {
+    const bytes = await exportBytes();
+    expect(await fareRoutes(bytes, 'flexfare')).toEqual(['route-mqoatwpi-11']);
+  });
+});
+
+describe('buildFareRuleRows', () => {
+  const zone = { routeId: 'Z' } as never;
+  const routes = [{ route_id: 'R1' }, { route_id: 'R2' }, { route_id: 'Z' }, { route_id: 'Z2' }] as never;
+
+  it('does not list another zone\'s flex-only route', () => {
+    const out = buildFareRuleRows(
+      { fareRules: [], routes, trips: [] },
+      { fareRules: [{ fare_id: 'F', route_id: 'Z' }, { fare_id: 'G', route_id: 'Z2' }], zones: [zone, { routeId: 'Z2' } as never] },
+    );
+    expect(out.filter((r) => r.fare_id === 'F').map((r) => r.route_id)).toEqual(['Z', 'R1', 'R2']);
+    expect(out.filter((r) => r.fare_id === 'G').map((r) => r.route_id)).toEqual(['Z2', 'R1', 'R2']);
+  });
+
+  it('leaves a fare with zone-pair rules scoped to them (no route expansion)', () => {
+    const out = buildFareRuleRows(
+      { fareRules: [{ fare_id: 'F', origin_id: 'a', destination_id: 'b' }], routes, trips: [] },
+      { fareRules: [{ fare_id: 'F', route_id: 'Z' }], zones: [zone] },
+    );
+    expect(out).toEqual([
+      { fare_id: 'F', origin_id: 'a', destination_id: 'b' },
+      { fare_id: 'F', route_id: 'Z' },
+    ]);
+  });
+
+  it('does not duplicate a row the user already has, or a fare shared by two zones', () => {
+    const out = buildFareRuleRows(
+      { fareRules: [{ fare_id: 'F', route_id: 'Z' }], routes, trips: [] },
+      { fareRules: [{ fare_id: 'F', route_id: 'Z' }, { fare_id: 'F', route_id: 'Z' }], zones: [zone] },
+    );
+    expect(out).toEqual([{ fare_id: 'F', route_id: 'Z' }]);
   });
 });
