@@ -23,6 +23,14 @@ export const WHEELCHAIR_BOARDING: Record<number, string> = {
   2: 'Not Accessible',
 };
 
+/** trips.wheelchair_accessible: can a rider using a wheelchair ride this trip
+ *  (the vehicle, not the stops). Blank and 0 both mean "no information". */
+export const WHEELCHAIR_ACCESSIBLE: Record<0 | 1 | 2, string> = {
+  0: 'Unknown',
+  1: 'Accessible',
+  2: 'Not Accessible',
+};
+
 export const LOCATION_TYPES: Record<number, string> = {
   0: 'Stop',
   1: 'Station',

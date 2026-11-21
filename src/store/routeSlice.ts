@@ -9,6 +9,7 @@ import type { FareSlice } from './fareSlice';
 import { cascadeStopRemoval, type StopSlice } from './stopSlice';
 import type { FlexSlice } from './flexSlice';
 import { isFlexOnlyRoute } from '../services/flexRoutes';
+import { groupStopTimesByTrip, newRowTimepoint } from './timepointDefault';
 
 // Cross-slice mutations need to see fields from neighbouring slices.
 // Casting state to this intersection is narrower than `any` and surfaces
@@ -110,16 +111,24 @@ function insertRouteStop(cs: CrossSliceState, rs: RouteStop): void {
       .filter((st) => st.stop_sequence === stamped.stop_sequence)
       .map((st) => st.trip_id),
   );
-  for (const t of cs.trips) {
-    if (!tripMatchesPattern(t, stamped) || haveAtSeq.has(t.trip_id)) continue;
+  // The new rows take the new column's timepoint on trips that use timepoints
+  // (timepointDefault.ts), so the column never exports blank cells among
+  // populated ones. Computed before any row is pushed.
+  const seeding = cs.trips.filter((t) => tripMatchesPattern(t, stamped) && !haveAtSeq.has(t.trip_id));
+  if (seeding.length === 0) return;
+  const rowsByTrip = groupStopTimesByTrip(cs.stopTimes);
+  const timepoints = seeding.map((t) => newRowTimepoint(t, stamped.stop_sequence, cs.trips, rowsByTrip));
+  seeding.forEach((t, i) => {
+    const timepoint = timepoints[i];
     cs.stopTimes.push({
       trip_id: t.trip_id,
       stop_id: stamped.stop_id,
       stop_sequence: stamped.stop_sequence,
       arrival_time: '',
       departure_time: '',
+      ...(timepoint !== undefined ? { timepoint } : {}),
     });
-  }
+  });
 }
 
 export const createRouteSlice: StateCreator<RouteSlice, [['zustand/immer', never]], [], RouteSlice> = (set, get) => ({

@@ -1223,9 +1223,27 @@ export async function importGtfsZip(file: File, onProgress?: ImportProgress): Pr
     const rule = fareRules.find((f) => f.route_id === zone.routeId && f.fare_id);
     if (rule) zone.fareId = rule.fare_id;
   }
-  const fareRulesWithoutFlex = fareRules.filter(
+  let fareRulesWithoutFlex = fareRules.filter(
     (f) => !(f.route_id && flexOnlyRouteIds.has(f.route_id)),
   );
+  // A zone fare that applies to all routes is exported with one row per fixed
+  // route (buildFareRuleRows), because a zone's own row would otherwise narrow
+  // it to the zone. When a zone fare's remaining rows are route-only and list
+  // exactly every fixed route, fold them back into "All routes" (no rules), so
+  // the editor shows the same scope it exported and new routes keep the fare.
+  const fixedRouteIds = new Set(
+    routesWithoutFlex.map((r) => r.route_id).filter((id) => !flexOnlyRouteIds.has(id)),
+  );
+  const zoneFareIds = new Set(flexZones.map((z) => z.fareId).filter(Boolean) as string[]);
+  for (const fareId of zoneFareIds) {
+    const own = fareRulesWithoutFlex.filter((f) => f.fare_id === fareId);
+    if (own.length === 0 || fixedRouteIds.size === 0) continue;
+    const routeOnly = own.every((f) => f.route_id && !f.origin_id && !f.destination_id && !f.contains_id);
+    if (!routeOnly) continue;
+    const listed = new Set(own.map((f) => f.route_id!));
+    if (listed.size !== fixedRouteIds.size || [...fixedRouteIds].some((id) => !listed.has(id))) continue;
+    fareRulesWithoutFlex = fareRulesWithoutFlex.filter((f) => f.fare_id !== fareId);
+  }
 
   // Re-point flex zones that lost their route to the kept route (if any).
   for (const zone of flexZones) {

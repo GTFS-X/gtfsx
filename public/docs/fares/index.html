@@ -83,6 +83,10 @@
         <li>Save. The fare applies to every route by default.</li>
       </ol>
 
+      <h3 id="flex-zone-fares">A fare that is also a flex zone's fare</h3>
+      <p>You can link a fare to a <a href="/docs/flex-zones-and-booking-rules/">flex zone</a> as well, for example a free fare that covers both the fixed routes and dial-a-ride. The zone's link is written as a <code>fare_rules.txt</code> row for the zone's route. In GTFS, once a fare has any route row, it only applies to the routes listed. So when a fare that shows <strong>All routes</strong> is also a zone's fare, the export lists every fixed route for it as well, and the fixed routes keep the fare. When you import that feed again, those rows turn back into <strong>All routes</strong>. The fare's <strong>Route Rules</strong> tab tells you when a fare is also used by a zone.</p>
+      <p>If you've picked specific routes for the fare, the export keeps exactly those routes plus the zone's route.</p>
+
       <h2 id="fare-types">Multiple fare types</h2>
       <p>For agencies that publish reduced fares (senior, student, disability), add additional <code>fare_attributes.txt</code> records — one per fare class. The editor uses a fare_id naming convention that prefixes the class: <code>senior-</code>, <code>student-</code>, <code>reduced-</code>, <code>free-</code>. Pick the prefix that matches the agency's published fare list.</p>
       <p>Note: GTFS v1 fares don't have first-class "rider category" records — fare class is encoded by convention in the fare_id. GTFS-Fares v2 adds <code>rider_categories.txt</code> as a first-class concept; for agencies that need explicit rider categorization in their published data, v2 is the right path (round-trips today; editor UI planned).</p>

@@ -3,7 +3,7 @@ import Papa from 'papaparse';
 import { useStore } from '../store';
 import { flexRouteNames } from '../components/flex/flexHelpers';
 import { bookingRuleIdOf, flexZoneHasGroup, type FlexZone } from '../store/flexSlice';
-import type { Route, ShapePoint, Trip } from '../types/gtfs';
+import type { FareRule, Route, ShapePoint, Trip } from '../types/gtfs';
 import { exportableTranslations, translationCsvColumns } from './translations';
 import { allServiceIds } from './serviceIds';
 import { fillShapeDistances } from './shapeDistance';
@@ -339,6 +339,64 @@ function materializeFlex(state: ReturnType<typeof useStore.getState>): FlexMater
   return out;
 }
 
+/**
+ * fare_rules.txt rows: the user's rules plus one row per flex zone fare.
+ *
+ * A zone's fare is written as a route_id row against the zone's route. In GTFS
+ * a fare that has ANY route_id row applies only to the routes listed, so a fare
+ * the Fares panel shows as "All routes" (no rules of its own) would silently
+ * shrink to the zone's route once the zone's row is added, and every fixed
+ * route would lose it. To keep what the editor shows, a zone fare with no rules
+ * of its own also gets a row for every fixed route. Import folds those rows
+ * back into "All routes" (see gtfsParse).
+ *
+ * A fare that already has rules keeps exactly those plus the zone's row: its
+ * scope was chosen by the user. Other zones' flex-only routes are not listed,
+ * since each zone carries its own fare.
+ */
+export function buildFareRuleRows(
+  state: Pick<ReturnType<typeof useStore.getState>, 'fareRules' | 'routes' | 'trips'>,
+  flex: Pick<FlexMaterialized, 'fareRules' | 'zones'>,
+): Record<string, unknown>[] {
+  const rows: Record<string, unknown>[] = state.fareRules.map(stripUIFields);
+  const seen = new Set<string>();
+  const key = (fareId: string, routeId: string) => `${fareId}\u0000${routeId}`;
+  for (const r of state.fareRules) {
+    if (isRouteOnlyRule(r)) seen.add(key(r.fare_id, r.route_id!));
+  }
+  const push = (fareId: string, routeId: string) => {
+    const k = key(fareId, routeId);
+    if (seen.has(k)) return;
+    seen.add(k);
+    rows.push({ fare_id: fareId, route_id: routeId });
+  };
+
+  const faresWithOwnRules = new Set(state.fareRules.map((r) => r.fare_id));
+  const routesWithFixedTrips = new Set(state.trips.map((t) => t.route_id));
+  const flexOnlyRouteIds = new Set(
+    flex.zones
+      .map((z) => z.routeId)
+      .filter((id): id is string => !!id && !routesWithFixedTrips.has(id)),
+  );
+  const fixedRouteIds = state.routes
+    .map((r) => r.route_id)
+    .filter((id) => !flexOnlyRouteIds.has(id));
+
+  const expanded = new Set<string>();
+  for (const zoneRule of flex.fareRules) {
+    const fareId = String(zoneRule.fare_id);
+    push(fareId, String(zoneRule.route_id));
+    if (faresWithOwnRules.has(fareId) || expanded.has(fareId)) continue;
+    expanded.add(fareId);
+    for (const routeId of fixedRouteIds) push(fareId, routeId);
+  }
+  return rows;
+}
+
+function isRouteOnlyRule(r: FareRule): boolean {
+  return !!r.route_id && !r.origin_id && !r.destination_id && !r.contains_id;
+}
+
 export async function exportGtfsZip(): Promise<Blob> {
   const state = useStore.getState();
   const zip = new JSZip();
@@ -489,7 +547,7 @@ export async function exportGtfsZip(): Promise<Blob> {
   }
 
   // fare_rules.txt (+ flex-zone fare assignments)
-  const allFareRules = [...state.fareRules.map(stripUIFields), ...flex.fareRules];
+  const allFareRules = buildFareRuleRows(state, flex);
   if (allFareRules.length > 0) {
     zip.file('fare_rules.txt', toCSV(allFareRules));
   }

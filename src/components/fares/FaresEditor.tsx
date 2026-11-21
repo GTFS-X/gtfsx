@@ -29,6 +29,7 @@ export function FaresEditor() {
     fareRules,
     routes,
     stops,
+    flexZones,
     addFareAttribute,
     updateFareAttribute,
     removeFareAttribute,
@@ -80,6 +81,11 @@ export function FaresEditor() {
     ? routeRuleIndices(fareRules, selectedFareId).map((idx) => ({ rule: fareRules[idx], idx }))
     : [];
   const hasAllRoutes = routeRulesForSelected.length === 0;
+  // Flex zones that use this fare. Each exports a route row for the fare; the
+  // exporter keeps an "All routes" fare on every route (buildFareRuleRows).
+  const zonesUsingSelected = selectedFareId
+    ? flexZones.filter((z) => z.fareId === selectedFareId)
+    : [];
 
   const handleAddRouteRule = (routeId: string) => {
     if (!selectedFareId) return;
@@ -300,6 +306,14 @@ export function FaresEditor() {
             >
               All routes
             </button>
+            {zonesUsingSelected.length > 0 && (
+              <p className="text-[11px] text-warm-gray mt-1.5">
+                Also the fare for {zonesUsingSelected.map((z) => z.name).join(', ')}.{' '}
+                {hasAllRoutes
+                  ? 'It still applies to every route. The exported feed lists each route so none of them lose it.'
+                  : 'It applies to the routes below and to that service area.'}
+              </p>
+            )}
           </div>
 
           {!hasAllRoutes && (

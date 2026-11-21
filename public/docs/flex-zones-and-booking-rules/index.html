@@ -103,7 +103,7 @@
         <li><strong>Booking.</strong> Writes a record in <code>booking_rules.txt</code>: booking type (Real-time, Same-day, Prior day), prior-notice minutes (Same-day) or day/time cutoff (Prior day), booking phone, booking URL, info URL, and the rider message. The first time you touch a booking field, the phone and info URL are seeded from your <code>agency.txt</code> record; edit or clear them as needed.</li>
         <li><strong>Additional service windows.</strong> Multiple windows per zone (morning + evening shifts). Each extra window becomes its own flex trip, and can use its own service pattern.</li>
         <li><strong>Travel-time estimation (advanced).</strong> <code>Safe duration factor</code> and <code>Safe duration offset (s)</code>, written to <code>trips.txt</code> as <code>safe_duration_factor</code> / <code>safe_duration_offset</code>. They let a trip planner pad its ETA for an on-demand leg so it doesn't suggest impossibly tight connections. Leave blank if unsure.</li>
-        <li><strong>Fare.</strong> Link to a fare defined in the Fares panel. It exports as a <code>fare_rules.txt</code> row against the zone's paired route.</li>
+        <li><strong>Fare.</strong> Link to a fare defined in the Fares panel. It exports as a <code>fare_rules.txt</code> row against the zone's paired route. If the same fare applies to <strong>All routes</strong> in the Fares panel, the export also lists every fixed route for it, so the fixed routes don't lose it (see <a href="/docs/fares/#flex-zone-fares">Fares</a>).</li>
       </ul>
       <p>Continuous pickup / drop-off is not a zone field: it is set on the route (Routes panel) or per stop_time, and applies to deviated fixed-route hybrids where riders flag the bus down along a corridor.</p>
 
