@@ -9,6 +9,7 @@ import { simplifyShapePoints, SIMPLIFY_LEVELS } from '../../services/simplifySha
 import { duplicateShapePoints, duplicateShapeRouteLink } from '../../services/shapeHelpers';
 import { deriveRouteShapeIds } from '../../services/routeShapes';
 import { commitShapeGeometry } from '../../services/shapeEdit';
+import { describeRouteDistanceRecompute, recomputeRouteDistances } from './recomputeRouteDistances';
 import { computeShapePatterns } from '../ui/shapePatterns';
 import { estimateRunSecs, routeAvgSpeedMph, shapeLengthKm } from '../../services/timetableGen';
 import { formatDistance, formatShortDistance, formatSpeed, kmToMeters } from '../../utils/units';
@@ -77,6 +78,10 @@ export function RouteShapesTab() {
   const [dupPromptShapeId, setDupPromptShapeId] = useState<string | null>(null);
   const [dupReverse, setDupReverse] = useState(false);
   const [dupCopyStops, setDupCopyStops] = useState(true);
+  // Result of the last "Recompute distances" press, shown under the button.
+  // Keyed by route so switching routes doesn't show another route's result.
+  const [recomputeResult, setRecomputeResult] = useState<{ routeId: string; text: string } | null>(null);
+  const recomputeNote = recomputeResult && recomputeResult.routeId === selectedRouteId ? recomputeResult.text : null;
 
   const editingShapeId = useStore((s) => s.editingShapeId);
   const unitSystem = useStore((s) => s.unitSystem);
@@ -614,6 +619,28 @@ export function RouteShapesTab() {
         <p className="text-xs text-warm-gray mb-3">
           No shapes drawn yet. Draw a route shape on the map.
         </p>
+      )}
+
+      {/* Recompute shape_dist_traveled for this route's shapes without editing
+          them (e.g. after stops were reordered and some distances went blank). */}
+      {routeShapes.length > 0 && (
+        <div className="mb-3">
+          <button
+            onClick={() => {
+              const ids = routeShapes.map((r) => r.shape!.shape_id);
+              const text = describeRouteDistanceRecompute(recomputeRouteDistances(ids));
+              setRecomputeResult({ routeId: route.route_id, text });
+            }}
+            disabled={mapMode === 'edit_shape'}
+            title="Measure how far along the shape each stop is, for every trip on this route's shapes. The shapes themselves don't change."
+            className="w-full px-3 py-1.5 bg-sand text-brown rounded-lg text-xs font-semibold hover:bg-coral-light hover:text-coral transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Recompute distances
+          </button>
+          <p className="text-[11px] text-warm-gray mt-1">
+            {recomputeNote ?? 'Re-measures how far along the shape each stop is. Use it after moving or reordering stops. The shapes stay as drawn.'}
+          </p>
+        </div>
       )}
 
       {/* Add-new-shape button. The per-draw direction picker was dropped

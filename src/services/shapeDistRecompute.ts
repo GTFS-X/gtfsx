@@ -497,3 +497,46 @@ export function findStaleStopDistances(
     shape_id, tripIds: [...a.trips], stopCount: a.stops.size, worstMeters: a.worst,
   }));
 }
+
+// ─── Partly-filled stop distances (validator) ────────────────────────────────
+
+export interface PartialStopDistanceFinding {
+  /** The trips' shape, or undefined for trips with no shape (no one-click fix). */
+  shape_id: string | undefined;
+  /** Trips with shape_dist_traveled on some stop_times rows and blank on others. */
+  tripIds: string[];
+  /** Blank rows across those trips. */
+  blankRows: number;
+}
+
+/**
+ * Trips whose stop_times.shape_dist_traveled is filled on some rows and blank
+ * on others, grouped by the trip's shape. Reordering or adding stops can leave
+ * rows like this (Butte's Green route: 22 rows went blank), and an app that
+ * reads the column then has no position for those stops. The recompute fills
+ * every row of a trip that already carries distances.
+ */
+export function findPartialStopDistances(
+  trips: { trip_id: string; shape_id?: string }[],
+  stopTimes: { trip_id: string; shape_dist_traveled?: number }[],
+): PartialStopDistanceFinding[] {
+  const counts = new Map<string, { filled: number; blank: number }>();
+  for (const st of stopTimes) {
+    let c = counts.get(st.trip_id);
+    if (!c) { c = { filled: 0, blank: 0 }; counts.set(st.trip_id, c); }
+    if (st.shape_dist_traveled != null && Number.isFinite(st.shape_dist_traveled)) c.filled += 1;
+    else c.blank += 1;
+  }
+  const shapeOf = new Map(trips.map((t) => [t.trip_id, t.shape_id || undefined]));
+  const byShape = new Map<string, PartialStopDistanceFinding>();
+  for (const [tripId, c] of counts) {
+    if (c.filled === 0 || c.blank === 0 || !shapeOf.has(tripId)) continue;
+    const shapeId = shapeOf.get(tripId);
+    const key = shapeId ?? '\u0000';
+    let f = byShape.get(key);
+    if (!f) { f = { shape_id: shapeId, tripIds: [], blankRows: 0 }; byShape.set(key, f); }
+    f.tripIds.push(tripId);
+    f.blankRows += c.blank;
+  }
+  return [...byShape.values()];
+}

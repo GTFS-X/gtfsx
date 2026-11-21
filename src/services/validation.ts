@@ -12,7 +12,7 @@ import { unreachableTimetableTripIds } from '../components/ui/shapePatterns';
 // which would make this file (and the whole validation graph) unloadable in the
 // tsx editor-test harness.
 import { feedNeedsShapes } from './shapesFromStopsPlan';
-import { findStaleStopDistances, STALE_STOP_DISTANCE_M } from './shapeDistRecompute';
+import { findPartialStopDistances, findStaleStopDistances, STALE_STOP_DISTANCE_M } from './shapeDistRecompute';
 import {
   findDecreasingShapeDistances,
   findDecreasingStopTimeDistances,
@@ -656,6 +656,30 @@ export function runValidation(state: AppStore): ValidationMessage[] {
     );
     m.fix = { id: 'recompute-shape-distances' };
     messages.push(m);
+  }
+
+  // Partly-filled stop distances: a trip with shape_dist_traveled on some
+  // stop_times rows and blank on others (reordered or added stops leave this
+  // behind). Apps that read the column have no position for the blank stops.
+  // One message per shape; the recompute fills every row. Trips without a
+  // usable shape get the message without a fix.
+  {
+    const shapePts = new Map(state.shapes.map((s) => [s.shape_id, s.points.length]));
+    for (const f of findPartialStopDistances(state.trips, state.stopTimes)) {
+      const trips = `${f.tripIds.length} trip${f.tripIds.length === 1 ? '' : 's'}`;
+      const rows = `${f.blankRows} stop${f.blankRows === 1 ? '' : 's'}`;
+      const fixable = !!f.shape_id && (shapePts.get(f.shape_id) ?? 0) >= 2;
+      const m = msg(
+        'warning',
+        fixable
+          ? `Shape "${f.shape_id}": ${trips} ${f.tripIds.length === 1 ? 'has' : 'have'} shape_dist_traveled on some stops but not on ${rows}, so apps that use the distances can't place those stops. Recompute the distances along the shape, or clear them.`
+          : `${trips} without a shape ${f.tripIds.length === 1 ? 'has' : 'have'} shape_dist_traveled on some stops but not on ${rows}. Give the trips a shape and recompute, or clear the distances.`,
+        fixable ? 'shape' : 'trip',
+        fixable ? f.shape_id : f.tripIds[0],
+      );
+      if (fixable) m.fix = { id: 'recompute-shape-distances' };
+      messages.push(m);
+    }
   }
 
   // Feed-expiry heads-up (MobilityData feed_expiration_date7_days / _30_days).
