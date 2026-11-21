@@ -5,6 +5,7 @@ import type { RouteSlice } from './routeSlice';
 import type { ShapeSlice } from './shapeSlice';
 import type { StopSlice } from './stopSlice';
 import { gtfsTimeToSeconds, secondsToGtfsTime } from '../utils/time';
+import { groupStopTimesByTrip, newRowTimepoint } from './timepointDefault';
 
 /** One trip-edge stop_time's prior arrival/departure, captured by the
  *  fill-trip-edge-times fix so it can be undone. Keyed by trip_id +
@@ -181,9 +182,20 @@ export const createTripSlice: StateCreator<TripSlice, [['zustand/immer', never]]
     if (idx !== -1) {
       Object.assign(state.stopTimes[idx], updates);
     } else {
+      // A new row (e.g. a time typed into a skipped cell) takes its column's
+      // timepoint when the trip uses timepoints, so it never exports blank in
+      // a populated column (see timepointDefault.ts). Read from the
+      // pre-update state, not the draft.
+      let timepoint: 0 | 1 | undefined;
+      if (updates.timepoint === undefined) {
+        const cur = get();
+        const trip = cur.trips.find((t) => t.trip_id === trip_id);
+        if (trip) timepoint = newRowTimepoint(trip, stop_sequence, cur.trips, groupStopTimesByTrip(cur.stopTimes));
+      }
       state.stopTimes.push({
         trip_id, stop_id, stop_sequence,
         arrival_time: '', departure_time: '',
+        ...(timepoint !== undefined ? { timepoint } : {}),
         ...updates,
       });
     }
